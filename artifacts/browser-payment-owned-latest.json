@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-11-04T20:21:39.124Z",
+  "mode": "authenticated Chrome CDP page fetch against live admin session",
+  "bookingId": "6aeb93d321ad66aa3cc4fdac",
+  "create": 200,
+  "paymentCreate": 201,
+  "paymentReplay": 201,
+  "reversal": 201,
+  "reversalReplay": 201,
+  "purpose": "rent",
+  "direction": "debit on reversal",
+  "cleanup": "payment IDs and booking ID deleted by exact IDs; verification returned zero matching records"
+}

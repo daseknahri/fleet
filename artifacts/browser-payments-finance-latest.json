@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-11-03T13:33:02.170Z",
+  "url": "http://localhost:3002/payments?l=ar&financeEvidence=1793712777154",
+  "lang": "ar",
+  "dir": "rtl",
+  "errorBoundary": false,
+  "languageError": false,
+  "body": "1\n\nالمالية\n\nالمدفوعات\n\nسجل وراجع المدفوعات المستلمة مقابل عقود التأجير.\n\nتسجيل دفعة\nالمدفوعات المسجلة\n0 MAD\nT\nالمعاملات\n0\nالذمم المتأخرة\n949 MAD\nالذمم المدينة\n8DD5BDF8\nAlex Morgan\nTesla Model 3\n325 MAD\n0 MAD\n3 Oct 2026\n48F7E71F\ndriver1\nBMW X1\n312 MAD\n0 MAD\n4 Mar 2024\n48F7E71E\ndriver1\nBMW X1\n312 MAD\n0 MAD\n4 Mar 2024\n​\n\nلا توجد مدفوعات مسجلة بعد.",
+  "hasArabicPurpose": false,
+  "hasArabicStatus": false,
+  "hasArabicActions": false,
+  "hasArabicReceivables": true,
+  "buttons": [
+    "1",
+    "العربية",
+    "1",
+    "تسجيل دفعة"
+  ],
+  "network": [
+    {
+      "url": "http://localhost:4002/api/validate-access-token",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/validate-access-token",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/update-language",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/update-language",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/validate-access-token",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/user/6ae1668d7fce2c9a39cd8c84",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/notification-counter/6ae1668d7fce2c9a39cd8c84",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/all-suppliers",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/bookings/1/1000/ar",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/bank-details",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/rental-payments",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/bookings/1/1000/ar",
+      "status": 200
+    }
+  ],
+  "consoleErrors": []
+}

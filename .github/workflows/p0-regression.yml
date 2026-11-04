@@ -1,0 +1,96 @@
+name: p0-regression
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  p0-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Install admin dependencies
+        working-directory: admin
+        run: npm install
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+      - name: Verify Compose configuration
+        run: docker compose config --quiet
+
+      - name: Audit production dependencies
+        run: |
+          (cd backend && npm audit --omit=dev)
+          (cd admin && npm audit --omit=dev)
+          (cd frontend && npm audit --omit=dev)
+
+      - name: Prepare local CI environment
+        run: cp backend/.env.docker.example backend/.env.docker
+
+      - name: Start isolated Mongo and Redis services
+        run: docker compose up -d mongo redis
+
+      - name: Wait for Mongo replica set
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if docker compose exec -T mongo mongosh --quiet --username admin --password admin --authenticationDatabase admin --eval "rs.status().ok" 2>/dev/null | grep -q '^1$'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs mongo
+          exit 1
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Build admin
+        working-directory: admin
+        run: npm run build
+
+      - name: Run Mongo-backed P0 regression
+        working-directory: backend
+        env:
+          BC_DB_URI: 'mongodb://admin:admin@127.0.0.1:27018/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0&directConnection=true'
+          NODE_OPTIONS: '--experimental-vm-modules'
+        run: >-
+          npx jest --config jest.config.json --runInBand --no-coverage --forceExit
+          __tests__/contractEvidence.integration.test.ts
+          __tests__/contractLifecycle.test.ts
+          __tests__/p0RouteAuthorizationFinancial.integration.test.ts
+          __tests__/maintenanceReceiptSchedule.integration.test.ts
+          __tests__/reportReconciliation.integration.test.ts
+          __tests__/securityBaseline.integration.test.ts
+          __tests__/providerCurrent.integration.test.ts
+
+      - name: Tear down isolated services
+        if: always()
+        run: docker compose down
+

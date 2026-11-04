@@ -1,0 +1,107 @@
+services:
+  mongo:
+    image: mongo:7.0.12 # Update mongo version if necessary
+    command:
+      - bash
+      - -lc
+      - openssl rand -base64 756 > /tmp/mongodb-keyfile && chown mongodb:mongodb /tmp/mongodb-keyfile && chmod 400 /tmp/mongodb-keyfile && exec /usr/local/bin/docker-entrypoint.sh mongod --quiet --replSet rs0 --bind_ip_all --keyFile /tmp/mongodb-keyfile
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    ports:
+      - 127.0.0.1:27018:27017
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username admin --password admin --authenticationDatabase admin --eval \"try { rs.status().ok } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\" | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mongo-express:
+    image: mongo-express:latest
+    restart: always
+    ports:
+      - 127.0.0.1:8084:8081
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongo:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - 127.0.0.1:6379:6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  bc-backend:
+    build: 
+      context: .
+      dockerfile: ./backend/Dockerfile
+    env_file: ./backend/.env.docker
+    restart: always
+    ports:
+      - 127.0.0.1:4002:4002
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - cdn:/var/www/cdn/bookcars
+      - backend_logs:/bookcars/backend/logs
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: always
+    ports:
+      - 127.0.0.1:8025:8025
+      - 127.0.0.1:1025:1025
+    volumes:
+      - mailpit_data:/data
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATA_FILE: /data/mailpit.db
+
+  bc-admin:
+    build: 
+      context: .
+      dockerfile: ./admin/Dockerfile
+    restart: always
+    depends_on:
+      - bc-backend
+    ports:
+      - 127.0.0.1:3002:3001
+
+  bc-frontend:
+    build: 
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    restart: always
+    depends_on:
+      - bc-backend
+    ports:
+      - 127.0.0.1:8080:80
+      - 127.0.0.1:8443:443
+    volumes:
+      - cdn:/var/www/cdn/bookcars
+
+volumes:
+  cdn:
+  mongodb_data:
+  mongodb_config:
+  backend_logs:
+  redis_data:
+  mailpit_data:

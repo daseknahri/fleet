@@ -1,0 +1,387 @@
+{
+  "generatedAt": "2026-11-03T03:29:34.134Z",
+  "routes": [
+    {
+      "url": "/",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nمساحة الوكالة\n\nيومك\n\nتوفر الأسطول والحجوزات التي تحتاج إلى متابعة.\n\nحجز جديد\n\nالمركبات المتاحة\n\n5 / 7\n\nجاهزة للحجز\n\nقيد التأجير\n\n0\n\nالحجوزات الجارية\n\nالقادمة\n\n3\n\nالحجوزات القادم",
+      "links": 0,
+      "buttons": 17,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/",
+      "errors": []
+    },
+    {
+      "url": "/dashboard",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nمساحة الوكالة\n\nيومك\n\nتوفر الأسطول والحجوزات التي تحتاج إلى متابعة.\n\nحجز جديد\n\nالمركبات المتاحة\n\n5 / 7\n\nجاهزة للحجز\n\nقيد التأجير\n\n0\n\nالحجوزات الجارية\n\nالقادمة\n\n3\n\nالحجوزات القادم",
+      "links": 0,
+      "buttons": 17,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/dashboard",
+      "errors": []
+    },
+    {
+      "url": "/bookings",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVELLE RÉSERVATION\nFournisseur\nCocher tout\nStatut\nVide\nEn cours\nAcompte\nPayée\nPayée (totalité)\nRéservée\nAnnulée\nCocher tout\nRechercher\nDébut\nMM/\nDD/\nYYYY\nFin\nMM/\nDD/\nYYYY\nLieu ",
+      "links": 14,
+      "buttons": 26,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/bookings",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/clients",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nFLEET & CUSTOMERS\n\nCustomers\n\nCustomer accounts and contact details for your agency.\n\nAdd customer\nUtilisateur\nAlex Morgan\ndriver1\nuser\nuser2\n\nRows per page:\n\n30\n\n1–4 of 4",
+      "links": 4,
+      "buttons": 20,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/clients",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/calendar",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVELLE RÉSERVATION\nFournisseur\nCocher tout\nStatut\nVide\nEn cours\nAcompte\nPayée\nPayée (totalité)\nRéservée\nAnnulée\nCocher tout\nRechercher\nLieu de prise en charge\nLieu de restituti",
+      "links": 0,
+      "buttons": 52,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/calendar",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/maintenance",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nالأسطول والعملاء\n\nالصيانة والمصروفات\n\nتتبع صيانة المركبات وإصلاحاتها ومصروفات الوكالة.\n\nإضافة مصروف\nالمصروفات المسجلة\n0 MAD\nا\nالسجلات\n0\nج\nجداول الصيانة\n0\n​\n​\n​\n\nلا توجد مصروفات ",
+      "links": 0,
+      "buttons": 8,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/maintenance",
+      "errors": []
+    },
+    {
+      "url": "/payments",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nالمالية\n\nالمدفوعات\n\nسجل وراجع المدفوعات المستلمة مقابل عقود التأجير.\n\nتسجيل دفعة\nالمدفوعات المسجلة\n0 MAD\nT\nالمعاملات\n0\n​\n\nلا توجد مدفوعات مسجلة بعد.",
+      "links": 0,
+      "buttons": 7,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/payments",
+      "errors": []
+    },
+    {
+      "url": "/caisse",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nالمالية\n\nدفتر الصندوق\n\nراجع الحركات وافتح جلسات الصندوق وأغلقها مع توثيق الفروقات.\n\nلا توجد جلسة مفتوحة\nفتح جلسة الصندوق\nالمداخيل المسجلة\n0 MAD\n−\nالمصاريف المسجلة\n0 MAD\nا\nصافي ا",
+      "links": 0,
+      "buttons": 7,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/caisse",
+      "errors": []
+    },
+    {
+      "url": "/team",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\n\nالوكالة\n\nالفريق\n\nإدارة صلاحيات ومسؤوليات موظفي هذه الوكالة.\n\nإضافة موظف\nتعذر تحميل الفريق.\nتعذر الوصول إلى الفريق. تحقق من الاتصال وحاول مرة أخرى.\nاختر وكالة\n​\nاختر وكالة\n\nلم تت",
+      "links": 0,
+      "buttons": 8,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/team",
+      "errors": []
+    },
+    {
+      "url": "/reports",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nالتقارير\n\nمؤشرات التشغيل والمالية المطابقة.\n\nالوكالة\nApex Car Rentals\nالوكالة\nمن\nمن\nإلى\nإلى\nتحديث\nتصدير CSV\n\nالإيرادات المحصلة\n\n0 MAD\n\nالودائع المحصلة\n\n0 MAD\n\nالمبالغ المستحقة\n\n0",
+      "links": 0,
+      "buttons": 8,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/reports",
+      "errors": []
+    },
+    {
+      "url": "/suppliers",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVEAU FOURNISSEUR\n4 fournisseurs\nApex Car Rentals\n5 voitures\nsupplier.0a_i1cuq6yge5jr27gh21\n2 voitures\nsupplier.1prfs8gtswcf4jkspyzsr\n0 voiture\nsupplier.1prfs8gtswcf4jkspyzsr\n0",
+      "links": 0,
+      "buttons": 20,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/suppliers",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/locations",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVEAU LIEU\n4 lieux\n\nLocation 1 EN\n\nLos Angeles Airport (LAX)\n\nUnited States\n\nNew York JFK Airport (JFK)\n\nUnited States\n\nSan Francisco Airport (SFO)\n\nUnited States",
+      "links": 0,
+      "buttons": 16,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/locations",
+      "errors": []
+    },
+    {
+      "url": "/cars",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVELLE VOITURE\n7 voitures\nFournisseur\nCocher tout\nClassement\n(1 et plus)\n(2 et plus)\n(3 et plus)\n(4 et plus)\nQuelconque\nGamme\nVoiture\nSUV\nFourgon\nScooter\nBus\nCamion\nCaravane\nCo",
+      "links": 7,
+      "buttons": 29,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/cars",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/users",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVEL UTILISATEUR\nUtilisateur\nadmin\nAlex Morgan\nApex Car Rentals\ndriver1\nsupplier.0a_i1cuq6yge5jr27gh21\nsupplier.1prfs8gtswcf4jkspyzsr\nsupplier.1prfs8gtswcf4jkspyzsr\nuser\n\nRows ",
+      "links": 8,
+      "buttons": 28,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/users",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    },
+    {
+      "url": "/settings",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNom complet\nE-mail\nTéléphone\n\nLocalisation\nBio\nCHANGER LE MOT DE PASSE\nSAUVEGARDER\nANNULER\nParamètres Réseau\nActiver les notifications par email\nParamètres De Location\nDélai mini",
+      "links": 0,
+      "buttons": 13,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/settings",
+      "errors": []
+    },
+    {
+      "url": "/countries",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVEAU PAYS\n1 pays\n\nUnited States",
+      "links": 0,
+      "buttons": 10,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/countries",
+      "errors": []
+    },
+    {
+      "url": "/notifications",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nWed, 28 October, 03:26\nAlex Morgan confirmed the booking 6ae16b8084b023432140553a.\n1-1 sur 1",
+      "links": 0,
+      "buttons": 11,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/notifications",
+      "errors": []
+    },
+    {
+      "url": "/about",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nFleetRent - Votre service de location de voitures\nVotre partenaire de confiance pour la location de voitures\n\nChez FleetRent, nous comprenons que chaque voyage est unique. Nous n",
+      "links": 0,
+      "buttons": 7,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/about",
+      "errors": []
+    },
+    {
+      "url": "/tos",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nConditions d'utilisation\n\n\nBienvenue chez FleetRent ! En accédant à notre site Web et en utilisant nos services, vous acceptez de vous conformer et d'être lié par les conditions ",
+      "links": 0,
+      "buttons": 6,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/tos",
+      "errors": []
+    },
+    {
+      "url": "/contact",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nContact\nObjet\nObjet *\nMessage\nMessage *\nENVOYER\nANNULER",
+      "links": 0,
+      "buttons": 8,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/contact",
+      "errors": []
+    },
+    {
+      "url": "/pricing",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nPlans tarifaires\nPlan Gratuit\n\nGratuit\n\nCréer un nombre illimité de voitures\n1 voiture dans les résultats de recherche\nPlan De Base\n\n$10/mois\n\nCréer un nombre illimité de voiture",
+      "links": 0,
+      "buttons": 6,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/pricing",
+      "errors": []
+    },
+    {
+      "url": "/bank-details",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nRien à voir ici !\n\nAller à la page d'accueil",
+      "links": 0,
+      "buttons": 7,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/bank-details",
+      "errors": []
+    },
+    {
+      "url": "/scheduler",
+      "lang": "ar",
+      "dir": "rtl",
+      "title": "FleetRent Admin Panel",
+      "body": "1\nNOUVELLE RÉSERVATION\nFournisseur\nCocher tout\nStatut\nVide\nEn cours\nAcompte\nPayée\nPayée (totalité)\nRéservée\nAnnulée\nCocher tout\nRechercher\nLieu de prise en charge\nLieu de restituti",
+      "links": 0,
+      "buttons": 52,
+      "errorBoundary": false,
+      "notFound": false,
+      "route": "/scheduler",
+      "errors": [
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        },
+        {
+          "kind": "netfail",
+          "text": "net::ERR_BLOCKED_BY_ORB "
+        }
+      ]
+    }
+  ]
+}

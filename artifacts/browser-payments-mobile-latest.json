@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-11-03T14:05:11.423Z",
+  "url": "http://localhost:3002/payments?l=ar&mobileEvidence=1793714706410",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "lang": "ar",
+  "dir": "rtl",
+  "errorBoundary": false,
+  "languageError": false,
+  "rows": [],
+  "receivableRows": [
+    {
+      "labels": [
+        {
+          "label": "العقد",
+          "before": "\"العقد\""
+        },
+        {
+          "label": "العميل",
+          "before": "\"العميل\""
+        },
+        {
+          "label": "المركبة",
+          "before": "\"المركبة\""
+        },
+        {
+          "label": "المبلغ المستحق",
+          "before": "\"المبلغ المستحق\""
+        },
+        {
+          "label": "وديعة قابلة للاسترداد",
+          "before": "\"وديعة قابلة للاسترداد\""
+        },
+        {
+          "label": "التاريخ",
+          "before": "\"التاريخ\""
+        }
+      ]
+    }
+  ],
+  "body": "1\n\nالمالية\n\nالمدفوعات\n\nسجل وراجع المدفوعات المستلمة مقابل عقود التأجير.\n\nتسجيل دفعة\nالمدفوعات المسجلة\n0 MAD\nT\nالمعاملات\n0\nالذمم المتأخرة\n949 MAD\nالذمم المدينة\n8DD5BDF8\nAlex Morgan\nTesla Model 3\n325 MAD\n0 MAD\n3 Oct 2026\n48F7E71F\ndriver1\nBMW X1\n312 MAD\n0 MAD\n4 Mar 2024\n48F7E71E\ndriver1\nBMW X1\n312 MAD\n0 MAD\n4 Mar 2024\n​\n\nلا توجد مدفوعات مسجلة بعد.",
+  "consoleErrors": []
+}

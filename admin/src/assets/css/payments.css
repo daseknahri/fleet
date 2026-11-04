@@ -1,0 +1,44 @@
+.agency-payments { width: min(1440px, calc(100% - 48px)); margin: 32px auto 64px; color: #182b30; }
+.agency-payments__heading { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:24px; }
+.agency-payments__eyebrow { color:#63777b; font-size:12px; letter-spacing:.12em; font-weight:700; }
+.agency-payments__title { margin:4px 0 !important; font-size:30px !important; font-weight:700 !important; }
+.agency-payments__subtitle { color:#63777b; }
+.agency-payments__summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin-bottom:20px; }
+.agency-payments__summary .MuiCard-root { border:1px solid #e4ebea; border-radius:16px; box-shadow:none; }
+.agency-payments__summary .MuiCardContent-root { display:grid; grid-template-columns:46px 1fr; grid-template-rows:auto auto; align-items:center; column-gap:12px; }
+.agency-payments__summary-icon { grid-row:span 2; display:grid; place-items:center; width:42px; height:42px; border-radius:13px; background:#e5f3ed; color:#14765b; }
+.agency-payments__summary-icon--warning { background:#fdf0e2; color:#a8621b; }
+.agency-payments__summary small { color:#63777b; }
+.agency-payments__summary strong { font-size:22px; }
+.agency-payments__panel { overflow:hidden; border:1px solid #e4ebea; border-radius:16px; background:#fff; margin-bottom:20px; }
+.agency-payments__panel-title { padding:16px; font-weight:700; font-size:16px; border-bottom:1px solid #edf1f0; background:#fbfcfc; }
+.agency-payments__toolbar { display:flex; gap:12px; padding:16px; border-bottom:1px solid #edf1f0; }
+.agency-payments__toolbar .MuiTextField-root { flex:1; }
+.agency-payments__table-head,.agency-payments__row { display:grid; gap:12px; align-items:center; padding:14px 16px; }
+.agency-payments__table-head { color:#63777b; font-size:12px; font-weight:700; background:#f8faf9; }
+.agency-payments__payments-head,.agency-payments__payments-row { grid-template-columns:1fr 1.1fr 1.1fr 1.3fr .9fr 1fr 1fr .8fr 1.3fr 1.1fr; }
+.agency-payments__receivables-head,.agency-payments__receivables-row { grid-template-columns:1.1fr 1.2fr 1.4fr 1fr 1fr 1fr; }
+.agency-payments__row { border-top:1px solid #edf1f0; font-size:14px; }
+.agency-payments__row strong { font-weight:650; }
+.agency-payments__receivables-row strong { color:#a33b35; }
+.agency-payments__empty { min-height:150px; display:grid; place-content:center; justify-items:center; color:#829194; text-align:center; }
+.agency-payments__form { display:grid; gap:18px; padding-top:12px !important; }
+.agency-payments__form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+@media (max-width:1100px) {
+  .agency-payments__payments-head { display:none; }
+  .agency-payments__payments-row { grid-template-columns:1fr 1fr; gap:8px 12px; padding:14px 16px; }
+  .agency-payments__payments-row > * { min-width:0; }
+  .agency-payments__payments-row > *::before, .agency-payments__receivables-row > *::before { content:attr(data-label); display:block; margin-bottom:3px; color:#63777b; font-size:11px; font-weight:700; }
+  .agency-payments__receivables-head { display:none; }
+  .agency-payments__receivables-row { grid-template-columns:1fr 1fr; gap:8px 12px; padding:14px 16px; }
+  .agency-payments__receivables-row > * { min-width:0; }
+}
+@media (max-width:800px) {
+  .agency-payments { width:calc(100% - 32px); margin-top:24px; }
+  .agency-payments__heading { align-items:flex-start; flex-direction:column; }
+  .agency-payments__row span,.agency-payments__row strong { min-width:0; overflow-wrap:anywhere; }
+}
+@media (max-width:480px) {
+  .agency-payments__summary { grid-template-columns:1fr; }
+  .agency-payments__toolbar,.agency-payments__form-grid { grid-template-columns:1fr; flex-direction:column; }
+}

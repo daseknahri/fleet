@@ -1,0 +1,62 @@
+import LocalizedStrings from 'localized-strings'
+import * as langHelper from '@/utils/langHelper'
+
+const strings = new LocalizedStrings({
+  fr: {
+    SIGN_IN: 'Se connecter',
+    HOME: 'Accueil',
+    BOOKINGS: 'Réservations',
+    ABOUT: 'À propos',
+    TOS: "Conditions d'utilisation",
+    CONTACT: 'Contact',
+    LANGUAGE: 'Langue',
+    SETTINGS: 'Paramètres',
+    SIGN_OUT: 'Déconnexion',
+    SUPPLIERS: 'Fournisseurs',
+    LOCATIONS: 'Lieux',
+    PRIVACY_POLICY: 'Politique de Confidentialité',
+    FAQ: 'FAQ',
+    COOKIE_POLICY: 'Politique de cookies',
+    NOTIFICATIONS: 'Notifications',
+  },
+  ar: {
+    SIGN_IN: 'تسجيل الدخول', HOME: 'الرئيسية', BOOKINGS: 'الحجوزات', ABOUT: 'من نحن', TOS: 'شروط الاستخدام', CONTACT: 'اتصل بنا', LANGUAGE: 'اللغة', SETTINGS: 'الإعدادات', SIGN_OUT: 'تسجيل الخروج', SUPPLIERS: 'الموردون', LOCATIONS: 'المواقع', PRIVACY_POLICY: 'سياسة الخصوصية', FAQ: 'الأسئلة الشائعة', COOKIE_POLICY: 'سياسة ملفات تعريف الارتباط', NOTIFICATIONS: 'الإشعارات'
+  },
+  en: {
+    SIGN_IN: 'Sign in',
+    HOME: 'Home',
+    BOOKINGS: 'Bookings',
+    ABOUT: 'About',
+    TOS: 'Terms of Service',
+    CONTACT: 'Contact',
+    LANGUAGE: 'Language',
+    SETTINGS: 'Settings',
+    SIGN_OUT: 'Sign out',
+    SUPPLIERS: 'Suppliers',
+    LOCATIONS: 'Locations',
+    PRIVACY_POLICY: 'Privacy Policy',
+    FAQ: 'FAQ',
+    COOKIE_POLICY: 'Cookie Policy',
+    NOTIFICATIONS: 'Notifications',
+  },
+  es: {
+    SIGN_IN: 'Iniciar sesión',
+    HOME: 'Inicio',
+    BOOKINGS: 'Reservas',
+    ABOUT: 'Acerca de',
+    TOS: 'Términos de Servicio',
+    CONTACT: 'Contacto',
+    LANGUAGE: 'Idioma',
+    SETTINGS: 'Configuración',
+    SIGN_OUT: 'Cerrar sesión',
+    SUPPLIERS: 'Proveedores',
+    LOCATIONS: 'Ubicaciones',
+    PRIVACY_POLICY: 'Política de Privacidad',
+    FAQ: 'Preguntas frecuentes',
+    COOKIE_POLICY: 'Política de Cookies',
+    NOTIFICATIONS: 'Notificaciones',
+  },
+})
+
+langHelper.setLanguage(strings)
+export { strings }

@@ -1,0 +1,13 @@
+{
+  "generatedAt":"2026-11-04T20:39:51.535Z",
+  "route":"/caisse",
+  "authenticated":"admin@fleetrent.local",
+  "agencySelector":"Apex Car Rentals (6ae166dda73203de8dd5bdbb)",
+  "selectorBugFix":"all-suppliers projection is now accepted directly and first agency is selected by default",
+  "open":201,
+  "close":200,
+  "expected":0,
+  "counted":0,
+  "discrepancy":0,
+  "cleanup":"session deleted by exact ID; verification returned zero matching session"
+}
