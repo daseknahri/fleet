@@ -19,6 +19,8 @@ describe('Test join url', () => {
     expect(helper.joinURL('part1', '/part2')).toBe('part1/part2')
     // test success (second part not starting with slash)
     expect(helper.joinURL('part1/', 'part2')).toBe('part1/part2')
+    expect(helper.joinURL('part1', '')).toBe('')
+    expect(helper.joinURL('', 'part2')).toBe('part2')
   })
 })
 

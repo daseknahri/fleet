@@ -1,15 +1,13 @@
 import { Request, Response } from 'express'
+import mongoose from 'mongoose'
 import Stripe from 'stripe'
 import i18n from '../lang/i18n'
 import * as logger from '../utils/logger'
 import * as bookcarsTypes from ':bookcars-types'
-import * as env from '../config/env.config'
-import * as helper from '../utils/helper'
 import Booking from '../models/Booking'
-import User from '../models/User'
-import Car from '../models/Car'
 import * as bookingController from './bookingController'
-import { BookingConflictError, saveBookingWithAvailability } from '../utils/bookingReservationHelper'
+import { BookingConflictError } from '../utils/bookingReservationHelper'
+import { toMinorUnits } from '../utils/paymentAmount'
 
 /**
  * Create Checkout Session.
@@ -19,73 +17,8 @@ import { BookingConflictError, saveBookingWithAvailability } from '../utils/book
  * @param {Response} res
  * @returns {unknown}
  */
-export const createCheckoutSession = async (req: Request, res: Response) => {
-  try {
-    const stripeAPI = (await import('../payment/stripe.js')).default
-    const {
-      amount,
-      currency,
-      locale,
-      receiptEmail,
-      name,
-      description,
-      customerName,
-    }: bookcarsTypes.CreatePaymentPayload = req.body
-
-    //
-    // 1. Create the customer if he does not already exist
-    //
-    const customers = await stripeAPI.customers.list({ email: receiptEmail })
-
-    let customer: Stripe.Customer
-    if (customers.data.length === 0) {
-      customer = await stripeAPI.customers.create({
-        email: receiptEmail,
-        name: customerName,
-      })
-    } else {
-      [customer] = customers.data
-    }
-
-    //
-    // 2. Create checkout session
-    //
-    const expireAt = Math.floor((Date.now() / 1000) + env.STRIPE_SESSION_EXPIRE_AT)
-
-    const session = await stripeAPI.checkout.sessions.create({
-      ui_mode: 'embedded',
-      line_items: [
-        {
-          price_data: {
-            product_data: {
-              name,
-            },
-            unit_amount: Math.floor(amount * 100),
-            currency: currency.toLowerCase(),
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      return_url: `${helper.trimEnd(env.FRONTEND_HOST, '/')}/checkout-session/{CHECKOUT_SESSION_ID}`,
-      customer: customer.id,
-      locale: helper.getStripeLocale(locale),
-      payment_intent_data: {
-        description,
-      },
-      expires_at: expireAt,
-    })
-
-    const result: bookcarsTypes.PaymentResult = {
-      sessionId: session.id,
-      customerId: customer.id,
-      clientSecret: session.client_secret,
-    }
-    res.json(result)
-  } catch (err) {
-    logger.error(`[stripe.createCheckoutSession] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
-  }
+export const createCheckoutSession = async (_req: Request, res: Response) => {
+  res.status(410).send('Payment sessions are created from a server-priced booking checkout')
 }
 
 /**
@@ -110,6 +43,8 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       session = await stripeAPI.checkout.sessions.retrieve(sessionId)
     } catch (err) {
       logger.error(`[stripe.checkCheckoutSession] retrieve session error: ${sessionId}`, err)
+      res.status(503).send('Payment provider unavailable; support review is required')
+      return
     }
 
     if (!session) {
@@ -119,11 +54,30 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       return
     }
 
-    const booking = await Booking.findOne({ sessionId, expireAt: { $ne: null } })
+    const booking = await Booking.findOne({ sessionId })
     if (!booking) {
+      const bookingId = session.metadata?.bookingId
+      const paymentIntent = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+      if (session.payment_status === 'paid' && mongoose.isValidObjectId(bookingId) && paymentIntent) {
+        const intent = await stripeAPI.paymentIntents.retrieve(paymentIntent)
+        if (intent.status === 'succeeded' && intent.metadata.bookingId === bookingId) {
+          await stripeAPI.refunds.create(
+            { payment_intent: intent.id },
+            { idempotencyKey: `orphan-session-${intent.id}` },
+          )
+          res.status(410).send('Booking expired; the payment was refunded')
+          return
+        }
+      }
       const msg = `Booking with sessionId ${sessionId} not found`
       logger.info(`[stripe.checkCheckoutSession] ${msg}`)
       res.status(204).send(msg)
+      return
+    }
+
+    const financialSnapshot = booking.financialSnapshot
+    if (!financialSnapshot || session.metadata?.bookingId !== booking._id.toString()) {
+      res.status(409).send('Payment requires manual review because the booking snapshot is missing or mismatched')
       return
     }
 
@@ -132,10 +86,10 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
     // (Set BookingStatus to Paid and remove expireAt TTL index)
     //
     if (session.payment_status === 'paid') {
-      const expectedAmountCents = Math.floor(booking.price * 100)
+      const expectedAmountCents = toMinorUnits(financialSnapshot.amountDueNowInPaymentCurrency, financialSnapshot.paymentCurrency)
 
-      if (session.currency?.toLowerCase() !== env.BASE_CURRENCY.toLowerCase()) {
-        const message = `Payment currency mismatch: expected ${env.BASE_CURRENCY}, got ${session.currency}`
+      if (session.currency?.toLowerCase() !== financialSnapshot.paymentCurrency.toLowerCase()) {
+        const message = `Payment currency mismatch: expected ${financialSnapshot.paymentCurrency}, got ${session.currency}`
         logger.error(`[stripe.checkCheckoutSession] ${message}`)
         res.status(400).send(message)
         return
@@ -150,62 +104,32 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
 
       const paymentIntent = session.payment_intent
       stripePaymentIntentId = typeof paymentIntent === 'string' ? paymentIntent : paymentIntent?.id
-      booking.expireAt = undefined
-
-      let status = bookcarsTypes.BookingStatus.Paid
-      if (booking.isDeposit) {
-        status = bookcarsTypes.BookingStatus.Deposit
-      } else if (booking.isPayedInFull) {
-        status = bookcarsTypes.BookingStatus.PaidInFull
+      if (!stripePaymentIntentId) {
+        res.status(409).send('Paid session has no payment intent; support review is required')
+        return
       }
-      booking.status = status
-
-      const saved = await saveBookingWithAvailability(booking, {
-        expectedStatus: bookcarsTypes.BookingStatus.Void,
-        requireExpireAt: true,
-      })
-      if (!saved) {
-        res.sendStatus(200)
+      const verifiedIntent = await stripeAPI.paymentIntents.retrieve(stripePaymentIntentId)
+      if (verifiedIntent.status !== 'succeeded'
+        || verifiedIntent.metadata.bookingId !== booking._id.toString()
+        || verifiedIntent.currency.toUpperCase() !== financialSnapshot.paymentCurrency.toUpperCase()
+        || verifiedIntent.amount_received !== expectedAmountCents) {
+        res.status(400).send('Payment intent does not match the booking snapshot')
         return
       }
 
-      const car = await Car.findById(booking.car)
-      if (!car) {
-        throw new Error(`Car ${booking.car} not found`)
-      }
-      car.trips += 1
-      await car.save()
-
-      const supplier = await User.findById(booking.supplier)
-      if (!supplier) {
-        throw new Error(`Supplier ${booking.supplier} not found`)
-      }
-
-      // Send confirmation email to customer
-      const user = await User.findById(booking.driver)
-      if (!user) {
-        throw new Error(`Driver ${booking.driver} not found`)
-      }
-
-      user.expireAt = undefined
-      await user.save()
-
-      if (!(await bookingController.confirm(user, supplier, booking, false))) {
-        res.sendStatus(400)
+      const finalized = await bookingController.finalizePaidCheckoutBooking(booking, 'stripe', stripePaymentIntentId)
+      if (!finalized) {
+        const existingPaidBooking = await Booking.findOne({ _id: booking._id, paymentIntentId: stripePaymentIntentId })
+        if (existingPaidBooking && existingPaidBooking.status !== bookcarsTypes.BookingStatus.Void) {
+          res.sendStatus(200)
+          return
+        }
+        await stripeAPI.refunds.create(
+          { payment_intent: stripePaymentIntentId },
+          { idempotencyKey: `booking-unavailable-${stripePaymentIntentId}` },
+        )
+        res.status(409).send('Booking unavailable; the payment was refunded')
         return
-      }
-
-      // Notify supplier
-      i18n.locale = supplier.language
-      let message = i18n.t('BOOKING_PAID_NOTIFICATION')
-      await bookingController.notify(user, booking._id.toString(), supplier, message)
-
-      // Notify admin
-      const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
-      if (admin) {
-        i18n.locale = admin.language
-        message = i18n.t('BOOKING_PAID_NOTIFICATION')
-        await bookingController.notify(user, booking._id.toString(), admin, message)
       }
 
       res.sendStatus(200)
@@ -252,63 +176,6 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
  * @param {Response} res
  * @returns {unknown}
  */
-export const createPaymentIntent = async (req: Request, res: Response) => {
-  try {
-    const stripeAPI = (await import('../payment/stripe.js')).default
-    const {
-      amount,
-      currency,
-      receiptEmail,
-      description,
-      customerName,
-    }: bookcarsTypes.CreatePaymentPayload = req.body
-
-
-    //
-    // 1. Create the customer if he does not already exist
-    //
-    const customers = await stripeAPI.customers.list({ email: receiptEmail })
-
-    let customer: Stripe.Customer
-    if (customers.data.length === 0) {
-      customer = await stripeAPI.customers.create({
-        email: receiptEmail,
-        name: customerName,
-      })
-    } else {
-      [customer] = customers.data
-    }
-
-    //
-    // 2. Create payment intent
-    //
-    const paymentIntent = await stripeAPI.paymentIntents.create({
-      //
-      // All API requests expect amounts to be provided in a currency’s smallest unit.
-      // For example, to charge 10 USD, provide an amount value of 1000 (that is, 1000 cents).
-      //
-      amount: Math.floor(amount * 100),
-      currency: currency.toLowerCase(),
-      receipt_email: receiptEmail,
-      description,
-      customer: customer.id,
-      automatic_payment_methods: {
-        enabled: true,
-        allow_redirects: 'never',
-      },
-    })
-
-    //
-    // 3. Send result
-    //
-    const result: bookcarsTypes.PaymentResult = {
-      paymentIntentId: paymentIntent.id,
-      customerId: customer.id,
-      clientSecret: paymentIntent.client_secret,
-    }
-    res.json(result)
-  } catch (err) {
-    logger.error(`[stripe.createPaymentIntent] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
-  }
+export const createPaymentIntent = async (_req: Request, res: Response) => {
+  res.status(410).send('Payment intents are created from a server-priced booking checkout')
 }

@@ -6,6 +6,7 @@ const strings = new LocalizedStrings({
     SHOW_FILTERS: 'Afficher les filtres',
     HILE_FILTERS: 'Masquer les filtres',
   },
+  ar: { SHOW_FILTERS: 'إظهار الفلاتر', HILE_FILTERS: 'إخفاء الفلاتر' },
   en: {
     SHOW_FILTERS: 'Show Filters',
     HILE_FILTERS: 'Hide Filters',

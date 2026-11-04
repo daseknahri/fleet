@@ -13,8 +13,21 @@ import User, { USER_EXPIRE_AT_INDEX_NAME } from '../models/User'
 import Country from '../models/Country'
 import ParkingSpot from '../models/ParkingSpot'
 import AdditionalDriver from '../models/AdditionalDriver'
+import AgencyMembership from '../models/AgencyMembership'
 import BankDetails from '../models/BankDetails'
 import DateBasedPrice from '../models/DateBasedPrice'
+import MaintenanceExpense from '../models/MaintenanceExpense'
+import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import RentalPayment from '../models/RentalPayment'
+import CashSession from '../models/CashSession'
+import CashMovement from '../models/CashMovement'
+import Invoice from '../models/Invoice'
+import Approval from '../models/Approval'
+import Counter from '../models/Counter'
+import ContractInspection from '../models/ContractInspection'
+import ContractCharge from '../models/ContractCharge'
+import ContractSnapshot from '../models/ContractSnapshot'
 import * as databaseTTLHelper from './databaseTTLHelper'
 import * as databaseLangHelper from './databaseLangHelper'
 import * as settingController from '../controllers/settingController'
@@ -212,6 +225,7 @@ const defineModels = <T extends readonly unknown[]>(models: T) => models
  */
 export const models = defineModels([
   AdditionalDriver,
+  AgencyMembership,
   BankDetails,
   Booking,
   Car,
@@ -219,12 +233,24 @@ export const models = defineModels([
   DateBasedPrice,
   Location,
   LocationValue,
+  MaintenanceExpense,
+  MaintenanceWorkOrder,
+  MaintenanceSchedule,
+  RentalPayment,
+  CashSession,
+  CashMovement,
+  Invoice,
+  Approval,
+  Counter,
   Notification,
   NotificationCounter,
   ParkingSpot,
   PushToken,
   Token,
   User,
+  ContractInspection,
+  ContractCharge,
+  ContractSnapshot,
 ] as const)
 
 /**
@@ -234,6 +260,16 @@ export const models = defineModels([
  * @param {boolean} createIndexes
  * @returns {Promise<boolean>} 
  */
+const prepareApprovalIndexes = async () => {
+  const indexes = await Approval.collection.indexes()
+  const legacy = indexes.find((index) => index.name === 'supplier_1_subject_1_subjectType_1' && index.unique)
+  if (legacy) {
+    if (legacy.name) {
+      await Approval.collection.dropIndex(legacy.name)
+    }
+    logger.info('Dropped legacy global approval subject index; scoped pending index will be recreated')
+  }
+}
 export const initialize = async (createIndexes: boolean = true): Promise<boolean> => {
   try {
     //

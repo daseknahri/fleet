@@ -5,6 +5,9 @@ const strings = new LocalizedStrings({
   fr: {
     NEW_BOOKING: 'Nouvelle réservation',
   },
+  ar: {
+    NEW_BOOKING: 'حجز جديد',
+  },
   en: {
     NEW_BOOKING: 'New Booking',
   },

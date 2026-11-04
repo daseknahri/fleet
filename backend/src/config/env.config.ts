@@ -33,6 +33,7 @@ export const LANGUAGES = [
   'en',
   'fr',
   'es',
+  'ar',
 ]
 
 /**
@@ -56,7 +57,7 @@ export const WEBSITE_NAME = __env__('BC_WEBSITE_NAME', false, 'BookCars')
  *
  * @type {string}
  */
-export const BASE_CURRENCY = __env__('BC_BASE_CURRENCY', false, 'USD')
+export const BASE_CURRENCY = __env__('BC_BASE_CURRENCY', false, 'MAD')
 
 /**
  * Indicate whether we are in CI environment or not.
@@ -349,6 +350,27 @@ export const CDN_LICENSES = __env__('BC_CDN_LICENSES', true)
 export const CDN_TEMP_LICENSES = __env__('BC_CDN_TEMP_LICENSES', true)
 
 /**
+ * Maintenance receipts' cdn folder path.
+ *
+ * @type {string}
+ */
+export const CDN_MAINTENANCE = __env__('BC_CDN_MAINTENANCE', true)
+
+/**
+ * Maintenance receipts' temp cdn folder path.
+ *
+ * @type {string}
+ */
+export const CDN_TEMP_MAINTENANCE = __env__('BC_CDN_TEMP_MAINTENANCE', true)
+
+/**
+ * Allowed maintenance receipt extensions.
+ *
+ * @type {string[]}
+ */
+export const allowedMaintenanceReceiptExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp']
+
+/**
  * Admin host.
  *
  * @type {string}
@@ -634,6 +656,36 @@ export interface AdditionalDriver {
   birthDate: Date
 }
 
+/** Agency staff membership document. */
+export interface AgencyMembership extends Document {
+  supplier: Types.ObjectId
+  user: Types.ObjectId
+  role: bookcarsTypes.AgencyRole
+  status: bookcarsTypes.AgencyMembershipStatus
+  invitedBy?: Types.ObjectId
+  activatedAt?: Date
+  suspendedAt?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** Contract inspection document. */
+export interface ContractInspection extends Document {
+  supplier: Types.ObjectId
+  booking: Types.ObjectId
+  car: Types.ObjectId
+  type: bookcarsTypes.InspectionType
+  occurredAt: Date
+  odometer?: number
+  fuelLevel?: number
+  condition?: string
+  damageNote?: string
+  photoFiles?: string[]
+  signatureFile?: string
+  acknowledgedBy?: Types.ObjectId
+  actor?: Types.ObjectId
+}
+
 /**
  * Booking Document.
  *
@@ -652,6 +704,7 @@ export interface Booking extends Document {
   from: Date
   to: Date
   status: bookcarsTypes.BookingStatus
+  lifecycle?: bookcarsTypes.ContractLifecycle
   cancellation?: boolean
   amendments?: boolean
   theftProtection?: boolean
@@ -667,7 +720,170 @@ export interface Booking extends Document {
   expireAt?: Date
   isDeposit: boolean
   isPayedInFull?: boolean
+  ledgerVersion?: number
   paypalOrderId?: string
+  financialSnapshot?: bookcarsTypes.BookingFinancialSnapshot
+}
+
+/** Approval record. */
+export interface ContractCharge extends Document {
+  supplier: Types.ObjectId
+  booking: Types.ObjectId
+  inspection?: Types.ObjectId
+  type: bookcarsTypes.ContractChargeType
+  reason: string
+  amount: number
+  currency: string
+  status: bookcarsTypes.ApprovalDecision
+  requestedBy?: Types.ObjectId
+  decidedBy?: Types.ObjectId
+  decidedAt?: Date
+  decisionNote?: string
+}
+
+export interface Approval extends Document {
+  supplier: Types.ObjectId
+  subject: string
+  subjectType: string
+  amount?: number
+  currency?: string
+  status: bookcarsTypes.ApprovalDecision
+  requestedBy?: Types.ObjectId
+  decidedBy?: Types.ObjectId
+  decidedAt?: Date
+  reason?: string
+}
+/** Invoice document. */
+export interface ContractSnapshot extends Document {
+  supplier: Types.ObjectId
+  booking: Types.ObjectId
+  version: number
+  pdfFile: string
+  contentHash: string
+  generatedAt: Date
+}
+
+export interface Invoice extends Document {
+  supplier: Types.ObjectId
+  approvalDecision?: bookcarsTypes.ApprovalDecision
+  approvalDecidedBy?: Types.ObjectId
+  approvalDecidedAt?: Date
+  approvalNote?: string
+  booking: Types.ObjectId
+  number?: string
+  status: bookcarsTypes.InvoiceStatus
+  currency: string
+  subtotal: number
+  taxAmount: number
+  total: number
+  paidAmount: number
+  paymentStatus: 'unpaid' | 'partial' | 'paid'
+  payments?: Types.ObjectId[]
+  issuedAt?: Date
+  issuedBy?: Types.ObjectId
+  voidedAt?: Date
+  voidedBy?: Types.ObjectId
+  voidReason?: string
+}
+
+/** Cash session document. */
+export interface CashSession extends Document {
+  supplier: Types.ObjectId
+  account: bookcarsTypes.CashAccountType
+  currency: string
+  openedAt: Date
+  openedBy?: Types.ObjectId
+  openingBalance: number
+  status: bookcarsTypes.CashSessionStatus
+  closedAt?: Date
+  closedBy?: Types.ObjectId
+  expectedClosingBalance?: number
+  countedClosingBalance?: number
+  discrepancy?: number
+  closingNote?: string
+}
+
+/** Cash movement document. */
+export interface CashMovement extends Document {
+  supplier: Types.ObjectId
+  session: Types.ObjectId
+  account: bookcarsTypes.CashAccountType
+  currency: string
+  date: Date
+  direction: bookcarsTypes.CashMovementDirection
+  amount: number
+  source: bookcarsTypes.CashMovementSource
+  idempotencyKey?: string
+  transferId?: Types.ObjectId
+  reference?: string
+  note?: string
+  actor?: Types.ObjectId
+}
+
+/** Maintenance expense document. */
+export interface MaintenanceExpense extends Document {
+  supplier: Types.ObjectId
+  car: Types.ObjectId
+  date: Date
+  type: bookcarsTypes.MaintenanceExpenseType
+  amount: number
+  mileage?: number
+  vendor?: string
+  note?: string
+  receipt?: string
+}
+
+/** Maintenance schedule document. */
+export interface MaintenanceSchedule extends Document {
+  supplier: Types.ObjectId
+  car: Types.ObjectId
+  type: bookcarsTypes.MaintenanceExpenseType
+  title: string
+  intervalDays?: number
+  intervalKm?: number
+  lastServiceDate?: Date
+  lastServiceMileage?: number
+  nextDueDate: Date
+  nextDueMileage?: number
+  status: bookcarsTypes.MaintenanceScheduleStatus
+  note?: string
+}
+
+/** Maintenance work order and vehicle downtime document. */
+export interface MaintenanceWorkOrder extends Document {
+  supplier: Types.ObjectId
+  car: Types.ObjectId
+  title: string
+  type: bookcarsTypes.MaintenanceExpenseType
+  status: bookcarsTypes.WorkOrderStatus
+  scheduledStart: Date
+  scheduledEnd: Date
+  completedAt?: Date
+  odometer?: number
+  vendor?: string
+  note?: string
+  expense?: Types.ObjectId
+}
+
+/** Agency payment recorded against a rental booking. */
+export interface RentalPayment extends Document {
+  supplier: Types.ObjectId
+  booking: Types.ObjectId
+  date: Date
+  amount: number
+  currency: string
+  method: bookcarsTypes.RentalPaymentMethod
+  purpose: bookcarsTypes.RentalPaymentPurpose
+  direction: bookcarsTypes.RentalPaymentDirection
+  source: bookcarsTypes.RentalPaymentSource
+  status: bookcarsTypes.RentalPaymentStatus
+  idempotencyKey?: string
+  providerReference?: string
+  actor?: Types.ObjectId
+  reversedFrom?: Types.ObjectId
+  settledAt?: Date
+  reference?: string
+  note?: string
 }
 
 /**
@@ -1018,3 +1234,6 @@ export const allowedLicenseExtensions = [
 export const allowedContractExtensions = [
   '.pdf',
 ]
+
+
+

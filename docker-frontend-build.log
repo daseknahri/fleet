@@ -1,0 +1,412 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.10kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 504B done
+#2 DONE 0.0s
+
+#3 [auth] docker/dockerfile:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#4 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#4 DONE 0.7s
+
+#5 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#5 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#5 CACHED
+
+#6 [internal] load metadata for docker.io/library/nginx:stable-alpine
+#6 ...
+
+#7 [auth] library/nginx:pull token for registry-1.docker.io
+#7 DONE 0.0s
+
+#8 [auth] library/node:pull token for registry-1.docker.io
+#8 DONE 0.0s
+
+#9 [internal] load metadata for docker.io/library/node:lts-alpine
+#9 DONE 0.6s
+
+#6 [internal] load metadata for docker.io/library/nginx:stable-alpine
+#6 DONE 0.7s
+
+#10 [internal] load .dockerignore
+#10 transferring context: 329B done
+#10 DONE 0.0s
+
+#11 [stage-1 1/5] FROM docker.io/library/nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+#11 resolve docker.io/library/nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949 0.1s done
+#11 DONE 0.1s
+
+#12 [build 1/7] FROM docker.io/library/node:lts-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
+#12 resolve docker.io/library/node:lts-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 0.1s done
+#12 DONE 0.1s
+
+#13 [internal] load build context
+#13 transferring context: 3.83MB 0.6s done
+#13 DONE 0.6s
+
+#14 [build 2/7] WORKDIR /bookcars/frontend
+#14 CACHED
+
+#15 [build 3/7] COPY ./frontend ./
+#15 CACHED
+
+#16 [build 4/7] COPY ./frontend/.env.docker .env
+#16 CACHED
+
+#17 [build 5/7] COPY ./packages /bookcars/packages
+#17 DONE 0.1s
+
+#18 [build 6/7] RUN npm install --force
+#18 0.315 npm warn using --force Recommended protections disabled.
+#18 6.041 npm warn deprecated @babel/plugin-proposal-private-methods@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-private-methods instead.
+#18 38.90 
+#18 38.90 added 570 packages, and audited 571 packages in 39s
+#18 38.90 
+#18 38.90 193 packages are looking for funding
+#18 38.90   run `npm fund` for details
+#18 39.03 
+#18 39.03 30 vulnerabilities (1 low, 12 moderate, 17 high)
+#18 39.03 
+#18 39.03 To address issues that do not require attention, run:
+#18 39.03   npm audit fix
+#18 39.03 
+#18 39.03 To address all issues (including breaking changes), run:
+#18 39.03   npm audit fix --force
+#18 39.03 
+#18 39.03 Run `npm audit` for details.
+#18 39.03 npm notice
+#18 39.03 npm notice New major version of npm available! 11.20.0 -> 12.2.1
+#18 39.03 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+#18 39.03 npm notice To update run: npm install -g npm@12.2.1
+#18 39.03 npm notice
+#18 DONE 39.9s
+
+#19 [build 7/7] RUN npm run build
+#19 0.727 
+#19 0.727 > bookcars-frontend@9.1.0 build
+#19 0.727 > npm run ts:build && cross-env NODE_OPTIONS=--max-old-space-size=1024 vite build
+#19 0.727 
+#19 0.842 
+#19 0.842 > bookcars-frontend@9.1.0 ts:build
+#19 0.842 > npm run install:dependencies && tsc --build --verbose
+#19 0.842 
+#19 0.954 
+#19 0.954 > bookcars-frontend@9.1.0 install:dependencies
+#19 0.954 > npm run install:currency-converter && npm run install:reactjs-social-login
+#19 0.954 
+#19 1.066 
+#19 1.066 > bookcars-frontend@9.1.0 install:currency-converter
+#19 1.066 > cd ../packages/currency-converter && npm i && cd ../bookcars-helper && npm i
+#19 1.066 
+#19 3.600 
+#19 3.600 added 145 packages, and audited 146 packages in 2s
+#19 3.600 
+#19 3.601 45 packages are looking for funding
+#19 3.601   run `npm fund` for details
+#19 3.692 
+#19 3.692 16 vulnerabilities (10 moderate, 6 high)
+#19 3.692 
+#19 3.692 To address issues that do not require attention, run:
+#19 3.692   npm audit fix
+#19 3.692 
+#19 3.692 To address all issues (including breaking changes), run:
+#19 3.692   npm audit fix --force
+#19 3.692 
+#19 3.692 Run `npm audit` for details.
+#19 7.022 npm warn deprecated eslint@9.39.5: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+#19 7.090 
+#19 7.090 added 181 packages, and audited 182 packages in 3s
+#19 7.090 
+#19 7.090 59 packages are looking for funding
+#19 7.090   run `npm fund` for details
+#19 7.183 
+#19 7.183 12 vulnerabilities (10 moderate, 2 high)
+#19 7.183 
+#19 7.183 To address issues that do not require attention, run:
+#19 7.183   npm audit fix
+#19 7.183 
+#19 7.183 Some issues need review, and may require choosing
+#19 7.183 a different dependency.
+#19 7.183 
+#19 7.183 Run `npm audit` for details.
+#19 7.324 
+#19 7.324 > bookcars-frontend@9.1.0 install:reactjs-social-login
+#19 7.324 > cd ../packages/reactjs-social-login && npm i
+#19 7.324 
+#19 9.459 npm warn deprecated stable@0.1.8: Modern JS already guarantees Array#sort() is a stable sort, so this library is deprecated. See the compatibility table on MDN: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#browser_compatibility
+#19 9.498 npm warn deprecated rollup-plugin-terser@5.3.1: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-terser
+#19 9.680 npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
+#19 9.696 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#19 9.764 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+#19 9.784 npm warn deprecated q@1.5.1: You or someone you depend on is using Q, the JavaScript Promise library that gave JavaScript developers strong feelings about promises. They can almost certainly migrate to the native JavaScript promise now. Thank you literally everyone for joining me in this bet against the odds. Be excellent to each other.
+#19 9.784 npm warn deprecated
+#19 9.784 npm warn deprecated (For a CapTP with native promises, see @endo/eventual-send and @endo/captp)
+#19 9.855 npm warn deprecated rollup-plugin-babel@4.4.0: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-babel.
+#19 10.46 npm warn deprecated svgo@1.3.2: This SVGO version is no longer supported. Upgrade to v2.x.x.
+#19 10.51 npm warn deprecated @babel/plugin-proposal-class-properties@7.7.4: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
+#19 10.52 npm warn deprecated @babel/plugin-proposal-optional-chaining@7.21.0: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-optional-chaining instead.
+#19 14.68 
+#19 14.68 added 726 packages, and audited 727 packages in 7s
+#19 14.68 
+#19 14.68 155 packages are looking for funding
+#19 14.68   run `npm fund` for details
+#19 14.81 
+#19 14.81 73 vulnerabilities (3 low, 52 moderate, 18 high)
+#19 14.81 
+#19 14.81 To address issues that do not require attention, run:
+#19 14.81   npm audit fix
+#19 14.81 
+#19 14.81 To address all issues possible (including breaking changes), run:
+#19 14.81   npm audit fix --force
+#19 14.81 
+#19 14.81 Some issues need review, and may require choosing
+#19 14.81 a different dependency.
+#19 14.81 
+#19 14.81 Run `npm audit` for details.
+#19 15.05 9:49:33 PM - Projects in this build: 
+#19 15.05     * tsconfig.node.json
+#19 15.05     * ../packages/bookcars-types/tsconfig.json
+#19 15.05     * ../packages/currency-converter/tsconfig.json
+#19 15.05     * ../packages/bookcars-helper/tsconfig.json
+#19 15.05     * ../packages/disable-react-devtools/tsconfig.json
+#19 15.05     * ../packages/reactjs-social-login/tsconfig.json
+#19 15.05     * tsconfig.json
+#19 15.05 
+#19 15.05 9:49:33 PM - Project 'tsconfig.node.json' is out of date because output file 'tsconfig.node.tsbuildinfo' does not exist
+#19 15.05 
+#19 15.05 9:49:33 PM - Building project '/bookcars/frontend/tsconfig.node.json'...
+#19 15.05 
+#19 16.18 9:49:35 PM - Project '../packages/bookcars-types/tsconfig.json' is out of date because output file '../packages/bookcars-types/tsconfig.tsbuildinfo' does not exist
+#19 16.18 
+#19 16.18 9:49:35 PM - Building project '/bookcars/packages/bookcars-types/tsconfig.json'...
+#19 16.18 
+#19 16.27 9:49:35 PM - Project '../packages/currency-converter/tsconfig.json' is out of date because output file '../packages/currency-converter/tsconfig.tsbuildinfo' does not exist
+#19 16.27 
+#19 16.27 9:49:35 PM - Building project '/bookcars/packages/currency-converter/tsconfig.json'...
+#19 16.27 
+#19 16.61 9:49:35 PM - Project '../packages/bookcars-helper/tsconfig.json' is out of date because output file '../packages/bookcars-helper/tsconfig.tsbuildinfo' does not exist
+#19 16.61 
+#19 16.61 9:49:35 PM - Building project '/bookcars/packages/bookcars-helper/tsconfig.json'...
+#19 16.61 
+#19 16.73 9:49:35 PM - Project '../packages/disable-react-devtools/tsconfig.json' is out of date because output file '../packages/disable-react-devtools/tsconfig.tsbuildinfo' does not exist
+#19 16.73 
+#19 16.73 9:49:35 PM - Building project '/bookcars/packages/disable-react-devtools/tsconfig.json'...
+#19 16.73 
+#19 16.78 9:49:35 PM - Project '../packages/reactjs-social-login/tsconfig.json' is out of date because output file '../packages/reactjs-social-login/dist/tsconfig.tsbuildinfo' does not exist
+#19 16.78 
+#19 16.78 9:49:35 PM - Building project '/bookcars/packages/reactjs-social-login/tsconfig.json'...
+#19 16.78 
+#19 17.87 9:49:36 PM - Project 'tsconfig.json' is out of date because output file 'tsconfig.tsbuildinfo' does not exist
+#19 17.87 
+#19 17.87 9:49:36 PM - Building project '/bookcars/frontend/tsconfig.json'...
+#19 17.87 
+#19 23.50 vite v8.0.0 building client environment for production...
+#19 23.71 [2K
+transforming...✓ 13877 modules transformed.
+#19 28.78 rendering chunks...
+#19 36.56 computing gzip size...
+#19 36.57 build/assets/slick-BlzDm7g2.svg                 2.15 kB │ gzip:   0.91 kB
+#19 36.57 build/index.html                                2.89 kB │ gzip:   0.81 kB
+#19 36.57 build/assets/mini-Ddx_iCXZ.png                 17.72 kB
+#19 36.57 build/assets/midi-DAAqy4lT.png                 18.27 kB
+#19 36.57 build/assets/maxi-DZBAok-Q.png                 21.24 kB
+#19 36.57 build/assets/Error-D_3A8a-_.css                 0.06 kB │ gzip:   0.08 kB
+#19 36.57 build/assets/Badge-Bx5pWsgP.css                 0.08 kB │ gzip:   0.09 kB
+#19 36.57 build/assets/Locations-L6lvi7fv.css             0.14 kB │ gzip:   0.13 kB
+#19 36.57 build/assets/Faq-DbmbIhT3.css                   0.19 kB │ gzip:   0.17 kB
+#19 36.57 build/assets/ToS-BhLMfhoC.css                   0.25 kB │ gzip:   0.21 kB
+#19 36.57 build/assets/Privacy-CmfFeuAx.css               0.25 kB │ gzip:   0.21 kB
+#19 36.57 build/assets/CookiePolicy-MkIFWybr.css          0.27 kB │ gzip:   0.21 kB
+#19 36.57 build/assets/DriverLicense-CgJJKtRf.css         0.27 kB │ gzip:   0.17 kB
+#19 36.57 build/assets/CheckoutSession-klqUSgFM.css       0.32 kB │ gzip:   0.23 kB
+#19 36.57 build/assets/FaqList-DbaxPokk.css               0.40 kB │ gzip:   0.24 kB
+#19 36.57 build/assets/About-B7IC6seI.css                 0.45 kB │ gzip:   0.28 kB
+#19 36.57 build/assets/MapDialog-LypyClvE.css             0.46 kB │ gzip:   0.28 kB
+#19 36.57 build/assets/SocialLogin-wR-f8kb_.css           0.47 kB │ gzip:   0.23 kB
+#19 36.57 build/assets/ResetPassword-C-sn8ANO.css         0.51 kB │ gzip:   0.26 kB
+#19 36.57 build/assets/ForgotPassword-9HSgQuzA.css        0.52 kB │ gzip:   0.26 kB
+#19 36.57 build/assets/LocationSelectList-CxX-tWvn.css    0.53 kB │ gzip:   0.26 kB
+#19 36.57 build/assets/SignUp-C96ukJRG.css                0.60 kB │ gzip:   0.29 kB
+#19 36.57 build/assets/Contact-D_mgjH6_.css               0.60 kB │ gzip:   0.30 kB
+#19 36.57 build/assets/ChangePassword-D-zCmi6V.css        0.70 kB │ gzip:   0.28 kB
+#19 36.57 build/assets/Settings-GWXjQckE.css              0.75 kB │ gzip:   0.30 kB
+#19 36.57 build/assets/Suppliers-nL3SnDMs.css             0.96 kB │ gzip:   0.37 kB
+#19 36.57 build/assets/Header-CarUivlc.css                1.05 kB │ gzip:   0.47 kB
+#19 36.57 build/assets/Activate-BV3cahIc.css              1.16 kB │ gzip:   0.38 kB
+#19 36.57 build/assets/SignIn-Dozv71Fq.css                1.18 kB │ gzip:   0.46 kB
+#19 36.57 build/assets/SearchForm-BnDN8vS7.css            1.75 kB │ gzip:   0.57 kB
+#19 36.57 build/assets/Booking-jMYhpKOu.css               1.97 kB │ gzip:   0.64 kB
+#19 36.57 build/assets/CheckoutStatus-BZKQ3r3Y.css        2.05 kB │ gzip:   0.58 kB
+#19 36.57 build/assets/SupplierFilter-CrSgOqqY.css        2.16 kB │ gzip:   0.70 kB
+#19 36.57 build/assets/Footer-C0ih52pF.css                2.19 kB │ gzip:   0.67 kB
+#19 36.57 build/assets/Notifications-C-dYKV3J.css         2.47 kB │ gzip:   0.61 kB
+#19 36.57 build/assets/index-BVpOyUBN.css                 4.28 kB │ gzip:   1.36 kB
+#19 36.57 build/assets/Checkout-BKbHyyhm.css              5.03 kB │ gzip:   1.06 kB
+#19 36.57 build/assets/Search-BAxp_vx5.css                6.41 kB │ gzip:   0.99 kB
+#19 36.57 build/assets/Bookings-_TfPccOb.css              6.82 kB │ gzip:   1.45 kB
+#19 36.57 build/assets/CarList-DBqmgQ2K.css               7.47 kB │ gzip:   1.52 kB
+#19 36.57 build/assets/Map-X8eDKIDz.css                  15.40 kB │ gzip:   6.49 kB
+#19 36.57 build/assets/Home-BVk53D9P.css                 28.06 kB │ gzip:   9.26 kB
+#19 36.57 build/chunks/useFormControl-CH1vvREX.js         0.18 kB │ gzip:   0.16 kB
+#19 36.57 build/chunks/no-match-CsuG0z0w.js               0.20 kB │ gzip:   0.18 kB
+#19 36.57 build/chunks/useEnhancedEffect-BRf26DTk.js      0.21 kB │ gzip:   0.17 kB
+#19 36.57 build/chunks/Delete-CJYx7gOz.js                 0.21 kB │ gzip:   0.19 kB
+#19 36.57 build/chunks/NoMatch-D8uBmsXV.js                0.23 kB │ gzip:   0.17 kB
+#19 36.57 build/chunks/Close-DCB66Dag.js                  0.24 kB │ gzip:   0.19 kB
+#19 36.57 build/chunks/CheckCircle-mQhZ7ewW.js            0.26 kB │ gzip:   0.21 kB
+#19 36.57 build/chunks/RtlProvider-1GFmlV8a.js            0.29 kB │ gzip:   0.22 kB
+#19 36.57 build/chunks/useControlled-BgnQvIMH.js          0.30 kB │ gzip:   0.24 kB
+#19 36.57 build/chunks/LocationOn-Bs3imk4a.js             0.30 kB │ gzip:   0.23 kB
+#19 36.57 build/chunks/SupplierService-D2-0lWjl.js        0.31 kB │ gzip:   0.22 kB
+#19 36.57 build/chunks/Clear-4_f3trML.js                  0.34 kB │ gzip:   0.24 kB
+#19 36.57 build/chunks/Visibility-BB4mdHGP.js             0.35 kB │ gzip:   0.25 kB
+#19 36.57 build/chunks/booking-car-list-DZvvqaip.js       0.39 kB │ gzip:   0.22 kB
+#19 36.57 build/chunks/map-lU632tIo.js                    0.41 kB │ gzip:   0.25 kB
+#19 36.57 build/chunks/contact-form-D7LJVWGs.js           0.41 kB │ gzip:   0.24 kB
+#19 36.57 build/chunks/LocationService-CIrTHhLT.js        0.43 kB │ gzip:   0.24 kB
+#19 36.57 build/chunks/activate-DsPEV5cM.js               0.46 kB │ gzip:   0.27 kB
+#19 36.57 build/chunks/DirectionsCar-FGhpgcqv.js          0.48 kB │ gzip:   0.30 kB
+#19 36.57 build/chunks/Badge-WCrFwUNw.js                  0.48 kB │ gzip:   0.33 kB
+#19 36.57 build/chunks/SearchForm-D3mTX11N.js             0.49 kB │ gzip:   0.25 kB
+#19 36.57 build/chunks/settings-AUZKKA21.js               0.59 kB │ gzip:   0.34 kB
+#19 36.57 build/chunks/VisibilityOff-B2zkqk4D.js          0.63 kB │ gzip:   0.41 kB
+#19 36.57 build/chunks/Faq-B0A9MV5V.js                    0.65 kB │ gzip:   0.41 kB
+#19 36.57 build/chunks/ToS-B0KlW9Oq.js                    0.70 kB │ gzip:   0.43 kB
+#19 36.57 build/chunks/Privacy-CclBRlqd.js                0.71 kB │ gzip:   0.44 kB
+#19 36.57 build/chunks/Error-pP6GBKO5.js                  0.72 kB │ gzip:   0.48 kB
+#19 36.57 build/chunks/DialogTitle-DkWxUsf1.js            0.74 kB │ gzip:   0.47 kB
+#19 36.57 build/chunks/SimpleBackdrop-D_B-1mMJ.js         0.74 kB │ gzip:   0.48 kB
+#19 36.57 build/chunks/Box-C7l7ycyJ.js                    0.75 kB │ gzip:   0.45 kB
+#19 36.57 build/chunks/BookingService-Bf3A_XSE.js         0.76 kB │ gzip:   0.34 kB
+#19 36.57 build/chunks/NoMatch-CYD2-94c.js                0.77 kB │ gzip:   0.48 kB
+#19 36.57 build/chunks/sign-in-CJl7Ok_I.js                0.78 kB │ gzip:   0.42 kB
+#19 36.57 build/chunks/rolldown-runtime-JNwBNzZo.js       0.81 kB │ gzip:   0.46 kB
+#19 36.57 build/chunks/Error-CGm0keKa.js                  0.81 kB │ gzip:   0.50 kB
+#19 36.57 build/chunks/Settings-BD0XlcXz.js               0.98 kB │ gzip:   0.54 kB
+#19 36.57 build/chunks/reset-password-Db-2fqpU.js         1.03 kB │ gzip:   0.50 kB
+#19 36.57 build/chunks/sign-up-BbbTpx_Q.js                1.04 kB │ gzip:   0.54 kB
+#19 36.57 build/chunks/header-Bd5Kvidw.js                 1.15 kB │ gzip:   0.58 kB
+#19 36.57 build/chunks/change-password-Dn5imWw7.js        1.16 kB │ gzip:   0.49 kB
+#19 36.57 build/chunks/notifications-b3j6MEeR.js          1.24 kB │ gzip:   0.47 kB
+#19 36.57 build/chunks/Suppliers-Bb-b7qSW.js              1.37 kB │ gzip:   0.69 kB
+#19 36.57 build/chunks/ArrowForwardIos-ZwDf5ZU7.js        1.40 kB │ gzip:   0.69 kB
+#19 36.57 build/chunks/NotificationContext-BM17fERt.js    1.63 kB │ gzip:   0.81 kB
+#19 36.57 build/chunks/search-form-CGrvAqiL.js            1.80 kB │ gzip:   0.88 kB
+#19 36.57 build/chunks/PasswordInput-EXkmP_nR.js          1.81 kB │ gzip:   1.04 kB
+#19 36.57 build/chunks/CheckoutSession-KRX6ljEU.js        1.84 kB │ gzip:   1.00 kB
+#19 36.57 build/chunks/Paper-CErf3E1I.js                  2.05 kB │ gzip:   0.93 kB
+#19 36.57 build/chunks/enUS-CqrU4X5V.js                   2.07 kB │ gzip:   0.84 kB
+#19 36.57 build/chunks/search-Bt2yAU87.js                 2.07 kB │ gzip:   0.80 kB
+#19 36.57 build/chunks/Locations-DE4QUgf-.js              2.15 kB │ gzip:   1.05 kB
+#19 36.57 build/chunks/Layout-CV117qbG.js                 2.45 kB │ gzip:   1.32 kB
+#19 36.57 build/chunks/DriverLicense-DSr7FYLn.js          2.49 kB │ gzip:   1.35 kB
+#19 36.57 build/chunks/createSvgIcon-Hvd2xQuy.js          2.52 kB │ gzip:   1.18 kB
+#19 36.57 build/chunks/booking-list-DWYVVkQa.js           2.59 kB │ gzip:   0.99 kB
+#19 36.57 build/chunks/Typography-B5aDv0iq.js             2.68 kB │ gzip:   1.20 kB
+#19 36.57 build/chunks/Input-j6jWFYli.js                  2.68 kB │ gzip:   1.25 kB
+#19 36.57 build/chunks/FormControlLabel-D2Te5fbC.js       2.90 kB │ gzip:   1.36 kB
+#19 36.57 build/chunks/MapDialog-DDfnFhRP.js              2.91 kB │ gzip:   1.60 kB
+#19 36.57 build/chunks/ChangePassword-z15UFfsj.js         3.06 kB │ gzip:   1.27 kB
+#19 36.57 build/chunks/Checkbox-JqKxscZP.js               3.10 kB │ gzip:   1.38 kB
+#19 36.57 build/chunks/Contact-BNakC3_6.js                3.19 kB │ gzip:   1.50 kB
+#19 36.57 build/chunks/Link-CNH1OPbp.js                   3.42 kB │ gzip:   1.39 kB
+#19 36.57 build/chunks/AccountCircle-BcHnmjXa.js          3.45 kB │ gzip:   1.71 kB
+#19 36.57 build/chunks/ForgotPassword-CffqcR9c.js         3.66 kB │ gzip:   1.79 kB
+#19 36.57 build/chunks/Toolbar-BW5vmGgo.js                3.85 kB │ gzip:   1.53 kB
+#19 36.57 build/chunks/SupplierFilter-D0WeQ5S3.js         3.85 kB │ gzip:   1.76 kB
+#19 36.57 build/chunks/MenuItem-E_pwYNHa.js               3.91 kB │ gzip:   1.59 kB
+#19 36.57 build/chunks/newsletter-form-C93JJvTh.js        3.94 kB │ gzip:   1.90 kB
+#19 36.57 build/chunks/CheckoutStatus-aqVnSuMn.js         4.13 kB │ gzip:   1.58 kB
+#19 36.57 build/chunks/utils-C3Ln9uTF.js                  4.26 kB │ gzip:   1.52 kB
+#19 36.57 build/chunks/faq-list-BeQNmOeg.js               4.38 kB │ gzip:   1.92 kB
+#19 36.57 build/chunks/Avatar-qQwbH4Y0.js                 4.61 kB │ gzip:   2.07 kB
+#19 36.57 build/chunks/Badge-DUMyM9_j.js                  4.64 kB │ gzip:   1.90 kB
+#19 36.57 build/chunks/Switch-BnlHJjfz.js                 4.70 kB │ gzip:   1.82 kB
+#19 36.57 build/chunks/ResetPassword-DBUemkhg.js          4.88 kB │ gzip:   2.28 kB
+#19 36.57 build/chunks/Settings-DoLRMemE.js               4.99 kB │ gzip:   1.91 kB
+#19 36.57 build/chunks/Activate-Bgk_GRcy.js               5.00 kB │ gzip:   2.24 kB
+#19 36.57 build/chunks/About-Ci7yZLpU.js                  5.11 kB │ gzip:   2.36 kB
+#19 36.57 build/chunks/IconButton--bjTo_Jy.js             5.28 kB │ gzip:   2.09 kB
+#19 36.57 build/chunks/SignIn-B8XNF-tt.js                 5.52 kB │ gzip:   2.60 kB
+#19 36.57 build/chunks/SignUp-D3Qo4N7b.js                 5.88 kB │ gzip:   2.17 kB
+#19 36.57 build/chunks/Notifications-CCfM7x7e.js          7.02 kB │ gzip:   2.46 kB
+#19 36.57 build/chunks/InputAdornment-DxQiwR1r.js         7.06 kB │ gzip:   2.41 kB
+#19 36.57 build/chunks/SearchForm-DbEBlQu1.js             8.43 kB │ gzip:   3.57 kB
+#19 36.57 build/chunks/tos-BNBu8ok1.js                    8.69 kB │ gzip:   3.31 kB
+#19 36.57 build/chunks/CookiePolicy-CIHkJuzQ.js           8.77 kB │ gzip:   3.54 kB
+#19 36.57 build/chunks/localeTextConstants-C4p5WcUD.js    8.81 kB │ gzip:   2.57 kB
+#19 36.57 build/chunks/checkout-status-DBze_mCX.js        8.84 kB │ gzip:   3.18 kB
+#19 36.57 build/chunks/DatePicker-BTjXBuot.js             8.87 kB │ gzip:   2.79 kB
+#19 36.57 build/chunks/Tooltip-jGXMrmAs.js                9.65 kB │ gzip:   3.37 kB
+#19 36.57 build/chunks/Menu-DVqXQ84W.js                  10.62 kB │ gzip:   4.08 kB
+#19 36.57 build/chunks/privacy-BJ06NUcr.js               10.64 kB │ gzip:   4.11 kB
+#19 36.57 build/chunks/location-carrousel-BalGVMTL.js    10.95 kB │ gzip:   4.13 kB
+#19 36.57 build/chunks/PayPalService--CMheoLu.js         11.51 kB │ gzip:   4.28 kB
+#19 36.57 build/chunks/FaqList-BsrTHfBj.js               12.17 kB │ gzip:   3.92 kB
+#19 36.57 build/chunks/Booking-CYVjWBlt.js               12.94 kB │ gzip:   4.19 kB
+#19 36.57 build/chunks/master-D_o5C3Bt.js                13.97 kB │ gzip:   4.98 kB
+#19 36.57 build/chunks/Footer-dVQ50zzK.js                18.97 kB │ gzip:  12.01 kB
+#19 36.57 build/chunks/CarList-CBEUdqnL.js               21.83 kB │ gzip:   8.48 kB
+#19 36.57 build/chunks/Grow-BBfOoM4u.js                  22.65 kB │ gzip:   7.76 kB
+#19 36.57 build/chunks/OutlinedInput-BTPKHH4a.js         23.07 kB │ gzip:   7.13 kB
+#19 36.57 build/chunks/SwitchBase-BuSRBHbz.js            25.21 kB │ gzip:   9.26 kB
+#19 36.57 build/chunks/Button-B8wnNotx.js                26.01 kB │ gzip:   8.27 kB
+#19 36.57 build/chunks/SocialLogin-BFIGdKPz.js           27.22 kB │ gzip:   9.83 kB
+#19 36.57 build/chunks/fr-BxMQwGj_.js                    30.42 kB │ gzip:   7.88 kB
+#19 36.57 build/chunks/Header-aZGBZh1X.js                32.91 kB │ gzip:  11.38 kB
+#19 36.57 build/chunks/DateTimePicker-C4NynTie.js        38.13 kB │ gzip:  10.70 kB
+#19 36.57 build/chunks/Checkout-DbTqHQTI.js              49.84 kB │ gzip:  15.27 kB
+#19 36.57 build/chunks/LocationSelectList-jQXGgH-n.js    49.96 kB │ gzip:  15.74 kB
+#19 36.57 build/entries/index-PA_eZBrC.js                56.83 kB │ gzip:  18.41 kB
+#19 36.57 build/chunks/Search-ChM-JvIP.js                68.93 kB │ gzip:  17.42 kB
+#19 36.57 build/chunks/Home-DcYL5Jwl.js                  89.01 kB │ gzip:  24.12 kB
+#19 36.57 build/chunks/schemas-ClK7Hqk4.js               93.02 kB │ gzip:  26.99 kB
+#19 36.57 build/chunks/router-BiwHqKhV.js                97.17 kB │ gzip:  32.16 kB
+#19 36.57 build/chunks/validator-DrJ-tDwr.js            126.67 kB │ gzip:  39.87 kB
+#19 36.57 build/chunks/Map-BOzcm61R.js                  163.47 kB │ gzip:  49.75 kB
+#19 36.57 build/chunks/vendor-CJJkNsEl.js               178.28 kB │ gzip:  56.88 kB
+#19 36.57 build/chunks/useMobilePicker-D2hslxwy.js      192.74 kB │ gzip:  54.42 kB
+#19 36.57 build/chunks/UserContext-8gZ8UQxJ.js          240.44 kB │ gzip:  82.28 kB
+#19 36.57 build/chunks/Bookings-D02rmRTo.js             429.40 kB │ gzip: 125.01 kB
+#19 36.57 
+#19 36.57 
+#19 36.57  WARN  [33m[PLUGIN_TIMINGS] Warning:[0m Your build spent significant time in plugins. Here is a breakdown:
+#19 36.57   - vite:terser (39%)
+#19 36.57   - @rolldown/plugin-babel (31%)
+#19 36.57   - vite:css (23%)
+#19 36.57   - vite:asset (5%)
+#19 36.57 See https://rolldown.rs/options/checks#plugintimings for more details.
+#19 36.57 
+#19 36.57 
+#19 36.57 ✓ built in 13.08s
+#19 DONE 37.3s
+
+#20 [stage-1 2/5] WORKDIR /usr/share/nginx/html
+#20 CACHED
+
+#21 [stage-1 3/5] RUN rm -rf -- *
+#21 CACHED
+
+#22 [stage-1 4/5] COPY --from=build /bookcars/frontend/build .
+#22 DONE 0.1s
+
+#23 [stage-1 5/5] COPY ./frontend/nginx.conf /etc/nginx/conf.d/default.conf
+#23 DONE 0.1s
+
+#24 exporting to image
+#24 exporting layers
+#24 exporting layers 0.3s done
+#24 exporting manifest sha256:a0c511ddd7fa839b80f66695a8a4d481ddd1ab9891d4d59f0dd62dab46b79fd3 0.0s done
+#24 exporting config sha256:c70bd71046a3a8b52809ae4c27da7ccaf231d0cecf5796ef9ee5aa46143b4702 0.1s done
+#24 exporting attestation manifest sha256:255801678b22a2f1070fffa0419b50b64e22dcc3febd1eea378c7a1482d2cf44
+#24 exporting attestation manifest sha256:255801678b22a2f1070fffa0419b50b64e22dcc3febd1eea378c7a1482d2cf44 0.1s done
+#24 exporting manifest list sha256:a7127164449a70357abf44364823ee0f168e8fd6f532100f20e89545a498f055 0.0s done
+#24 naming to docker.io/library/bookcars-bc-frontend:latest done
+#24 unpacking to docker.io/library/bookcars-bc-frontend:latest 0.1s done
+#24 DONE 0.7s
+
+#25 resolving provenance for metadata file
+#25 DONE 0.0s

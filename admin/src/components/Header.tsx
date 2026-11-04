@@ -26,6 +26,8 @@ import {
   CorporateFare as SuppliersIcon,
   LocationOn as LocationsIcon,
   DirectionsCar as CarsIcon,
+  EventNote as BookingsIcon,
+  Build as MaintenanceIcon,
   People as UsersIcon,
   InfoTwoTone as AboutIcon,
   DescriptionTwoTone as TosIcon,
@@ -34,6 +36,9 @@ import {
   CalendarMonth as SchedulerIcon,
   AccountBalance as BankDetailsIcon,
   MonetizationOn as PricingIcon,
+  Payments as PaymentsIcon,
+  AccountBalanceWallet as CashJournalIcon,
+  Groups as TeamIcon,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import * as bookcarsTypes from ':bookcars-types'
@@ -313,12 +318,39 @@ const Header = ({
                 </ListItem>
                 <ListItem
                   onClick={() => {
-                    navigate('/scheduler')
+                    navigate('/calendar')
                     handleSideMenuClose()
                   }}
                 >
                   <ListItemIcon><SchedulerIcon /></ListItemIcon>
                   <ListItemText primary={strings.SCHEDULER} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/bookings')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><BookingsIcon /></ListItemIcon>
+                  <ListItemText primary={strings.BOOKINGS} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/payments')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><PaymentsIcon /></ListItemIcon>
+                  <ListItemText primary={strings.PAYMENTS} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/caisse')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><CashJournalIcon /></ListItemIcon>
+                  <ListItemText primary={strings.CASH_JOURNAL} />
                 </ListItem>
                 <ListItem
                   onClick={() => {
@@ -364,6 +396,33 @@ const Header = ({
                 >
                   <ListItemIcon><UsersIcon /></ListItemIcon>
                   <ListItemText primary={strings.USERS} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/clients')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><UsersIcon /></ListItemIcon>
+                  <ListItemText primary={strings.CLIENTS} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/maintenance')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><MaintenanceIcon /></ListItemIcon>
+                  <ListItemText primary={strings.MAINTENANCE} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/team')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><TeamIcon /></ListItemIcon>
+                  <ListItemText primary={strings.TEAM} />
                 </ListItem>
                 <ListItem
                   onClick={() => {

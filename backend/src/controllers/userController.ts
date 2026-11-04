@@ -5,7 +5,8 @@ import { nanoid } from 'nanoid'
 import escapeStringRegexp from 'escape-string-regexp'
 import mongoose from 'mongoose'
 import { CookieOptions, Request, Response } from 'express'
-import nodemailer from 'nodemailer'
+import * as nodemailer from 'nodemailer'
+import type { SendMailOptions } from 'nodemailer'
 import axios from 'axios'
 import * as bookcarsTypes from ':bookcars-types'
 import i18n from '../lang/i18n'
@@ -22,6 +23,9 @@ import NotificationCounter from '../models/NotificationCounter'
 import Car from '../models/Car'
 import AdditionalDriver from '../models/AdditionalDriver'
 import * as logger from '../utils/logger'
+import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
+import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 
 /**
  * Get status message as HTML.
@@ -146,7 +150,7 @@ const _signup = async (req: Request, res: Response, userType: bookcarsTypes.User
 
     const activationLink = `http${env.HTTPS ? 's' : ''}://${req.headers.host}/api/confirm-email/${user.email}/${token.token}`
 
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to: user.email,
       subject: i18n.t('ACCOUNT_ACTIVATION_SUBJECT'),
@@ -234,6 +238,7 @@ export const create = async (req: Request, res: Response) => {
     if (
       sessionUser.type !== bookcarsTypes.UserType.Admin
       && sessionUser.type !== bookcarsTypes.UserType.Supplier
+      && sessionUser.type !== bookcarsTypes.UserType.Staff
     ) {
       logger.error(`[user.create] Unsupported caller role ${sessionUser.type}`)
       res.status(403).send('Forbidden: You cannot create user')
@@ -245,21 +250,24 @@ export const create = async (req: Request, res: Response) => {
       res.status(400).send('Invalid user type')
       return
     }
-    if (sessionUser.type === bookcarsTypes.UserType.Supplier) {
+    if (targetType === bookcarsTypes.UserType.Staff) {
+      logger.error(`[user.create] Staff creation attempted through the generic user endpoint by ${sessionUserId}`)
+      res.status(403).send('Staff accounts must be created through agency membership management')
+      return
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
       if (targetType !== bookcarsTypes.UserType.User) {
         logger.error(`[user.create] Supplier ${sessionUserId} attempted to create user type ${targetType}`)
         res.status(403).send('Forbidden: Suppliers can only create users')
         return
       }
-      if (body.supplier && (
-        !helper.isValidObjectId(body.supplier)
-        || !new mongoose.Types.ObjectId(body.supplier).equals(sessionUser._id)
-      )) {
+      const agencyId = agencySupplierId(req)
+      if (body.supplier && (!helper.isValidObjectId(body.supplier) || body.supplier !== agencyId)) {
         logger.error(`[user.create] Supplier ${sessionUserId} attempted to assign a user to another supplier`)
         res.status(403).send('Forbidden: You cannot assign users to another supplier')
         return
       }
-      body.supplier = sessionUser._id.toString()
+      body.supplier = agencySupplierId(req)
     }
     body.type = targetType
     // end of security check
@@ -425,6 +433,11 @@ export const create = async (req: Request, res: Response) => {
       const tempDir = path.resolve(env.CDN_TEMP_LICENSES)
       const licensesDir = path.resolve(env.CDN_LICENSES)
 
+      if (!isValidLicenseCapabilityFilename(safeLicense)) {
+        res.status(400).send('Invalid or expired license capability')
+        return
+      }
+
       const licensePath = path.resolve(tempDir, safeLicense)
 
       // -----------------------------
@@ -475,7 +488,7 @@ export const create = async (req: Request, res: Response) => {
     // Send email
     i18n.locale = user.language
 
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to: user.email,
       subject: i18n.t('ACCOUNT_ACTIVATION_SUBJECT'),
@@ -562,8 +575,26 @@ export const checkToken = async (req: Request, res: Response) => {
  */
 export const deleteTokens = async (req: Request, res: Response) => {
   const { userId } = req.params
+  const bodyToken: string | undefined = typeof req.body?.token === 'string' ? req.body.token : undefined
 
   try {
+    if (!helper.isValidObjectId(userId)) {
+      throw new Error('User id not valid')
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+
+    // Self-service activation/reset page: prove token ownership via check-token parameters.
+    // Do not allow arbitrary callers to enumerate or destroy another account's reset tokens.
+    const tokenUser = await User.findById(userId).select('_id type active verified')
+    if (!tokenUser || (!sessionUser || sessionUser._id.toString() !== userId)) {
+      const token = await Token.findOne({ user: userId })
+      if (!token || !bodyToken || token.token !== bodyToken) {
+        res.status(403).send('Forbidden: You cannot delete these tokens')
+        return
+      }
+    }
+
     const result = await Token.deleteMany({
       user: new mongoose.Types.ObjectId(userId),
     })
@@ -622,7 +653,7 @@ export const resend = async (req: Request, res: Response) => {
           reset ? 'reset-password' : 'activate',
         )}/?u=${encodeURIComponent(user._id.toString())}&e=${encodeURIComponent(user.email)}&t=${encodeURIComponent(token.token)}`
 
-        const mailOptions: nodemailer.SendMailOptions = {
+        const mailOptions: SendMailOptions = {
           from: env.SMTP_FROM,
           to: user.email,
           subject: reset ? i18n.t('PASSWORD_RESET_SUBJECT') : i18n.t('ACCOUNT_ACTIVATION_SUBJECT'),
@@ -837,6 +868,11 @@ export const socialSignin = async (req: Request, res: Response) => {
 
     let user = await User.findOne({ email })
 
+    if (user && user.type !== bookcarsTypes.UserType.User) {
+      res.sendStatus(204)
+      return
+    }
+
     if (!user) {
       user = new User({
         email,
@@ -950,6 +986,12 @@ export const getPushToken = async (req: Request, res: Response) => {
       throw new Error('userId is not valid')
     }
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    if (!sessionUser || (sessionUser.type !== bookcarsTypes.UserType.Admin && sessionUser._id.toString() !== userId)) {
+      res.status(403).send('Forbidden: You cannot read this push token')
+      return
+    }
+
     const pushToken = await PushToken.findOne({ user: userId })
     if (pushToken) {
       res.json(pushToken.token)
@@ -978,6 +1020,12 @@ export const createPushToken = async (req: Request, res: Response) => {
   try {
     if (!helper.isValidObjectId(userId)) {
       throw new Error('userId is not valid')
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    if (!sessionUser || (sessionUser.type !== bookcarsTypes.UserType.Admin && sessionUser._id.toString() !== userId)) {
+      res.status(403).send('Forbidden: You cannot create this push token')
+      return
     }
 
     const exist = await PushToken.exists({ user: userId })
@@ -1014,6 +1062,12 @@ export const deletePushToken = async (req: Request, res: Response) => {
   try {
     if (!helper.isValidObjectId(userId)) {
       throw new Error('userId is not valid')
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    if (!sessionUser || (sessionUser.type !== bookcarsTypes.UserType.Admin && sessionUser._id.toString() !== userId)) {
+      res.status(403).send('Forbidden: You cannot delete this push token')
+      return
     }
 
     await PushToken.deleteMany({ user: userId })
@@ -1157,7 +1211,7 @@ export const resendLink = async (req: Request, res: Response) => {
 
     const activateLink = `http${env.HTTPS ? 's' : ''}://${req.headers.host}/api/confirm-email/${user.email}/${token.token}`
 
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to: user.email,
       subject: i18n.t('ACCOUNT_ACTIVATION_SUBJECT'),
@@ -1212,18 +1266,23 @@ export const update = async (req: Request, res: Response) => {
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
     const isSelf = !!sessionUser && sessionUser._id.equals(user._id)
+    const agencyId = agencySupplierId(req)
     const isAuthorizedSupplierUser = !!sessionUser
-      && sessionUser.type === bookcarsTypes.UserType.Supplier
+      && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
       && user.type === bookcarsTypes.UserType.User
-      && user.supplier?.equals(sessionUser._id)
+      && !!agencyId
+      && user.supplier?.toString() === agencyId
+      && (sessionUser.type !== bookcarsTypes.UserType.Staff
+        || hasAgencyPermission(req.agency, AgencyPermission.ManageClients))
     if (!sessionUser
       || (sessionUser.type === bookcarsTypes.UserType.User && !isSelf)
-      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+      || ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
         && !isSelf
         && !isAuthorizedSupplierUser)
       || (
         sessionUser.type !== bookcarsTypes.UserType.Admin
         && sessionUser.type !== bookcarsTypes.UserType.Supplier
+        && sessionUser.type !== bookcarsTypes.UserType.Staff
         && sessionUser.type !== bookcarsTypes.UserType.User
       )
     ) {
@@ -1277,6 +1336,10 @@ export const update = async (req: Request, res: Response) => {
     }
     // only admins can update user type
     if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+      if (type === bookcarsTypes.UserType.Staff) {
+        res.status(403).send('Staff accounts must be managed through agency membership management')
+        return
+      }
       if (type) {
         user.type = type as bookcarsTypes.UserType
       }
@@ -1313,6 +1376,23 @@ export const updateEmailNotifications = async (req: Request, res: Response) => {
     if (!user) {
       logger.error('[user.updateEmailNotifications] User not found:', body)
       res.sendStatus(204)
+      return
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const agencyId = agencySupplierId(req)
+    const canUpdate = !!sessionUser && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || sessionUser._id.equals(user._id)
+      || ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+        && user.type === bookcarsTypes.UserType.User
+        && !!agencyId
+        && user.supplier?.toString() === agencyId
+        && (sessionUser.type !== bookcarsTypes.UserType.Staff
+          || hasAgencyPermission(req.agency, AgencyPermission.ManageClients)))
+    )
+    if (!canUpdate) {
+      res.status(403).send('Forbidden: You cannot update this user notification setting')
       return
     }
 
@@ -1362,17 +1442,14 @@ export const updateLanguage = async (req: Request, res: Response) => {
     }
     // users can only update their own language
     if (
-      sessionUser.type === bookcarsTypes.UserType.User && sessionUserId !== user._id.toString()
+      [
+        bookcarsTypes.UserType.User,
+        bookcarsTypes.UserType.Supplier,
+        bookcarsTypes.UserType.Staff,
+      ].includes(sessionUser.type as bookcarsTypes.UserType)
+      && sessionUserId !== user._id.toString()
     ) {
       logger.error(`[user.updateLanguage] User ${sessionUserId} tried to update another user's language`)
-      res.status(403).send('Forbidden: You cannot update another user')
-      return
-    }
-    // suppliers can only update their own language
-    if (
-      sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUserId !== user._id.toString()
-    ) {
-      logger.error(`[user.updateLanguage] Supplier ${sessionUserId} tried to update another user's language`)
       res.status(403).send('Forbidden: You cannot update another user')
       return
     }
@@ -1439,9 +1516,20 @@ export const getUser = async (req: Request, res: Response) => {
     const isSupplierUser = sessionUserType === bookcarsTypes.UserType.Supplier
       && user?.type === bookcarsTypes.UserType.User
       && user?.supplier?.toString() === sessionUserId
+    const isStaffSelf = sessionUserType === bookcarsTypes.UserType.Staff && isSelf
+    const isStaffAgencyCustomer = sessionUserType === bookcarsTypes.UserType.Staff
+      && user?.type === bookcarsTypes.UserType.User
+      && !!user.supplier
+      && agencySupplierId(req) === user.supplier.toString()
+      && hasAgencyPermission(req.agency, AgencyPermission.ReadClients)
+
+    if (user && isStaffAgencyCustomer && !hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)) {
+      user.license = undefined
+    }
 
     if (
-      sessionUserType === bookcarsTypes.UserType.User && !isSelf
+      (sessionUserType === bookcarsTypes.UserType.User && !isSelf)
+      || (sessionUserType === bookcarsTypes.UserType.Staff && !isStaffSelf && !isStaffAgencyCustomer)
     ) {
       logger.error(`[user.getUser] Forbidden: user ${sessionUserId} tried to read user ${id}`)
       res.status(403).send('Forbidden')
@@ -1485,7 +1573,7 @@ export const createAvatar = async (req: Request, res: Response) => {
       throw new Error('[user.createAvatar] req.file not found')
     }
 
-    const filename = `${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
+    const filename = `${req.user?._id}_${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
     const filepath = path.join(env.CDN_TEMP_USERS, filename)
 
     // security check: restrict allowed extensions
@@ -1524,6 +1612,19 @@ export const updateAvatar = async (req: Request, res: Response) => {
     }
 
     const user = await User.findById(userId)
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const canManageAvatar = !!sessionUser && !!user && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || sessionUser._id.equals(user._id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+        && user.type === bookcarsTypes.UserType.User
+        && user.supplier?.equals(sessionUser._id))
+    )
+    if (!canManageAvatar) {
+      res.status(403).send('Forbidden: You cannot delete this avatar')
+      return
+    }
 
     if (user) {
       if (user.avatar && !user.avatar.startsWith('http')) {
@@ -1574,6 +1675,19 @@ export const deleteAvatar = async (req: Request, res: Response) => {
   try {
     const user = await User.findById(userId)
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const canManageAvatar = !!sessionUser && !!user && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || sessionUser._id.equals(user._id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+        && user.type === bookcarsTypes.UserType.User
+        && user.supplier?.equals(sessionUser._id))
+    )
+    if (!canManageAvatar) {
+      res.status(403).send('Forbidden: You cannot update this avatar')
+      return
+    }
+
     if (user) {
       if (user.avatar && !user.avatar.startsWith('http')) {
         const avatar = path.join(env.CDN_USERS, user.avatar)
@@ -1612,6 +1726,12 @@ export const deleteTempAvatar = async (req: Request, res: Response) => {
     // prevent null bytes
     if (avatar.includes('\0')) {
       res.status(400).send('Invalid filename')
+      return
+    }
+
+    const sessionUser = req.user
+    if (!sessionUser || !canDeleteOwnedTempFile(sessionUser, avatar)) {
+      res.status(403).send('Forbidden')
       return
     }
 
@@ -1741,6 +1861,18 @@ export const checkPassword = async (req: Request, res: Response) => {
     }
 
     const user = await User.findById(id)
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const canCheckPassword = !!sessionUser && !!user && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || sessionUser._id.equals(user._id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+        && user.type === bookcarsTypes.UserType.User
+        && user.supplier?.equals(sessionUser._id))
+    )
+    if (!canCheckPassword) {
+      res.status(403).send('Forbidden: You cannot check this password')
+      return
+    }
     if (user) {
       if (!user.password) {
         logger.error('[user.changePassword] User.password not found')
@@ -1807,6 +1939,15 @@ export const getUsers = async (req: Request, res: Response) => {
           expireAt: null,
         },
       ],
+    }
+
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const agencyId = agencySupplierId(req)
+      if (!agencyId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      $match.$and!.push({ supplier: agencyId, type: bookcarsTypes.UserType.User })
     }
 
     if (userId) {
@@ -1880,7 +2021,7 @@ export const deleteUsers = async (req: Request, res: Response) => {
 
       if (user) {
         // begin of security check
-        if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUserId !== user.supplier?.toString())) {
+        if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType) && agencySupplierId(req) !== user.supplier?.toString())) {
           logger.error(`[user.delete] Unauthorized attempt to delete user ${id} by user ${sessionUserId}`)
           unauthorizedAttemptLogged = true
           continue
@@ -2005,7 +2146,7 @@ export const sendEmail = async (req: Request, res: Response) => {
     const { body }: { body: bookcarsTypes.SendEmailPayload } = req
     const { from, to, subject, message, isContactForm } = body
 
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to,
       subject: isContactForm ? i18n.t('CONTACT_SUBJECT') : subject,
@@ -2039,6 +2180,19 @@ export const hasPassword = async (req: Request, res: Response) => {
     if (!helper.isValidObjectId(id)) {
       throw new Error('User id not valid')
     }
+    const targetUser = await User.findById(id).select('_id type supplier')
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const canReadPasswordState = !!sessionUser && !!targetUser && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || sessionUser._id.equals(targetUser._id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+        && targetUser.type === bookcarsTypes.UserType.User
+        && targetUser.supplier?.equals(sessionUser._id))
+    )
+    if (!canReadPasswordState) {
+      res.status(403).send('Forbidden: You cannot read this password state')
+      return
+    }
     const passwordExists = await User.exists({ _id: id, password: { $ne: null } })
 
     if (passwordExists) {
@@ -2071,16 +2225,15 @@ export const createLicense = async (req: Request, res: Response) => {
       throw new Error('File extension not found')
     }
 
-    const filename = `${nanoid()}${path.extname(req.file.originalname)}`
-    const filepath = path.join(env.CDN_TEMP_LICENSES, filename)
-
+    const ext = path.extname(req.file.originalname).toLowerCase()
     // security check: restrict allowed extensions
-    const ext = path.extname(filename)
-    if (!env.allowedLicenseExtensions.includes(ext.toLowerCase())) {
+    if (!env.allowedLicenseExtensions.includes(ext)) {
       res.status(400).send('Invalid license file type')
       return
     }
 
+    const filename = createLicenseCapabilityFilename(ext)
+    const filepath = path.join(env.CDN_TEMP_LICENSES, filename)
     await asyncFs.writeFile(filepath, req.file.buffer)
     res.json(filename)
   } catch (err) {
@@ -2113,7 +2266,21 @@ export const updateLicense = async (req: Request, res: Response) => {
       throw new Error('User Id not valid')
     }
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const user = await User.findOne({ _id: id, type: bookcarsTypes.UserType.User })
+    const canManageLicense = !!sessionUser && !!user && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.User && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier
+        && user.supplier?.toString() === sessionUser._id.toString())
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && user.supplier?.toString() === agencySupplierId(req)
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments))
+    )
+    if (!canManageLicense) {
+      res.status(403).send('Forbidden: You cannot update this license')
+      return
+    }
 
     if (user) {
       if (user.license) {
@@ -2165,7 +2332,20 @@ export const deleteLicense = async (req: Request, res: Response) => {
       throw new Error('User Id not valid')
     }
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const user = await User.findOne({ _id: id, type: bookcarsTypes.UserType.User })
+    const canManageLicense = !!sessionUser && !!user && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.User && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && user.supplier?.toString() === sessionUser._id.toString())
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && user.supplier?.toString() === agencySupplierId(req)
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments))
+    )
+    if (!canManageLicense) {
+      res.status(403).send('Forbidden: You cannot delete this license')
+      return
+    }
 
     if (user) {
       if (user.license) {
@@ -2206,6 +2386,11 @@ export const deleteTempLicense = async (req: Request, res: Response) => {
       return
     }
 
+    if (!isValidLicenseCapabilityFilename(file)) {
+      res.status(403).send('Invalid or expired file capability')
+      return
+    }
+
     const baseDir = path.resolve(env.CDN_TEMP_LICENSES)
     const targetPath = path.resolve(baseDir, file)
 
@@ -2226,3 +2411,5 @@ export const deleteTempLicense = async (req: Request, res: Response) => {
     res.status(400).send(i18n.t('ERROR') + err)
   }
 }
+
+

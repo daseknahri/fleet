@@ -9,6 +9,7 @@ const strings = new LocalizedStrings({
     SIGN_UP_SUCCESS_HEADING: 'Inscription réussie',
     SIGN_UP_SUCCESS_MESSAGE: "Un e-mail d'activation a été envoyé si cette adresse n'est pas déjà enregistrée. Si vous avez déjà un compte, veuillez vous connecter.",
   },
+  ar: { SIGN_UP_HEADING: 'إنشاء حساب', FIRST_NAME: 'الاسم الأول', LAST_NAME: 'اسم العائلة', EMAIL: 'البريد الإلكتروني', PASSWORD: 'كلمة المرور', CONFIRM_PASSWORD: 'تأكيد كلمة المرور', PHONE: 'رقم الهاتف', SIGN_UP: 'تسجيل', ALREADY_REGISTERED: 'لديك حساب بالفعل؟', TOS: 'قرأت وأوافق على شروط الاستخدام', TOS_ERROR: 'يرجى الموافقة على شروط الاستخدام.' },
   en: {
     SIGN_UP_HEADING: 'Register',
     SIGN_UP: 'Register',

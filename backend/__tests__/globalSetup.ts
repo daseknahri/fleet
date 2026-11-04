@@ -1,10 +1,10 @@
 import 'dotenv/config'
-import * as bookcarsTypes from ':bookcars-types'
-import * as env from '../src/config/env.config'
-import * as logger from '../src/utils/logger'
-import * as databaseHelper from '../src/utils/databaseHelper'
-import User from '../src/models/User'
-import * as authHelper from '../src/utils/authHelper'
+// globalSetup is loaded by Jest as a compiled Node module, outside the test transform.
+import * as env from '../src/config/env.config.js'
+import * as logger from '../src/utils/logger.js'
+import * as databaseHelper from '../src/utils/databaseHelper.js'
+import User from '../src/models/User.js'
+import * as authHelper from '../src/utils/authHelper.js'
 
 export default async function globalSetup() {
   try {
@@ -21,7 +21,7 @@ export default async function globalSetup() {
           email: env.ADMIN_EMAIL,
           language: 'en',
           password: passwordHash,
-          type: bookcarsTypes.UserType.Admin,
+          type: 'admin',
         })
         await admin.save()
         logger.info('globalSetup: Admin user created:', admin._id.toString())

@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-11-04T20:22:00Z",
+  "mode": "authenticated Chrome CDP page fetch against live admin session",
+  "bookingId": "6aeb945121ad66aa3cc4fdb1",
+  "uploadPhoto": 201,
+  "uploadSignature": 201,
+  "downloadPhoto": 200,
+  "downloadSignature": 200,
+  "handover": 201,
+  "return": 201,
+  "charge": 201,
+  "decision": 200,
+  "snapshot": 201,
+  "snapshotDownload": 200,
+  "snapshotMagic": "%PDF",
+  "complete": 200,
+  "lifecycle": "completed",
+  "cleanup": "booking, inspections, charges, snapshots deleted by exact booking ID; verification returned zero matching records"
+}

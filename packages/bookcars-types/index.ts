@@ -2,6 +2,23 @@ export enum UserType {
   Admin = 'admin',
   Supplier = 'supplier',
   User = 'user',
+  Staff = 'staff',
+}
+
+/** Staff roles are agency-scoped and are resolved from AgencyMembership. */
+export enum AgencyRole {
+  Owner = 'owner',
+  Manager = 'manager',
+  CounterAgent = 'counterAgent',
+  Accountant = 'accountant',
+  Mechanic = 'mechanic',
+  ReadOnly = 'readOnly',
+}
+
+export enum AgencyMembershipStatus {
+  Pending = 'pending',
+  Active = 'active',
+  Suspended = 'suspended',
 }
 
 export enum AppType {
@@ -47,6 +64,20 @@ export enum FuelPolicy {
   FullToEmpty = 'FullToEmpty',
 }
 
+export enum ContractLifecycle {
+  Draft = 'draft',
+  Confirmed = 'confirmed',
+  Active = 'active',
+  ReturnReview = 'returnReview',
+  Completed = 'completed',
+  Cancelled = 'cancelled',
+}
+
+export enum InspectionType {
+  Handover = 'handover',
+  Return = 'return',
+}
+
 export enum BookingStatus {
   Void = 'void',
   Pending = 'pending',
@@ -55,6 +86,67 @@ export enum BookingStatus {
   PaidInFull = 'paidInFull',
   Reserved = 'reserved',
   Cancelled = 'cancelled',
+}
+
+export enum CashAccountType {
+  Cash = 'cash',
+  Bank = 'bank',
+}
+
+export enum CashSessionStatus {
+  Open = 'open',
+  Closed = 'closed',
+}
+
+export enum CashMovementDirection {
+  In = 'in',
+  Out = 'out',
+}
+
+export enum CashMovementSource {
+  Manual = 'manual',
+  Transfer = 'transfer',
+  Adjustment = 'adjustment',
+}
+
+export enum InvoiceStatus {
+  Draft = 'draft',
+  Issued = 'issued',
+  Voided = 'voided',
+}
+
+export enum ApprovalDecision {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+}
+
+export enum ContractChargeType {
+  Damage = 'damage',
+  Fee = 'fee',
+}
+
+export enum MaintenanceExpenseType {
+  Maintenance = 'maintenance',
+  Repair = 'repair',
+  Cleaning = 'cleaning',
+  Fuel = 'fuel',
+  Insurance = 'insurance',
+  Other = 'other',
+}
+
+export enum WorkOrderStatus {
+  Scheduled = "scheduled",
+  InProgress = "inProgress",
+  Completed = "completed",
+  Cancelled = "cancelled",
+}
+
+export enum MaintenanceScheduleStatus {
+  Upcoming = 'upcoming',
+  Due = 'due',
+  Overdue = 'overdue',
+  Completed = 'completed',
 }
 
 export enum Mileage {
@@ -81,6 +173,61 @@ export enum PaymentGateway {
   Stripe = 'stripe',
 }
 
+export interface AgencyMembership {
+  _id?: string
+  supplier: string
+  user: string | User
+  role: AgencyRole
+  status: AgencyMembershipStatus
+  invitedBy?: string
+  activatedAt?: Date
+  suspendedAt?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CreateAgencyMembershipPayload {
+  supplier?: string
+  user?: string
+  email?: string
+  fullName?: string
+  password?: string
+  role: AgencyRole
+}
+
+export interface UpdateAgencyMembershipPayload {
+  role?: AgencyRole
+  status?: AgencyMembershipStatus
+}
+
+export interface ContractInspection {
+  _id?: string
+  supplier: string | User
+  booking: string | Booking
+  car: string | Car
+  type: InspectionType
+  occurredAt: Date
+  odometer?: number
+  fuelLevel?: number
+  condition?: string
+  damageNote?: string
+  photoFiles?: string[]
+  signatureFile?: string
+  acknowledgedBy?: string | User
+  actor?: string | User
+  createdAt?: Date
+}
+
+export interface CreateContractInspectionPayload {
+  occurredAt?: Date | string
+  odometer?: number
+  fuelLevel?: number
+  condition?: string
+  damageNote?: string
+  photoFiles?: string[]
+  signatureFile?: string
+}
+
 export interface Booking {
   _id?: string
   supplier: string | User
@@ -91,6 +238,7 @@ export interface Booking {
   from: Date
   to: Date
   status: BookingStatus
+  lifecycle?: ContractLifecycle
   cancellation?: boolean
   amendments?: boolean
   theftProtection?: boolean
@@ -106,18 +254,55 @@ export interface Booking {
   expireAt?: Date
   isDeposit?: boolean
   isPayedInFull?: boolean
+  ledgerVersion?: number
   paypalOrderId?: string
+  financialSnapshot?: BookingFinancialSnapshot
+}
+
+export enum CheckoutPaymentMode {
+  PayLater = 'payLater',
+  Deposit = 'deposit',
+  Rental = 'rental',
+  Full = 'full',
+}
+
+/** Server-calculated booking terms captured at checkout time. */
+export interface BookingFinancialSnapshot {
+  version: 1
+  baseCurrency: string
+  paymentCurrency: string
+  mode: CheckoutPaymentMode
+  rentalTotal: number
+  depositAmount: number
+  amountDueNow: number
+  amountDueNowInPaymentCurrency: number
+  quotedAt: Date
 }
 
 export interface CheckoutPayload {
   driver?: User
   booking?: Booking
   additionalDriver?: AdditionalDriver
-  payLater: boolean
-  sessionId?: string
+  paymentMode?: CheckoutPaymentMode
+  currency?: string
+  paymentGateway?: PaymentGateway
+  paymentFlow?: 'embedded' | 'paymentSheet'
+  /** @deprecated Ignored by the server. Retained for older client source compatibility. */
+  payLater?: boolean
+  /** @deprecated Provider references are generated or verified by the server. */
   paymentIntentId?: string
   customerId?: string
+  sessionId?: string
   payPal?: boolean
+}
+
+export interface CheckoutResult {
+  bookingId: string
+  sessionId?: string
+  customerId?: string
+  clientSecret?: string | null
+  paymentIntentId?: string
+  financialSnapshot?: BookingFinancialSnapshot
 }
 
 export interface Filter {
@@ -516,6 +701,286 @@ export interface Car {
   [propKey: string]: any
 }
 
+export interface ContractCharge {
+  _id?: string
+  supplier: string | User
+  booking: string | Booking
+  inspection?: string | ContractInspection
+  type: ContractChargeType
+  reason: string
+  amount: number
+  currency: string
+  status: ApprovalDecision
+  requestedBy?: string | User
+  decidedBy?: string | User
+  decidedAt?: Date
+  decisionNote?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface ContractSnapshot {
+  _id?: string
+  supplier: string | User
+  booking: string | Booking
+  version: number
+  pdfFile: string
+  contentHash: string
+  generatedAt: Date
+  createdAt?: Date
+}
+
+export interface Invoice {
+  _id?: string
+  supplier: string | User
+  booking: string | Booking
+  number?: string
+  status: InvoiceStatus
+  currency: string
+  subtotal: number
+  taxAmount: number
+  total: number
+  paidAmount?: number
+  paymentStatus?: 'unpaid' | 'partial' | 'paid'
+  payments?: string[]
+  issuedAt?: Date
+  issuedBy?: string | User
+  voidedAt?: Date
+  voidedBy?: string | User
+  voidReason?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CreateInvoicePayload { booking: string; taxAmount?: number }
+export interface VoidInvoicePayload { reason: string }
+
+export interface CashSession {
+  _id?: string
+  supplier: string | User
+  account: CashAccountType
+  currency: string
+  openedAt: Date
+  openedBy?: string | User
+  openingBalance: number
+  status: CashSessionStatus
+  closedAt?: Date
+  closedBy?: string | User
+  expectedClosingBalance?: number
+  countedClosingBalance?: number
+  discrepancy?: number
+  closingNote?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CashMovement {
+  _id?: string
+  supplier: string | User
+  session: string | CashSession
+  account: CashAccountType
+  currency: string
+  date: Date
+  direction: CashMovementDirection
+  amount: number
+  source: CashMovementSource
+  idempotencyKey?: string
+  transferId?: string
+  reference?: string
+  note?: string
+  actor?: string | User
+  createdAt?: Date
+}
+
+export interface OpenCashSessionPayload {
+  supplier?: string
+  account: CashAccountType
+  currency?: string
+  openingBalance: number
+}
+
+export interface CreateCashMovementPayload {
+  account?: CashAccountType
+  date: Date | string
+  direction: CashMovementDirection
+  amount: number
+  source?: CashMovementSource
+  idempotencyKey?: string
+  reference?: string
+  note?: string
+}
+
+export interface CloseCashSessionPayload {
+  countedClosingBalance: number
+  closingNote?: string
+}
+
+export interface CreateCashTransferPayload {
+  supplier?: string
+  fromSession: string
+  toSession: string
+  amount: number
+  date?: Date | string
+  idempotencyKey?: string
+  reference?: string
+  note?: string
+}
+
+export interface MaintenanceWorkOrder {
+  _id?: string
+  supplier: string | User
+  car: string | Car
+  title: string
+  type: MaintenanceExpenseType
+  status: WorkOrderStatus
+  scheduledStart: Date
+  scheduledEnd: Date
+  completedAt?: Date
+  odometer?: number
+  vendor?: string
+  note?: string
+  expense?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface UpsertMaintenanceWorkOrderPayload {
+  car: string
+  title: string
+  type: MaintenanceExpenseType
+  status?: WorkOrderStatus
+  scheduledStart: Date | string
+  scheduledEnd: Date | string
+  odometer?: number
+  vendor?: string
+  note?: string
+  expense?: string
+}
+
+export interface MaintenanceExpense {
+  _id?: string
+  supplier: string | User
+  car: string | Car
+  date: Date
+  type: MaintenanceExpenseType
+  amount: number
+  mileage?: number
+  vendor?: string
+  note?: string
+  receipt?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface UpsertMaintenanceExpensePayload {
+  car: string
+  date: Date | string
+  type: MaintenanceExpenseType
+  amount: number
+  mileage?: number
+  vendor?: string
+  note?: string
+  receipt?: string | null
+}
+
+export interface MaintenanceSchedule {
+  _id?: string
+  supplier: string | User
+  car: string | Car
+  type: MaintenanceExpenseType
+  title: string
+  intervalDays?: number
+  intervalKm?: number
+  lastServiceDate?: Date
+  lastServiceMileage?: number
+  nextDueDate: Date
+  nextDueMileage?: number
+  status: MaintenanceScheduleStatus
+  note?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface UpsertMaintenanceSchedulePayload {
+  car: string
+  type: MaintenanceExpenseType
+  title: string
+  intervalDays?: number
+  intervalKm?: number
+  lastServiceDate?: Date | string
+  lastServiceMileage?: number
+  nextDueDate?: Date | string
+  nextDueMileage?: number
+  status?: MaintenanceScheduleStatus
+  note?: string
+}
+
+export enum RentalPaymentMethod {
+  Cash = 'cash',
+  BankTransfer = 'bankTransfer',
+  Card = 'card',
+  Other = 'other',
+}
+
+export enum RentalPaymentPurpose {
+  Rent = 'rent',
+  Deposit = 'deposit',
+}
+
+export enum RentalPaymentSource {
+  Manual = 'manual',
+  Stripe = 'stripe',
+  PayPal = 'paypal',
+  Adjustment = 'adjustment',
+}
+
+export enum RentalPaymentDirection {
+  Credit = 'credit',
+  Debit = 'debit',
+}
+
+export enum RentalPaymentStatus {
+  Pending = 'pending',
+  Posted = 'posted',
+  Reversed = 'reversed',
+}
+
+export interface RentalPayment {
+  _id?: string
+  supplier: string | User
+  booking: string | Booking
+  date: Date
+  amount: number
+  currency?: string
+  method: RentalPaymentMethod
+  purpose?: RentalPaymentPurpose
+  direction?: RentalPaymentDirection
+  source?: RentalPaymentSource
+  status?: RentalPaymentStatus
+  idempotencyKey?: string
+  providerReference?: string
+  actor?: string | User
+  reversedFrom?: string | RentalPayment
+  settledAt?: Date
+  reference?: string
+  note?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CreateRentalPaymentPayload {
+  booking: string
+  date: Date
+  amount: number
+  currency?: string
+  method: RentalPaymentMethod
+  purpose?: RentalPaymentPurpose
+  idempotencyKey?: string
+  providerReference?: string
+  reference?: string
+  note?: string
+}
+
 export interface Data<T> {
   rows: T[]
   rowCount: number
@@ -578,8 +1043,10 @@ export interface CreatePaymentPayload {
 
 export interface CreatePayPalOrderPayload {
   bookingId: string
-  amount: number
-  currency: string
+  /** @deprecated Ignored; charge comes from the saved booking snapshot. */
+  amount?: number
+  /** @deprecated Ignored; currency comes from the saved booking snapshot. */
+  currency?: string
   name: string
   description: string
 }
@@ -665,3 +1132,7 @@ export interface CarOptions {
   fullInsurance?: boolean
   additionalDriver?: boolean
 }
+
+
+
+

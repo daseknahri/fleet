@@ -642,109 +642,6 @@ const CheckoutScreen = () => {
       }
 
       const currency = await StripeService.getCurrency()
-      let paid = payLater
-      let canceled = false
-      let paymentIntentId: string | undefined
-      let customerId: string | undefined
-      try {
-        if (!payLater) {
-          const name = bookcarsHelper.truncateString(`${env.WEBSITE_NAME} - ${__car.name}`, StripeService.ORDER_NAME_MAX_LENGTH)
-          const _locale = _fr ? fr : _es ? es : enUS
-          const daysLabel = __from && __to && `${helper.getDaysShort(days)} (${bookcarsHelper.capitalize(format(__from, _format, { locale: _locale }))} - ${bookcarsHelper.capitalize(format(__to, _format, { locale: _locale }))})`
-          const _description = `${env.WEBSITE_NAME} - ${__car.name} - ${daysLabel} - ${__pickupLocation._id === __dropOffLocation._id ? __pickupLocation.name : `${__pickupLocation.name} - ${__dropOffLocation.name}`}`
-          const description = bookcarsHelper.truncateString(_description, StripeService.ORDER_DESCRIPTION_MAX_LENGTH)
-
-          let amount = price
-          if (payDeposit) {
-            amount = depositPrice
-          } else if (payInFull) {
-            amount = price + depositPrice
-          }
-
-          const createPaymentIntentPayload: bookcarsTypes.CreatePaymentPayload = {
-            amount,
-            currency,
-            locale: language,
-            receiptEmail: (!authenticated ? driver?.email : user?.email) as string,
-            name,
-            description,
-            customerName: (!authenticated ? driver?.fullName : user?.fullName) as string,
-          }
-
-          // Create payment intent
-          const {
-            paymentIntentId: stripePaymentIntentId,
-            clientSecret,
-            customerId: stripeCustomerId,
-          } = await StripeService.createPaymentIntent(createPaymentIntentPayload)
-          paymentIntentId = stripePaymentIntentId || undefined
-          customerId = stripeCustomerId || undefined
-
-          if (clientSecret) {
-            const { error: initPaymentSheetError } = await initPaymentSheet({
-              customerId,
-              paymentIntentClientSecret: clientSecret,
-              merchantDisplayName: 'BookCars',
-              googlePay: {
-                merchantCountryCode: env.STRIPE_COUNTRY_CODE.toUpperCase(),
-                testEnv: env.STRIPE_PUBLISHABLE_KEY.includes('_test_'),
-                currencyCode: currency,
-              },
-              applePay: {
-                merchantCountryCode: env.STRIPE_COUNTRY_CODE.toUpperCase(),
-              },
-            })
-            if (initPaymentSheetError) {
-              console.log(initPaymentSheetError)
-              paid = false
-            } else {
-              const { error: presentPaymentSheetError } = await presentPaymentSheet()
-              if (presentPaymentSheetError) {
-                canceled = presentPaymentSheetError.code === PaymentSheetError.Canceled
-                if (!canceled) {
-                  console.log(`${presentPaymentSheetError.code} - ${presentPaymentSheetError.message}`)
-                  paid = false
-                }
-              } else {
-                paid = true
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.log(err)
-        paid = false
-      }
-
-      if (canceled) {
-        setLoading(false)
-        return
-      }
-
-      if (!paid) {
-        setLoading(false)
-        alert(i18n.t('PAYMENT_FAILED'))
-        return
-      }
-
-      let amount = price
-      if (payDeposit) {
-        amount = depositPrice
-      } else if (payInFull) {
-        amount = price + depositPrice
-      }
-
-      const basePrice = await bookcarsHelper.convertPrice(amount, currency, env.BASE_CURRENCY)
-
-      let bookingStatus = bookcarsTypes.BookingStatus.Paid
-      if (payLater) {
-        bookingStatus = bookcarsTypes.BookingStatus.Pending
-      } else if (payDeposit) {
-        bookingStatus = bookcarsTypes.BookingStatus.Deposit
-      } else if (payInFull) {
-        bookingStatus = bookcarsTypes.BookingStatus.PaidInFull
-      }
-
       const booking: bookcarsTypes.Booking = {
         supplier: __car.supplier._id as string,
         car: __car._id as string,
@@ -753,16 +650,14 @@ const CheckoutScreen = () => {
         dropOffLocation: __dropOffLocation._id as string,
         from: __from,
         to: __to,
-        status: bookingStatus,
+        status: bookcarsTypes.BookingStatus.Pending,
         cancellation,
         amendments,
         theftProtection,
         collisionDamageWaiver,
         fullInsurance,
         additionalDriver,
-        price: basePrice,
-        isDeposit: payDeposit,
-        isPayedInFull: payInFull,
+        price: 0,
       }
 
       if (adRequired && additionalDriver && addtionalDriverBirthDate) {
@@ -778,20 +673,83 @@ const CheckoutScreen = () => {
         driver,
         booking,
         additionalDriver: _additionalDriver,
-        payLater,
-        paymentIntentId,
-        customerId
+        paymentMode: payLater ? bookcarsTypes.CheckoutPaymentMode.PayLater
+          : payDeposit ? bookcarsTypes.CheckoutPaymentMode.Deposit
+            : payInFull ? bookcarsTypes.CheckoutPaymentMode.Full
+              : bookcarsTypes.CheckoutPaymentMode.Rental,
+        currency,
+        paymentGateway: bookcarsTypes.PaymentGateway.Stripe,
+        paymentFlow: 'paymentSheet',
       }
 
-      const status = await BookingService.checkout(payload)
+      const checkout = await BookingService.checkout(payload)
 
-      if (status === 200) {
+      if (checkout.status !== 200) {
+        _error()
+        return
+      }
+
+      if (payLater) {
         setLoading(false)
         setFormVisible(false)
         setSuccess(true)
-      } else {
-        _error()
+        return
       }
+
+      const paymentIntentId = checkout.paymentIntentId
+      const clientSecret = checkout.clientSecret
+      const customerId = checkout.customerId
+      const releaseTemporaryBooking = async () => {
+        if (checkout.sessionId) {
+          await BookingService.deleteTempBooking(checkout.bookingId, checkout.sessionId).catch(() => undefined)
+        }
+      }
+
+      if (!paymentIntentId || !clientSecret || !checkout.sessionId) {
+        await releaseTemporaryBooking()
+        _error()
+        return
+      }
+
+      const { error: initPaymentSheetError } = await initPaymentSheet({
+        customerId,
+        paymentIntentClientSecret: clientSecret,
+        merchantDisplayName: env.WEBSITE_NAME,
+        googlePay: {
+          merchantCountryCode: env.STRIPE_COUNTRY_CODE.toUpperCase(),
+          testEnv: env.STRIPE_PUBLISHABLE_KEY.includes('_test_'),
+          currencyCode: currency,
+        },
+        applePay: {
+          merchantCountryCode: env.STRIPE_COUNTRY_CODE.toUpperCase(),
+        },
+      })
+      if (initPaymentSheetError) {
+        await releaseTemporaryBooking()
+        setLoading(false)
+        alert(i18n.t('PAYMENT_FAILED'))
+        return
+      }
+
+      const { error: presentPaymentSheetError } = await presentPaymentSheet()
+      if (presentPaymentSheetError) {
+        await releaseTemporaryBooking()
+        setLoading(false)
+        if (presentPaymentSheetError.code !== PaymentSheetError.Canceled) {
+          alert(i18n.t('PAYMENT_FAILED'))
+        }
+        return
+      }
+
+      const confirmationStatus = await BookingService.confirmPaymentIntent(checkout.bookingId, paymentIntentId)
+      if (confirmationStatus !== 200) {
+        setLoading(false)
+        alert(i18n.t('PAYMENT_FAILED'))
+        return
+      }
+      setLoading(false)
+      setFormVisible(false)
+      setSuccess(true)
     } catch (err) {
       _error(err)
     }

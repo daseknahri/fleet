@@ -8,6 +8,7 @@ const strings = new LocalizedStrings({
     SUBSCRIBE: "S'abonner",
     SUCCESS: 'Inscription réussie !',
   },
+  ar: { TITLE: 'اشترك', SUB_TITLE: 'اشترك في قائمتنا البريدية لتصلك آخر التحديثات!', SUBSCRIBE: 'اشترك', SUCCESS: 'تم الاشتراك بنجاح!' },
   en: {
     TITLE: 'Subscribe',
     SUB_TITLE: 'Subscribe to our mailing list for the latest updates!',

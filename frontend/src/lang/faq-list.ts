@@ -14,6 +14,9 @@ const strings = new LocalizedStrings({
     FAQ_CANCEL_TITLE: 'Que se passe-t-il si je dois annuler ma réservation ?',
     FAQ_CANCEL_TEXT: "Nous comprenons que les plans peuvent changer, c'est pourquoi nous proposons des politiques d'annulation flexibles. Selon le moment de votre annulation, des frais peuvent s'appliquer. Veuillez vous référer à nos conditions générales ou contacter notre équipe d'assistance client pour obtenir de l'aide concernant les annulations.",
   },
+  ar: {
+    FAQ_TITLE: 'الأسئلة الشائعة', MORE_QUESTIONS: 'مزيد من الأسئلة؟', FAQ_DOCUMENTS_TITLE: 'ما المستندات التي أحتاجها لاستئجار مركبة؟', FAQ_DOCUMENTS_TEXT: 'تحتاج عادةً إلى رخصة قيادة صالحة وبطاقة ائتمان ووثائق تأمين.', FAQ_SERVICES_TITLE: 'هل تقدمون خدمة التوصيل والاستلام؟', FAQ_SERVICES_TEXT: 'نعم، نقدم خدمات توصيل واستلام في مواقع مختلفة.', FAQ_AGE_TITLE: 'هل هناك حد أدنى للعمر؟', FAQ_AGE_TEXT: 'الحد الأدنى المعتاد 18 عامًا وقد تختلف المتطلبات حسب الموقع ونوع المركبة.', FAQ_CANCEL_TITLE: 'ماذا يحدث إذا أردت إلغاء الحجز؟', FAQ_CANCEL_TEXT: 'قد تُطبق رسوم إلغاء حسب توقيت الإلغاء. راجع شروط الاستخدام أو تواصل مع الدعم.'
+  },
   en: {
     FAQ_TITLE: 'FAQ',
     MORE_QUESTIONS: 'More questions?',

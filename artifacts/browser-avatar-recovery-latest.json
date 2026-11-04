@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-11-03T12:26:01.151Z",
+  "avatarEvidence": [
+    {
+      "file": "avatar.jpg",
+      "url": "http://127.0.0.1:4002/cdn/bookcars/users/avatar.jpg",
+      "status": 200,
+      "contentType": "image/jpeg",
+      "bytes": "3408"
+    },
+    {
+      "file": "customer.png",
+      "url": "http://127.0.0.1:4002/cdn/bookcars/users/customer.png",
+      "status": 200,
+      "contentType": "image/png",
+      "bytes": "3118"
+    },
+    {
+      "file": "supplier.png",
+      "url": "http://127.0.0.1:4002/cdn/bookcars/users/supplier.png",
+      "status": 200,
+      "contentType": "image/png",
+      "bytes": "3122"
+    }
+  ],
+  "routes": [
+    {
+      "route": "/cars",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    },
+    {
+      "route": "/bookings",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    },
+    {
+      "route": "/clients",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    },
+    {
+      "route": "/suppliers",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    },
+    {
+      "route": "/users",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    },
+    {
+      "route": "/scheduler",
+      "loadingFailures": [],
+      "orbBlocked": 0
+    }
+  ]
+}

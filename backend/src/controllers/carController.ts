@@ -4,7 +4,8 @@ import { nanoid } from 'nanoid'
 import escapeStringRegexp from 'escape-string-regexp'
 import mongoose from 'mongoose'
 import { Request, Response } from 'express'
-import nodemailer from 'nodemailer'
+import * as nodemailer from 'nodemailer'
+import type { SendMailOptions } from 'nodemailer'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
@@ -12,7 +13,9 @@ import i18n from '../lang/i18n'
 import * as env from '../config/env.config'
 import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
+import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
+import { agencySupplierId } from '../utils/agencyAuthorization'
 import DateBasedPrice from '../models/DateBasedPrice'
 import User from '../models/User'
 import Notification from '../models/Notification'
@@ -20,6 +23,29 @@ import NotificationCounter from '../models/NotificationCounter'
 import * as mailHelper from '../utils/mailHelper'
 import Location from '../models/Location'
 
+const canManageAgency = (user: { _id: mongoose.Types.ObjectId | string, type?: bookcarsTypes.UserType } | undefined, supplierId: string) =>
+  !!user && (user.type === bookcarsTypes.UserType.Admin || (user.type === bookcarsTypes.UserType.Supplier && user._id.toString() === supplierId))
+
+
+const validateLocationsForSupplier = async (locations: string[], supplierId: string) => {
+  if (!Array.isArray(locations) || locations.length === 0 || locations.some((location) => !mongoose.isValidObjectId(location))) {
+    return false
+  }
+
+  const uniqueLocations = [...new Set(locations)]
+  const records = await Location.find({ _id: { $in: uniqueLocations } }).select('supplier').lean()
+  return records.length === uniqueLocations.length
+    && records.every((location) => !location.supplier || location.supplier.toString() === supplierId)
+}
+
+const validDateBasedPrices = (dateBasedPrices: bookcarsTypes.DateBasedPrice[] | undefined) =>
+  (Array.isArray(dateBasedPrices) ? dateBasedPrices : []).filter((dbp) => {
+    const start = new Date(dbp?.startDate || '')
+    const end = new Date(dbp?.endDate || '')
+    const daily = Number(dbp?.dailyPrice)
+    return Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())
+      && end >= start && Number.isFinite(daily) && daily > 0
+  })
 /**
  * Create a Car.
  *
@@ -33,6 +59,24 @@ export const create = async (req: Request, res: Response) => {
   const { body }: { body: bookcarsTypes.CreateCarPayload } = req
 
   try {
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    if (!sessionUser) {
+      res.status(403).send('Forbidden: You cannot create this car')
+      return
+    }
+    const agencyId = agencySupplierId(req)
+    const supplierId = sessionUser.type === bookcarsTypes.UserType.Admin
+      ? body.supplier || ''
+      : agencyId || ''
+    if (!mongoose.isValidObjectId(supplierId) || !(await User.exists({ _id: supplierId, type: bookcarsTypes.UserType.Supplier }))) {
+      res.status(400).send('Invalid supplier')
+      return
+    }
+    if (!(await validateLocationsForSupplier(body.locations, supplierId))) {
+      res.status(400).send('Invalid locations for supplier')
+      return
+    }
+
     if (!body.image) {
       throw new Error('Image not found in payload')
     }
@@ -41,14 +85,14 @@ export const create = async (req: Request, res: Response) => {
     const { dateBasedPrices, ...carFields } = body
     const dateBasedPriceIds: string[] = []
     if (body.isDateBasedPrice) {
-      for (const dateBasePrice of dateBasedPrices) {
+      for (const dateBasePrice of validDateBasedPrices(dateBasedPrices)) {
         const dbp = new DateBasedPrice(dateBasePrice)
         await dbp.save()
         dateBasedPriceIds.push(dbp._id.toString())
       }
     }
 
-    const car = new Car({ ...carFields, dateBasedPrices: dateBasedPriceIds })
+    const car = new Car({ ...carFields, supplier: supplierId, locations: body.locations, dateBasedPrices: dateBasedPriceIds })
     await car.save()
 
     // --------- image ---------
@@ -135,7 +179,7 @@ export const create = async (req: Request, res: Response) => {
 
             // mail
             if (admin.enableEmailNotifications) {
-              const mailOptions: nodemailer.SendMailOptions = {
+              const mailOptions: SendMailOptions = {
                 from: env.SMTP_FROM,
                 to: admin.email,
                 subject: message,
@@ -194,7 +238,9 @@ export const update = async (req: Request, res: Response) => {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = await User.findById(sessionUserId)
-      if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && car.supplier?.toString() !== sessionUserId)) {
+      const sessionAgencyId = agencySupplierId(req)
+      const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+      if (!sessionUser || (isAgencyUser && car.supplier?.toString() !== sessionAgencyId)) {
         logger.error(`[car.update] Unauthorized attempt to update car ${car._id} by user ${sessionUserId}`)
         res.status(403).send('Forbidden: You cannot update this location')
         return
@@ -243,7 +289,20 @@ export const update = async (req: Request, res: Response) => {
         blockOnPay,
       } = body
 
-      car.supplier = new mongoose.Types.ObjectId(supplier)
+      const targetSupplier = sessionUser.type === bookcarsTypes.UserType.Admin
+        ? supplier
+        : agencySupplierId(req)
+      if (!targetSupplier || !mongoose.isValidObjectId(targetSupplier) || !(await User.exists({ _id: targetSupplier, type: bookcarsTypes.UserType.Supplier }))) {
+        res.status(400).send('Invalid supplier')
+        return
+      }
+      const validatedSupplierId = targetSupplier
+      if (!(await validateLocationsForSupplier(locations, validatedSupplierId))) {
+        res.status(400).send('Invalid locations for supplier')
+        return
+      }
+
+      car.supplier = new mongoose.Types.ObjectId(targetSupplier)
       car.minimumAge = minimumAge
       car.locations = locations.map((l) => new mongoose.Types.ObjectId(l))
       car.name = name
@@ -286,8 +345,14 @@ export const update = async (req: Request, res: Response) => {
       // Date based prices
       //
 
-      // Remove all date based prices not in body.dateBasedPrices
-      const dateBasedPriceIds = dateBasedPrices.filter((dbp) => !!dbp._id).map((dbp) => dbp._id)
+      // Ignore incomplete draft rows from the admin editor. The form can submit an
+      // empty row when a user starts adding a seasonal price but does not finish it.
+      // Persisting that row makes DateBasedPrice schema validation fail and blocks
+      // saving the otherwise valid vehicle.
+      const normalizedDateBasedPrices = validDateBasedPrices(dateBasedPrices)
+
+      // Remove all date based prices not in the valid body.dateBasedPrices rows.
+      const dateBasedPriceIds = normalizedDateBasedPrices.filter((dbp) => !!dbp._id).map((dbp) => dbp._id)
       const dateBasedPriceIdsToDelete = car.dateBasedPrices.filter((id) => !dateBasedPriceIds.includes(id.toString()))
       if (dateBasedPriceIdsToDelete.length > 0) {
         for (const dbpId of dateBasedPriceIdsToDelete) {
@@ -298,13 +363,13 @@ export const update = async (req: Request, res: Response) => {
       }
 
       // Add all new date based prices
-      for (const dateBasedPrice of dateBasedPrices.filter((dbp) => dbp._id === undefined)) {
+      for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => dbp._id === undefined)) {
         const dbpId = await createDateBasedPrice(dateBasedPrice)
         car.dateBasedPrices.push(new mongoose.Types.ObjectId(dbpId))
       }
 
       // Update existing date based prices
-      for (const dateBasedPrice of dateBasedPrices.filter((dbp) => !!dbp._id)) {
+      for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => !!dbp._id)) {
         const dbp = await DateBasedPrice.findById(dateBasedPrice._id)
         if (dbp) {
           dbp.startDate = new Date(dateBasedPrice.startDate!)
@@ -373,7 +438,17 @@ export const validateLicensePlate = async (req: Request, res: Response) => {
   const { licensePlate } = req.params
 
   try {
-    const car = await Car.findOne({ licensePlate: licensePlate })
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const filter: Record<string, unknown> = { licensePlate }
+    if (sessionUser?.type !== bookcarsTypes.UserType.Admin) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      filter.supplier = supplierId
+    }
+    const car = await Car.findOne(filter)
     if (car) {
       res.sendStatus(204)
     } else {
@@ -398,7 +473,17 @@ export const validateCarLicensePlate = async (req: Request, res: Response) => {
   const { id, licensePlate } = req.params
 
   try {
-    const car = await Car.findOne({ _id: { $ne: id }, licensePlate: licensePlate })
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const filter: Record<string, unknown> = { _id: { $ne: id }, licensePlate }
+    if (sessionUser?.type !== bookcarsTypes.UserType.Admin) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      filter.supplier = supplierId
+    }
+    const car = await Car.findOne(filter)
     if (car) {
       res.sendStatus(204)
     } else {
@@ -428,12 +513,21 @@ export const deleteCar = async (req: Request, res: Response) => {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = await User.findById(sessionUserId)
-      if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && car.supplier?.toString() !== sessionUserId)) {
+      const sessionAgencyId = agencySupplierId(req)
+      const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+      if (!sessionUser || (isAgencyUser && car.supplier?.toString() !== sessionAgencyId)) {
         logger.error(`[car.delete] Unauthorized attempt to delete car ${car._id} by user ${sessionUserId}`)
         res.status(403).send('Forbidden: You cannot delete this car')
         return
       }
       // end of security check
+
+      // Preserve contract and payment history. Vehicles with booking history are retired, not deleted.
+      const bookingCount = await Booking.countDocuments({ car: car._id })
+      if (bookingCount > 0) {
+        res.status(409).send('Conflict: This car has booking history and cannot be deleted. Mark it unavailable instead.')
+        return
+      }
 
       await Car.deleteOne({ _id: id })
 
@@ -447,7 +541,6 @@ export const deleteCar = async (req: Request, res: Response) => {
           await asyncFs.unlink(image)
         }
       }
-      await Booking.deleteMany({ car: car._id })
     } else {
       res.sendStatus(204)
       return
@@ -474,7 +567,7 @@ export const createImage = async (req: Request, res: Response) => {
       throw new Error('[car.createImage] req.file not found')
     }
 
-    const filename = `${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
+    const filename = `${req.user?._id}_${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
     const filepath = path.join(env.CDN_TEMP_CARS, filename)
 
     // security check: restrict allowed extensions
@@ -514,7 +607,18 @@ export const updateImage = async (req: Request, res: Response) => {
 
     const { file } = req
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    const sessionAgencyId = agencySupplierId(req)
+    const canManage = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin || car.supplier?.toString() === sessionAgencyId)
+    if (!canManage) {
+      res.status(403).send('Forbidden: You cannot update this car image')
+      return
+    }
 
     if (car) {
       if (car.image) {
@@ -562,7 +666,18 @@ export const deleteImage = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    const sessionAgencyId = agencySupplierId(req)
+    const canManage = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin || car.supplier?.toString() === sessionAgencyId)
+    if (!canManage) {
+      res.status(403).send('Forbidden: You cannot delete this car image')
+      return
+    }
 
     if (car) {
       if (car.image) {
@@ -601,6 +716,12 @@ export const deleteTempImage = async (req: Request, res: Response) => {
     // prevent null bytes
     if (image.includes('\0')) {
       res.status(400).send('Invalid filename')
+      return
+    }
+
+    const sessionUser = req.user
+    if (!sessionUser || !canDeleteOwnedTempFile(sessionUser, image)) {
+      res.status(403).send('Forbidden')
       return
     }
 
@@ -699,7 +820,10 @@ export const getCars = async (req: Request, res: Response) => {
     const { body }: { body: bookcarsTypes.GetCarsPayload } = req
     const page = Number.parseInt(req.params.page, 10)
     const size = Number.parseInt(req.params.size, 10)
-    const suppliers = body.suppliers!.map((id) => new mongoose.Types.ObjectId(id))
+    const agencyId = agencySupplierId(req)
+    const suppliers = req.user?.type !== bookcarsTypes.UserType.Admin && agencyId
+      ? [new mongoose.Types.ObjectId(agencyId)]
+      : body.suppliers!.map((id) => new mongoose.Types.ObjectId(id))
     const {
       carType,
       gearbox,
@@ -916,7 +1040,8 @@ export const getCars = async (req: Request, res: Response) => {
 export const getBookingCars = async (req: Request, res: Response) => {
   try {
     const { body }: { body: bookcarsTypes.GetBookingCarsPayload } = req
-    const supplier = new mongoose.Types.ObjectId(body.supplier)
+    const agencyId = agencySupplierId(req)
+    const supplier = new mongoose.Types.ObjectId(req.user?.type !== bookcarsTypes.UserType.Admin && agencyId ? agencyId : body.supplier)
     const pickupLocation = new mongoose.Types.ObjectId(body.pickupLocation)
     const keyword = escapeStringRegexp(String(req.query.s || ''))
     const options = 'i'
@@ -1308,3 +1433,6 @@ export const getFrontendCars = async (req: Request, res: Response) => {
     res.status(400).send(i18n.t('ERROR') + err)
   }
 }
+
+
+

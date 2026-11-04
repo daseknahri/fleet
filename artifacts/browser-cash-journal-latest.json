@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-11-03T16:52:16.955Z",
+  "url": "http://localhost:3002/caisse?l=ar&cashEvidence=1793724732446",
+  "lang": "ar",
+  "dir": "rtl",
+  "errorBoundary": false,
+  "body": "1\n\nالمالية\n\nدفتر الصندوق\n\nراجع الحركات وافتح جلسات الصندوق وأغلقها مع توثيق الفروقات.\n\nلا توجد جلسة مفتوحة\nفتح جلسة الصندوق\nالمداخيل المسجلة\n0 MAD\n−\nالمصاريف المسجلة\n0 MAD\nا\nصافي الحركة\n0 MAD\n​\nمن\nمن\nإلى\nإلى\n\nلا توجد قيود مطابقة.",
+  "buttons": [
+    "1",
+    "العربية",
+    "1",
+    "فتح جلسة الصندوق"
+  ],
+  "hasSessionBalance": false,
+  "hasTransfer": false,
+  "network": [
+    {
+      "url": "http://localhost:4002/api/validate-access-token",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/user/6ae1668d7fce2c9a39cd8c84",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/notification-counter/6ae1668d7fce2c9a39cd8c84",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/validate-access-token",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/rental-payments",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/maintenance-expenses",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/cash/sessions",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/cash/sessions/current?account=cash",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/bank-details",
+      "status": 200
+    }
+  ],
+  "consoleErrors": []
+}

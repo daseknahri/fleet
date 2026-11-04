@@ -1,8 +1,11 @@
 import mongoose from 'mongoose'
+import { randomUUID } from 'node:crypto'
 import escapeStringRegexp from 'escape-string-regexp'
 import { Expo, ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk'
 import { Request, Response } from 'express'
-import nodemailer from 'nodemailer'
+import Stripe from 'stripe'
+import * as nodemailer from 'nodemailer'
+import type { SendMailOptions } from 'nodemailer'
 import path from 'node:path'
 import asyncFs from 'node:fs/promises'
 import * as bookcarsTypes from ':bookcars-types'
@@ -13,6 +16,7 @@ import User from '../models/User'
 import Token from '../models/Token'
 import Car from '../models/Car'
 import Location from '../models/Location'
+import { isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
 import Notification from '../models/Notification'
 import NotificationCounter from '../models/NotificationCounter'
 import PushToken from '../models/PushToken'
@@ -22,7 +26,10 @@ import * as mailHelper from '../utils/mailHelper'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { BookingConflictError, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
+import { postProviderPayment } from '../utils/ledger'
 import stripeAPI from '../payment/stripe'
+import { toMinorUnits } from '../utils/paymentAmount'
+import { agencySupplierId } from '../utils/agencyAuthorization'
 
 /**
  * Create a Booking.
@@ -36,13 +43,86 @@ import stripeAPI from '../payment/stripe'
 export const create = async (req: Request, res: Response) => {
   try {
     const { body }: { body: bookcarsTypes.UpsertBookingPayload } = req
-    if (body.booking.additionalDriver) {
-      const additionalDriver = new AdditionalDriver(body.additionalDriver)
-      await additionalDriver.save()
-      body.booking._additionalDriver = additionalDriver._id.toString()
+    const sessionUser = req.user
+    const bookingInput = body?.booking
+    const getId = (value: string | { _id?: string } | undefined) => (typeof value === 'string' ? value : value?._id) || ''
+    const submittedSupplierId = getId(bookingInput?.supplier as string | { _id?: string })
+    const agencyId = agencySupplierId(req)
+    const supplierId = sessionUser?.type === bookcarsTypes.UserType.Admin
+      ? submittedSupplierId
+      : agencyId || submittedSupplierId
+    const carId = getId(bookingInput?.car as string | { _id?: string })
+    const driverId = getId(bookingInput?.driver as string | { _id?: string })
+    const pickupLocationId = getId(bookingInput?.pickupLocation as string | { _id?: string })
+    const dropOffLocationId = getId(bookingInput?.dropOffLocation as string | { _id?: string })
+
+    if (!sessionUser || !bookingInput
+      || ![bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff, bookcarsTypes.UserType.Admin].includes(sessionUser.type)
+      || ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type) && (!agencyId || submittedSupplierId !== agencyId))
+      || !mongoose.isValidObjectId(supplierId)
+      || !mongoose.isValidObjectId(carId)
+      || !mongoose.isValidObjectId(driverId)
+      || !mongoose.isValidObjectId(pickupLocationId)
+      || !mongoose.isValidObjectId(dropOffLocationId)
+      || !Number.isFinite(Number(bookingInput.price))
+      || Number(bookingInput.price) < 0
+      || (bookingInput.additionalDriver && !body.additionalDriver)
+      || !Object.values(bookcarsTypes.BookingStatus).includes(bookingInput.status)) {
+      res.status(400).send('Invalid booking or agency scope')
+      return
     }
 
-    const booking = new Booking(body.booking)
+    if ([bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(bookingInput.status)) {
+      res.status(400).send('Payment statuses can only be created through a verified payment workflow')
+      return
+    }
+
+    const vehicle = await Car.findOne({ _id: carId, supplier: supplierId }).select('_id locations').lean()
+    const locationIds = (vehicle?.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
+    if (!vehicle || !locationIds.includes(pickupLocationId) || !locationIds.includes(dropOffLocationId)) {
+      res.status(400).send('Vehicle and locations must belong to the booking agency')
+      return
+    }
+
+    const driver = await User.findOne({ _id: driverId, type: bookcarsTypes.UserType.User }).select('_id')
+    if (!driver) {
+      res.status(400).send('Booking customer not found')
+      return
+    }
+
+    const fromDate = new Date(bookingInput.from)
+    const toDate = new Date(bookingInput.to)
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
+      res.status(400).send('Invalid rental dates')
+      return
+    }
+
+    let additionalDriverId: string | undefined
+    if (bookingInput.additionalDriver && body.additionalDriver) {
+      const additionalDriver = new AdditionalDriver(body.additionalDriver)
+      await additionalDriver.save()
+      additionalDriverId = additionalDriver._id.toString()
+    }
+
+    const booking = new Booking({
+      ...bookingInput,
+      supplier: supplierId,
+      car: carId,
+      driver: driver._id,
+      pickupLocation: pickupLocationId,
+      dropOffLocation: dropOffLocationId,
+      from: fromDate,
+      to: toDate,
+      _additionalDriver: additionalDriverId,
+      sessionId: undefined,
+      paymentIntentId: undefined,
+      customerId: undefined,
+      paypalOrderId: undefined,
+      expireAt: undefined,
+      isDeposit: false,
+      isPayedInFull: false,
+      financialSnapshot: undefined,
+    })
 
     await saveBookingWithAvailability(booking)
     res.json(booking)
@@ -85,7 +165,7 @@ export const notify = async (driver: env.User, bookingId: string, user: env.User
 
   // mail
   if (user.enableEmailNotifications) {
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to: user.email,
       subject: message,
@@ -151,7 +231,7 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
     }
   }
 
-  const mailOptions: nodemailer.SendMailOptions = {
+  const mailOptions: SendMailOptions = {
     from: env.SMTP_FROM,
     to: user.email,
     subject: `${i18n.t('BOOKING_CONFIRMED_SUBJECT_PART1')} ${booking._id} ${i18n.t('BOOKING_CONFIRMED_SUBJECT_PART2')}`,
@@ -183,6 +263,199 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
   return true
 }
 
+/** Finalize a booking only after an external provider has verified payment. */
+export const finalizePaidCheckoutBooking = async (
+  booking: env.Booking,
+  provider: 'stripe' | 'paypal',
+  reference: string,
+) => {
+  const snapshot = booking.financialSnapshot
+  if (!snapshot || !reference) {
+    throw new Error('Verified payment requires a booking snapshot and provider reference')
+  }
+
+  const session = await mongoose.startSession()
+  let saved = false
+  try {
+    await session.withTransaction(async () => {
+      if (provider === 'stripe') booking.paymentIntentId = reference
+      else booking.paypalOrderId = reference
+      booking.expireAt = undefined
+      booking.status = snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit
+        ? bookcarsTypes.BookingStatus.Deposit
+        : snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full
+          ? bookcarsTypes.BookingStatus.PaidInFull
+          : bookcarsTypes.BookingStatus.Paid
+
+      saved = await saveBookingWithAvailability(booking, {
+        expectedStatus: bookcarsTypes.BookingStatus.Void,
+        requireExpireAt: true,
+        session,
+      })
+      if (!saved) return
+
+      if (snapshot.amountDueNow > 0) {
+        await postProviderPayment({
+          bookingId: booking._id.toString(),
+          date: new Date(),
+          amount: snapshot.amountDueNow,
+          currency: snapshot.baseCurrency,
+          provider,
+          providerReference: reference,
+          actorId: booking.driver?.toString(),
+          note: `Verified ${provider} checkout payment`,
+          idempotencyKey: `${provider}-checkout-${reference}`,
+          session,
+        })
+      }
+    })
+  } finally {
+    await session.endSession()
+  }
+
+  if (!saved) return false
+
+  const car = await Car.findById(booking.car)
+  if (!car) {
+    throw new Error(`Car ${booking.car} not found`)
+  }
+  car.trips += 1
+  await car.save()
+
+  const supplier = await User.findById(booking.supplier)
+  if (!supplier) {
+    throw new Error(`Agency ${booking.supplier} not found`)
+  }
+  const user = await User.findById(booking.driver)
+  if (!user) {
+    throw new Error(`Driver ${booking.driver} not found`)
+  }
+  user.expireAt = undefined
+  await user.save()
+
+  if (!(await confirm(user, supplier, booking, false))) {
+    throw new Error('Booking confirmation could not be sent')
+  }
+
+  i18n.locale = supplier.language
+  let message = i18n.t('BOOKING_PAID_NOTIFICATION')
+  await notify(user, booking._id.toString(), supplier, message)
+
+  const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
+  if (admin) {
+    i18n.locale = admin.language
+    message = i18n.t('BOOKING_PAID_NOTIFICATION')
+    await notify(user, booking._id.toString(), admin, message)
+  }
+
+  return true
+}
+
+/** Complete the mobile PaymentSheet flow using the provider's authoritative intent. */
+export const confirmPaymentIntent = async (req: Request, res: Response) => {
+  let verifiedPaymentIntentId: string | undefined
+  try {
+    const { bookingId, paymentIntentId } = req.body as { bookingId?: string; paymentIntentId?: string }
+    if (!mongoose.isValidObjectId(bookingId) || typeof paymentIntentId !== 'string' || !paymentIntentId.startsWith('pi_')) {
+      res.status(400).send('Invalid payment confirmation')
+      return
+    }
+
+    const booking = await Booking.findById(bookingId)
+    if (!booking) {
+      const orphanPaymentIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+      if (orphanPaymentIntent.status === 'succeeded'
+        && orphanPaymentIntent.metadata.bookingId === bookingId) {
+        verifiedPaymentIntentId = orphanPaymentIntent.id
+        await stripeAPI.refunds.create(
+          { payment_intent: orphanPaymentIntent.id },
+          { idempotencyKey: `orphan-booking-${orphanPaymentIntent.id}` },
+        )
+        res.status(410).send('Booking expired; the payment was refunded')
+        return
+      }
+      res.sendStatus(404)
+      return
+    }
+    if (booking.paymentIntentId === paymentIntentId && booking.status !== bookcarsTypes.BookingStatus.Void) {
+      res.sendStatus(200)
+      return
+    }
+    if (booking.status !== bookcarsTypes.BookingStatus.Void || !booking.expireAt) {
+      res.status(409).send('Booking is not awaiting payment')
+      return
+    }
+
+    if (booking.expireAt <= new Date()) {
+      const expiredPaymentIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+      if (expiredPaymentIntent.status === 'succeeded'
+        && expiredPaymentIntent.metadata.bookingId === booking._id.toString()
+        && booking.paymentIntentId === expiredPaymentIntent.id) {
+        verifiedPaymentIntentId = expiredPaymentIntent.id
+        await stripeAPI.refunds.create(
+          { payment_intent: expiredPaymentIntent.id },
+          { idempotencyKey: `expired-booking-${expiredPaymentIntent.id}` },
+        )
+        res.status(410).send('Booking expired; the payment was refunded')
+        return
+      }
+      res.status(409).send('Booking is not awaiting payment')
+      return
+    }
+
+    const snapshot = booking.financialSnapshot
+    if (!snapshot || booking.paymentIntentId !== paymentIntentId) {
+      res.status(409).send('Payment intent is not linked to this booking')
+      return
+    }
+
+    const paymentIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+    if (paymentIntent.status !== 'succeeded'
+      || paymentIntent.metadata.bookingId !== booking._id.toString()
+      || paymentIntent.currency.toUpperCase() !== snapshot.paymentCurrency.toUpperCase()
+      || paymentIntent.amount_received !== toMinorUnits(snapshot.amountDueNowInPaymentCurrency, snapshot.paymentCurrency)) {
+      res.status(400).send('Payment verification failed')
+      return
+    }
+
+    verifiedPaymentIntentId = paymentIntent.id
+    const finalized = await finalizePaidCheckoutBooking(booking, 'stripe', paymentIntent.id)
+    if (!finalized) {
+      const existingPaidBooking = await Booking.findOne({ _id: booking._id, paymentIntentId: paymentIntent.id })
+      if (existingPaidBooking && existingPaidBooking.status !== bookcarsTypes.BookingStatus.Void) {
+        res.sendStatus(200)
+        return
+      }
+      await stripeAPI.refunds.create(
+        { payment_intent: paymentIntent.id },
+        { idempotencyKey: `booking-unavailable-${paymentIntent.id}` },
+      )
+      res.status(409).send('Booking payment was already processed or availability changed')
+      return
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    if (err instanceof BookingConflictError) {
+      if (verifiedPaymentIntentId) {
+        try {
+          await stripeAPI.refunds.create(
+            { payment_intent: verifiedPaymentIntentId },
+            { idempotencyKey: `booking-conflict-${verifiedPaymentIntentId}` },
+          )
+        } catch (refundError) {
+          logger.error('[booking.confirmPaymentIntent] Failed to refund payment after booking conflict', refundError)
+          res.status(500).send('Booking unavailable. Payment refund requires support review.')
+          return
+        }
+      }
+      res.status(409).send(err.message)
+      return
+    }
+    logger.error(`[booking.confirmPaymentIntent] ${i18n.t('ERROR')}`, err instanceof Error ? err.message : 'Unknown error')
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
 /**
  * Complete checkout process and create Booking.
  *
@@ -193,7 +466,6 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
  * @returns {unknown}
  */
 export const checkout = async (req: Request, res: Response) => {
-  let checkoutPaymentIntentId: string | undefined
   try {
     let user: env.User | null
     const { body }: { body: bookcarsTypes.CheckoutPayload } = req
@@ -203,25 +475,59 @@ export const checkout = async (req: Request, res: Response) => {
       throw new Error('Booking not found')
     }
 
-    checkoutPaymentIntentId = body.paymentIntentId
-
-    if (checkoutPaymentIntentId) {
-      const existingBooking = await Booking.findOne({ paymentIntentId: checkoutPaymentIntentId })
-      if (existingBooking) {
-        res.status(200).send({ bookingId: existingBooking._id.toString() })
-        return
-      }
+    if (!Object.values(bookcarsTypes.CheckoutPaymentMode).some((mode) => mode === body.paymentMode)
+      || !Object.values(bookcarsTypes.PaymentGateway).some((gateway) => gateway === body.paymentGateway)
+      || typeof body.currency !== 'string'
+      || !bookcarsHelper.checkCurrency(body.currency.toUpperCase())) {
+      res.status(400).send('Invalid checkout payment selection')
+      return
+    }
+    const paymentMode = body.paymentMode!
+    const paymentGateway = body.paymentGateway!
+    const paymentCurrency = body.currency.toUpperCase()
+    const paymentFlow = body.paymentFlow || 'embedded'
+    if (!['embedded', 'paymentSheet'].includes(paymentFlow)
+      || (paymentFlow === 'paymentSheet' && paymentGateway !== bookcarsTypes.PaymentGateway.Stripe)) {
+      res.status(400).send('Unsupported checkout payment flow')
+      return
     }
 
-    const supplier = await User.findById(body.booking.supplier)
+    const carObj = await Car.findById(body.booking.car).populate('dateBasedPrices').lean()
+    if (!carObj) {
+      res.status(400).send('Car not found')
+      return
+    }
+    const supplierId = carObj.supplier.toString()
+    const supplier = await User.findById(supplierId)
     if (!supplier) {
-      throw new Error(`Supplier ${body.booking.supplier} not found`)
+      throw new Error(`Agency ${supplierId} not found`)
+    }
+
+    if (paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater && !supplier.payLater) {
+      res.status(400).send('Pay later is not available for this agency')
+      return
+    }
+
+    const fromDate = new Date(body.booking.from)
+    const toDate = new Date(body.booking.to)
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
+      res.status(400).send('Invalid rental dates')
+      return
+    }
+    const carLocationIds = (carObj.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
+    if (!carLocationIds.includes(body.booking.pickupLocation.toString())
+      || !carLocationIds.includes(body.booking.dropOffLocation.toString())) {
+      res.status(400).send('Pick-up and drop-off locations must be available for this vehicle')
+      return
     }
 
     if (driver) {
       const { license } = driver
       if (supplier.licenseRequired && !license) {
         throw new Error("Driver's license required")
+      }
+      if (license && !isValidLicenseCapabilityFilename(path.basename(license))) {
+        throw new Error('Invalid or expired license capability')
       }
       if (supplier.licenseRequired && !(await helper.pathExists(path.join(env.CDN_TEMP_LICENSES, license!)))) {
         throw new Error("Driver's license file not found")
@@ -272,7 +578,7 @@ export const checkout = async (req: Request, res: Response) => {
 
         i18n.locale = user.language
 
-        const mailOptions: nodemailer.SendMailOptions = {
+        const mailOptions: SendMailOptions = {
           from: env.SMTP_FROM,
           to: user.email,
           subject: i18n.t('ACCOUNT_ACTIVATION_SUBJECT'),
@@ -301,15 +607,7 @@ export const checkout = async (req: Request, res: Response) => {
       throw new Error("Driver's license file not found")
     }
 
-    // Verify car existence and calculate expected total price
-    const carObj = await Car.findById(body.booking.car).lean()
-    if (!carObj) {
-      res.status(400).send('Car not found')
-      return
-    }
-
-    const fromDate = new Date(body.booking.from)
-    const toDate = new Date(body.booking.to)
+    // Calculate authoritative terms from agency-owned car pricing and options.
     const expectedBasePrice = bookcarsHelper.calculateTotalPrice(
       carObj as unknown as bookcarsTypes.Car,
       fromDate,
@@ -326,160 +624,190 @@ export const checkout = async (req: Request, res: Response) => {
     )
     const expectedBasePriceInBaseCurrency = await bookcarsHelper.convertPrice(expectedBasePrice, env.BASE_CURRENCY, env.BASE_CURRENCY)
 
-    if (body.payLater) {
-      // Server explicitly decides payment status for payLater
-      body.booking.status = bookcarsTypes.BookingStatus.Pending
-      body.booking.sessionId = body.sessionId
-    } else {
-      const { payPal, paymentIntentId, sessionId } = body
-
-      if (!payPal && !paymentIntentId && !sessionId) {
-        throw new Error('paymentIntentId and sessionId not found')
-      }
-
-      if (!payPal) {
-        body.booking.customerId = body.customerId
-      }
-
-      if (paymentIntentId) {
-        const paymentIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
-        if (paymentIntent.status !== 'succeeded') {
-          const message = `Payment failed: ${paymentIntent.status}`
-          logger.error(message, body)
-          res.status(400).send(message)
-          return // Stop further execution if paymentIntent failed
-        }
-
-        // Validate currency and amount
-        const expectedAmountCents = Math.floor(expectedBasePriceInBaseCurrency * 100)
-        if (paymentIntent.currency.toLowerCase() !== env.BASE_CURRENCY.toLowerCase()) {
-          const message = `Payment currency mismatch: expected ${env.BASE_CURRENCY}, got ${paymentIntent.currency}`
-          logger.error(message, body)
-          res.status(400).send(message)
-          return
-        }
-
-        if (paymentIntent.amount !== expectedAmountCents) {
-          const message = `Payment amount mismatch: expected ${expectedAmountCents}, got ${paymentIntent.amount}`
-          logger.error(message, body)
-          res.status(400).send(message)
-          return
-        }
-
-        body.booking.paymentIntentId = paymentIntentId
-        let status = bookcarsTypes.BookingStatus.Paid
-        if (body.booking.isDeposit) {
-          status = bookcarsTypes.BookingStatus.Deposit
-        } else if (body.booking.isPayedInFull) {
-          status = bookcarsTypes.BookingStatus.PaidInFull
-        }
-        body.booking.status = status
-      } else {
-        //
-        // Bookings created from checkout with Stripe are temporary
-        // and are automatically deleted if the payment checkout session expires.
-        //
-        let expireAt = new Date()
-        expireAt.setSeconds(expireAt.getSeconds() + env.BOOKING_EXPIRE_AT)
-
-        body.booking.sessionId = body.sessionId
-        body.booking.status = bookcarsTypes.BookingStatus.Void
-        body.booking.expireAt = expireAt
-
-        //
-        // Non verified and active users created from checkout with Stripe are temporary
-        // and are automatically deleted if the payment checkout session expires.
-        //
-        if (!user.verified) {
-          expireAt = new Date()
-          expireAt.setSeconds(expireAt.getSeconds() + env.USER_EXPIRE_AT)
-
-          user.expireAt = expireAt
-          await user.save()
-        }
-      }
+    const depositAmount = Number((Number(carObj.deposit || 0) * (1 + (supplier.priceChangeRate || 0) / 100)).toFixed(2))
+    if (paymentMode === bookcarsTypes.CheckoutPaymentMode.Deposit && depositAmount <= 0) {
+      res.status(400).send('The selected deposit payment is not available')
+      return
     }
-
-    const { customerId } = body
-    if (customerId) {
-      user.customerId = customerId
-      await user?.save()
+    const amountDueNow = paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater ? 0
+      : paymentMode === bookcarsTypes.CheckoutPaymentMode.Deposit ? depositAmount
+        : paymentMode === bookcarsTypes.CheckoutPaymentMode.Full ? Number((expectedBasePriceInBaseCurrency + depositAmount).toFixed(2))
+          : expectedBasePriceInBaseCurrency
+    if (paymentMode !== bookcarsTypes.CheckoutPaymentMode.PayLater && amountDueNow <= 0) {
+      res.status(400).send('The selected checkout amount must be greater than zero')
+      return
+    }
+    const amountDueNowInPaymentCurrency = amountDueNow === 0 || paymentCurrency === env.BASE_CURRENCY.toUpperCase()
+      ? amountDueNow
+      : await bookcarsHelper.convertPrice(amountDueNow, env.BASE_CURRENCY.toUpperCase(), paymentCurrency)
+    const financialSnapshot: bookcarsTypes.BookingFinancialSnapshot = {
+      version: 1,
+      baseCurrency: env.BASE_CURRENCY,
+      paymentCurrency,
+      mode: paymentMode,
+      rentalTotal: expectedBasePriceInBaseCurrency,
+      depositAmount,
+      amountDueNow,
+      amountDueNowInPaymentCurrency,
+      quotedAt: new Date(),
     }
 
     const { language } = user
     i18n.locale = language
 
-    // additionalDriver
+    let additionalDriverId: string | undefined
     if (body.booking.additionalDriver && body.additionalDriver) {
       const additionalDriver = new AdditionalDriver(body.additionalDriver)
       await additionalDriver.save()
-      body.booking._additionalDriver = additionalDriver._id.toString()
+      additionalDriverId = additionalDriver._id.toString()
     }
 
-    body.booking.price = expectedBasePriceInBaseCurrency
-    const booking = new Booking(body.booking)
+    const isPayLater = paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater
+    const expireAt = isPayLater ? undefined : new Date(Date.now() + env.BOOKING_EXPIRE_AT * 1000)
+    const booking = new Booking({
+      supplier: supplier._id,
+      car: carObj._id,
+      driver: user._id,
+      pickupLocation: body.booking.pickupLocation,
+      dropOffLocation: body.booking.dropOffLocation,
+      from: fromDate,
+      to: toDate,
+      status: isPayLater ? bookcarsTypes.BookingStatus.Pending : bookcarsTypes.BookingStatus.Void,
+      cancellation: !!body.booking.cancellation,
+      amendments: !!body.booking.amendments,
+      theftProtection: !!body.booking.theftProtection,
+      collisionDamageWaiver: !!body.booking.collisionDamageWaiver,
+      fullInsurance: !!body.booking.fullInsurance,
+      additionalDriver: !!body.booking.additionalDriver,
+      _additionalDriver: additionalDriverId,
+      price: expectedBasePriceInBaseCurrency,
+      isDeposit: paymentMode === bookcarsTypes.CheckoutPaymentMode.Deposit,
+      isPayedInFull: paymentMode === bookcarsTypes.CheckoutPaymentMode.Full,
+      financialSnapshot,
+      sessionId: paymentGateway === bookcarsTypes.PaymentGateway.Stripe && !isPayLater && paymentFlow !== 'paymentSheet' ? undefined : randomUUID(),
+      expireAt,
+    })
 
     await saveBookingWithAvailability(booking)
 
-    if (booking.status === bookcarsTypes.BookingStatus.Paid && body.paymentIntentId && body.customerId) {
-      const car = await Car.findById(booking.car)
-      if (!car) {
-        throw new Error(`Car ${booking.car} not found`)
-      }
-      car.trips += 1
-      await car.save()
+    if (!isPayLater && !user.verified) {
+      user.expireAt = new Date(Date.now() + env.USER_EXPIRE_AT * 1000)
+      await user.save()
     }
 
-    if (body.payLater || (booking.status === bookcarsTypes.BookingStatus.Paid && body.paymentIntentId && body.customerId)) {
+    let customerId: string | undefined
+    let clientSecret: string | null | undefined
+    let paymentIntentId: string | undefined
+    if (!isPayLater && paymentGateway === bookcarsTypes.PaymentGateway.Stripe) {
+      let session: Stripe.Checkout.Session | undefined
+      let pendingPaymentIntent: Stripe.PaymentIntent | undefined
+      try {
+        const customers = await stripeAPI.customers.list({ email: user.email })
+        const customer = customers.data[0] || await stripeAPI.customers.create({ email: user.email, name: user.fullName })
+        const name = bookcarsHelper.truncateString(`${env.WEBSITE_NAME} - ${carObj.name}`, 250)
+        const description = bookcarsHelper.truncateString(`${env.WEBSITE_NAME} - ${carObj.name} - ${fromDate.toISOString()} - ${toDate.toISOString()}`, 500)
+        if (paymentFlow === 'paymentSheet') {
+          pendingPaymentIntent = await stripeAPI.paymentIntents.create({
+            amount: toMinorUnits(amountDueNowInPaymentCurrency, paymentCurrency),
+            currency: paymentCurrency.toLowerCase(),
+            receipt_email: user.email,
+            description,
+            customer: customer.id,
+            metadata: { bookingId: booking._id.toString() },
+            automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+          })
+          booking.paymentIntentId = pendingPaymentIntent.id
+          paymentIntentId = pendingPaymentIntent.id
+          clientSecret = pendingPaymentIntent.client_secret
+        } else {
+          const expiresAt = Math.floor((Date.now() / 1000) + Math.min(env.STRIPE_SESSION_EXPIRE_AT, env.BOOKING_EXPIRE_AT))
+          session = await stripeAPI.checkout.sessions.create({
+            ui_mode: 'embedded',
+            line_items: [{
+              price_data: {
+                product_data: { name },
+                unit_amount: toMinorUnits(amountDueNowInPaymentCurrency, paymentCurrency),
+                currency: paymentCurrency.toLowerCase(),
+              },
+              quantity: 1,
+            }],
+            mode: 'payment',
+            return_url: `${helper.trimEnd(env.FRONTEND_HOST, '/')}/checkout-session/{CHECKOUT_SESSION_ID}`,
+            customer: customer.id,
+            locale: helper.getStripeLocale(language),
+            metadata: { bookingId: booking._id.toString() },
+            payment_intent_data: {
+              description,
+              metadata: { bookingId: booking._id.toString() },
+            },
+            expires_at: expiresAt,
+          })
+          booking.sessionId = session.id
+          clientSecret = session.client_secret
+        }
+        booking.customerId = customer.id
+        await booking.save()
+        customerId = customer.id
+        user.customerId = customer.id
+        await user.save()
+      } catch (providerError) {
+        if (session) {
+          await stripeAPI.checkout.sessions.expire(session.id).catch((expireError) => {
+            logger.error('[booking.checkout] Could not expire unlinked Stripe session', expireError)
+          })
+        }
+        if (pendingPaymentIntent) {
+          await stripeAPI.paymentIntents.cancel(pendingPaymentIntent.id).catch((cancelError) => {
+            logger.error('[booking.checkout] Could not cancel unlinked Stripe payment intent', cancelError)
+          })
+        }
+        await Booking.deleteOne({ _id: booking._id, status: bookcarsTypes.BookingStatus.Void }).catch((deleteError) => {
+          logger.error('[booking.checkout] Could not release unpaid temporary booking', deleteError)
+        })
+        throw providerError
+      }
+    }
+
+    if (isPayLater) {
       // Mark car as fully booked
       // if (env.MARK_CAR_AS_FULLY_BOOKED_ON_CHECKOUT) {
       //   await Car.updateOne({ _id: booking.car }, { fullyBooked: false })
       // }
 
       // Send confirmation email to customer
-      if (!(await confirm(user, supplier, booking, body.payLater))) {
+      if (!(await confirm(user, supplier, booking, true))) {
         res.sendStatus(400)
         return
       }
 
       // Notify supplier
       i18n.locale = supplier.language
-      let message = body.payLater ? i18n.t('BOOKING_PAY_LATER_NOTIFICATION') : i18n.t('BOOKING_PAID_NOTIFICATION')
+      let message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
       await notify(user, booking._id.toString(), supplier, message)
 
       // Notify admin
       const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
       if (admin) {
         i18n.locale = admin.language
-        message = body.payLater ? i18n.t('BOOKING_PAY_LATER_NOTIFICATION') : i18n.t('BOOKING_PAID_NOTIFICATION')
+        message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
         await notify(user, booking._id.toString(), admin, message)
       }
     }
 
-    res.status(200).send({ bookingId: booking._id.toString() })
+    res.status(200).send({
+      bookingId: booking._id.toString(),
+      sessionId: booking.sessionId,
+      customerId,
+      clientSecret,
+      paymentIntentId,
+      financialSnapshot,
+    } satisfies bookcarsTypes.CheckoutResult)
   } catch (err) {
     if (err instanceof BookingConflictError) {
-      if (checkoutPaymentIntentId) {
-        try {
-          const existingBooking = await Booking.findOne({ paymentIntentId: checkoutPaymentIntentId })
-          if (existingBooking) {
-            res.status(200).send({ bookingId: existingBooking._id.toString() })
-            return
-          }
-          await stripeAPI.refunds.create(
-            { payment_intent: checkoutPaymentIntentId },
-            { idempotencyKey: `booking-conflict-${checkoutPaymentIntentId}` },
-          )
-        } catch (refundError) {
-          logger.error('[booking.checkout] Failed to refund payment after booking conflict', refundError)
-          res.status(500).send('Booking unavailable. Payment refund requires support review.')
-          return
-        }
-      }
       res.status(409).send(err.message)
       return
     }
-    logger.error(`[booking.checkout] ${i18n.t('ERROR')}`, err)
+    logger.error(`[booking.checkout] ${i18n.t('ERROR')}`, err instanceof Error ? err.message : 'Unknown error')
     res.status(400).send(i18n.t('ERROR') + err)
   }
 }
@@ -519,7 +847,7 @@ const notifyDriver = async (booking: env.Booking) => {
 
   // mail
   if (driver.enableEmailNotifications) {
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
       to: driver.email,
       subject: message,
@@ -612,49 +940,44 @@ export const update = async (req: Request, res: Response) => {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = await User.findById(sessionUserId)
-      if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUserId !== booking.supplier?.toString())) {
+      const sessionAgencyId = agencySupplierId(req)
+      const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+      if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (isAgencyUser && sessionAgencyId !== booking.supplier?.toString())) {
         logger.error(`[booking.update] Unauthorized attempt to update booking ${booking._id.toString()} by user ${sessionUserId}`)
         res.status(403).send('Forbidden: You cannot update booking information')
         return
       }
       // end of security check
 
-      if (!body.booking.additionalDriver && booking._additionalDriver) {
-        await AdditionalDriver.deleteOne({ _id: booking._additionalDriver })
+      const bookingId = (value: string | { _id?: string } | undefined) => (typeof value === 'string' ? value : value?._id) || ''
+      const submittedSupplierId = bookingId(body.booking.supplier as string | { _id?: string })
+      const submittedCarId = bookingId(body.booking.car as string | { _id?: string })
+      const submittedPickupLocationId = bookingId(body.booking.pickupLocation as string | { _id?: string })
+      const submittedDropOffLocationId = bookingId(body.booking.dropOffLocation as string | { _id?: string })
+
+      // Never allow a normal booking edit to transfer an agency-owned contract or link it to another agency's vehicle.
+      if (submittedSupplierId !== booking.supplier.toString()
+        || !mongoose.isValidObjectId(submittedCarId)
+        || !mongoose.isValidObjectId(submittedPickupLocationId)
+        || !mongoose.isValidObjectId(submittedDropOffLocationId)) {
+        res.status(400).send('Booking agency, vehicle, or location is invalid')
+        return
       }
 
-      if (body.additionalDriver) {
-        const {
-          fullName,
-          email,
-          phone,
-          birthDate,
-        } = body.additionalDriver
+      const vehicle = await Car.findOne({ _id: submittedCarId, supplier: booking.supplier }).select('_id locations').lean()
+      const carLocationIds = (vehicle?.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
+      if (!vehicle
+        || !carLocationIds.includes(submittedPickupLocationId)
+        || !carLocationIds.includes(submittedDropOffLocationId)) {
+        res.status(400).send('Vehicle and locations must belong to the booking agency')
+        return
+      }
 
-        if (booking._additionalDriver) {
-          const additionalDriver = await AdditionalDriver.findOne({ _id: booking._additionalDriver })
-          if (!additionalDriver) {
-            const msg = `Additional Driver ${booking._additionalDriver} not found`
-            logger.info(msg)
-            res.status(204).send(msg)
-            return
-          }
-          additionalDriver.fullName = fullName
-          additionalDriver.email = email
-          additionalDriver.phone = phone
-          additionalDriver.birthDate = birthDate
-          await additionalDriver.save()
-        } else {
-          const additionalDriver = new AdditionalDriver({
-            fullName,
-            email,
-            phone,
-            birthDate,
-          })
-
-          await additionalDriver.save()
-          booking._additionalDriver = additionalDriver._id
-        }
+      const fromDate = new Date(body.booking.from)
+      const toDate = new Date(body.booking.to)
+      if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
+        res.status(400).send('Invalid rental dates')
+        return
       }
 
       const {
@@ -679,6 +1002,74 @@ export const update = async (req: Request, res: Response) => {
 
       const previousStatus = booking.status
 
+      const snapshotTermsChanged = booking.financialSnapshot && (
+        bookingId(body.booking.supplier as string | { _id?: string }) !== booking.supplier.toString()
+        || bookingId(body.booking.car as string | { _id?: string }) !== booking.car.toString()
+        || bookingId(body.booking.pickupLocation as string | { _id?: string }) !== booking.pickupLocation.toString()
+        || bookingId(body.booking.dropOffLocation as string | { _id?: string }) !== booking.dropOffLocation.toString()
+        || new Date(body.booking.from).getTime() !== booking.from.getTime()
+        || new Date(body.booking.to).getTime() !== booking.to.getTime()
+        || Number(body.booking.price) !== booking.financialSnapshot.rentalTotal
+        || !!body.booking.cancellation !== !!booking.cancellation
+        || !!body.booking.amendments !== !!booking.amendments
+        || !!body.booking.theftProtection !== !!booking.theftProtection
+        || !!body.booking.collisionDamageWaiver !== !!booking.collisionDamageWaiver
+        || !!body.booking.fullInsurance !== !!booking.fullInsurance
+        || !!body.booking.additionalDriver !== !!booking.additionalDriver
+      )
+      if (snapshotTermsChanged) {
+        res.status(409).send('Checkout terms are locked; use a contract amendment workflow')
+        return
+      }
+
+      const paymentStatuses = new Set<string>([
+        bookcarsTypes.BookingStatus.Deposit,
+        bookcarsTypes.BookingStatus.Paid,
+        bookcarsTypes.BookingStatus.PaidInFull,
+      ])
+      if (status !== previousStatus && (paymentStatuses.has(status) || paymentStatuses.has(previousStatus))) {
+        res.status(400).send('Payment statuses can only be changed through a verified payment workflow')
+        return
+      }
+
+      if (!body.booking.additionalDriver && booking._additionalDriver) {
+        await AdditionalDriver.deleteOne({ _id: booking._additionalDriver })
+      }
+
+      if (body.additionalDriver) {
+        const {
+          fullName,
+          email,
+          phone,
+          birthDate,
+        } = body.additionalDriver
+
+        if (booking._additionalDriver) {
+          const additionalDriverRecord = await AdditionalDriver.findOne({ _id: booking._additionalDriver })
+          if (!additionalDriverRecord) {
+            const msg = `Additional Driver ${booking._additionalDriver} not found`
+            logger.info(msg)
+            res.status(204).send(msg)
+            return
+          }
+          additionalDriverRecord.fullName = fullName
+          additionalDriverRecord.email = email
+          additionalDriverRecord.phone = phone
+          additionalDriverRecord.birthDate = birthDate
+          await additionalDriverRecord.save()
+        } else {
+          const additionalDriverRecord = new AdditionalDriver({
+            fullName,
+            email,
+            phone,
+            birthDate,
+          })
+
+          await additionalDriverRecord.save()
+          booking._additionalDriver = additionalDriverRecord._id
+        }
+      }
+
       booking.supplier = new mongoose.Types.ObjectId(supplier as string)
       booking.car = new mongoose.Types.ObjectId(car as string)
       booking.driver = new mongoose.Types.ObjectId(driver as string)
@@ -693,9 +1084,11 @@ export const update = async (req: Request, res: Response) => {
       booking.collisionDamageWaiver = collisionDamageWaiver
       booking.fullInsurance = fullInsurance
       booking.additionalDriver = additionalDriver
-      booking.price = price as number
-      booking.isDeposit = isDeposit || false
-      booking.isPayedInFull = isPayedInFull || false
+      booking.price = booking.financialSnapshot?.rentalTotal ?? (price as number)
+      if (!booking.financialSnapshot) {
+        booking.isDeposit = isDeposit || false
+        booking.isPayedInFull = isPayedInFull || false
+      }
 
       if (!additionalDriver && booking._additionalDriver) {
         booking._additionalDriver = undefined
@@ -738,6 +1131,11 @@ export const updateStatus = async (req: Request, res: Response) => {
     const { body }: { body: bookcarsTypes.UpdateStatusPayload } = req
     const { ids: _ids, status } = body
     const ids = _ids.map((id) => new mongoose.Types.ObjectId(id))
+    const paymentStatuses = new Set<string>([
+      bookcarsTypes.BookingStatus.Deposit,
+      bookcarsTypes.BookingStatus.Paid,
+      bookcarsTypes.BookingStatus.PaidInFull,
+    ])
 
     // begin of security check
     const sessionUserId = req.user?._id
@@ -750,12 +1148,22 @@ export const updateStatus = async (req: Request, res: Response) => {
     }
 
     const filter: Record<string, any> = { _id: { $in: ids } }
-    if (sessionUser.type === bookcarsTypes.UserType.Supplier) {
-      filter.supplier = sessionUserId
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      filter.supplier = supplierId
     }
     // end of security check
 
     const bookings = await Booking.find(filter)
+
+    if (paymentStatuses.has(status) || bookings.some((booking) => paymentStatuses.has(booking.status) && booking.status !== status)) {
+      res.status(400).send('Payment statuses can only be changed through a verified payment workflow')
+      return
+    }
 
     if (bookings.length === 0) {
       res.sendStatus(200)
@@ -808,7 +1216,9 @@ export const deleteBookings = async (req: Request, res: Response) => {
 
       if (booking) {
         // begin of security check
-        if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUserId !== booking.supplier?.toString())) {
+        const sessionAgencyId = agencySupplierId(req)
+        const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+        if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (isAgencyUser && sessionAgencyId !== booking.supplier?.toString())) {
           logger.error(`[booking.deleteBookings] Unauthorized attempt to delete booking ${booking._id.toString()} by user ${sessionUserId}`)
           unauthorizedAttemptLogged = true
           continue
@@ -910,7 +1320,10 @@ export const getBooking = async (req: Request, res: Response) => {
 
       // 2. Role-Based Authorization Check
       const isOwner = !!sessionUserId && booking.driver._id?.toString() === sessionUserId
-      const isSupplier = !!sessionUser && sessionUser.type === bookcarsTypes.UserType.Supplier && booking.supplier._id?.toString() === sessionUserId
+      const sessionAgencyId = agencySupplierId(req)
+      const isSupplier = !!sessionUser
+        && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+        && booking.supplier._id?.toString() === sessionAgencyId
       const isAdmin = !!sessionUser && sessionUser.type === bookcarsTypes.UserType.Admin
 
       if (!isValidSession && !isOwner && !isSupplier && !isAdmin) {
@@ -1015,8 +1428,13 @@ export const getBookings = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot get booking information')
       return
     }
-    if (sessionUser.type === bookcarsTypes.UserType.Supplier) {
-      suppliers = [new mongoose.Types.ObjectId(sessionUserId)]
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      suppliers = [new mongoose.Types.ObjectId(supplierId)]
     }
     // end of security check
 
@@ -1232,25 +1650,34 @@ export const hasBookings = async (req: Request, res: Response) => {
   const { driver } = req.params
 
   try {
-    const count = await Booking
-      .find({
-        driver: new mongoose.Types.ObjectId(driver),
-      })
-      .limit(1)
-      .countDocuments()
-
-    if (count === 1) {
-      res.sendStatus(200)
+    if (!mongoose.isValidObjectId(driver) || !req.user) {
+      res.status(400).send('Invalid driver')
       return
     }
 
-    res.sendStatus(204)
+    const sessionUser = req.user
+    const filter: mongoose.QueryFilter<env.Booking> = { driver: new mongoose.Types.ObjectId(driver) }
+    if (sessionUser.type === bookcarsTypes.UserType.User) {
+      if (sessionUser._id.toString() !== driver) {
+        res.status(403).send('Forbidden: Access denied')
+        return
+      }
+    } else if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId || !mongoose.isValidObjectId(supplierId)) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      filter.supplier = new mongoose.Types.ObjectId(supplierId)
+    }
+
+    const count = await Booking.find(filter).limit(1).countDocuments()
+    res.sendStatus(count === 1 ? 200 : 204)
   } catch (err) {
     logger.error(`[booking.hasBookings] ${i18n.t('ERROR')} ${driver}`, err)
     res.status(400).send(i18n.t('ERROR') + err)
   }
 }
-
 /**
  * Cancel a Booking.
  *
@@ -1277,7 +1704,10 @@ export const cancelBooking = async (req: Request, res: Response) => {
       const sessionUser = sessionUserId ? await User.findById(sessionUserId) : null
 
       const isOwner = !!sessionUserId && booking.driver._id.toString() === sessionUserId
-      const isSupplier = !!sessionUser && sessionUser.type === bookcarsTypes.UserType.Supplier && booking.supplier._id?.toString() === sessionUserId
+      const sessionAgencyId = agencySupplierId(req)
+      const isSupplier = !!sessionUser
+        && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+        && booking.supplier._id?.toString() === sessionAgencyId
       const isAdmin = !!sessionUser && sessionUser.type === bookcarsTypes.UserType.Admin
 
       if (!isOwner && !isSupplier && !isAdmin) {
@@ -1317,3 +1747,5 @@ export const cancelBooking = async (req: Request, res: Response) => {
     res.status(400).send(i18n.t('ERROR') + err)
   }
 }
+
+

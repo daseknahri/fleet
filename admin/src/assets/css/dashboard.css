@@ -1,0 +1,353 @@
+.agency-dashboard {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 42px clamp(18px, 4vw, 56px) 64px;
+  color: #1d2a2b;
+}
+
+.agency-dashboard__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.agency-dashboard__eyebrow {
+  margin-bottom: 8px;
+  color: #738181;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+
+.agency-dashboard__title {
+  margin: 0;
+  color: #162627;
+  font-size: clamp(28px, 3.1vw, 38px);
+  font-weight: 750;
+  letter-spacing: -.04em;
+  line-height: 1.15;
+}
+
+.agency-dashboard__subtitle {
+  margin-top: 9px;
+  color: #738181;
+  font-size: 14px;
+}
+
+.agency-dashboard__primary-action.MuiButton-root {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  background: #146c5a !important;
+  font-weight: 700;
+  text-transform: none;
+  box-shadow: 0 5px 14px rgb(20 108 90 / 16%);
+}
+
+.agency-dashboard__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.agency-dashboard__metric.MuiCard-root,
+.agency-dashboard__panel.MuiCard-root {
+  border: 1px solid #e7eceb;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 3px 14px rgb(25 49 47 / 3%);
+}
+
+.agency-dashboard__metric .MuiCardContent-root {
+  position: relative;
+  min-height: 166px;
+  padding: 20px 21px 18px;
+}
+
+.agency-dashboard__metric .MuiCardContent-root:last-child,
+.agency-dashboard__panel .MuiCardContent-root:last-child {
+  padding-bottom: 20px;
+}
+
+.agency-dashboard__metric-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  border-radius: 11px;
+}
+
+.agency-dashboard__metric-icon svg {
+  font-size: 21px;
+}
+
+.agency-dashboard__metric--mint .agency-dashboard__metric-icon { background: #e5f4ee; color: #18735d; }
+.agency-dashboard__metric--blue .agency-dashboard__metric-icon { background: #e9f0fb; color: #3d68a9; }
+.agency-dashboard__metric--amber .agency-dashboard__metric-icon { background: #fbf1df; color: #a8751e; }
+.agency-dashboard__metric--violet .agency-dashboard__metric-icon { background: #f0ecf8; color: #7557a6; }
+
+.agency-dashboard__metric-label {
+  color: #687676;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agency-dashboard__metric-value {
+  margin: 4px 0 0;
+  color: #1d2a2b;
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -.04em;
+  line-height: 1.2;
+}
+
+.agency-dashboard__metric-detail {
+  margin-top: 3px;
+  color: #97a2a1;
+  font-size: 11px;
+}
+
+.agency-dashboard__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.agency-dashboard__panel .MuiCardContent-root {
+  padding: 22px;
+}
+
+.agency-dashboard__panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 15px;
+}
+
+.agency-dashboard__panel-title {
+  color: #223131;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.agency-dashboard__panel-copy {
+  margin-top: 5px;
+  color: #879391;
+  font-size: 12px;
+}
+
+.agency-dashboard__panel-heading .MuiButton-root {
+  padding: 4px 2px;
+  color: #146c5a;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.agency-dashboard__booking-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.agency-dashboard__booking-row {
+  display: grid;
+  grid-template-columns: 40px minmax(120px, 1fr) minmax(130px, auto) auto;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 13px 0;
+  border: 0;
+  border-top: 1px solid #eff2f1;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agency-dashboard__booking-row:hover .agency-dashboard__booking-info strong {
+  color: #146c5a;
+}
+
+.agency-dashboard__booking-car {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #f0f5f3;
+  color: #52736a;
+}
+
+.agency-dashboard__booking-info,
+.agency-dashboard__booking-date {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agency-dashboard__booking-info strong,
+.agency-dashboard__booking-date strong {
+  overflow: hidden;
+  color: #344140;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agency-dashboard__booking-info span,
+.agency-dashboard__booking-date span {
+  overflow: hidden;
+  color: #879391;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agency-dashboard__status.MuiChip-root {
+  height: 25px;
+  background: #e9f5ef;
+  color: #287255;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.agency-dashboard__status--muted.MuiChip-root {
+  background: #f0f1f1;
+  color: #717c7b;
+}
+
+.agency-dashboard__loading,
+.agency-dashboard__empty {
+  display: flex;
+  min-height: 200px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  color: #82908e;
+  text-align: center;
+}
+
+.agency-dashboard__empty > svg {
+  color: #6d9a8c;
+  font-size: 28px;
+}
+
+.agency-dashboard__empty .MuiTypography-root {
+  font-size: 13px;
+}
+
+.agency-dashboard__empty .MuiButton-root {
+  color: #146c5a;
+  font-size: 12px;
+  text-transform: none;
+}
+
+.agency-dashboard__shortcut-list {
+  margin-top: 19px;
+}
+
+.agency-dashboard__shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 13px;
+  border: 1px solid #edf1ef;
+  border-radius: 11px;
+  background: #fff;
+  color: #485553;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.agency-dashboard__shortcut:hover {
+  border-color: #c8ded6;
+  background: #f8fbf9;
+}
+
+.agency-dashboard__shortcut span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agency-dashboard__shortcut strong {
+  color: #344140;
+  font-size: 12px;
+}
+
+.agency-dashboard__shortcut small {
+  color: #879391;
+  font-size: 10px;
+}
+
+.agency-dashboard__shortcut > svg {
+  color: #91a29d;
+  font-size: 18px;
+}
+
+.agency-dashboard__alert {
+  margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+  .agency-dashboard__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agency-dashboard__content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .agency-dashboard {
+    padding-top: 28px;
+  }
+
+  .agency-dashboard__heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agency-dashboard__primary-action.MuiButton-root {
+    width: 100%;
+  }
+
+  .agency-dashboard__metrics {
+    gap: 10px;
+  }
+
+  .agency-dashboard__metric .MuiCardContent-root {
+    min-height: 153px;
+    padding: 15px;
+  }
+
+  .agency-dashboard__booking-row {
+    grid-template-columns: 36px minmax(90px, 1fr) auto;
+    gap: 9px;
+  }
+
+  .agency-dashboard__booking-date {
+    grid-column: 2;
+  }
+
+  .agency-dashboard__booking-row .agency-dashboard__status {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}

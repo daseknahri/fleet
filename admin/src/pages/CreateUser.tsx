@@ -92,6 +92,8 @@ const CreateUser = () => {
   }
 
   const handleCancel = async () => {
+    const returnToClients = new URLSearchParams(window.location.search).get('from') === 'clients'
+    const returnRoute = returnToClients ? '/clients' : '/users'
     try {
       if (avatar) {
         await UserService.deleteTempAvatar(avatar)
@@ -101,9 +103,9 @@ const CreateUser = () => {
         await UserService.deleteTempLicense(license)
       }
 
-      navigate('/users')
+      navigate(returnRoute)
     } catch {
-      navigate('/users')
+      navigate(returnRoute)
     }
   }
 
@@ -112,7 +114,9 @@ const CreateUser = () => {
       const _admin = helper.admin(_user)
       setUser(_user)
       setAdmin(_admin)
-      setValue('type', _admin ? '' : bookcarsTypes.UserType.User)
+      const params = new URLSearchParams(window.location.search)
+      const clientFlow = params.get('from') === 'clients'
+      setValue('type', _admin && !clientFlow ? '' : bookcarsTypes.UserType.User)
       setVisible(true)
     }
   }
@@ -171,7 +175,7 @@ const CreateUser = () => {
       const formStatus = await UserService.create(payload)
 
       if (formStatus === 200) {
-        navigate('/users')
+        navigate(new URLSearchParams(window.location.search).get('from') === 'clients' ? '/clients' : '/users')
       } else {
         setFormError(true)
       }
@@ -188,7 +192,7 @@ const CreateUser = () => {
       {user && (
         <div className="create-user">
           <Paper className="user-form user-form-wrapper" elevation={10} style={visible ? {} : { display: 'none' }}>
-            <h1 className="user-form-title">{strings.CREATE_USER_HEADING}</h1>
+            <h1 className="user-form-title">{new URLSearchParams(window.location.search).get('from') === 'clients' ? strings.CREATE_CLIENT_HEADING : strings.CREATE_USER_HEADING}</h1>
             <form onSubmit={handleSubmit(onSubmit)}>
               <Avatar
                 type={type}
@@ -209,7 +213,7 @@ const CreateUser = () => {
                 </div>
               )}
 
-              {admin && (
+              {admin && new URLSearchParams(window.location.search).get('from') !== 'clients' && (
                 <FormControl fullWidth margin="dense" style={{ marginTop: supplier ? 0 : 39 }}>
                   <InputLabel className="required">{commonStrings.TYPE}</InputLabel>
                   <Select

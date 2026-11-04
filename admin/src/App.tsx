@@ -12,7 +12,6 @@ const SignIn = lazy(() => import('@/pages/SignIn'))
 const Activate = lazy(() => import('@/pages/Activate'))
 const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'))
-const SignUp = lazy(() => import('@/pages/SignUp'))
 const Suppliers = lazy(() => import('@/pages/Suppliers'))
 const Supplier = lazy(() => import('@/pages/Supplier'))
 const CreateSupplier = lazy(() => import('@/pages/CreateSupplier'))
@@ -44,6 +43,13 @@ const UpdateCountry = lazy(() => import('@/pages/UpdateCountry'))
 const Scheduler = lazy(() => import('@/pages/Scheduler'))
 const BankDetails = lazy(() => import('@/pages/BankDetails'))
 const Pricing = lazy(() => import('@/pages/Pricing'))
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Clients = lazy(() => import('@/pages/Clients'))
+const Maintenance = lazy(() => import('@/pages/Maintenance'))
+const Payments = lazy(() => import('@/pages/Payments'))
+const CashJournal = lazy(() => import('@/pages/CashJournal'))
+const Team = lazy(() => import('@/pages/Team'))
+const Reports = lazy(() => import('@/pages/Reports'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -77,7 +83,16 @@ const router = createBrowserRouter([
     path: '/',
     element: <AppLayout />,
     children: [
-      { index: true, element: <Bookings /> },
+      { index: true, element: <Dashboard /> },
+      { path: 'dashboard', element: <Dashboard /> },
+      { path: 'bookings', element: <Bookings /> },
+      { path: 'clients', element: <Clients /> },
+      { path: 'calendar', element: <Scheduler /> },
+      { path: 'maintenance', element: <Maintenance /> },
+      { path: 'payments', element: <Payments /> },
+      { path: 'caisse', element: <CashJournal /> },
+      { path: 'team', element: <Team /> },
+      { path: 'reports', element: <Reports /> },
       { path: 'sign-in', element: <SignIn /> },
       { path: 'activate', element: <Activate /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
@@ -120,3 +135,4 @@ const router = createBrowserRouter([
 const App = () => <RouterProvider router={router} />
 
 export default App
+

@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-11-03T03:26:00.455Z",
+  "url": "http://localhost:3002/update-booking?b=6ae16b8084b023432140553a&fresh=1793676355361",
+  "hasPanel": true,
+  "errorBanner": false,
+  "somethingWrong": false,
+  "lang": "ar",
+  "dir": "rtl",
+  "signatureButton": true,
+  "addChargeButton": true,
+  "uploadPhoto": true,
+  "body": "1\nFournisseur *\n​\nConducteur *\n​\nLieu de prise en charge *\n​\nLieu de restitution *\n​\nVoiture *\n​\nDébut *\n11/\n20/\n2026 \n09:\n00 \nAM\nFin *\n11/\n23/\n2026 \n09:\n00 \nAM\nStatut\nEn cours\nParamètres optionnels\nAnnulation\nModifications\nProtection contre le vol\nCouverture en cas de collision\nAssurance Tous Risques\nConducteur supplémentaire\nSAUVEGARDER\nSUPPRIMER\nANNULER\nContract operations\nInspections\n\nNo inspections or charges yet.\n\nOdometer\nOdometer\nFuel %\nFuel %\nCondition\nCondition\nDamage notes\nDamage notes\nUPLOAD PHOTO\nUPLOAD SIGNATURE\nAttachments\nNo attachments\nHANDOVER\nRETURN\nDamage and fee charges\n\nNo inspections or charges yet.\n\nCurrency\nMAD\nCurrency\nType\nDamage\nType\nAmount\nAmount\nReason\nReason\nADD CHARGE\nGENERATE PDF SNAPSHOTCOMPLETE CONTRACT",
+  "network": [
+    {
+      "url": "http://localhost:4002/api/contract-operations/6ae16b8084b023432140553a?supplier=6ae166dda73203de8dd5bdbb",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:4002/api/contract-operations/6ae16b8084b023432140553a/charges?supplier=6ae166dda73203de8dd5bdbb",
+      "status": 200
+    }
+  ]
+}

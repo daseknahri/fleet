@@ -1,6 +1,6 @@
 import axios from 'axios'
 import * as env from '../config/env.config'
-import * as helper from '../utils/helper'
+import { formatProviderAmount } from '../utils/paymentAmount'
 
 const PAYPAL_API = env.PAYPAL_SANDBOX
   ? 'https://api-m.sandbox.paypal.com' // PayPal sandbox host (for testing)
@@ -32,7 +32,7 @@ export const createOrder = async (
   description: string,
   countryCode: string,
 ) => {
-  const price = helper.formatPayPalPrice(amount)
+  const price = formatProviderAmount(amount, currency)
   const token = await getToken()
   const res = await axios.post(
     `${PAYPAL_API}/v2/checkout/orders`,
@@ -85,6 +85,7 @@ export const createOrder = async (
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        'PayPal-Request-Id': `bc-order-${bookingId}`,
       },
     },
   )

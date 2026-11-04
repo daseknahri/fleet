@@ -273,6 +273,7 @@ const CreateBooking = () => {
 
             <FormControl fullWidth margin="dense">
               <StatusList
+                disablePaymentStatuses
                 label={blStrings.STATUS}
                 onChange={(value) => {
                   const currentValue = getValues('status')

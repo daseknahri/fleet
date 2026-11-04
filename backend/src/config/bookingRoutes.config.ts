@@ -1,6 +1,7 @@
 const routes = {
   create: '/api/create-booking',
   checkout: '/api/checkout',
+  confirmPaymentIntent: '/api/confirm-payment-intent',
   update: '/api/update-booking',
   updateStatus: '/api/update-booking-status',
   delete: '/api/delete-bookings',

@@ -3,6 +3,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
+import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 
 export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Deposit,
@@ -21,6 +22,7 @@ export class BookingConflictError extends Error {
 export interface BookingSaveOptions {
   expectedStatus?: bookcarsTypes.BookingStatus
   requireExpireAt?: boolean
+  session?: mongoose.ClientSession
 }
 
 const reservesCar = (booking: env.Booking, now: Date) =>
@@ -79,7 +81,7 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       const query = Booking.findOne({
         _id: bookings[0]._id,
         status: options.expectedStatus,
-        ...(options.requireExpireAt ? { expireAt: { $ne: null } } : {}),
+        ...(options.requireExpireAt ? { expireAt: { $gt: now } } : {}),
       }).select('_id').lean()
 
       if (session) {
@@ -117,6 +119,19 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
 
     for (const booking of reservingBookings) {
       const carId = booking.car.toString()
+      const downtimeQuery = MaintenanceWorkOrder.findOne({
+        supplier: booking.supplier,
+        car: new mongoose.Types.ObjectId(carId),
+        status: { $in: [bookcarsTypes.WorkOrderStatus.Scheduled, bookcarsTypes.WorkOrderStatus.InProgress] },
+        scheduledStart: { $lt: booking.to },
+        scheduledEnd: { $gt: booking.from },
+      }).select('_id').lean()
+      if (session) {
+        downtimeQuery.session(session)
+      }
+      if (await downtimeQuery) {
+        throw new BookingConflictError()
+      }
       if (!blockingCars.has(carId)) {
         continue
       }
@@ -160,6 +175,10 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
     }
 
     return true
+  }
+
+  if (options.session) {
+    return executeLogic(options.session)
   }
 
   if (supportsTransactions) {

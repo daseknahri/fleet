@@ -11,6 +11,7 @@ const strings = new LocalizedStrings({
     INVALID_PICK_UP_TIME: 'Heure de prise en charge invalide',
     INVALID_DROP_OFF_TIME: 'Heure de restitution invalide',
   },
+  ar: { PICK_UP_DATE: 'تاريخ الاستلام', DROP_OFF_DATE: 'تاريخ التسليم', DROP_OFF: 'الإرجاع في نفس الموقع', MIN_PICK_UP_HOURS_ERROR: 'يجب أن يكون موعد الاستلام بعد ساعات قليلة', MIN_RENTAL_HOURS_ERROR: 'مدة الإيجار قصيرة جدًا', INVALID_PICK_UP_TIME: 'وقت استلام غير صالح', INVALID_DROP_OFF_TIME: 'وقت تسليم غير صالح' },
   en: {
     PICK_UP_DATE: 'Pick-up Date',
     DROP_OFF_DATE: 'Drop-off Date',

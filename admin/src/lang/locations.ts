@@ -10,6 +10,14 @@ const strings = new LocalizedStrings({
     LOCATION: 'lieu',
     LOCATIONS: 'lieux',
   },
+  ar: {
+    NEW_LOCATION: 'موقع جديد',
+    DELETE_LOCATION: 'هل تريد حذف هذا الموقع؟',
+    CANNOT_DELETE_LOCATION: 'لا يمكن حذف هذا الموقع لأنه مرتبط بمواقع أو مركبات.',
+    EMPTY_LIST: 'لا توجد مواقع.',
+    LOCATION: 'موقع',
+    LOCATIONS: 'مواقع',
+  },
   en: {
     NEW_LOCATION: 'New location',
     DELETE_LOCATION: 'Are you sure you want to delete this location?',

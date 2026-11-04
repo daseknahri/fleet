@@ -7,6 +7,7 @@ import {
   LocationOn as LocationIcon,
 } from '@mui/icons-material'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import * as bookcarsTypes from ':bookcars-types'
 import env from '@/config/env.config'
 import { strings } from '@/lang/location-carrousel'
@@ -64,7 +65,7 @@ const LocationCarrousel = ({
             <div className="location-image">
               {
                 location.image ? (
-                  <img alt="" src={bookcarsHelper.joinURL(env.CDN_LOCATIONS, location.image)} />
+                  <SafeImage alt="" src={bookcarsHelper.joinURL(env.CDN_LOCATIONS, location.image)} />
                 )
                   : <LocationIcon className="location-icon" />
               }

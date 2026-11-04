@@ -9,6 +9,13 @@ const strings = new LocalizedStrings({
     MAXI: 'Maxi',
     SCOOTER: 'Scooter',
   },
+  ar: {
+    RANGE: 'الفئة',
+    MINI: 'صغيرة',
+    MIDI: 'متوسطة',
+    MAXI: 'كبيرة',
+    SCOOTER: 'دراجة',
+  },
   en: {
     RANGE: 'Range',
     MINI: 'Mini',

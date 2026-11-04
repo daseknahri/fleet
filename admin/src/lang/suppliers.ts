@@ -7,6 +7,11 @@ const strings = new LocalizedStrings({
     SUPPLIER: 'fournisseur',
     SUPPLIERS: 'fournisseurs',
   },
+  ar: {
+    NEW_SUPPLIER: 'مورد جديد',
+    SUPPLIER: 'المورد',
+    SUPPLIERS: 'الموردون',
+  },
   en: {
     NEW_SUPPLIER: 'New supplier',
     SUPPLIER: 'supplier',

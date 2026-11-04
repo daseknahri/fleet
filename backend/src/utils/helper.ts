@@ -106,13 +106,10 @@ export const trim = (str: string, char: string): string => {
  * @returns {string}
  */
 export const joinURL = (part1: string, part2: string): string => {
+  if (!part2) return ''
+  if (!part1) return part2
   const p1 = trimEnd(part1, '/')
-  let p2 = part2
-
-  if (part2.charAt(0) === '/') {
-    p2 = part2.substring(1)
-  }
-
+  const p2 = part2.startsWith('/') ? part2.substring(1) : part2
   return `${p1}/${p2}`
 }
 

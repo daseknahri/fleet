@@ -31,7 +31,7 @@ export const getCurrency = () => {
  * @param {string} code
  * @returns {string|undefined}
  */
-export const getCurrencySymbol = () => env.CURRENCIES.find((c) => c.code === getCurrency())?.symbol || '$'
+export const getCurrencySymbol = () => env.CURRENCIES.find((c) => c.code === getCurrency())?.symbol || 'MAD'
 
 /**
  * Convert a price to a given currency.
@@ -62,3 +62,4 @@ export const currencyRTL = () => {
   const isRTL = bookcarsHelper.currencyRTL(currencySymbol)
   return isRTL
 }
+

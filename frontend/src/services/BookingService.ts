@@ -8,13 +8,13 @@ import * as UserService from './UserService'
  * @param {bookcarsTypes.CheckoutPayload} data
  * @returns {Promise<number>}
  */
-export const checkout = (data: bookcarsTypes.CheckoutPayload): Promise<{ status: number, bookingId: string }> =>
+export const checkout = (data: bookcarsTypes.CheckoutPayload): Promise<{ status: number } & bookcarsTypes.CheckoutResult> =>
   axiosInstance
     .post(
       '/api/checkout',
       data
     )
-    .then((res) => ({ status: res.status, bookingId: res.data.bookingId }))
+    .then((res) => ({ status: res.status, ...res.data }))
 
 /**
  * Update a Booking.

@@ -19,7 +19,7 @@ import {
 } from '@mui/material'
 import { Edit as EditIcon, Delete as DeleteIcon, Check as CheckIcon } from '@mui/icons-material'
 import { format } from 'date-fns'
-import { fr as dfnsFR, enUS as dfnsENUS, es as dfnsES } from 'date-fns/locale'
+import { ar as dfnsAR, fr as dfnsFR, enUS as dfnsENUS, es as dfnsES } from 'date-fns/locale'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import env from '@/config/env.config'
@@ -27,6 +27,7 @@ import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/booking-list'
 import * as helper from '@/utils/helper'
+import * as langHelper from '@/utils/langHelper'
 import * as BookingService from '@/services/BookingService'
 import StatusList from './StatusList'
 import BookingStatus from './BookingStatus'
@@ -68,6 +69,8 @@ const BookingList = ({
   onLoad,
 }: BookingListProps) => {
   const navigate = useNavigate()
+  // Use the active session language so formatting stays aligned with the visible shell.
+  const _language = langHelper.getLanguage() || language || env.DEFAULT_LANGUAGE
 
   const [loggedUser, setLoggedUser] = useState<bookcarsTypes.User>()
   const [user, setUser] = useState<bookcarsTypes.User>()
@@ -241,7 +244,7 @@ const BookingList = ({
         headerName: strings.PRICE,
         flex: 1,
         renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.Booking, string>) => <span className="bp">{value}</span>,
-        valueGetter: (value: number) => bookcarsHelper.formatPrice(value, commonStrings.CURRENCY, language as string),
+        valueGetter: (value: number) => bookcarsHelper.formatPrice(value, commonStrings.CURRENCY, _language),
       },
       {
         field: 'status',
@@ -474,9 +477,9 @@ const BookingList = ({
     }
   }
 
-  const _fr = language === 'fr'
-  const _es = language === 'es'
-  const _locale = _fr ? dfnsFR : _es ? dfnsES : dfnsENUS
+  const _fr = _language === 'fr'
+  const _es = _language === 'es'
+  const _locale = _language === 'ar' ? dfnsAR : _fr ? dfnsFR : _es ? dfnsES : dfnsENUS
   const _format = _fr ? 'eee d LLL yyyy kk:mm' : 'eee, d LLL yyyy, p'
   const bookingDetailHeight = env.SUPPLIER_IMAGE_HEIGHT + 10
 
@@ -510,7 +513,7 @@ const BookingList = ({
                   <div className="booking-detail" style={{ height: bookingDetailHeight }}>
                     <span className="booking-detail-title">{strings.DAYS}</span>
                     <div className="booking-detail-value">
-                      {`${helper.getDaysShort(bookcarsHelper.days(from, to))} (${bookcarsHelper.capitalize(
+                      {`${helper.getDaysShort(bookcarsHelper.days(from, to), _language)} (${bookcarsHelper.capitalize(
                         format(from, _format, { locale: _locale }),
                       )} - ${bookcarsHelper.capitalize(format(to, _format, { locale: _locale }))})`}
                     </div>
@@ -541,7 +544,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.CANCELLATION}</span>
-                            <span className="extra-text">{helper.getCancellationOption((booking.car as bookcarsTypes.Car).cancellation, language as string, true)}</span>
+                            <span className="extra-text">{helper.getCancellationOption((booking.car as bookcarsTypes.Car).cancellation, _language, true)}</span>
                           </div>
                         )}
 
@@ -549,7 +552,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.AMENDMENTS}</span>
-                            <span className="extra-text">{helper.getAmendmentsOption((booking.car as bookcarsTypes.Car).amendments, language as string, true)}</span>
+                            <span className="extra-text">{helper.getAmendmentsOption((booking.car as bookcarsTypes.Car).amendments, _language, true)}</span>
                           </div>
                         )}
 
@@ -557,7 +560,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.COLLISION_DAMAGE_WAVER}</span>
-                            <span className="extra-text">{helper.getCollisionDamageWaiverOption((booking.car as bookcarsTypes.Car).collisionDamageWaiver, days, language as string, true)}</span>
+                            <span className="extra-text">{helper.getCollisionDamageWaiverOption((booking.car as bookcarsTypes.Car).collisionDamageWaiver, days, _language, true)}</span>
                           </div>
                         )}
 
@@ -565,7 +568,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.THEFT_PROTECTION}</span>
-                            <span className="extra-text">{helper.getTheftProtectionOption((booking.car as bookcarsTypes.Car).theftProtection, days, language as string, true)}</span>
+                            <span className="extra-text">{helper.getTheftProtectionOption((booking.car as bookcarsTypes.Car).theftProtection, days, _language, true)}</span>
                           </div>
                         )}
 
@@ -573,7 +576,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.FULL_INSURANCE}</span>
-                            <span className="extra-text">{helper.getFullInsuranceOption((booking.car as bookcarsTypes.Car).fullInsurance, days, language as string, true)}</span>
+                            <span className="extra-text">{helper.getFullInsuranceOption((booking.car as bookcarsTypes.Car).fullInsurance, days, _language, true)}</span>
                           </div>
                         )}
 
@@ -581,7 +584,7 @@ const BookingList = ({
                           <div className="extra">
                             <CheckIcon className="extra-icon" />
                             <span className="extra-title">{csStrings.ADDITIONAL_DRIVER}</span>
-                            <span className="extra-text">{helper.getAdditionalDriverOption((booking.car as bookcarsTypes.Car).additionalDriver, days, language as string, true)}</span>
+                            <span className="extra-text">{helper.getAdditionalDriverOption((booking.car as bookcarsTypes.Car).additionalDriver, days, _language, true)}</span>
                           </div>
                         )}
                       </div>
@@ -590,7 +593,7 @@ const BookingList = ({
 
                   <div className="booking-detail" style={{ height: bookingDetailHeight }}>
                     <span className="booking-detail-title">{strings.COST}</span>
-                    <div className="booking-detail-value booking-price">{bookcarsHelper.formatPrice(booking.price as number, commonStrings.CURRENCY, language as string)}</div>
+                    <div className="booking-detail-value booking-price">{bookcarsHelper.formatPrice(booking.price as number, commonStrings.CURRENCY, _language)}</div>
                   </div>
 
                   <div className="bs-buttons">
@@ -648,7 +651,7 @@ const BookingList = ({
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openUpdateDialog}>
         <DialogTitle className="dialog-header">{strings.UPDATE_STATUS}</DialogTitle>
         <DialogContent className="bs-update-status">
-          <StatusList label={strings.NEW_STATUS} onChange={handleStatusChange} />
+          <StatusList label={strings.NEW_STATUS} disablePaymentStatuses onChange={handleStatusChange} />
         </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelUpdate} variant="contained" className="btn-secondary">

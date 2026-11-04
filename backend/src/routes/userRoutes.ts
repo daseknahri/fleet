@@ -2,6 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import routeNames from '../config/userRoutes.config'
 import authJwt from '../middlewares/authJwt'
+import agencyAuth from '../middlewares/agencyAuth'
 import * as userController from '../controllers/userController'
 import rateLimiter from '../middlewares/rateLimiter'
 const routes = express.Router()
@@ -9,7 +10,7 @@ const routes = express.Router()
 routes.route(routeNames.signup).post(rateLimiter, userController.signup)
 // adminSignup route is replaced by src/setup/setup.ts and src/setup/reset.ts
 // routes.route(routeNames.adminSignup).post(userController.adminSignup)
-routes.route(routeNames.create).post(authJwt.verifyToken, authJwt.authSupplier, userController.create)
+routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.create)
 routes.route(routeNames.checkToken).get(userController.checkToken)
 routes.route(routeNames.deleteTokens).delete(userController.deleteTokens)
 routes.route(routeNames.resend).post(rateLimiter, userController.resend)
@@ -34,8 +35,8 @@ routes.route(routeNames.deleteAvatar).post(authJwt.verifyToken, userController.d
 routes.route(routeNames.deleteTempAvatar).post(authJwt.verifyToken, userController.deleteTempAvatar)
 routes.route(routeNames.changePassword).post(authJwt.verifyToken, rateLimiter, userController.changePassword)
 routes.route(routeNames.checkPassword).get(authJwt.verifyToken, userController.checkPassword)
-routes.route(routeNames.getUsers).post(authJwt.verifyToken, authJwt.authSupplier, userController.getUsers)
-routes.route(routeNames.delete).post(authJwt.verifyToken, authJwt.authSupplier, userController.deleteUsers)
+routes.route(routeNames.getUsers).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getUsers)
+routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.deleteUsers)
 routes.route(routeNames.verifyRecaptcha).post(userController.verifyRecaptcha)
 routes.route(routeNames.sendEmail).post(userController.sendEmail)
 routes.route(routeNames.hasPassword).get(authJwt.verifyToken, userController.hasPassword)

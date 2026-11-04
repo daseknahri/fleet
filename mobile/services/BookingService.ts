@@ -8,12 +8,24 @@ import * as bookcarsTypes from ':bookcars-types'
  * @param {bookcarsTypes.CheckoutPayload} data
  * @returns {Promise<number>}
  */
-export const checkout = (data: bookcarsTypes.CheckoutPayload): Promise<number> =>
+export const checkout = (data: bookcarsTypes.CheckoutPayload): Promise<{ status: number } & bookcarsTypes.CheckoutResult> =>
   axiosInstance
     .post(
       '/api/checkout',
       data
     )
+    .then((res) => ({ status: res.status, ...res.data }))
+
+/** Confirm a PaymentSheet charge against its already-created booking. */
+export const confirmPaymentIntent = (bookingId: string, paymentIntentId: string): Promise<number> =>
+  axiosInstance
+    .post('/api/confirm-payment-intent', { bookingId, paymentIntentId })
+    .then((res) => res.status)
+
+/** Release a temporary booking if the customer cancels before payment. */
+export const deleteTempBooking = (bookingId: string, sessionId: string): Promise<number> =>
+  axiosInstance
+    .delete(`/api/delete-temp-booking/${encodeURIComponent(bookingId)}/${encodeURIComponent(sessionId)}`)
     .then((res) => res.status)
 
 /**

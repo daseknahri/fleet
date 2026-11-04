@@ -89,6 +89,7 @@ const userSchema = new Schema<env.User>(
         bookcarsTypes.UserType.Admin,
         bookcarsTypes.UserType.Supplier,
         bookcarsTypes.UserType.User,
+        bookcarsTypes.UserType.Staff,
       ],
       default: bookcarsTypes.UserType.User,
     },

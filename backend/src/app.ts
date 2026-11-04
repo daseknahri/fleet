@@ -20,6 +20,17 @@ import paypalRoutes from './routes/paypalRoutes'
 import ipinfoRoutes from './routes/ipinfoRoutes'
 import bankDetailsRoutes from './routes/bankDetailsRoutes'
 import settingRoutes from './routes/settingRoutes'
+import maintenanceExpenseRoutes from './routes/maintenanceExpenseRoutes'
+import maintenanceWorkOrderRoutes from './routes/maintenanceWorkOrderRoutes'
+import maintenanceScheduleRoutes from './routes/maintenanceScheduleRoutes'
+import rentalPaymentRoutes from './routes/rentalPaymentRoutes'
+import documentRoutes from './routes/documentRoutes'
+import agencyMembershipRoutes from './routes/agencyMembershipRoutes'
+import cashRoutes from './routes/cashRoutes'
+import invoiceRoutes from './routes/invoiceRoutes'
+import approvalRoutes from './routes/approvalRoutes'
+import contractOperationRoutes from './routes/contractOperationRoutes'
+import reportRoutes from './routes/reportRoutes'
 import * as helper from './utils/helper'
 
 const app = express()
@@ -51,8 +62,11 @@ app.use(cors())
 app.use(cookieParser(env.COOKIE_SECRET))
 app.use(allowedMethods)
 
-// Serve static files from the CDN directory
-app.use('/cdn', express.static(env.CDN_ROOT))
+// Only public media is served statically. Contracts, licenses and temporary files
+// are private and are delivered by authenticated document routes.
+app.use('/cdn/bookcars/users', express.static(env.CDN_USERS))
+app.use('/cdn/bookcars/cars', express.static(env.CDN_CARS))
+app.use('/cdn/bookcars/locations', express.static(env.CDN_LOCATIONS))
 
 app.use('/', supplierRoutes)
 app.use('/', bookingRoutes)
@@ -66,6 +80,17 @@ app.use('/', paypalRoutes)
 app.use('/', ipinfoRoutes)
 app.use('/', bankDetailsRoutes)
 app.use('/', settingRoutes)
+app.use('/', maintenanceExpenseRoutes)
+app.use('/', maintenanceWorkOrderRoutes)
+app.use('/', maintenanceScheduleRoutes)
+app.use('/', rentalPaymentRoutes)
+app.use('/', documentRoutes)
+app.use('/', agencyMembershipRoutes)
+app.use('/', cashRoutes)
+app.use('/', invoiceRoutes)
+app.use('/', approvalRoutes)
+app.use('/', contractOperationRoutes)
+app.use('/', reportRoutes)
 
 if (env.ENABLE_SENTRY) {
   Sentry.setupExpressErrorHandler(app)
@@ -83,5 +108,7 @@ await helper.mkdir(env.CDN_CONTRACTS)
 await helper.mkdir(env.CDN_TEMP_CONTRACTS)
 await helper.mkdir(env.CDN_LICENSES)
 await helper.mkdir(env.CDN_TEMP_LICENSES)
+await helper.mkdir(env.CDN_MAINTENANCE)
+await helper.mkdir(env.CDN_TEMP_MAINTENANCE)
 
 export default app

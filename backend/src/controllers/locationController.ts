@@ -14,6 +14,27 @@ import Car from '../models/Car'
 import User from '../models/User'
 import ParkingSpot from '../models/ParkingSpot'
 import * as logger from '../utils/logger'
+import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { agencySupplierId } from '../utils/agencyAuthorization'
+
+const canAccessAgencyLocation = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
+  if (req.user?.type === bookcarsTypes.UserType.Admin) {
+    return true
+  }
+  const agencyId = agencySupplierId(req)
+  return !!agencyId && (!supplierId || supplierId.toString() === agencyId)
+}
+
+const canManageLocation = (user: { _id: mongoose.Types.ObjectId | string, type?: bookcarsTypes.UserType } | undefined, supplierId?: string) =>
+  !!user && (user.type === bookcarsTypes.UserType.Admin || !!supplierId)
+
+const agencyLocationMatch = (req: Request): mongoose.QueryFilter<env.Location> => {
+  if (req.user?.type === bookcarsTypes.UserType.Admin) {
+    return {}
+  }
+  const agencyId = agencySupplierId(req) || '000000000000000000000000'
+  return { $or: [{ supplier: agencyId }, { supplier: null }, { supplier: { $exists: false } }] }
+}
 
 /**
  * Validate a Location name with language code.
@@ -37,6 +58,7 @@ export const validate = async (req: Request, res: Response) => {
 
     const locations = await Location.aggregate(
       [
+        { $match: agencyLocationMatch(req) },
         {
           $lookup: {
             from: 'LocationValue',
@@ -111,11 +133,17 @@ export const create = async (req: Request, res: Response) => {
     names,
     image,
     parkingSpots: _parkingSpots,
-    supplier,
+    supplier: submittedSupplier,
     parentLocation,
   } = body
 
   try {
+    const supplier = req.user?.type === bookcarsTypes.UserType.Admin ? submittedSupplier : agencySupplierId(req)
+    if (!supplier || !mongoose.isValidObjectId(supplier)) {
+      res.status(400).send('Invalid location agency')
+      return
+    }
+
     if (image) {
       const _image = path.join(env.CDN_TEMP_LOCATIONS, image)
 
@@ -238,7 +266,7 @@ export const update = async (req: Request, res: Response) => {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = await User.findById(sessionUserId)
-      if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && location.supplier?.toString() !== sessionUserId)) {
+      if (!sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
         logger.error(`[location.update] Unauthorized attempt to update location ${location._id} by user ${sessionUserId}`)
         res.status(403).send('Forbidden: You cannot update this location')
         return
@@ -382,7 +410,7 @@ export const deleteLocation = async (req: Request, res: Response) => {
     // begin of security check
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
-    if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && location.supplier?.toString() !== sessionUserId)) {
+    if (!sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
       logger.error(`[location.delete] Unauthorized attempt to delete location ${location._id} by user ${sessionUserId}`)
       res.status(403).send('Forbidden: You cannot delete this location')
       return
@@ -694,12 +722,12 @@ export const checkLocation = async (req: Request, res: Response) => {
     const _id = new mongoose.Types.ObjectId(id)
 
     const carCount = await Car
-      .find({ locations: _id })
+      .find({ locations: _id } as any).find(agencyLocationMatch(req) as any)
       .limit(1)
       .countDocuments()
 
     const childLocationsCount = await Location
-      .find({ parentLocation: _id })
+      .find({ parentLocation: _id } as any).find(agencyLocationMatch(req) as any)
       .limit(1)
       .countDocuments()
 
@@ -758,7 +786,7 @@ export const createImage = async (req: Request, res: Response) => {
       throw new Error('[location.createImage] req.file not found')
     }
 
-    const filename = `${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
+    const filename = `${req.user?._id}_${helper.getFilenameWithoutExtension(req.file.originalname)}_${nanoid()}_${Date.now()}${path.extname(req.file.originalname)}`
     const filepath = path.join(env.CDN_TEMP_LOCATIONS, filename)
 
     // security check: restrict allowed extensions
@@ -798,7 +826,12 @@ export const updateImage = async (req: Request, res: Response) => {
 
     const { file } = req
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const location = await Location.findById(id)
+    if (!location || !sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
+      res.status(403).send('Forbidden: You cannot update this location image')
+      return
+    }
 
     if (location) {
       if (location.image) {
@@ -849,7 +882,12 @@ export const deleteImage = async (req: Request, res: Response) => {
     if (!helper.isValidObjectId(id)) {
       throw new Error('Location Id not valid')
     }
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const location = await Location.findById(id)
+    if (!location || !sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
+      res.status(403).send('Forbidden: You cannot delete this location image')
+      return
+    }
 
     if (location) {
       if (location.image) {
@@ -888,6 +926,12 @@ export const deleteTempImage = async (req: Request, res: Response) => {
     // prevent null bytes
     if (image.includes('\0')) {
       res.status(400).send('Invalid filename')
+      return
+    }
+
+    const sessionUser = req.user
+    if (!sessionUser || !canDeleteOwnedTempFile(sessionUser, image)) {
+      res.status(403).send('Forbidden')
       return
     }
 

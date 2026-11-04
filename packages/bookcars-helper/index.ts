@@ -57,19 +57,9 @@ export const isDate = (value?: any): boolean => {
  * @returns {string}
  */
 export const joinURL = (part1?: string, part2?: string) => {
-  if (!part1 || !part2) {
-    const msg = '[joinURL] part undefined'
-    console.log(msg)
-    throw new Error(msg)
-  }
-
-  if (part1.charAt(part1.length - 1) === '/') {
-    part1 = part1.substring(0, part1.length - 1)
-  }
-  if (part2.charAt(0) === '/') {
-    part2 = part2.substring(1)
-  }
-  return part1 + '/' + part2
+  if (!part2) return ''
+  if (!part1) return part2
+  return `${part1.replace(/\/+$/, '')}/${part2.replace(/^\/+/, '')}`
 }
 
 /**

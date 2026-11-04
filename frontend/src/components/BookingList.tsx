@@ -26,6 +26,7 @@ import { format } from 'date-fns'
 import { fr as dfnsFR, enUS as dfnsENUS, es as dfnsES } from 'date-fns/locale'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import * as BookingService from '@/services/BookingService'
 import * as PaymentService from '@/services/PaymentService'
 import * as helper from '@/utils/helper'
@@ -299,7 +300,7 @@ const BookingList = ({
         flex: 1,
         renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.Booking, string>) => (
           <div className="cell-supplier">
-            <img src={bookcarsHelper.joinURL(env.CDN_USERS, (row.supplier as bookcarsTypes.User).avatar)} alt={value} />
+            <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, (row.supplier as bookcarsTypes.User).avatar)} alt={value} />
           </div>
         ),
         valueGetter: (value: bookcarsTypes.User) => value?.fullName,
@@ -426,7 +427,7 @@ const BookingList = ({
                     <span className="booking-detail-title">{commonStrings.SUPPLIER}</span>
                     <div className="booking-detail-value">
                       <div className="car-supplier">
-                        <img src={bookcarsHelper.joinURL(env.CDN_USERS, bookingSupplier.avatar)} alt={bookingSupplier.fullName} />
+                        <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, bookingSupplier.avatar)} alt={bookingSupplier.fullName} />
                         <span className="car-supplier-name">{bookingSupplier.fullName}</span>
                       </div>
                     </div>

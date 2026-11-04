@@ -1,27 +1,28 @@
 import * as nodemailer from 'nodemailer'
+import type { SendMailOptions, SentMessageInfo, TransportOptions, Transporter } from 'nodemailer'
 import * as env from '../config/env.config'
 
 /**
  * A cached promise of the Nodemailer Transporter to prevent 
  * redundant initialization and race conditions.
  */
-let transporterPromise: Promise<nodemailer.Transporter> | null = null
+let transporterPromise: Promise<Transporter> | null = null
 
 /**
  * Initializes and returns a Nodemailer Transporter.
  * 
  * If running in a CI environment, it generates a temporary Ethereal test account.
  * Otherwise, it uses the SMTP configuration provided in the environment variables.
- * @returns {Promise<nodemailer.Transporter>} The initialized transporter instance.
+ * @returns {Promise<Transporter>} The initialized transporter instance.
  * @throws {Error} If the SMTP configuration is invalid or connection fails.
  */
-const createTransporter = async (): Promise<nodemailer.Transporter> => {
+const createTransporter = async (): Promise<Transporter> => {
   if (transporterPromise) {
     return transporterPromise
   }
 
   transporterPromise = (async () => {
-    let transporterOptions: nodemailer.TransportOptions | any
+    let transporterOptions: TransportOptions | any
 
     if (env.CI) {
       const testAccount = await nodemailer.createTestAccount()
@@ -70,10 +71,12 @@ const createTransporter = async (): Promise<nodemailer.Transporter> => {
  * text: "Welcome to the platform!"
  * });
  *
- * @param {nodemailer.SendMailOptions} mailOptions - The email content (to, from, subject, body).
- * @returns {Promise<nodemailer.SentMessageInfo>} Result containing messageId and accepted recipients.
+ * @param {SendMailOptions} mailOptions - The email content (to, from, subject, body).
+ * @returns {Promise<SentMessageInfo>} Result containing messageId and accepted recipients.
  */
-export const sendMail = async (mailOptions: nodemailer.SendMailOptions): Promise<nodemailer.SentMessageInfo> => {
+export const sendMail = async (mailOptions: SendMailOptions): Promise<SentMessageInfo> => {
   const transporter = await createTransporter()
   return transporter.sendMail(mailOptions)
 }
+
+

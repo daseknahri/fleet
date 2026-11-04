@@ -1,15 +1,12 @@
 import React, { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Pressable } from 'react-native-gesture-handler'
-import * as Linking from 'expo-linking'
 import * as DocumentPicker from 'expo-document-picker'
 import { MaterialIcons } from '@expo/vector-icons'
 import * as bookcarsTypes from ':bookcars-types'
-import * as bookcarsHelper from ':bookcars-helper'
 import i18n from '@/lang/i18n'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
-import * as env from '@/config/env.config'
 
 interface DriverLicenseProps {
   user?: bookcarsTypes.User
@@ -141,16 +138,6 @@ const DriverLicense = ({
         </Pressable>
         {license && (
           <>
-            <Pressable
-              style={styles.action}
-              hitSlop={15}
-              onPress={() => {
-                const url = `${bookcarsHelper.trimEnd(user ? env.CDN_LICENSES : env.CDN_TEMP_LICENSES, '/')}/${license}`
-                Linking.openURL(url)
-              }}
-            >
-              <MaterialIcons name="visibility" size={iconSize} color={iconColor} />
-            </Pressable>
             <Pressable
               style={styles.action}
               hitSlop={15}

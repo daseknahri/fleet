@@ -19,6 +19,9 @@ const strings = new LocalizedStrings({
     COOKIE_POLICY: 'Politique de cookies',
     NOTIFICATIONS: 'Notifications',
   },
+  ar: {
+    SIGN_IN: 'تسجيل الدخول', HOME: 'الرئيسية', BOOKINGS: 'الحجوزات', ABOUT: 'من نحن', TOS: 'شروط الاستخدام', CONTACT: 'اتصل بنا', LANGUAGE: 'اللغة', SETTINGS: 'الإعدادات', SIGN_OUT: 'تسجيل الخروج', SUPPLIERS: 'الموردون', LOCATIONS: 'المواقع', PRIVACY_POLICY: 'سياسة الخصوصية', FAQ: 'الأسئلة الشائعة', COOKIE_POLICY: 'سياسة ملفات تعريف الارتباط', NOTIFICATIONS: 'الإشعارات'
+  },
   en: {
     SIGN_IN: 'Sign in',
     HOME: 'Home',

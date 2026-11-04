@@ -10,6 +10,24 @@ import User from '../models/User'
 import LocationValue from '../models/LocationValue'
 import Location from '../models/Location'
 import * as logger from '../utils/logger'
+import { agencySupplierId } from '../utils/agencyAuthorization'
+
+const canAccessAgencyCountry = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
+  if (req.user?.type === bookcarsTypes.UserType.Admin) {
+    return true
+  }
+  const agencyId = agencySupplierId(req)
+  return !!agencyId && (!supplierId || supplierId.toString() === agencyId)
+}
+
+const agencyCountryMatch = (req: Request): mongoose.QueryFilter<env.Country> => {
+  if (req.user?.type === bookcarsTypes.UserType.Admin) {
+    return {}
+  }
+  const agencyId = agencySupplierId(req) || '000000000000000000000000'
+  return { $or: [{ supplier: agencyId }, { supplier: null }, { supplier: { $exists: false } }] }
+}
+
 
 /**
  * Validate a Country name with language code.
@@ -33,6 +51,7 @@ export const validate = async (req: Request, res: Response) => {
 
     const countries = await Country.aggregate(
       [
+        { $match: agencyCountryMatch(req) },
         {
           $lookup: {
             from: 'LocationValue',
@@ -78,9 +97,15 @@ export const validate = async (req: Request, res: Response) => {
  */
 export const create = async (req: Request, res: Response) => {
   const { body }: { body: bookcarsTypes.UpsertCountryPayload } = req
-  const { names, supplier } = body
+  const { names, supplier: submittedSupplier } = body
 
   try {
+    const supplier = req.user?.type === bookcarsTypes.UserType.Admin ? submittedSupplier : agencySupplierId(req)
+    if (!supplier || !mongoose.isValidObjectId(supplier)) {
+      res.status(400).send('Invalid country agency')
+      return
+    }
+
     const values: string[] = []
     for (const name of names) {
       const countryValue = new LocationValue({
@@ -119,7 +144,7 @@ export const update = async (req: Request, res: Response) => {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = await User.findById(sessionUserId)
-      if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && country.supplier?.toString() !== sessionUserId)) {
+      if (!sessionUser || !canAccessAgencyCountry(req, country.supplier)) {
         logger.error(`[country.update] Unauthorized attempt to update country ${country._id} by user ${sessionUserId}`)
         res.status(403).send('Forbidden: You cannot update this country')
         return
@@ -178,7 +203,7 @@ export const deleteCountry = async (req: Request, res: Response) => {
     // begin of security check
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
-    if (!sessionUser || (sessionUser.type === bookcarsTypes.UserType.Supplier && country.supplier?.toString() !== sessionUserId)) {
+    if (!sessionUser || !canAccessAgencyCountry(req, country.supplier)) {
       logger.error(`[country.delete] Unauthorized attempt to delete country ${country._id} by user ${sessionUserId}`)
       res.status(403).send('Forbidden: You cannot delete this country')
       return
@@ -438,7 +463,7 @@ export const checkCountry = async (req: Request, res: Response) => {
     const _id = new mongoose.Types.ObjectId(id)
 
     const count = await Location
-      .find({ country: _id })
+      .find({ country: _id } as any).find(agencyCountryMatch(req) as any)
       .limit(1)
       .countDocuments()
 

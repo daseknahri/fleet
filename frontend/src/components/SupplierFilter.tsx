@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import Accordion from './Accordion'
@@ -134,11 +135,7 @@ const SupplierFilter = ({
                   onClick={handleSupplierClick}
                   className="supplier"
                 >
-                  <img
-                    src={bookcarsHelper.joinURL(env.CDN_USERS, supplier.avatar)}
-                    alt={supplier.fullName}
-                    title={supplier.fullName}
-                  />
+                  <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, supplier.avatar)} alt={supplier.fullName} title={supplier.fullName} />
                 </span>
                 {!!supplier.carCount && <span className="car-count">{`(${supplier.carCount})`}</span>}
               </li>

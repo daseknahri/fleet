@@ -37,6 +37,7 @@ import Backdrop from '@/components/SimpleBackdrop'
 import NoMatch from './NoMatch'
 import Error from './Error'
 import CarList from '@/components/CarList'
+import ContractOperations from '@/components/ContractOperations'
 import SupplierSelectList from '@/components/SupplierSelectList'
 import UserSelectList from '@/components/UserSelectList'
 import LocationSelectList from '@/components/LocationSelectList'
@@ -242,7 +243,7 @@ const UpdateBooking = () => {
           toastErr(true)
         }
       } catch (err) {
-        helper.error(err)
+        helper.error(err, helper.getErrorMessage(err))
       }
     } else {
       helper.error()
@@ -315,7 +316,7 @@ const UpdateBooking = () => {
         toastErr()
       }
     } catch (err) {
-      helper.error(err)
+      helper.error(err, helper.getErrorMessage(err))
     }
   }
 
@@ -612,6 +613,7 @@ const UpdateBooking = () => {
 
               <FormControl fullWidth margin="dense">
                 <StatusList
+                  disablePaymentStatuses
                   label={blStrings.STATUS}
                   value={status}
                   onChange={(value) => {
@@ -865,6 +867,9 @@ const UpdateBooking = () => {
               </div>
             </form>
           </div>
+          <div className="col-1">
+            <ContractOperations bookingId={booking._id!} supplierId={typeof booking.supplier === 'string' ? booking.supplier : booking.supplier?._id} lifecycle={booking.lifecycle} onCompleted={() => setBooking({ ...booking, lifecycle: bookcarsTypes.ContractLifecycle.Completed })} />
+          </div>
           <div className="col-2">
             {
               days > 0 && (
@@ -910,3 +915,4 @@ const UpdateBooking = () => {
 }
 
 export default UpdateBooking
+

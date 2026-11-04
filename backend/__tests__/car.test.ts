@@ -198,6 +198,8 @@ describe('POST /api/create-car', () => {
         endDate: endDate2,
         dailyPrice: 40,
       },
+      // Simulate the unfinished draft row submitted by the admin editor.
+      { startDate: '', endDate: '', dailyPrice: '' } as any,
     ]
     res = await request(app)
       .post('/api/create-car')
@@ -1207,3 +1209,4 @@ describe('DELETE /api/delete-car/:id', () => {
     await testHelper.signout(token)
   })
 })
+

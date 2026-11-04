@@ -193,7 +193,7 @@ const User = () => {
             {user.license && (
               <div className="license">
                 <span>{commonStrings.LICENSE}</span>
-                <Link href={bookcarsHelper.joinURL(env.CDN_LICENSES, user.license)} target="_blank">
+                <Link href={`${bookcarsHelper.trimEnd(env.API_HOST, '/')}/api/user-license/${user._id}/${encodeURIComponent(user.license)}`} target="_blank" rel="noreferrer">
                   {user.license}
                 </Link>
               </div>

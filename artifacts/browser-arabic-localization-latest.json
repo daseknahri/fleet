@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-11-03T19:08:56.729Z",
+  "rows": [
+    {
+      "route": "/cars",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "frenchFallback": [],
+      "missingKeyWarnings": 0,
+      "runtimeErrors": 0,
+      "sample": "1\nمركبة جديدة\n7 مركبات\nالمورد\nتحديد الكل\nالتقييم\n(1 فأكثر)\n(2 فأكثر)\n(3 فأكثر)\n(4 فأكثر)\nأي\nالفئة\nسيارة\nSUV\nشاحنة صغيرة\nدراجة\nحافلة\nشاحنة\nمقطورة\nتحديد الكل\nالوسائط\nشاشة لمس\nبلوتوث\nAndroid Auto\nApple CarPlay\nتحديد الكل\nالمقاعد\nمقعدان\n4 مقاعد\n5 مقاعد\n5 مقاعد فأك"
+    },
+    {
+      "route": "/bookings",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "frenchFallback": [],
+      "missingKeyWarnings": 0,
+      "runtimeErrors": 0,
+      "sample": "1\nحجز جديد\nالمورد\nتحديد الكل\nالحالة\nفارغ\nقيد التنفيذ\nعربون\nمدفوع\nمدفوع بالكامل\nمحجوز\nملغى\nتحديد الكل\nبحث\nمن\nMM/\nDD/\nYYYY\nإلى\nMM/\nDD/\nYYYY\nمكان الاستلام\nمكان التسليم\nبحث\nقيد التنفيذ\nالمركبة\nBMW X1\nالسائق\ndriver1\nالأيام\n3 أيام (جمعة, 1 مارس 2024, 00:00 - اثنين, "
+    },
+    {
+      "route": "/locations",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "frenchFallback": [],
+      "missingKeyWarnings": 0,
+      "runtimeErrors": 0,
+      "sample": "1\nموقع جديد\n4 مواقع\n\nLocation 1 EN\n\nLos Angeles Airport (LAX)\n\nUnited States\n\nNew York JFK Airport (JFK)\n\nUnited States\n\nSan Francisco Airport (SFO)\n\nUnited States"
+    },
+    {
+      "route": "/suppliers",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "frenchFallback": [],
+      "missingKeyWarnings": 0,
+      "runtimeErrors": 0,
+      "sample": "1\nمورد جديد\n4 الموردون\nApex Car Rentals\n5 مركبات\nsupplier.0a_i1cuq6yge5jr27gh21\n2 مركبات\nsupplier.1prfs8gtswcf4jkspyzsr\n0 مركبة\nsupplier.1prfs8gtswcf4jkspyzsr\n0 مركبة"
+    },
+    {
+      "route": "/users",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "frenchFallback": [],
+      "missingKeyWarnings": 0,
+      "runtimeErrors": 0,
+      "sample": "1\nمستخدم جديد\nالمستخدم\nadmin\nAlex Morgan\nApex Car Rentals\ndriver1\nsupplier.0a_i1cuq6yge5jr27gh21\nsupplier.1prfs8gtswcf4jkspyzsr\nsupplier.1prfs8gtswcf4jkspyzsr\nuser\n\nRows per page:\n\n30\n\n1–9 of 9"
+    }
+  ]
+}

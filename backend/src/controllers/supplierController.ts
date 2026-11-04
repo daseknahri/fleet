@@ -16,6 +16,8 @@ import Car from '../models/Car'
 import DateBasedPrice from '../models/DateBasedPrice'
 import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
+import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
 
@@ -228,7 +230,25 @@ export const getSupplier = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
-    const user = await User.findById(id).lean()
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('Supplier Id not valid')
+      return
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const canReadSupplier = !!sessionUser && (
+      sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ReadAgencyProfile))
+    )
+    if (!canReadSupplier) {
+      res.status(403).send('Forbidden: You cannot read this supplier')
+      return
+    }
+
+    const user = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier }).lean()
 
     if (!user) {
       logger.error('[supplier.getSupplier] Supplier not found:', id)
@@ -806,7 +826,7 @@ export const createContract = async (req: Request, res: Response) => {
       throw new Error('Language not valid')
     }
 
-    const filename = `${nanoid()}_${language}${path.extname(req.file.originalname)}`
+    const filename = `${req.user?._id}_${nanoid()}_${language}${path.extname(req.file.originalname)}`
     const filepath = path.join(env.CDN_TEMP_CONTRACTS, filename)
 
     // security check: restrict allowed extensions
@@ -834,7 +854,7 @@ export const createContract = async (req: Request, res: Response) => {
  * @returns {unknown}
  */
 export const updateContract = async (req: Request, res: Response) => {
-  const { id, language } = req.params
+  const { supplierId: id, language } = req.params
   const { file } = req
 
   try {
@@ -851,7 +871,17 @@ export const updateContract = async (req: Request, res: Response) => {
       throw new Error('Language not valid')
     }
 
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const supplier = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier })
+    const canManageContract = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments)))
+    if (!canManageContract) {
+      res.status(403).send('Forbidden: You cannot update this supplier contract')
+      return
+    }
 
     if (supplier) {
       const contract = supplier.contracts?.find((c) => c.language === language)
@@ -900,7 +930,7 @@ export const updateContract = async (req: Request, res: Response) => {
  * @returns {unknown}
  */
 export const deleteContract = async (req: Request, res: Response) => {
-  const { id, language } = req.params
+  const { supplierId: id, language } = req.params
 
   try {
     if (!helper.isValidObjectId(id)) {
@@ -909,7 +939,17 @@ export const deleteContract = async (req: Request, res: Response) => {
     if (language.length !== 2) {
       throw new Error('Language not valid')
     }
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const supplier = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier })
+    const canManageContract = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments)))
+    if (!canManageContract) {
+      res.status(403).send('Forbidden: You cannot delete this supplier contract')
+      return
+    }
 
     if (supplier) {
       const contract = supplier.contracts?.find((c) => c.language === language)
@@ -948,6 +988,12 @@ export const deleteTempContract = async (req: Request, res: Response) => {
     // prevent null bytes
     if (file.includes('\0')) {
       res.status(400).send('Invalid filename')
+      return
+    }
+
+    const sessionUser = req.user
+    if (!sessionUser || !canDeleteOwnedTempFile(sessionUser, file)) {
+      res.status(403).send('Forbidden')
       return
     }
 

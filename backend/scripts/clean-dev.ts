@@ -139,6 +139,24 @@ async function main(): Promise<void> {
       }
     }
 
+    // 6.5 Delete extra seeded locations
+    if (manifest.extraLocationIds?.length) {
+      for (const extraLocationId of manifest.extraLocationIds) {
+        const [remainingCars, bookings] = await Promise.all([
+          Car.countDocuments({ locations: extraLocationId }),
+          Booking.countDocuments({ $or: [{ pickupLocation: extraLocationId }, { dropOffLocation: extraLocationId }] }),
+        ])
+
+        if (remainingCars === 0 && bookings === 0) {
+          await Location.deleteOne({ _id: extraLocationId })
+        }
+      }
+      if (manifest.extraLocationValueIds?.length) {
+        await LocationValue.deleteMany({ _id: { $in: manifest.extraLocationValueIds } })
+      }
+      logger.info('Deleted owned development extra location data.')
+    }
+
     // 7. Delete seeded country
     if (manifest.ownsCountry && manifest.countryId) {
       const remainingLocations = await Location.countDocuments({ country: manifest.countryId })

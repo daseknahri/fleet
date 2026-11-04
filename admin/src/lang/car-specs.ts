@@ -8,6 +8,12 @@ const strings = new LocalizedStrings({
     MORE_THAN_FOOR_DOORS: '4+ portes',
     MORE_THAN_FIVE_SEATS: '5+ sièges',
   },
+  ar: {
+    CAR_SPECS: 'مواصفات المركبة',
+    AIRCON: 'مكيف الهواء',
+    MORE_THAN_FOOR_DOORS: '4 أبواب فأكثر',
+    MORE_THAN_FIVE_SEATS: '5 مقاعد فأكثر',
+  },
   en: {
     CAR_SPECS: 'Car specs',
     AIRCON: 'Air Conditioning',

@@ -8,8 +8,8 @@ const routes = {
   getFrontendSuppliers: '/api/frontend-suppliers',
   getAdminSuppliers: '/api/admin-suppliers',
   createContract: '/api/create-contract/:language',
-  updateContract: '/api/update-contract/:id/:language',
-  deleteContract: '/api/delete-contract/:id/:language',
+  updateContract: '/api/update-contract/:supplierId/:language',
+  deleteContract: '/api/delete-contract/:supplierId/:language',
   deleteTempContract: '/api/delete-temp-contract/:file',
 }
 

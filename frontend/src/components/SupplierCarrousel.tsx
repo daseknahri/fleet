@@ -1,6 +1,7 @@
 import React from 'react'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import env from '@/config/env.config'
 import Slick from '@/components/Slick'
 
@@ -30,7 +31,7 @@ const SupplierCarrousel = ({ suppliers }: SupplierCarrouselProps) => (
       suppliers.map((supplier) => (
         <div key={supplier._id}>
           <div key={supplier._id} className="supplier-container">
-            <img src={bookcarsHelper.joinURL(env.CDN_USERS, supplier.avatar)} alt={supplier.fullName} title={supplier.fullName} />
+            <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, supplier.avatar)} alt={supplier.fullName} title={supplier.fullName} />
           </div>
         </div>
       ))

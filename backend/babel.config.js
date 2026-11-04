@@ -6,9 +6,9 @@ const babel = (api) => {
       'module-resolver',
       {
         alias: {
-          ':bookcars-types': '../packages/bookcars-types',
-          ':bookcars-helper': '../packages/bookcars-helper',
-          ':currency-converter': '../packages/currency-converter',
+          ':bookcars-types': '../packages/bookcars-types/index.js',
+          ':bookcars-helper': '../packages/bookcars-helper/index.js',
+          ':currency-converter': '../packages/currency-converter/index.js',
         },
       },
     ],

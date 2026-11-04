@@ -9,6 +9,13 @@ const strings = new LocalizedStrings({
     FIVE: '5 sièges',
     FIVE_PLUS: '5+ sièges',
   },
+  ar: {
+    SEATS: 'المقاعد',
+    TWO: 'مقعدان',
+    FOUR: '4 مقاعد',
+    FIVE: '5 مقاعد',
+    FIVE_PLUS: '5 مقاعد فأكثر',
+  },
   en: {
     SEATS: 'Seats',
     TWO: '2 seats',

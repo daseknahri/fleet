@@ -9,6 +9,7 @@ const strings = new LocalizedStrings({
     SEND: 'Envoyer',
     MESSAGE_SENT: 'Message envoyé',
   },
+  ar: { CONTACT_HEADING: 'اتصل بنا', SUBJECT: 'الموضوع', MESSAGE: 'الرسالة', SEND: 'إرسال', MESSAGE_SENT: 'تم إرسال الرسالة' },
   en: {
     CONTACT_HEADING: 'Contact',
     SUBJECT: 'Subject',

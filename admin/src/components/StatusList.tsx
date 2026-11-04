@@ -18,6 +18,7 @@ interface StatusListProps {
   required?: boolean
   variant?: TextFieldVariants
   disabled?: boolean
+  disablePaymentStatuses?: boolean
   style?: CSSProperties
   onChange?: (value: bookcarsTypes.BookingStatus) => void
 }
@@ -28,6 +29,7 @@ const StatusList = ({
   required,
   variant,
   disabled,
+  disablePaymentStatuses,
   style,
   onChange
 }: StatusListProps) => {
@@ -75,13 +77,13 @@ const StatusList = ({
             <MenuItem value={bookcarsTypes.BookingStatus.Pending} className="bs-s bs-s-pending">
               {commonStrings.BOOKING_STATUS_PENDING}
             </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.Deposit} className="bs-s bs-s-deposit">
+            <MenuItem value={bookcarsTypes.BookingStatus.Deposit} className="bs-s bs-s-deposit" disabled={disablePaymentStatuses}>
               {commonStrings.BOOKING_STATUS_DEPOSIT}
             </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.Paid} className="bs-s bs-s-paid">
+            <MenuItem value={bookcarsTypes.BookingStatus.Paid} className="bs-s bs-s-paid" disabled={disablePaymentStatuses}>
               {commonStrings.BOOKING_STATUS_PAID}
             </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.PaidInFull} className="bs-s bs-s-paidinfull">
+            <MenuItem value={bookcarsTypes.BookingStatus.PaidInFull} className="bs-s bs-s-paidinfull" disabled={disablePaymentStatuses}>
               {commonStrings.BOOKING_STATUS_PAID_IN_FULL}
             </MenuItem>
             <MenuItem value={bookcarsTypes.BookingStatus.Reserved} className="bs-s bs-s-reserved">

@@ -1,0 +1,31 @@
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests
+X-DNS-Prefetch-Control: off
+Cross-Origin-Embedder-Policy: require-corp
+X-Frame-Options: SAMEORIGIN
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Download-Options: noopen
+X-Content-Type-Options: nosniff
+X-Permitted-Cross-Domain-Policies: none
+Referrer-Policy: no-referrer
+X-XSS-Protection: 0
+Origin-Agent-Cluster: ?1
+Cross-Origin-Resource-Policy: cross-origin
+Cross-Origin-Opener-Policy: same-origin
+Surrogate-Control: no-store
+Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
+Expires: 0
+Access-Control-Allow-Origin: http://localhost:3002
+Vary: Origin, Accept-Encoding
+Access-Control-Allow-Credentials: true
+RateLimit-Limit: 100
+RateLimit-Remaining: 99
+Set-Cookie: bc-x-access-token-admin=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT
+Set-Cookie: bc-x-access-token-admin=s%3AeyJhbGciOiJIUzI1NiJ9.eyJpZCI6IjZhZTE2NjhkN2ZjZTJjOWEzOWNkOGM4NCIsImlhdCI6MTc5MzY2MTQwMX0.jNPT3osTmdn7KoJ8rE81Imqw1UHxHWC5La7FUi3J5oE.rwfr98fwCcB7rSoodKWsutLDCU4iYK5ubmjOKIMnGLc; Max-Age=34560000; Domain=localhost; Path=/; Expires=Tue, 07 Dec 2027 23:16:41 GMT; HttpOnly; SameSite=Strict
+Content-Type: application/json; charset=utf-8
+Content-Length: 153
+ETag: W/"99-1KwsUrjxB2Qw9hWCQeCUCxqT7I4"
+Date: Mon, 02 Nov 2026 23:16:41 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+

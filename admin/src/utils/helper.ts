@@ -30,6 +30,24 @@ export const info = (message: string) => {
  * @param {?unknown} [err]
  * @param {?string} [message]
  */
+export const getErrorMessage = (err: unknown, fallback = commonStrings.GENERIC_ERROR): string => {
+  if (!err || typeof err !== 'object') {
+    return fallback
+  }
+  const response = (err as { response?: { data?: unknown } }).response
+  const data = response?.data
+  if (typeof data === 'string' && data.trim()) {
+    return data.trim()
+  }
+  if (data && typeof data === 'object' && 'message' in data) {
+    const message = (data as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim()
+    }
+  }
+  return fallback
+}
+
 export const error = (err?: unknown, message?: string) => {
   if (err && console?.log) {
     console.log(err)
@@ -585,7 +603,12 @@ export const getDays = (days: number) =>
  * @param {number} days
  * @returns {string}
  */
-export const getDaysShort = (days: number) => `${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
+export const getDaysShort = (days: number, language?: string) => {
+  if (language === 'ar') {
+    return `${days} ${days === 1 ? 'يوم' : 'أيام'}`
+  }
+  return `${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
+}
 
 /**
  * Get cancellation option label.

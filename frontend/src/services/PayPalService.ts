@@ -43,14 +43,12 @@ export const getLocale = () => {
  * @param {string} sessionId
  * @returns {Promise<number>}
  */
-export const createOrder = (bookingId: string, amount: number, currency: string, name: string, description: string): Promise<string> =>
+export const createOrder = (bookingId: string, name: string, description: string): Promise<string> =>
   axiosInstance
     .post(
       '/api/create-paypal-order/',
       {
         bookingId,
-        amount,
-        currency,
         name,
         description,
       }

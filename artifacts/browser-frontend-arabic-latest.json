@@ -1,0 +1,229 @@
+{
+  "generatedAt": "2026-11-03T19:46:18.419Z",
+  "routes": [
+    {
+      "url": "http://localhost:8080/?l=ar&frontendArabic=1793735147023",
+      "route": "/",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nأفضل عروض تأجير السيارات\nاحجز سيارتك اليوم!\nمكان الاستلام *\nمكان الاستلام *\nتاريخ الاستلام\n11/\n06/\n2026 \n10:\n00 \nAM\nتاريخ الاستلام\n\nتاريخ التسليم\n11/\n09/\n2026 \n10:\n00 \nAM\nتاريخ التسليم\n\nبحث\nالإرجاع في نفس الموقع\nالخدمة\nمساعدة على الطريق على مدار الساعة لراحة بالك.\nبدون رسوم مخفية\nما تراه هو ما تدفعه.\nأسطول مميز\nاختر من مجموعة واسعة من المركبات الموثوقة والمتميزة.\nعدد أميال غير محدود\nاستكشف المدن وما حولها بلا حدود.\n*يطبق عند الإشارة إليه\nما الذي يميزنا؟\nمجموعة واسعة من المركبات\nمن سيارات المدن الصغيرة إلى سيارات الدفع الرباعي الفاخرة، يلبي أسطولنا كل احتياجات السفر.\nاستلام وتسليم مرنان\nمواقع مناسبة ومواعيد مرنة تجعل استئجار السيارة سهلًا.\nأسعار ممتازة\nنقدم أسعارًا تنافسية على جميع المركبات.\nحجز إلكتروني سهل\nقارن الخيارات وخصص إيجارك واحجز مركبتك بسهولة.\nحجز فوري\nاحصل على تأكيد فوري بعد إتمام الحجز.\nدعم العملاء على مدار الساعة\nفريق الدعم متاح دائمًا لمساعدتك.\nتواصل مع أكبر ا",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/all-suppliers",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/countries-with-locations/ar/true/2/?s=",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/locations-with-position/ar",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/search?l=ar&frontendArabic=1793735150036",
+      "route": "/search",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nRien à voir ici !\n\nالعودة إلى الصفحة الرئيسية",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/all-suppliers",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/locations?l=ar&frontendArabic=1793735153072",
+      "route": "/locations",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\n+\n−\nFleetRent\nالمؤسسة\nمن نحن\nسياسة ملفات تعريف الارتباط\nسياسة الخصوصية\nشروط الاستخدام\nاستئجار سيارة\nالموردون\nالمواقع\nالدعم\nاتصل بنا\nالأسئلة الشائعة\ninfo@fleetrent.local\nاشترك\n\nاشترك في قائمتنا البريدية لتصلك آخر التحديثات!\n\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nاشترك\nدفع آمن 100% مع FleetRent\nCopyright © 2026 FleetRent. جميع الحقوق محفوظة.",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/locations-with-position/ar",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/suppliers?l=ar&frontendArabic=1793735156224",
+      "route": "/suppliers",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nApex Car Rentals\nsupplier.0a_i1cuq6yge5jr27gh21\nsupplier.1prfs8gtswcf4jkspyzsr\nsupplier.1prfs8gtswcf4jkspyzsr\nFleetRent\nالمؤسسة\nمن نحن\nسياسة ملفات تعريف الارتباط\nسياسة الخصوصية\nشروط الاستخدام\nاستئجار سيارة\nالموردون\nالمواقع\nالدعم\nاتصل بنا\nالأسئلة الشائعة\ninfo@fleetrent.local\nاشترك\n\nاشترك في قائمتنا البريدية لتصلك آخر التحديثات!\n\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nاشترك\nدفع آمن 100% مع FleetRent\nCopyright © 2026 FleetRent. جميع الحقوق محفوظة.",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/all-suppliers",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/sign-in?l=ar&frontendArabic=1793735159269",
+      "route": "/sign-in",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nتسجيل الدخول\nالبريد الإلكتروني\n\nكلمة المرور\n\nالبقاء متصلاً\nهل نسيت كلمة المرور؟\nأو\nتسجيل\nتسجيل الدخول\nFleetRent\nالمؤسسة\nمن نحن\nسياسة ملفات تعريف الارتباط\nسياسة الخصوصية\nشروط الاستخدام\nاستئجار سيارة\nالموردون\nالمواقع\nالدعم\nاتصل بنا\nالأسئلة الشائعة\ninfo@fleetrent.local\nاشترك\n\nاشترك في قائمتنا البريدية لتصلك آخر التحديثات!\n\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nاشترك\nدفع آمن 100% مع FleetRent\nCopyright © 2026 FleetRent. جميع الحقوق محفوظة.",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/faq?l=ar&frontendArabic=1793735162421",
+      "route": "/faq",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nالأسئلة الشائعة\nما المستندات التي أحتاجها لاستئجار مركبة؟\nهل تقدمون خدمة التوصيل والاستلام؟\nهل هناك حد أدنى للعمر؟\nماذا يحدث إذا أردت إلغاء الحجز؟\nمزيد من الأسئلة؟\nFleetRent\nالمؤسسة\nمن نحن\nسياسة ملفات تعريف الارتباط\nسياسة الخصوصية\nشروط الاستخدام\nاستئجار سيارة\nالموردون\nالمواقع\nالدعم\nاتصل بنا\nالأسئلة الشائعة\ninfo@fleetrent.local\nاشترك\n\nاشترك في قائمتنا البريدية لتصلك آخر التحديثات!\n\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nاشترك\nدفع آمن 100% مع FleetRent\nCopyright © 2026 FleetRent. جميع الحقوق محفوظة.",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/about?l=ar&frontendArabic=1793735165661",
+      "route": "/about",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nFleetRent - Votre service de location de voitures\nVotre partenaire de confiance pour la location de voitures\n\nChez FleetRent, nous comprenons que chaque voyage est unique. Nous nous engageons à fournir à nos clients une sélection diversifiée de véhicules qui répondent à tous les besoins de voyage. Que vous exploriez une ville, que vous vous déplaciez pour affaires ou que vous recherchiez l'aventure, nos services de location de voitures fiables garantissent que votre aventure commence en toute transparence. Notre mission est de fournir un service client exceptionnel, rendant votre expérience agréable et sans stress. Avec des tarifs compétitifs, une variété de véhicules bien entretenus et une équipe dédiée prête à vous aider, nous nous efforçons d'être votre partenaire de confiance sur la route. Choisissez FleetRent pour tous vos besoins de location de voiture et découvrez la",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/tos?l=ar&frontendArabic=1793735168807",
+      "route": "/tos",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nConditions d'utilisation\n\n\nBienvenue chez FleetRent ! En accédant à notre site Web et en utilisant nos services, vous acceptez de vous conformer et d'être lié par les conditions d'utilisation suivantes. Si vous n'acceptez pas ces conditions, veuillez ne pas utiliser nos services.\n\n1. Acceptation des conditions\n\nEn accédant ou en utilisant nos services, vous confirmez avoir lu, compris et accepté ces conditions d'utilisation et notre politique de confidentialité.\n\n2. Utilisation de nos services\n\nVous acceptez d'utiliser nos services uniquement à des fins légales et d'une manière qui ne porte pas atteinte aux droits, ne restreint ni n'empêche quiconque d'utiliser nos services. Cela inclut le respect de toutes les lois et réglementations applicables.\n\n3. Réservations et paiements\n\nLorsque vous effectuez une réservation avec FleetRent, vous acceptez de fournir des informations ",
+      "errorBoundary": false,
+      "frenchFallback": true,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/privacy?l=ar&frontendArabic=1793735172038",
+      "route": "/privacy",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nPolitique de Confidentialité\n\n\nVotre vie privée est importante pour nous chez FleetRent. Cette politique de confidentialité décrit comment nous collectons, utilisons et protégeons vos informations lorsque vous utilisez notre site Web et nos services. En accédant à nos services, vous consentez aux pratiques décrites dans cette politique.\n\n1. Informations que nous collectons\n\nNous collectons des informations auprès de vous lorsque vous vous inscrivez sur notre site, passez une commande ou interagissez avec nos services. Les informations que nous pouvons collecter comprennent :\n\nNom\nAdresse e-mail\nNuméro de téléphone\nInformations de paiement\nPréférences de location\nVous pouvez visiter notre site de manière anonyme, mais certaines fonctionnalités peuvent être limitées.\n\n2. Comment nous utilisons vos informations\n\nVos informations peuvent être utilisées des manières suivantes :\n",
+      "errorBoundary": false,
+      "frenchFallback": true,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:8080/contact?l=ar&frontendArabic=1793735175281",
+      "route": "/contact",
+      "lang": "ar",
+      "dir": "rtl",
+      "body": "FleetRent\nMAD\nاتصل بنا\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nالموضوع\nالموضوع *\nالرسالة\nالرسالة *\nإرسال\nإلغاء\nFleetRent\nالمؤسسة\nمن نحن\nسياسة ملفات تعريف الارتباط\nسياسة الخصوصية\nشروط الاستخدام\nاستئجار سيارة\nالموردون\nالمواقع\nالدعم\nاتصل بنا\nالأسئلة الشائعة\ninfo@fleetrent.local\nاشترك\n\nاشترك في قائمتنا البريدية لتصلك آخر التحديثات!\n\nالبريد الإلكتروني\nالبريد الإلكتروني *\n\nاشترك\nدفع آمن 100% مع FleetRent\nCopyright © 2026 FleetRent. جميع الحقوق محفوظة.",
+      "errorBoundary": false,
+      "frenchFallback": false,
+      "errors": [],
+      "responses": [
+        {
+          "url": "http://localhost:4002/api/settings",
+          "status": 200
+        },
+        {
+          "url": "http://localhost:4002/api/sign-out",
+          "status": 200
+        }
+      ]
+    }
+  ]
+}

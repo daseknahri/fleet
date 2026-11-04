@@ -41,6 +41,12 @@ const bookingSchema = new Schema<env.Booking>(
       type: Date,
       required: [true, "can't be blank"],
     },
+    lifecycle: {
+      type: String,
+      enum: Object.values(bookcarsTypes.ContractLifecycle),
+      default: bookcarsTypes.ContractLifecycle.Draft,
+      index: true,
+    },
     status: {
       type: String,
       enum: [
@@ -108,8 +114,26 @@ const bookingSchema = new Schema<env.Booking>(
       type: Boolean,
       default: false,
     },
+    ledgerVersion: {
+      type: Number,
+      default: 0,
+    },
     paypalOrderId: {
       type: String,
+    },
+    financialSnapshot: {
+      version: Number,
+      baseCurrency: String,
+      paymentCurrency: String,
+      mode: {
+        type: String,
+        enum: Object.values(bookcarsTypes.CheckoutPaymentMode),
+      },
+      rentalTotal: Number,
+      depositAmount: Number,
+      amountDueNow: Number,
+      amountDueNowInPaymentCurrency: Number,
+      quotedAt: Date,
     },
     expireAt: {
       //

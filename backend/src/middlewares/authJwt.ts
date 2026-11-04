@@ -4,12 +4,15 @@ import * as env from '../config/env.config'
 import * as helper from '../utils/helper'
 import * as authHelper from '../utils/authHelper'
 import * as logger from '../utils/logger'
+import { AgencyContext, hasUniqueActiveMembershipCount } from '../utils/agencyAuthorization'
 import User from '../models/User'
+import AgencyMembership from '../models/AgencyMembership'
 
 // Extend Express Request interface to include user property
 declare module 'express-serve-static-core' {
   interface Request {
     user?: { _id: string, type: bookcarsTypes.UserType }
+    agency?: AgencyContext
   }
 }
 
@@ -54,6 +57,31 @@ const verifyToken = async (req: Request, res: Response, next: NextFunction) => {
     if (!user || user.blacklisted) {
       res.status(401).send({ message: 'Unauthorized!' })
       return
+    }
+
+    if (user.type === bookcarsTypes.UserType.Staff) {
+      if (user.active === false) {
+        res.status(403).send({ message: 'Staff account is inactive' })
+        return
+      }
+      const memberships = await AgencyMembership.find({
+        user: user._id,
+        status: bookcarsTypes.AgencyMembershipStatus.Active,
+      }).select('_id supplier role').limit(2).lean()
+      if (!hasUniqueActiveMembershipCount(memberships.length)) {
+        res.status(403).send({
+          message: memberships.length === 0
+            ? 'Staff account has no active agency membership'
+            : 'Staff account has ambiguous active agency memberships',
+        })
+        return
+      }
+      const [membership] = memberships
+      req.agency = {
+        supplierId: membership.supplier.toString(),
+        role: membership.role,
+        membershipId: membership._id.toString(),
+      }
     }
 
     // 4. Attach user to request for use in the next middleware/controller

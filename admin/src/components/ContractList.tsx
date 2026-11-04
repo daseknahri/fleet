@@ -95,7 +95,7 @@ const ContractList: React.FC<ContractListProps> = ({ supplier, onUpload, onDelet
         <div key={lang.code} className="contract">
           <span className="label">{lang.label}</span>
           <span className="filename">
-            {lang.filename ? <a href={`${bookcarsHelper.trimEnd(supplier ? env.CDN_CONTRACTS : env.CDN_TEMP_CONTRACTS, '/')}/${lang.filename}`}>{lang.filename}</a> : '-'}
+            {lang.filename ? (supplier ? <a href={`${bookcarsHelper.trimEnd(env.API_HOST, '/')}/api/supplier-contract/${supplier._id}/${encodeURIComponent(lang.filename)}`} target="_blank" rel="noreferrer">{lang.filename}</a> : <span>{lang.filename}</span>) : '-'}
           </span>
           <div className="actions">
             <IconButton

@@ -95,6 +95,42 @@ if (lang) {
     }
     UserService.setLanguage(language)
     commonStrings.setLanguage(language)
+    activateStrings.setLanguage(language)
+    bookingStrings.setLanguage(language)
+    bookingCarListStrings.setLanguage(language)
+    bookingFilterStrings.setLanguage(language)
+    bookingListStrings.setLanguage(language)
+    bookingsStrings.setLanguage(language)
+    carMultimediaFilterStrings.setLanguage(language)
+    carRangeFilterStrings.setLanguage(language)
+    carRatingFilterStrings.setLanguage(language)
+    carsStrings.setLanguage(language)
+    carSeatsFilterStrings.setLanguage(language)
+    changePasswordStrings.setLanguage(language)
+    checkoutStrings.setLanguage(language)
+    contactFormStrings.setLanguage(language)
+    footerStrings.setLanguage(language)
+    headerStrings.setLanguage(language)
+    homeStrings.setLanguage(language)
+    locationCarrouselStrings.setLanguage(language)
+    mapStrings.setLanguage(language)
+    masterStrings.setLanguage(language)
+    noMatchStrings.setLanguage(language)
+    notificationsStrings.setLanguage(language)
+    resetPasswordStrings.setLanguage(language)
+    searchSrings.setLanguage(language)
+    searchFormStrings.setLanguage(language)
+    settingsStrings.setLanguage(language)
+    signInStrings.setLanguage(language)
+    signUpStrings.setLanguage(language)
+    tosStrings.setLanguage(language)
+    carSpecsStrings.setLanguage(language)
+    newsletterFormStrings.setLanguage(language)
+    privacyStrings.setLanguage(language)
+    faqListStrings.setLanguage(language)
+    checkoutStatusStrings.setLanguage(language)
+    document.documentElement.lang = language
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
   } catch (err) {
     helper.error(err, commonStrings.CHANGE_LANGUAGE_ERROR)
   }
@@ -167,6 +203,8 @@ if (lang) {
 }
 
 language = UserService.getLanguage()
+document.documentElement.lang = language
+document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
 const isFr = language === 'fr'
 const isEs = language === 'es'
 

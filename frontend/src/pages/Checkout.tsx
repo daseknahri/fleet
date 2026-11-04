@@ -32,11 +32,11 @@ import { PayPalButtons } from '@paypal/react-paypal-js'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import validator from 'validator'
-import { nanoid } from 'nanoid'
 import { createSchema, FormFields } from '@/models/CheckoutForm'
 import CarList from '@/components/CarList'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import env from '@/config/env.config'
 import * as BookingService from '@/services/BookingService'
 import { strings as commonStrings } from '@/lang/common'
@@ -47,7 +47,6 @@ import * as UserService from '@/services/UserService'
 import * as CarService from '@/services/CarService'
 import * as LocationService from '@/services/LocationService'
 import * as PaymentService from '@/services/PaymentService'
-import * as StripeService from '@/services/StripeService'
 import * as PayPalService from '@/services/PayPalService'
 import { useRecaptchaContext, RecaptchaContextType } from '@/context/RecaptchaContext'
 import Layout from '@/components/Layout'
@@ -93,6 +92,7 @@ const Checkout = () => {
   const [phoneInfo, setPhoneInfo] = useState(true)
   const [price, setPrice] = useState(0)
   const [depositPrice, setDepositPrice] = useState(0)
+  const [amountDueNow, setAmountDueNow] = useState<number>()
   const [success, setSuccess] = useState(false)
   const [loadingPage, setLoadingPage] = useState(true)
   const [recaptchaError, setRecaptchaError] = useState(false)
@@ -197,15 +197,6 @@ const Checkout = () => {
         }
       }
 
-      let amount = price
-      if (payDeposit) {
-        amount = depositPrice
-      } else if (payInFull) {
-        amount = price + depositPrice
-      }
-
-      const basePrice = await bookcarsHelper.convertPrice(amount, PaymentService.getCurrency(), env.BASE_CURRENCY)
-
       const booking: bookcarsTypes.Booking = {
         supplier: car.supplier._id as string,
         car: car._id,
@@ -221,7 +212,7 @@ const Checkout = () => {
         collisionDamageWaiver: data.collisionDamageWaiver,
         fullInsurance: data.fullInsurance,
         additionalDriver,
-        price: basePrice,
+        price: 0,
       }
 
       if (adRequired && additionalDriver && data.additionalDriverBirthDate) {
@@ -233,69 +224,36 @@ const Checkout = () => {
         }
       }
 
-      //
-      // Stripe Payment Gateway
-      //
-      let _customerId: string | undefined
-      let _sessionId: string | undefined
-      if (!payLater) {
-        if (env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.Stripe) {
-          const name = bookcarsHelper.truncateString(`${env.WEBSITE_NAME} - ${car.name}`, StripeService.ORDER_NAME_MAX_LENGTH)
-          const _description = `${env.WEBSITE_NAME} - ${car.name} - ${daysLabel} - ${pickupLocation._id === dropOffLocation._id ? pickupLocation.name : `${pickupLocation.name} - ${dropOffLocation.name}`}`
-          const description = bookcarsHelper.truncateString(_description, StripeService.ORDER_DESCRIPTION_MAX_LENGTH)
-
-          let finalPrice = price
-          if (payDeposit) {
-            finalPrice = depositPrice
-          } else if (payInFull) {
-            finalPrice = price + depositPrice
-          }
-
-          const payload: bookcarsTypes.CreatePaymentPayload = {
-            amount: finalPrice,
-            currency: PaymentService.getCurrency(),
-            locale: language,
-            receiptEmail: (!authenticated ? driver?.email : user?.email) as string,
-            name,
-            description,
-            customerName: (!authenticated ? driver?.fullName : user?.fullName) as string,
-          }
-          const res = await StripeService.createCheckoutSession(payload)
-          setClientSecret(res.clientSecret)
-          _sessionId = res.sessionId
-          _customerId = res.customerId
-        } else {
-          // Generate a unique session ID for PayPal checkout
-          _sessionId = nanoid()
-          setPayPalLoaded(true)
-        }
-      } else {
-        // Generate a unique session ID for pay later checkout
-        _sessionId = nanoid()
-      }
-
-      booking.isDeposit = payDeposit
-      booking.isPayedInFull = payInFull
-
+      const paymentMode = payLater ? bookcarsTypes.CheckoutPaymentMode.PayLater
+        : payDeposit ? bookcarsTypes.CheckoutPaymentMode.Deposit
+          : payInFull ? bookcarsTypes.CheckoutPaymentMode.Full
+            : bookcarsTypes.CheckoutPaymentMode.Rental
       const payload: bookcarsTypes.CheckoutPayload = {
         driver,
         booking,
         additionalDriver: _additionalDriver,
-        payLater: !!data.payLater,
-        sessionId: _sessionId,
-        customerId: _customerId,
-        payPal: env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.PayPal,
+        paymentMode,
+        currency: PaymentService.getCurrency(),
+        paymentGateway: env.PAYMENT_GATEWAY,
       }
 
-      const { status, bookingId: _bookingId } = await BookingService.checkout(payload)
+      const result = await BookingService.checkout(payload)
 
-      if (status === 200) {
+      if (result.status === 200) {
+        if (result.financialSnapshot) {
+          setAmountDueNow(result.financialSnapshot.amountDueNowInPaymentCurrency)
+        }
         if (payLater) {
           setVisible(false)
           setSuccess(true)
         }
-        setBookingId(_bookingId)
-        setSessionId(_sessionId)
+        setBookingId(result.bookingId)
+        setSessionId(result.sessionId)
+        if (!payLater && env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.Stripe) {
+          setClientSecret(result.clientSecret || null)
+        } else if (!payLater) {
+          setPayPalLoaded(true)
+        }
       } else {
         helper.error()
       }
@@ -488,7 +446,7 @@ const Checkout = () => {
                             <span className="checkout-detail-title">{commonStrings.SUPPLIER}</span>
                             <div className="checkout-detail-value">
                               <div className="car-supplier">
-                                <img src={bookcarsHelper.joinURL(env.CDN_USERS, car.supplier.avatar)} alt={car.supplier.fullName} style={{ height: env.SUPPLIER_IMAGE_HEIGHT }} />
+                                <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, car.supplier.avatar)} alt={car.supplier.fullName} style={{ height: env.SUPPLIER_IMAGE_HEIGHT }} />
                                 <span className="car-supplier-name">{car.supplier.fullName}</span>
                               </div>
                             </div>
@@ -863,10 +821,12 @@ const Checkout = () => {
                       <div className="payment-info-price">
                         {
                           bookcarsHelper.formatPrice(
-                            payDeposit ? depositPrice
-                              : payInFull ? (price + depositPrice)
-                                : price
-                            , commonStrings.CURRENCY, language)
+                            payLater ? price : amountDueNow ?? (
+                              payDeposit ? depositPrice : payInFull ? price + depositPrice : price
+                            ),
+                            commonStrings.CURRENCY,
+                            language,
+                          )
                         }
                       </div>
                     </div>
@@ -892,13 +852,7 @@ const Checkout = () => {
                                 const name = bookcarsHelper.truncateString(car.name, PayPalService.ORDER_NAME_MAX_LENGTH)
                                 const _description = `${car.name} - ${daysLabel} - ${pickupLocation._id === dropOffLocation._id ? pickupLocation.name : `${pickupLocation.name} - ${dropOffLocation.name}`}`
                                 const description = bookcarsHelper.truncateString(_description, PayPalService.ORDER_DESCRIPTION_MAX_LENGTH)
-                                let amount = price
-                                if (payDeposit) {
-                                  amount = depositPrice
-                                } else if (payInFull) {
-                                  amount = price + depositPrice
-                                }
-                                const orderId = await PayPalService.createOrder(bookingId!, amount, PaymentService.getCurrency(), name, description)
+                                const orderId = await PayPalService.createOrder(bookingId!, name, description)
                                 return orderId
                               }}
                               onApprove={async (data, actions) => {

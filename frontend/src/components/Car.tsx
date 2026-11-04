@@ -3,9 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Tooltip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
 } from '@mui/material'
 import {
   LocalGasStation as CarTypeIcon,
@@ -17,10 +14,10 @@ import {
   Clear as UncheckIcon,
   Info as InfoIcon,
   LocationOn as LocationIcon,
-  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
+import SafeImage from '@/components/SafeImage'
 import env from '@/config/env.config'
 import * as helper from '@/utils/helper'
 import { strings as commonStrings } from '@/lang/common'
@@ -190,12 +187,12 @@ const Car = ({
       )}
       <article>
         <div className="car">
-          <img src={bookcarsHelper.joinURL(env.CDN_CARS, car.image)} alt={car.name} className="car-img" />
+          <SafeImage src={bookcarsHelper.joinURL(env.CDN_CARS, car.image)} alt={car.name} className="car-img" />
           <div className="car-row">
             {!hideSupplier && (
               <div className="car-supplier" style={sizeAuto ? { bottom: 10 } : {}} title={car.supplier.fullName}>
                 <span className="car-supplier-logo">
-                  <img src={bookcarsHelper.joinURL(env.CDN_USERS, car.supplier.avatar)} alt={car.supplier.fullName} />
+                  <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, car.supplier.avatar)} alt={car.supplier.fullName} />
                 </span>
                 <span className="car-supplier-info">{car.supplier.fullName}</span>
               </div>

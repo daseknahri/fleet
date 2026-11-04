@@ -80,6 +80,23 @@ const copyCarImage = async (carId: string | mongoose.Types.ObjectId, sourceFilen
   return targetFilename
 }
 
+const copyLocationImage = async (locationId: string | mongoose.Types.ObjectId, sourceFilename: string): Promise<string | null> => {
+  const sourcePath = getSourceImagePath(sourceFilename)
+  if (!sourcePath) {
+    logger.warn(`Source location image ${sourceFilename} not found.`)
+    return null
+  }
+
+  await helper.mkdir(env.CDN_LOCATIONS)
+
+  const ext = path.extname(sourceFilename) || '.jpg'
+  const targetFilename = `${locationId.toString()}${ext}`
+  const targetPath = path.join(env.CDN_LOCATIONS, targetFilename)
+
+  await asyncFs.copyFile(sourcePath, targetPath)
+  return targetFilename
+}
+
 const seedCars = [
   {
     name: 'Volkswagen Golf',
@@ -137,6 +154,44 @@ const seedCars = [
     additionalDriver: 7,
     fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
     sourceImage: 'tesla-model-3.jpg',
+  },
+  {
+    name: 'BMW X3',
+    dailyPrice: 85,
+    deposit: 500,
+    type: bookcarsTypes.CarType.Diesel,
+    gearbox: bookcarsTypes.GearboxType.Automatic,
+    seats: 5,
+    doors: 4,
+    range: bookcarsTypes.CarRange.Maxi,
+    mileage: 200,
+    cancellation: 0,
+    amendments: 0,
+    theftProtection: 15,
+    collisionDamageWaiver: 22,
+    fullInsurance: 40,
+    additionalDriver: 8,
+    fuelPolicy: bookcarsTypes.FuelPolicy.FullToFull,
+    sourceImage: 'bmw-x3.jpg',
+  },
+  {
+    name: 'Ford Mustang Convertible',
+    dailyPrice: 95,
+    deposit: 600,
+    type: bookcarsTypes.CarType.Gasoline,
+    gearbox: bookcarsTypes.GearboxType.Automatic,
+    seats: 4,
+    doors: 2,
+    range: bookcarsTypes.CarRange.Midi,
+    mileage: 150,
+    cancellation: 0,
+    amendments: 0,
+    theftProtection: 18,
+    collisionDamageWaiver: 25,
+    fullInsurance: 45,
+    additionalDriver: 10,
+    fuelPolicy: bookcarsTypes.FuelPolicy.FullToFull,
+    sourceImage: 'ford-mustang.jpg',
   },
 ]
 
@@ -390,6 +445,74 @@ async function main(): Promise<void> {
       throw new Error('The original seed location no longer exists.')
     }
 
+    // 3.5 Seed extra pickup locations (idempotent, tracked in the seed manifest)
+    const EXTRA_LOCATIONS = [
+      {
+        en: 'New York JFK Airport (JFK)',
+        fr: 'Aéroport de New York JFK (JFK)',
+        latitude: 40.6413,
+        longitude: -73.7781,
+      },
+      {
+        en: 'Los Angeles Airport (LAX)',
+        fr: 'Aéroport de Los Angeles (LAX)',
+        latitude: 33.9416,
+        longitude: -118.4085,
+      },
+    ]
+
+    const extraLocationIds: mongoose.Types.ObjectId[] = []
+    for (const extra of EXTRA_LOCATIONS) {
+      const enValue = await LocationValue.findOne({ language: 'en', value: extra.en })
+      let extraLoc = enValue ? await Location.findOne({ values: enValue._id }) : null
+
+      if (!extraLoc) {
+        const locationValues = await LocationValue.create([
+          { language: 'en', value: extra.en },
+          { language: 'fr', value: extra.fr },
+        ])
+        extraLoc = await Location.create({
+          country: location.country,
+          values: locationValues.map((value) => value._id),
+          supplier: supplierId,
+          latitude: extra.latitude,
+          longitude: extra.longitude,
+          image: '',
+        })
+        await manifestCollection.updateOne(
+          { _id: SEED_ID },
+          {
+            $addToSet: {
+              extraLocationIds: extraLoc._id,
+              extraLocationValueIds: { $each: locationValues.map((value) => value._id) },
+            },
+          },
+        )
+        logger.info(`Created location ${extra.en}: ${extraLoc._id.toString()}`)
+      }
+
+      const locationImage = await copyLocationImage(extraLoc._id, 'airport-pickup.jpg')
+      if (locationImage && extraLoc.image !== locationImage) {
+        extraLoc.image = locationImage
+        await extraLoc.save()
+      }
+
+      extraLocationIds.push(extraLoc._id)
+    }
+
+    // Ensure the primary seed location also has an image
+    const primaryLocationImage = await copyLocationImage(location._id, 'airport-pickup.jpg')
+    if (primaryLocationImage && location.image !== primaryLocationImage) {
+      const primaryImageMissing = !location.image
+        || !(await helper.pathExists(path.join(env.CDN_LOCATIONS, location.image)))
+      if (primaryImageMissing) {
+        location.image = primaryLocationImage
+        await location.save()
+      }
+    }
+
+    const allLocationIds = [location._id, ...extraLocationIds]
+
     // 4. Seed Cars
     const createdCars: any[] = []
     for (const data of seedCars) {
@@ -400,6 +523,14 @@ async function main(): Promise<void> {
       })
 
       if (car) {
+        const existingCar = car
+        const missingLocations = allLocationIds.filter(
+          (id) => !existingCar.locations.some((carLocation) => carLocation.toString() === id.toString()),
+        )
+        if (missingLocations.length > 0) {
+          existingCar.locations = [...existingCar.locations, ...missingLocations]
+          await existingCar.save()
+        }
         if (!car.image || !(await helper.pathExists(path.join(env.CDN_CARS, car.image)))) {
           const imageFilename = await copyCarImage(car._id, sourceImage)
           if (imageFilename) {
@@ -415,7 +546,7 @@ async function main(): Promise<void> {
       car = await Car.create({
         ...carData,
         supplier: supplierId,
-        locations: [locationId],
+        locations: allLocationIds,
         minimumAge: env.MINIMUM_AGE,
         available: true,
         aircon: true,

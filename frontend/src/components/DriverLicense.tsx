@@ -108,14 +108,16 @@ const DriverLicense = ({
 
         {license && (
           <>
-            <IconButton
-              onClick={() => {
-                const url = `${bookcarsHelper.trimEnd(user ? env.CDN_LICENSES : env.CDN_TEMP_LICENSES, '/')}/${license}`
-                helper.downloadURI(url)
-              }}
-            >
-              <ViewIcon className="icon" />
-            </IconButton>
+            {user && (
+              <IconButton
+                onClick={() => {
+                  const url = `${bookcarsHelper.trimEnd(env.API_HOST, '/')}/api/user-license/${user._id}/${encodeURIComponent(license)}`
+                  helper.downloadURI(url)
+                }}
+              >
+                <ViewIcon className="icon" />
+              </IconButton>
+            )}
             {!hideDelete && (
               <IconButton
                 onClick={async () => {

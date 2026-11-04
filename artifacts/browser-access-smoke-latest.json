@@ -1,0 +1,142 @@
+{
+  "generatedAt": "2026-11-03T17:07:06.8854494Z",
+  "directHttp": [
+    {
+      "url": "http://localhost:3002/",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:3002/cars",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:3002/bookings",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:3002/payments",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:3002/caisse",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:3002/reports",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 1158
+    },
+    {
+      "url": "http://localhost:8080/",
+      "status": 200,
+      "contentType": [
+        "text/html"
+      ],
+      "length": 2897
+    }
+  ],
+  "browserArtifact": "artifacts/browser-admin-route-matrix-latest.json",
+  "browserGeneratedAt": "2026-11-03T16:59:14.847Z",
+  "browserRoutes": [
+    {
+      "route": "/",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/dashboard",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/cars",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/bookings",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/locations",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/suppliers",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/users",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/maintenance",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/payments",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/caisse",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    },
+    {
+      "route": "/reports",
+      "lang": "ar",
+      "dir": "rtl",
+      "errorBoundary": false,
+      "errors": 0
+    }
+  ]
+}

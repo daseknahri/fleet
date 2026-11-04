@@ -2,13 +2,11 @@ import { Request, Response } from 'express'
 import i18n from '../lang/i18n'
 import * as logger from '../utils/logger'
 import * as bookcarsTypes from ':bookcars-types'
-import * as env from '../config/env.config'
 import Booking from '../models/Booking'
-import User from '../models/User'
-import Car from '../models/Car'
 import * as bookingController from './bookingController'
 import * as ipinfoHelper from '../utils/ipinfoHelper'
-import { BookingConflictError, saveBookingWithAvailability } from '../utils/bookingReservationHelper'
+import { BookingConflictError } from '../utils/bookingReservationHelper'
+import { currencyExponent, formatProviderAmount } from '../utils/paymentAmount'
 
 /**
  * Create PayPal order.
@@ -21,10 +19,10 @@ import { BookingConflictError, saveBookingWithAvailability } from '../utils/book
 export const createPayPalOrder = async (req: Request, res: Response) => {
   try {
     const paypal = await import('../payment/paypal.js')
-    const { bookingId, currency, name, description }: bookcarsTypes.CreatePayPalOrderPayload = req.body
+    const { bookingId, name, description }: bookcarsTypes.CreatePayPalOrderPayload = req.body
 
     // 1. Retrieve the authoritative booking from database
-    const booking = await Booking.findById(bookingId)
+    const booking = await Booking.findOne({ _id: bookingId, status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: new Date() } })
     if (!booking) {
       const msg = `Booking with id ${bookingId} not found`
       logger.info(`[paypal.createPayPalOrder] ${msg}`)
@@ -32,11 +30,31 @@ export const createPayPalOrder = async (req: Request, res: Response) => {
       return
     }
 
+    const snapshot = booking.financialSnapshot
+    if (!snapshot || snapshot.mode === bookcarsTypes.CheckoutPaymentMode.PayLater || snapshot.amountDueNow <= 0) {
+      res.status(400).send('Booking has no payable checkout amount')
+      return
+    }
+
+    if (booking.paypalOrderId) {
+      res.json(booking.paypalOrderId)
+      return
+    }
+
     const clientIp = ipinfoHelper.getClientIp(req)
     const countryCode = await ipinfoHelper.getCountryCode(clientIp)
 
     // 2. Use booking.price derived server-side instead of client-supplied amount
-    const orderId = await paypal.createOrder(bookingId, booking.price, currency, name, description, countryCode)
+    const orderId = await paypal.createOrder(
+      bookingId,
+      snapshot.amountDueNowInPaymentCurrency,
+      snapshot.paymentCurrency,
+      name,
+      description,
+      countryCode,
+    )
+    booking.paypalOrderId = orderId
+    await booking.save()
 
     res.json(orderId)
   } catch (err) {
@@ -62,11 +80,30 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
     //
     // 1. Retrieve Checkout Session and Booking
     //
-    const booking = await Booking.findOne({ _id: bookingId, expireAt: { $ne: null } })
+    const booking = await Booking.findById(bookingId)
     if (!booking) {
+      const orphanOrder = await paypal.getOrder(orderId).catch((err) => {
+        logger.error(`[paypal.checkPayPalOrder] retrieve orphan order error: ${orderId}`, err)
+        return undefined
+      })
+      const orphanPurchaseUnit = orphanOrder?.purchase_units?.[0]
+      const orphanCapture = orphanPurchaseUnit?.payments?.captures?.[0]
+      if (orphanPurchaseUnit?.invoice_id === bookingId
+        && orphanOrder?.id === orderId
+        && orphanOrder.status === 'COMPLETED'
+        && orphanCapture?.status === 'COMPLETED'
+        && orphanCapture.id) {
+        await paypal.refundCapture(orphanCapture.id, `bc-orphan-${orphanCapture.id}`)
+        res.status(410).send('Booking expired; the payment was refunded')
+        return
+      }
       const msg = `Booking with id ${bookingId} not found`
       logger.info(`[paypal.checkPayPalOrder] ${msg}`)
       res.status(204).send(msg)
+      return
+    }
+    if (booking.paypalOrderId === orderId && booking.status !== bookcarsTypes.BookingStatus.Void) {
+      res.sendStatus(200)
       return
     }
 
@@ -75,6 +112,8 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
       order = await paypal.getOrder(orderId)
     } catch (err) {
       logger.error(`[paypal.checkPayPalOrder] retrieve paypal order error: ${orderId}`, err)
+      res.status(503).send('Payment provider unavailable; support review is required')
+      return
     }
 
     if (!order) {
@@ -88,19 +127,25 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
     // 2. Reconcile PayPal purchase unit data against database booking
     //
     const purchaseUnit = order.purchase_units?.[0]
-    const paidAmount = Number(Number.parseFloat(purchaseUnit?.amount?.value || '0').toFixed(2))
+    const snapshot = booking.financialSnapshot
+    if (!snapshot || booking.paypalOrderId !== orderId) {
+      res.status(400).send('Payment order is not linked to this booking')
+      return
+    }
+    const paidAmount = Number(Number.parseFloat(purchaseUnit?.amount?.value || '0').toFixed(currencyExponent(snapshot.paymentCurrency)))
     const paidCurrency = purchaseUnit?.amount?.currency_code
     const invoiceId = purchaseUnit?.invoice_id
+    const capture = purchaseUnit?.payments?.captures?.[0]
 
     // Check for invoice / booking reference mismatch or amount discrepancy
-    if (invoiceId && invoiceId !== bookingId) {
-      logger.error(`[paypal.checkPayPalOrder] Booking ID mismatch. Expected ${bookingId}, got ${invoiceId}`)
+    if (invoiceId !== bookingId) {
+      logger.error(`[paypal.checkPayPalOrder] Booking ID mismatch. Expected ${bookingId}, got ${invoiceId || 'missing'}`)
       res.status(400).send('Booking ID mismatch')
       return
     }
 
     // Currency Reconciliation
-    const expectedCurrency = env.BASE_CURRENCY
+    const expectedCurrency = snapshot.paymentCurrency
     if (!paidCurrency || paidCurrency.toUpperCase() !== expectedCurrency.toUpperCase()) {
       logger.error(`[paypal.checkPayPalOrder] Currency mismatch. Expected ${expectedCurrency}, got ${paidCurrency}`)
       res.status(400).send('Payment currency mismatch')
@@ -108,7 +153,7 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
     }
 
     // Round booking price to 2 decimal places for comparison
-    const expectedPrice = Number.parseFloat(booking.price.toFixed(2))
+    const expectedPrice = Number.parseFloat(formatProviderAmount(snapshot.amountDueNowInPaymentCurrency, expectedCurrency))
 
     if (paidAmount !== expectedPrice) {
       logger.error(`[paypal.checkPayPalOrder] Price mismatch. Expected ${expectedPrice}, got ${paidAmount}`)
@@ -116,69 +161,42 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
       return
     }
 
+    if (order.status === 'COMPLETED' && !capture?.id) {
+      res.status(409).send('Completed PayPal order has no verified capture; support review is required')
+      return
+    }
+    if (order.id !== orderId || (order.status === 'COMPLETED' && capture.status !== 'COMPLETED')) {
+      res.status(400).send('PayPal capture verification failed')
+      return
+    }
+    if (order.status === 'COMPLETED') {
+      const capturedAmount = Number(Number.parseFloat(capture.amount?.value || '0').toFixed(currencyExponent(expectedCurrency)))
+      if (capture.amount?.currency_code?.toUpperCase() !== expectedCurrency.toUpperCase() || capturedAmount !== expectedPrice) {
+        res.status(400).send('PayPal capture amount or currency mismatch')
+        return
+      }
+    }
+
     //
     // 3. Update Booking if the payment succeeded
     // (Set BookingStatus to Paid and remove expireAt TTL index)
     //
     if (order.status === 'COMPLETED') {
-      captureId = purchaseUnit?.payments?.captures?.[0]?.id
-      booking.paypalOrderId = orderId
-      booking.expireAt = undefined
-
-      let status = bookcarsTypes.BookingStatus.Paid
-      if (booking.isDeposit) {
-        status = bookcarsTypes.BookingStatus.Deposit
-      } else if (booking.isPayedInFull) {
-        status = bookcarsTypes.BookingStatus.PaidInFull
-      }
-      booking.status = status
-
-      const saved = await saveBookingWithAvailability(booking, {
-        expectedStatus: bookcarsTypes.BookingStatus.Void,
-        requireExpireAt: true,
-      })
-      if (!saved) {
-        res.sendStatus(200)
+      captureId = capture?.id
+      if (!captureId) {
+        res.status(409).send('Completed PayPal order has no verified capture')
         return
       }
-
-      const car = await Car.findById(booking.car)
-      if (!car) {
-        throw new Error(`Car ${booking.car} not found`)
-      }
-      car.trips += 1
-      await car.save()
-
-      const supplier = await User.findById(booking.supplier)
-      if (!supplier) {
-        throw new Error(`Supplier ${booking.supplier} not found`)
-      }
-
-      // Send confirmation email to customer
-      const user = await User.findById(booking.driver)
-      if (!user) {
-        throw new Error(`Driver ${booking.driver} not found`)
-      }
-
-      user.expireAt = undefined
-      await user.save()
-
-      if (!(await bookingController.confirm(user, supplier, booking, false))) {
-        res.sendStatus(400)
+      const finalized = await bookingController.finalizePaidCheckoutBooking(booking, 'paypal', orderId)
+      if (!finalized) {
+        const existingPaidBooking = await Booking.findOne({ _id: booking._id, paypalOrderId: orderId })
+        if (existingPaidBooking && existingPaidBooking.status !== bookcarsTypes.BookingStatus.Void) {
+          res.sendStatus(200)
+          return
+        }
+        await paypal.refundCapture(captureId, `bc-unavailable-${booking._id}`)
+        res.status(409).send('Booking unavailable; the payment was refunded')
         return
-      }
-
-      // Notify supplier
-      i18n.locale = supplier.language
-      let message = i18n.t('BOOKING_PAID_NOTIFICATION')
-      await bookingController.notify(user, booking._id.toString(), supplier, message)
-
-      // Notify admin
-      const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
-      if (admin) {
-        i18n.locale = admin.language
-        message = i18n.t('BOOKING_PAID_NOTIFICATION')
-        await bookingController.notify(user, booking._id.toString(), admin, message)
       }
 
       res.sendStatus(200)

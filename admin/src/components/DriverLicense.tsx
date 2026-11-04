@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { IconButton, Input, OutlinedInput } from '@mui/material'
 import { Upload as UploadIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
-import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
@@ -106,15 +105,17 @@ const DriverLicense = ({
 
         {license && (
           <>
-            <IconButton
-              size="small"
-              onClick={() => {
-                const url = `${bookcarsHelper.trimEnd(user ? env.CDN_LICENSES : env.CDN_TEMP_LICENSES, '/')}/${license}`
-                helper.downloadURI(url)
-              }}
-            >
-              <ViewIcon className="icon" />
-            </IconButton>
+            {user && (
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const url = `${env.API_HOST.replace(/\/$/, '')}/api/user-license/${user._id}/${encodeURIComponent(license)}`
+                  helper.downloadURI(url)
+                }}
+              >
+                <ViewIcon className="icon" />
+              </IconButton>
+            )}
             <IconButton
               size="small"
               onClick={async () => {
@@ -151,3 +152,4 @@ const DriverLicense = ({
 }
 
 export default DriverLicense
+

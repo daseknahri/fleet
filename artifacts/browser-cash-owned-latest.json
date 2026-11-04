@@ -1,0 +1,7 @@
+{
+  "generatedAt": "2026-11-04T20:19:01.180Z",
+  "mode": "authenticated Chrome CDP page fetch against live admin session",
+  "fixture": "owned supplier 6ae166dda73203de8dd5bdbb; IDs recorded in execution output and cleaned",
+  "cash": {"openSource":201,"openDestination":201,"movement":201,"transfer":201,"transferReplay":201,"closeSource":200,"closeDestination":200,"sourceExpected":125,"sourceCounted":125,"destinationExpected":25,"destinationCounted":25,"discrepancy":0},
+  "cleanup": "source/destination sessions and three movements deleted by exact IDs; verification returned zero matching records"
+}
