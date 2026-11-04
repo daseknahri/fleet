@@ -277,3 +277,8 @@ The route matrix was rerun after the backend/admin/frontend containers were recr
 - Admin lint/build and deployed admin image are green after fixing the empty agency selector/default context.
 - Authenticated `/caisse` selected Apex Car Rentals, opened and closed an owned session with discrepancy `0`; exact cleanup verified. P0 remains **7 suites / 35 tests**, `P0_EXIT=0`, at `127.0.0.1:27018`; route smoke remains green.
 - Release remains **Not ready**. Maintenance browser mutation and cross-agency browser denial are still explicitly open, along with provider/production/business gates.
+
+## Repository publish — 2026-11-04 21:20
+- GA-OPS-REPO-PUBLISH-01: target main commit 9f32339601cf40f009fffcd789ac2921b0f99ddd at https://github.com/daseknahri/fleet.git; local commit 4a639ce; working tree clean.
+- Release remains Not ready; provider/production/business gates remain open.
+

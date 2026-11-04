@@ -194,3 +194,10 @@
 - Authenticated browser verification confirmed the selector is populated and defaults to `Apex Car Rentals`; the UI opened and closed an owned session with zero discrepancy. The exact-ID cleanup was verified in Mongo.
 - Authoritative P0 passed **7 suites / 35 tests**, `P0_EXIT=0`, against `127.0.0.1:27018`. Admin `/caisse`, `/payments`, `/maintenance`, `/update-booking` and frontend `/` returned **200**; Compose config passed; all services remain loopback-only.
 - Release remains exactly **Not ready**. No preserved records, volumes, checkout behavior or bindings were reset/deleted.
+
+## Repository publish — 2026-11-04 21:20 local time
+- **Slice:** GA-OPS-REPO-PUBLISH-01.
+- **Action:** prepared working tree was committed locally as 4a639ce and published to https://github.com/daseknahri/fleet.git as main commit 9f32339601cf40f009fffcd789ac2921b0f99ddd. The first push had a remote unpack error; a standalone publish commit of the identical tree succeeded.
+- **Verification:** git ls-remote verified the target commit and the working tree is clean. No preserved records, Docker volumes, checkout behavior or bindings were reset/deleted.
+- **State:** release remains exactly Not ready; provider, mobile, DR, production and business gates remain open.
+
