@@ -17,6 +17,7 @@ import DateBasedPrice from '../models/DateBasedPrice'
 import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
@@ -836,6 +837,11 @@ export const createContract = async (req: Request, res: Response) => {
       return
     }
 
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid contract file type')
+      return
+    }
+
     await asyncFs.writeFile(filepath, req.file.buffer)
     res.json(filename)
   } catch (err) {
@@ -898,6 +904,11 @@ export const updateContract = async (req: Request, res: Response) => {
       // security check: restrict allowed extensions
       const ext = path.extname(filename)
       if (!env.allowedContractExtensions.includes(ext.toLowerCase())) {
+        res.status(400).send('Invalid contract file type')
+        return
+      }
+
+      if (!contentMatchesExtension(file.buffer, ext)) {
         res.status(400).send('Invalid contract file type')
         return
       }

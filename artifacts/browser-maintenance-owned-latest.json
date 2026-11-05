@@ -1,0 +1,26 @@
+{
+  "slice": "GA-P0-MAINTENANCE-BROWSER-02",
+  "generatedAt": "2026-11-04T21:30:01.609Z",
+  "method": "Authenticated admin browser page context (CDP) executing application API calls; browser-session evidence, not physical UI clicks.",
+  "result": {
+    "supplier": {
+      "_id": "6ae166dda73203de8dd5bdbb",
+      "fullName": "Apex Car Rentals"
+    },
+    "car": {
+      "_id": "6ae16880c32c01a5257a5c96",
+      "name": "Ford Mustang Convertible"
+    },
+    "upload": 201,
+    "create": 201,
+    "expenseId": "6aeba3d921ad66aa3cc4fdbb",
+    "receipt": "6ae166dda73203de8dd5bdbb_1793827801567_5SZCNz_OLlqwQIkePmwrX.pdf",
+    "createdSupplier": "6ae166dda73203de8dd5bdbb",
+    "download": 200,
+    "downloadExactContent": true,
+    "unauthenticatedDownload": 403,
+    "delete": 200,
+    "afterDeleteDownload": 404,
+    "stillListedAfterDelete": false
+  }
+}

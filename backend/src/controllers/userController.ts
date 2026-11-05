@@ -25,6 +25,7 @@ import AdditionalDriver from '../models/AdditionalDriver'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
+import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 
 /**
@@ -796,6 +797,8 @@ export const signin = async (req: Request, res: Response) => {
         enableEmailNotifications: user.enableEmailNotifications,
         blacklisted: user.blacklisted,
         avatar: user.avatar,
+        type: user.type,
+        supplier: user.supplier?.toString(),
       }
 
       //
@@ -922,6 +925,8 @@ export const socialSignin = async (req: Request, res: Response) => {
       enableEmailNotifications: user.enableEmailNotifications,
       blacklisted: user.blacklisted,
       avatar: user.avatar,
+      type: user.type,
+      supplier: user.supplier?.toString(),
     }
 
     //
@@ -1583,6 +1588,11 @@ export const createAvatar = async (req: Request, res: Response) => {
       return
     }
 
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid avatar file type')
+      return
+    }
+
     await asyncFs.writeFile(filepath, req.file.buffer)
     res.json(filename)
   } catch (err) {
@@ -1641,6 +1651,11 @@ export const updateAvatar = async (req: Request, res: Response) => {
       // security check: restrict allowed extensions
       const ext = path.extname(filename)
       if (!env.allowedImageExtensions.includes(ext.toLowerCase())) {
+        res.status(400).send('Invalid avatar file type')
+        return
+      }
+
+      if (!contentMatchesExtension(req.file.buffer, ext)) {
         res.status(400).send('Invalid avatar file type')
         return
       }
@@ -2232,6 +2247,11 @@ export const createLicense = async (req: Request, res: Response) => {
       return
     }
 
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid license file type')
+      return
+    }
+
     const filename = createLicenseCapabilityFilename(ext)
     const filepath = path.join(env.CDN_TEMP_LICENSES, filename)
     await asyncFs.writeFile(filepath, req.file.buffer)
@@ -2296,6 +2316,11 @@ export const updateLicense = async (req: Request, res: Response) => {
       // security check: restrict allowed extensions
       const ext = path.extname(filename)
       if (!env.allowedLicenseExtensions.includes(ext.toLowerCase())) {
+        res.status(400).send('Invalid license file type')
+        return
+      }
+
+      if (!contentMatchesExtension(file.buffer, ext)) {
         res.status(400).send('Invalid license file type')
         return
       }

@@ -14,6 +14,12 @@ const strings = new LocalizedStrings({
     BLUETOOTH: 'Bluetooth',
     TOUCHSCREEN: 'Touchscreen',
   },
+  ar: {
+    ANDROID_AUTO: 'Android Auto',
+    APPLE_CAR_PLAY: 'Apple CarPlay',
+    BLUETOOTH: 'بلوتوث',
+    TOUCHSCREEN: 'شاشة لمس',
+  },
   es: {
     ANDROID_AUTO: 'Android Auto',
     APPLE_CAR_PLAY: 'Apple Car Play',

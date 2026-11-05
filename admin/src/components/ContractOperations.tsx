@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Alert, Button, Card, CardContent, Divider, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import strings from '@/lang/contract-operations'
@@ -20,6 +20,8 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
   const [inspections, setInspections] = useState<bookcarsTypes.ContractInspection[]>([])
   const [charges, setCharges] = useState<bookcarsTypes.ContractCharge[]>([])
   const [loading, setLoading] = useState(true)
+  const currencyLabelId = useId()
+  const typeLabelId = useId()
   const [error, setError] = useState('')
   const [snapshot, setSnapshot] = useState<bookcarsTypes.ContractSnapshot>()
   const [currentLifecycle, setCurrentLifecycle] = useState(lifecycle)
@@ -246,8 +248,8 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
               </div>
             ))}
             <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginTop: 8 }}>
-              <FormControl><InputLabel>{strings.CURRENCY}</InputLabel><Select label={strings.CURRENCY} value={chargeForm.currency} onChange={(e) => setChargeForm({ ...chargeForm, currency: e.target.value })}><MenuItem value="MAD">MAD</MenuItem><MenuItem value="EUR">EUR</MenuItem><MenuItem value="USD">USD</MenuItem></Select></FormControl>
-              <FormControl><InputLabel>{strings.TYPE}</InputLabel><Select label={strings.TYPE} value={chargeForm.type} onChange={(e) => setChargeForm({ ...chargeForm, type: e.target.value as bookcarsTypes.ContractChargeType })}><MenuItem value={bookcarsTypes.ContractChargeType.Damage}>{strings.CHARGE_DAMAGE}</MenuItem><MenuItem value={bookcarsTypes.ContractChargeType.Fee}>{strings.CHARGE_FEE}</MenuItem></Select></FormControl>
+              <FormControl><InputLabel id={currencyLabelId}>{strings.CURRENCY}</InputLabel><Select label={strings.CURRENCY} labelId={currencyLabelId} value={chargeForm.currency} onChange={(e) => setChargeForm({ ...chargeForm, currency: e.target.value })}><MenuItem value="MAD">MAD</MenuItem><MenuItem value="EUR">EUR</MenuItem><MenuItem value="USD">USD</MenuItem></Select></FormControl>
+              <FormControl><InputLabel id={typeLabelId}>{strings.TYPE}</InputLabel><Select label={strings.TYPE} labelId={typeLabelId} value={chargeForm.type} onChange={(e) => setChargeForm({ ...chargeForm, type: e.target.value as bookcarsTypes.ContractChargeType })}><MenuItem value={bookcarsTypes.ContractChargeType.Damage}>{strings.CHARGE_DAMAGE}</MenuItem><MenuItem value={bookcarsTypes.ContractChargeType.Fee}>{strings.CHARGE_FEE}</MenuItem></Select></FormControl>
               <TextField label={strings.AMOUNT} type="number" value={chargeForm.amount} onChange={(e) => setChargeForm({ ...chargeForm, amount: e.target.value })} />
               <TextField label={strings.REASON} value={chargeForm.reason} onChange={(e) => setChargeForm({ ...chargeForm, reason: e.target.value })} />
             </div>

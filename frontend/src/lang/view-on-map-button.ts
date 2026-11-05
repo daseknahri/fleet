@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     VIEW_ON_MAP: 'View on map',
   },
+  ar: {
+    VIEW_ON_MAP: 'عرض على الخريطة',
+  },
   es: {
     VIEW_ON_MAP: 'Ver en el mapa',
   },

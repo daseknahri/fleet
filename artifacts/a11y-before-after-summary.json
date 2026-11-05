@@ -1,0 +1,264 @@
+{
+ "slice": "GA-P2-A11Y-01",
+ "axeVersion": "4.10.2",
+ "beforeArtifact": "browser-a11y-audit-before-latest.json",
+ "afterArtifact": "browser-a11y-audit-after-latest.json",
+ "totals": {
+  "violationNodesBefore": 285,
+  "violationNodesAfter": 98,
+  "rulesBefore": 17,
+  "rulesAfter": 6
+ },
+ "surfaces": {
+  "dashboard": {
+   "before": {
+    "rules": 1,
+    "nodes": 24,
+    "byImpact": {
+     "serious": 24
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "after": {
+    "rules": 1,
+    "nodes": 24,
+    "byImpact": {
+     "serious": 24
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 0
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 0,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 0,
+   "incompleteContrastAfter": 0
+  },
+  "bookings": {
+   "before": {
+    "rules": 3,
+    "nodes": 198,
+    "byImpact": {
+     "serious": 63,
+     "critical": 11,
+     "moderate": 124
+    },
+    "ruleIds": [
+     "color-contrast",
+     "label",
+     "region"
+    ]
+   },
+   "after": {
+    "rules": 1,
+    "nodes": 63,
+    "byImpact": {
+     "serious": 63
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "manualBefore": {
+    "interactiveNoName": 4,
+    "controlsNoLabel": 12
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 0,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 0,
+   "incompleteContrastAfter": 0
+  },
+  "contractWorkspace": {
+   "before": {
+    "rules": 6,
+    "nodes": 49,
+    "byImpact": {
+     "serious": 5,
+     "critical": 1,
+     "moderate": 43
+    },
+    "ruleIds": [
+     "aria-input-field-name",
+     "color-contrast",
+     "image-alt",
+     "landmark-one-main",
+     "page-has-heading-one",
+     "region"
+    ]
+   },
+   "after": {
+    "rules": 2,
+    "nodes": 3,
+    "byImpact": {
+     "serious": 2,
+     "moderate": 1
+    },
+    "ruleIds": [
+     "color-contrast",
+     "page-has-heading-one"
+    ]
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 3
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 3,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 19,
+   "incompleteContrastAfter": 19
+  },
+  "cashJournal": {
+   "before": {
+    "rules": 1,
+    "nodes": 2,
+    "byImpact": {
+     "serious": 2
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "after": {
+    "rules": 1,
+    "nodes": 2,
+    "byImpact": {
+     "serious": 2
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 2
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 1,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 6,
+   "incompleteContrastAfter": 6
+  },
+  "reports": {
+   "before": {
+    "rules": 2,
+    "nodes": 2,
+    "byImpact": {
+     "serious": 1,
+     "moderate": 1
+    },
+    "ruleIds": [
+     "aria-input-field-name",
+     "heading-order"
+    ]
+   },
+   "after": {
+    "rules": 0,
+    "nodes": 0,
+    "byImpact": {},
+    "ruleIds": []
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 1
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 1,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 3,
+   "incompleteContrastAfter": 3
+  },
+  "approbations": {
+   "before": {
+    "rules": 2,
+    "nodes": 3,
+    "byImpact": {
+     "serious": 2,
+     "moderate": 1
+    },
+    "ruleIds": [
+     "aria-input-field-name",
+     "heading-order"
+    ]
+   },
+   "after": {
+    "rules": 0,
+    "nodes": 0,
+    "byImpact": {},
+    "ruleIds": []
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 2
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 2,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 5,
+   "incompleteContrastAfter": 5
+  },
+  "maintenance": {
+   "before": {
+    "rules": 2,
+    "nodes": 7,
+    "byImpact": {
+     "serious": 7
+    },
+    "ruleIds": [
+     "aria-input-field-name",
+     "color-contrast"
+    ]
+   },
+   "after": {
+    "rules": 1,
+    "nodes": 6,
+    "byImpact": {
+     "serious": 6
+    },
+    "ruleIds": [
+     "color-contrast"
+    ]
+   },
+   "manualBefore": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 2
+   },
+   "manualAfter": {
+    "interactiveNoName": 0,
+    "controlsNoLabel": 1,
+    "note": "residual manual noLabel counts are aria-hidden MUI select native inputs (false positives, identical before/after)"
+   },
+   "incompleteContrastBefore": 1,
+   "incompleteContrastAfter": 1
+  }
+ },
+ "remainder": [
+  "color-contrast on dashboard/maintenance muted text token #738181 (3.87:1) and related shell text: single shared token, but darkening is a visible brand decision - documented for owner-approved token adjustment",
+  "color-contrast on bookings status-chip color system (63 nodes) and contract workspace .info/.btn-secondary: full contrast re-theme is a design decision, not an unambiguous defect fix",
+  "cash journal kind--out #b55235 on #fff0eb at 4.47:1: near-miss (needs 4.5:1); one-token adjustment candidate for owner approval",
+  "page-has-heading-one on contract workspace: form workspaces carry no h1 by app-wide design pattern; heading strategy decision",
+  "axe incomplete contrast items (gradients/images axe cannot resolve): manual visual review recommended",
+  "SupplierFilter double tab stop (span role=button + its checkbox operate one control): needs component restructure decision",
+  "screen-reader certification (NVDA/JAWS/VoiceOver passes) not performed - requires assistive-tech sessions"
+ ]
+}

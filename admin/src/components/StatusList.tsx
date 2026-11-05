@@ -1,4 +1,4 @@
-import React, { useState, useEffect, CSSProperties } from 'react'
+import React, { useState, useEffect, useId, CSSProperties } from 'react'
 import {
   InputLabel,
   Select,
@@ -34,6 +34,7 @@ const StatusList = ({
   onChange
 }: StatusListProps) => {
   const [value, setValue] = useState('')
+  const labelId = useId()
 
   useEffect(() => {
     if (statusListValue && statusListValue !== value) {
@@ -57,9 +58,10 @@ const StatusList = ({
         </span>
       ) : (
         <>
-          <InputLabel className={required ? 'required' : ''}>{label}</InputLabel>
+          <InputLabel id={labelId} className={required ? 'required' : ''}>{label}</InputLabel>
           <Select
             label={label}
+            labelId={labelId}
             value={value}
             onChange={handleChange}
             variant={variant || 'standard'}

@@ -18,6 +18,14 @@ const strings = new LocalizedStrings({
     SWIFT_BIC: 'SWIFT/BIC',
     SHOW_BANK_DETAILS_PAGE: 'Show Bank Details Page',
   },
+  ar: {
+    BANK_DETAILS: 'التفاصيل البنكية',
+    ACCOUNT_HOLDER: 'صاحب الحساب',
+    BANK_NAME: 'اسم البنك',
+    IBAN: 'IBAN',
+    SWIFT_BIC: 'SWIFT/BIC',
+    SHOW_BANK_DETAILS_PAGE: 'إظهار صفحة التفاصيل البنكية',
+  },
   es: {
     BANK_DETAILS: 'Detalles bancarios',
     ACCOUNT_HOLDER: 'Titular de la cuenta',

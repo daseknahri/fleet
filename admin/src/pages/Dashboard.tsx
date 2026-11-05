@@ -53,7 +53,7 @@ const getCustomerName = (booking: Booking) => {
 }
 
 const formatDate = (value: Date) => new Intl.DateTimeFormat(
-  UserService.getLanguage() === 'fr' ? 'fr-MA' : UserService.getLanguage() === 'es' ? 'es-ES' : 'en-GB', {
+  UserService.getLanguage() === 'ar' ? 'ar-MA' : UserService.getLanguage() === 'fr' ? 'fr-MA' : UserService.getLanguage() === 'es' ? 'es-ES' : 'en-GB', {
   day: '2-digit',
   month: 'short',
   hour: '2-digit',

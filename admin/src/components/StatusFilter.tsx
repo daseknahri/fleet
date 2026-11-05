@@ -102,6 +102,7 @@ const StatusFilter = ({
                 type="checkbox"
                 data-value={status.value}
                 className="status-checkbox"
+                aria-label={status.label}
                 onChange={handleCheckStatusChange}
               />
               <BookingStatus value={status.value} onClick={handleStatusClick} />

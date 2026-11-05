@@ -1,0 +1,907 @@
+{
+  "slice": "GA-P2-A11Y-01",
+  "mode": "before",
+  "at": "2026-11-05T01:17:15.072Z",
+  "axeVersion": "4.10.2",
+  "surfaces": {
+    "dashboard": {
+      "url": "http://localhost:3002/",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 24,
+            "targets": [
+              ".agency-dashboard__eyebrow",
+              ".agency-dashboard__subtitle",
+              ".agency-dashboard__metric--mint > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
+              ".agency-dashboard__metric--blue > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
+              ".agency-dashboard__metric--amber > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 0,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 16,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 0,
+        "controlsNoLabel": {
+          "count": 0,
+          "samples": []
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      },
+      "keyboardProbe": [
+        {
+          "tag": "BUTTON",
+          "name": "open drawer",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "1",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "show more",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Nouvelle réservation",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Tout voir",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:22 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:23 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 07 nov., 03:07 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Ford Mustang Convertible driver1 Départ 10 nov., 0",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Toyota Camry Alex Morgan Départ 17 nov., 03:07 Rés",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Planning Consulter la disponibilité",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Flotte Gérer les véhicules",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Clients Accéder aux comptes clients",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Entretien Suivre les entretiens et dépenses",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        }
+      ]
+    },
+    "bookings": {
+      "url": "http://localhost:3002/bookings",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 63,
+            "targets": [
+              ".booking-details:nth-child(1) > .bs-reserved.bs > span",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(4) > .booking-detail-value",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(5) > .booking-detail-value",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(6) > .booking-detail-value",
+              "button[data-id=\"6aeb943421ad66aa3cc4fdb0\"]"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 2.92 (foreground color: #1e88e5, background color: #d9e7f4, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "id": "label",
+            "impact": "critical",
+            "help": "Form elements must have labels",
+            "nodes": 11,
+            "targets": [
+              "input[data-id=\"6ae166dda73203de8dd5bdbb\"]",
+              "input[data-id=\"6ae9230581cbf71648f7e713\"]",
+              "input[data-id=\"6ae922fe188069c79257da86\"]",
+              "input[data-id=\"6ae922fe188069c79257da87\"]",
+              "input[data-value=\"void\"]"
+            ],
+            "firstFailure": "  Element does not have an implicit (wrapped) <label>"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "help": "All page content should be contained by landmarks",
+            "nodes": 124,
+            "targets": [
+              "input[data-id=\"6ae166dda73203de8dd5bdbb\"]",
+              "input[data-id=\"6ae9230581cbf71648f7e713\"]",
+              "input[data-id=\"6ae922fe188069c79257da86\"]",
+              "input[data-id=\"6ae922fe188069c79257da87\"]",
+              ".status-list"
+            ],
+            "firstFailure": "  Some page content is not contained by landmarks"
+          }
+        ],
+        "incompleteContrast": 0,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          },
+          {
+            "id": "bypass",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 58,
+        "interactiveNoName": {
+          "count": 4,
+          "samples": [
+            {
+              "tag": "SPAN",
+              "cls": "supplier",
+              "html": "<span role=\"button\" tabindex=\"0\" class=\"supplier\"><img alt=\"Apex Car Rentals\" title=\"Apex Car Rentals\" src=\"http://localhost:4002/cdn/bookcars/users/supplier.png\"></span>"
+            },
+            {
+              "tag": "SPAN",
+              "cls": "supplier",
+              "html": "<span role=\"button\" tabindex=\"0\" class=\"supplier\"><img alt=\"supplier.0a_i1cuq6yge5jr27gh21\" title=\"supplier.0a_i1cuq6yge5jr27gh21\" src=\"http://localhost:4002/cdn/bookcars/users/ava"
+            },
+            {
+              "tag": "SPAN",
+              "cls": "supplier",
+              "html": "<span role=\"button\" tabindex=\"0\" class=\"supplier\"><img alt=\"supplier.1prfs8gtswcf4jkspyzsr\" title=\"supplier.1prfs8gtswcf4jkspyzsr\" src=\"http://localhost:4002/cdn/bookcars/users/ava"
+            },
+            {
+              "tag": "SPAN",
+              "cls": "supplier",
+              "html": "<span role=\"button\" tabindex=\"0\" class=\"supplier\"><img alt=\"supplier.1prfs8gtswcf4jkspyzsr\" title=\"supplier.1prfs8gtswcf4jkspyzsr\" src=\"http://localhost:4002/cdn/bookcars/users/ava"
+            }
+          ]
+        },
+        "controlsTotal": 16,
+        "controlsNoLabel": {
+          "count": 12,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-id=\"6ae166dda73203de8dd5bdbb\" class=\"supplier-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-id=\"6ae9230581cbf71648f7e713\" class=\"supplier-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-id=\"6ae922fe188069c79257da86\" class=\"supplier-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-id=\"6ae922fe188069c79257da87\" class=\"supplier-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"void\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"pending\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"deposit\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"paid\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"paidInFull\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"reserved\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "checkbox",
+              "name": "",
+              "placeholder": "",
+              "html": "<input data-value=\"cancelled\" class=\"status-checkbox\" type=\"checkbox\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "name": "keyword",
+              "placeholder": "Rechercher...",
+              "html": "<input aria-invalid=\"false\" id=\"_r_p_\" placeholder=\"Rechercher...\" class=\"MuiInputBase-input MuiInput-input MuiInputBase-inputAdornedEnd css-1juu494\" type=\"text\" value=\"\" name=\"key"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 14,
+          "count": 0
+        },
+        "hasMain": false,
+        "title": "FleetRent Admin Panel"
+      },
+      "keyboardProbe": [
+        {
+          "tag": "BUTTON",
+          "name": "open drawer",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "1",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "show more",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "NOUVELLE RÉSERVATION",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "Fournisseur",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "Cocher tout",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        }
+      ]
+    },
+    "contractWorkspace": {
+      "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+      "axe": {
+        "violations": [
+          {
+            "id": "aria-input-field-name",
+            "impact": "serious",
+            "help": "ARIA input fields must have an accessible name",
+            "nodes": 3,
+            "targets": [
+              ".MuiSelect-standard",
+              ".css-1qk38wv.MuiFormControl-root:nth-child(1) > .css-1jsz7n5.MuiSelect-root.MuiOutlinedInput-root > .MuiSelect-outlined.css-mp9f0v.MuiSelect-select",
+              ".css-1qk38wv.MuiFormControl-root:nth-child(2) > .css-1jsz7n5.MuiSelect-root.MuiOutlinedInput-root > .MuiSelect-outlined.css-mp9f0v.MuiSelect-select"
+            ],
+            "firstFailure": "  aria-label attribute does not exist or is empty"
+          },
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 2,
+            "targets": [
+              ".info > span",
+              ".btn-secondary"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 2.35 (foreground color: #a8a8a8, background color: #fefefe, font size: 10.8pt (14.4px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "id": "image-alt",
+            "impact": "critical",
+            "help": "Images must have alternative text",
+            "nodes": 1,
+            "targets": [
+              ".MuiAvatar-img"
+            ],
+            "firstFailure": "  Element does not have an alt attribute"
+          },
+          {
+            "id": "landmark-one-main",
+            "impact": "moderate",
+            "help": "Document should have one main landmark",
+            "nodes": 1,
+            "targets": [
+              "html"
+            ],
+            "firstFailure": "  Document does not have a main landmark"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "help": "Page should contain a level-one heading",
+            "nodes": 1,
+            "targets": [
+              "html"
+            ],
+            "firstFailure": "  Page must have a level-one heading"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "help": "All page content should be contained by landmarks",
+            "nodes": 41,
+            "targets": [
+              "#_r_a_-label",
+              ".supplier-ia",
+              "#_r_d_-label",
+              ".MuiAvatar-root",
+              "#_r_g_-label"
+            ],
+            "firstFailure": "  Some page content is not contained by landmarks"
+          }
+        ],
+        "incompleteContrast": 19,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 20,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 22,
+        "controlsNoLabel": {
+          "count": 3,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" required=\"\" value=\"reserved\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"MAD\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"damage\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 3,
+          "count": 1
+        },
+        "hasMain": false,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "cashJournal": {
+      "url": "http://localhost:3002/caisse",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 2,
+            "targets": [
+              ".agency-cash__row:nth-child(3) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out",
+              ".agency-cash__row:nth-child(4) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 4.47 (foreground color: #b55235, background color: #fff0eb, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 6,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 4,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 5,
+        "controlsNoLabel": {
+          "count": 2,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "name": "",
+              "placeholder": "Rechercher client, véhicule, contrat ou motif",
+              "html": "<input aria-invalid=\"false\" id=\"_r_e_\" placeholder=\"Rechercher client, véhicule, contrat ou motif\" class=\"MuiInputBase-input MuiOutlinedInput-input MuiInputBase-inputSizeSmall css-"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "reports": {
+      "url": "http://localhost:3002/reports",
+      "axe": {
+        "violations": [
+          {
+            "id": "aria-input-field-name",
+            "impact": "serious",
+            "help": "ARIA input fields must have an accessible name",
+            "nodes": 1,
+            "targets": [
+              ".MuiSelect-select"
+            ],
+            "firstFailure": "  aria-label attribute does not exist or is empty"
+          },
+          {
+            "id": "heading-order",
+            "impact": "moderate",
+            "help": "Heading levels should only increase by one",
+            "nodes": 1,
+            "targets": [
+              ".css-1j5on12.MuiBox-root:nth-child(1) > .MuiPaper-elevation1.MuiCard-root.css-q8lpi9 > .MuiCardContent-root.css-15q2cw4 > h5"
+            ],
+            "firstFailure": "  Heading order invalid"
+          }
+        ],
+        "incompleteContrast": 3,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 5,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 3,
+        "controlsNoLabel": {
+          "count": 1,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "approbations": {
+      "url": "http://localhost:3002/approbations",
+      "axe": {
+        "violations": [
+          {
+            "id": "aria-input-field-name",
+            "impact": "serious",
+            "help": "ARIA input fields must have an accessible name",
+            "nodes": 2,
+            "targets": [
+              ".css-1kcthuo > .MuiSelect-root.css-1jsz7n5.MuiInputBase-root > .MuiSelect-select.MuiSelect-outlined.css-uxvpzc",
+              ".css-1qk38wv > .MuiSelect-root.css-1jsz7n5.MuiInputBase-root > .MuiSelect-select.MuiSelect-outlined.css-uxvpzc"
+            ],
+            "firstFailure": "  aria-label attribute does not exist or is empty"
+          },
+          {
+            "id": "heading-order",
+            "impact": "moderate",
+            "help": "Heading levels should only increase by one",
+            "nodes": 1,
+            "targets": [
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(1) > .MuiCardContent-root.css-15q2cw4 > .css-1x99n9k.MuiBox-root > h6"
+            ],
+            "firstFailure": "  Heading order invalid"
+          }
+        ],
+        "incompleteContrast": 5,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 5,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 6,
+        "controlsNoLabel": {
+          "count": 2,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "maintenance": {
+      "url": "http://localhost:3002/maintenance",
+      "axe": {
+        "violations": [
+          {
+            "id": "aria-input-field-name",
+            "impact": "serious",
+            "help": "ARIA input fields must have an accessible name",
+            "nodes": 1,
+            "targets": [
+              "#_r_f_"
+            ],
+            "firstFailure": "  aria-label attribute does not exist or is empty"
+          },
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 6,
+            "targets": [
+              ".agency-maintenance__eyebrow",
+              ".agency-maintenance__subtitle",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(1) > .MuiCardContent-root.css-15q2cw4 > small",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(2) > .MuiCardContent-root.css-15q2cw4 > small",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(3) > .MuiCardContent-root.css-15q2cw4 > small"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 1,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 7,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 2,
+        "controlsNoLabel": {
+          "count": 2,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "name": "",
+              "placeholder": "Rechercher véhicule ou fournisseur",
+              "html": "<input aria-invalid=\"false\" id=\"_r_e_\" placeholder=\"Rechercher véhicule ou fournisseur\" class=\"MuiInputBase-input MuiOutlinedInput-input MuiInputBase-inputSizeSmall css-15v65ck\" ty"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    }
+  },
+  "summary": {
+    "dashboard": {
+      "violationRules": 1,
+      "violationNodes": 24,
+      "byImpact": {
+        "serious": 24
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 0,
+      "positiveTabindex": 0,
+      "incompleteContrast": 0
+    },
+    "bookings": {
+      "violationRules": 3,
+      "violationNodes": 198,
+      "byImpact": {
+        "serious": 63,
+        "critical": 11,
+        "moderate": 124
+      },
+      "interactiveNoName": 4,
+      "controlsNoLabel": 12,
+      "positiveTabindex": 0,
+      "incompleteContrast": 0
+    },
+    "contractWorkspace": {
+      "violationRules": 6,
+      "violationNodes": 49,
+      "byImpact": {
+        "serious": 5,
+        "critical": 1,
+        "moderate": 43
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 3,
+      "positiveTabindex": 0,
+      "incompleteContrast": 19
+    },
+    "cashJournal": {
+      "violationRules": 1,
+      "violationNodes": 2,
+      "byImpact": {
+        "serious": 2
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 2,
+      "positiveTabindex": 0,
+      "incompleteContrast": 6
+    },
+    "reports": {
+      "violationRules": 2,
+      "violationNodes": 2,
+      "byImpact": {
+        "serious": 1,
+        "moderate": 1
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 1,
+      "positiveTabindex": 0,
+      "incompleteContrast": 3
+    },
+    "approbations": {
+      "violationRules": 2,
+      "violationNodes": 3,
+      "byImpact": {
+        "serious": 2,
+        "moderate": 1
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 2,
+      "positiveTabindex": 0,
+      "incompleteContrast": 5
+    },
+    "maintenance": {
+      "violationRules": 2,
+      "violationNodes": 7,
+      "byImpact": {
+        "serious": 7
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 2,
+      "positiveTabindex": 0,
+      "incompleteContrast": 1
+    }
+  },
+  "session": {
+    "signedIn": true,
+    "language": "fr"
+  },
+  "bookingIdUsed": "6aeb943421ad66aa3cc4fdb0",
+  "outcome": "audit-complete"
+}

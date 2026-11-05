@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     NEW_BOOKING: 'New Booking',
   },
+  ar: {
+    NEW_BOOKING: 'حجز جديد',
+  },
   es: {
     NEW_BOOKING: 'Nueva reserva',
   },

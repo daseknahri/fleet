@@ -18,6 +18,14 @@ const strings = new LocalizedStrings({
     RESET_PASSWORD: 'Forgot password?',
     STAY_CONNECTED: 'Stay connected',
   },
+  ar: {
+    SIGN_IN_HEADING: 'تسجيل الدخول',
+    SIGN_IN: 'تسجيل الدخول',
+    ERROR_IN_SIGN_IN: 'بريد إلكتروني أو كلمة مرور غير صحيحة.',
+    IS_BLACKLISTED: 'حسابك موقوف.',
+    RESET_PASSWORD: 'هل نسيت كلمة المرور؟',
+    STAY_CONNECTED: 'البقاء متصلاً',
+  },
   es: {
     SIGN_IN_HEADING: 'Iniciar sesión',
     SIGN_IN: 'Iniciar sesión',

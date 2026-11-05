@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import {
   InputLabel,
   FormControl,
@@ -14,6 +14,7 @@ import {
   FormControlProps,
 } from '@mui/material'
 import { Visibility, VisibilityOff } from '@mui/icons-material'
+import { strings as commonStrings } from '@/lang/common'
 
 type Variant = 'standard' | 'outlined' | 'filled'
 
@@ -38,6 +39,8 @@ const PasswordInput: React.FC<CombinedProps> = ({
   ...inputProps
 }) => {
   const [showPassword, setShowPassword] = useState(false)
+  const autoId = useId()
+  const inputId = inputProps.id || autoId
 
   const toggleVisibility = () => {
     setShowPassword((prev) => !prev)
@@ -45,6 +48,7 @@ const PasswordInput: React.FC<CombinedProps> = ({
 
   const commonProps = {
     ...inputProps,
+    id: inputId,
     type: showPassword ? 'text' : 'password',
     endAdornment: (
       <InputAdornment position="end">
@@ -53,6 +57,7 @@ const PasswordInput: React.FC<CombinedProps> = ({
           edge="end"
           size="small"
           tabIndex={-1}
+          aria-label={showPassword ? commonStrings.HIDE_PASSWORD : commonStrings.SHOW_PASSWORD}
         >
           {showPassword ? <VisibilityOff /> : <Visibility />}
         </IconButton>
@@ -77,7 +82,7 @@ const PasswordInput: React.FC<CombinedProps> = ({
       {...formControlProps}
     >
       <InputLabel
-        htmlFor={inputProps.id || inputProps.name}
+        htmlFor={inputId}
       >
         {label}
       </InputLabel>

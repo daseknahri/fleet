@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     NEW_PARKING_SPOT: 'New parking spot',
   },
+  ar: {
+    NEW_PARKING_SPOT: 'مكان وقوف جديد',
+  },
   es: {
     NEW_PARKING_SPOT: 'Nueva plaza de aparcamiento',
   },

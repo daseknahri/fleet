@@ -25,9 +25,14 @@ interface JournalRow {
   searchText: string
 }
 
-const vehicleName = (car: string | bookcarsTypes.Car) => typeof car === 'string'
-  ? '—'
-  : `${car.name}${car.licensePlate ? ` · ${car.licensePlate}` : ''}`
+const vehicleName = (car: string | bookcarsTypes.Car | null | undefined) => {
+  // The expense API can return a null car when the referenced vehicle no
+  // longer resolves; rendering must degrade to a placeholder, not throw.
+  if (!car || typeof car === 'string') {
+    return '—'
+  }
+  return `${car.name}${car.licensePlate ? ` · ${car.licensePlate}` : ''}`
+}
 
 const getCustomer = (booking?: bookcarsTypes.Booking) => (
   booking?.driver && typeof booking.driver !== 'string' ? booking.driver.fullName || booking.driver.email || '' : ''
@@ -46,9 +51,11 @@ const formatAmount = (amount: number) => `${new Intl.NumberFormat('fr-MA', { max
 
 const formatDate = (date: Date) => {
   const language = UserService.getLanguage()
-  const locale = language === 'fr' ? 'fr-MA' : language === 'es' ? 'es-ES' : 'en-GB'
+  const locale = language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
   return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
 }
+
+const accountName = (account: bookcarsTypes.CashAccountType) => (account === bookcarsTypes.CashAccountType.Bank ? strings.BANK_ACCOUNT : strings.CASH)
 
 const CashJournal = () => {
   const [user, setUser] = useState<bookcarsTypes.User | null>(null)
@@ -62,6 +69,9 @@ const CashJournal = () => {
   const [to, setTo] = useState('')
   const [session, setSession] = useState<bookcarsTypes.CashSession | null>(null)
   const [sessions, setSessions] = useState<bookcarsTypes.CashSession[]>([])
+  const [accountFocus, setAccountFocus] = useState<bookcarsTypes.CashAccountType>(bookcarsTypes.CashAccountType.Cash)
+  const [currentByAccount, setCurrentByAccount] = useState<Partial<Record<bookcarsTypes.CashAccountType, bookcarsTypes.CashSession | null>>>({})
+  const [openAccount, setOpenAccount] = useState<bookcarsTypes.CashAccountType>(bookcarsTypes.CashAccountType.Cash)
   const [transferDialog, setTransferDialog] = useState(false)
   const [transferFrom, setTransferFrom] = useState('')
   const [transferTo, setTransferTo] = useState('')
@@ -113,14 +123,20 @@ const CashJournal = () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [payments, expenses, listedSessions, currentSession] = await Promise.all([
+      const [payments, expenses, listedSessions, currentCash, currentBank] = await Promise.all([
         RentalPaymentService.list(),
         MaintenanceExpenseService.list(),
         CashService.listSessions(scope),
         CashService.current(bookcarsTypes.CashAccountType.Cash, scope),
+        CashService.current(bookcarsTypes.CashAccountType.Bank, scope),
       ])
+      const currents: Partial<Record<bookcarsTypes.CashAccountType, bookcarsTypes.CashSession | null>> = {
+        [bookcarsTypes.CashAccountType.Cash]: currentCash,
+        [bookcarsTypes.CashAccountType.Bank]: currentBank,
+      }
+      setCurrentByAccount(currents)
       const orderedSessions = (listedSessions || []).sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime())
-      const selectedSession = currentSession || orderedSessions[0] || null
+      const selectedSession = currents[accountFocus] || orderedSessions.find((item) => item.account === accountFocus) || null
       setSessions(orderedSessions)
       setSession(selectedSession)
       if (selectedSession) {
@@ -174,13 +190,19 @@ const CashJournal = () => {
 } finally {
  setLoading(false) 
 }
-  }, [agencies.length, agencyId])
+  }, [agencies.length, agencyId, accountFocus])
 
   useEffect(() => {
     if (user?.type === bookcarsTypes.RecordType.Admin && agencyId) {
       void onLoad(user)
     }
   }, [agencyId, onLoad, user]) // reload the selected admin agency scope
+
+  useEffect(() => {
+    if (user) {
+      void onLoad(user)
+    }
+  }, [accountFocus, onLoad, user]) // reload when the operator switches the focused cash/bank account
 
   const filtered = useMemo(() => {
     const query = keyword.trim().toLocaleLowerCase()
@@ -277,7 +299,7 @@ const CashJournal = () => {
         return
       }
       if (sessionDialog === 'open') {
-        await CashService.open({ account: bookcarsTypes.CashAccountType.Cash, openingBalance: Number(openingBalance), supplier: supplierScope })
+        await CashService.open({ account: openAccount, openingBalance: Number(openingBalance), supplier: supplierScope })
       } else if (sessionDialog === 'close' && session?._id) {
         await CashService.close(session._id, { countedClosingBalance: Number(countedBalance), closingNote }, supplierScope)
       }
@@ -286,6 +308,16 @@ const CashJournal = () => {
     } catch (error) {
  setSessionError(true); setSessionErrorMessage(helper.getErrorMessage(error, strings.SESSION_ERROR)); helper.error(error, helper.getErrorMessage(error, strings.SESSION_ERROR)) 
 }
+  }
+
+  const otherAccount = accountFocus === bookcarsTypes.CashAccountType.Cash ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
+  const otherCurrent = currentByAccount[otherAccount]
+
+  const openSessionDialog = () => {
+    // Default the dialog to the focused account, or to the other account when
+    // the focused one already has an open session.
+    setOpenAccount(!currentByAccount[accountFocus] ? accountFocus : (!otherCurrent ? otherAccount : accountFocus))
+    setSessionDialog('open')
   }
 
   const income = filtered.reduce((sum, row) => sum + (row.direction === 'in' ? row.amount : 0), 0)
@@ -300,9 +332,14 @@ const CashJournal = () => {
           <Typography component="h1" className="agency-cash__title">{strings.TITLE}</Typography>
           <Typography className="agency-cash__subtitle">{strings.SUBTITLE}</Typography>
           <div className="agency-cash__session">
-            <span>{session ? `${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
+            <TextField select size="small" label={strings.ACCOUNT} value={accountFocus} onChange={(event) => setAccountFocus(event.target.value as bookcarsTypes.CashAccountType)} SelectProps={{ native: true }}>
+              <option value={bookcarsTypes.CashAccountType.Cash}>{strings.CASH}</option>
+              <option value={bookcarsTypes.CashAccountType.Bank}>{strings.BANK_ACCOUNT}</option>
+            </TextField>
+            {otherCurrent ? <span>{`${accountName(otherAccount)} · ${strings.SESSION_OPEN}`}</span> : null}
+            <span>{session ? `${accountName(session.account)} · ${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
             {session && <span className="agency-cash__session-balances">{strings.OPENING_BALANCE}: {formatAmount(session.openingBalance)} · {strings.EXPECTED}: {session.expectedClosingBalance === undefined ? '—' : formatAmount(session.expectedClosingBalance)} · {strings.COUNTED_BALANCE}: {session.countedClosingBalance === undefined ? '—' : formatAmount(session.countedClosingBalance)} · {strings.DISCREPANCY}: {session.discrepancy === undefined ? '—' : formatAmount(session.discrepancy)}</span>}
-            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canMutate} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutate} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutate} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <Button disabled={!canMutate} variant="contained" onClick={() => setSessionDialog('open')}>{strings.OPEN_SESSION}</Button>}
+            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canMutate} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutate} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutate} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <Button disabled={!canMutate} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button>}
           </div>
         </div>
         {loadError && <Alert severity="error" className="agency-cash__alert">{strings.LOAD_ERROR}</Alert>}
@@ -315,7 +352,7 @@ const CashJournal = () => {
         </div>
         <section className="agency-cash__panel">
           <div className="agency-cash__toolbar">
-            <TextField size="small" placeholder={strings.SEARCH} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <TextField size="small" placeholder={strings.SEARCH} slotProps={{ htmlInput: { 'aria-label': strings.SEARCH } }} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
             <TextField size="small" type="date" label={strings.FROM} value={from} onChange={(event) => setFrom(event.target.value)} InputLabelProps={{ shrink: true }} />
             <TextField size="small" type="date" label={strings.TO} value={to} onChange={(event) => setTo(event.target.value)} InputLabelProps={{ shrink: true }} />
           </div>
@@ -334,7 +371,7 @@ const CashJournal = () => {
         <Dialog open={sessionDialog !== null} onClose={() => setSessionDialog(null)} fullWidth maxWidth="xs">
           <DialogTitle>{sessionDialog === 'open' ? strings.OPEN_SESSION : sessionDialog === 'close' ? strings.CLOSE_SESSION : strings.ADD_MOVEMENT}</DialogTitle>
           <DialogContent className="agency-cash__dialog">
-            {sessionDialog === 'open' ? <TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} /></> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
+            {sessionDialog === 'open' ? <><TextField select label={strings.ACCOUNT} value={openAccount} onChange={(event) => setOpenAccount(event.target.value as bookcarsTypes.CashAccountType)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashAccountType.Cash} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Cash]}>{strings.CASH}</option><option value={bookcarsTypes.CashAccountType.Bank} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Bank]}>{strings.BANK_ACCOUNT}</option></TextField><TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /></> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} /></> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
           </DialogContent>
           <DialogActions><Button onClick={() => setSessionDialog(null)}>{strings.CANCEL}</Button><Button variant="contained" onClick={sessionDialog === 'movement' ? saveMovement : saveSession}>{strings.SAVE}</Button></DialogActions>
         </Dialog>
@@ -343,11 +380,11 @@ const CashJournal = () => {
           <DialogContent className="agency-cash__dialog">
             <TextField select label={strings.FROM} value={transferFrom} onChange={(event) => setTransferFrom(event.target.value)} SelectProps={{ native: true }}>
               <option value="" />
-              {sessions.filter((item) => item.status === bookcarsTypes.CashSessionStatus.Open).map((item) => <option key={item._id} value={item._id}>{item.account} · {item.currency}</option>)}
+              {sessions.filter((item) => item.status === bookcarsTypes.CashSessionStatus.Open).map((item) => <option key={item._id} value={item._id}>{accountName(item.account)} · {item.currency}</option>)}
             </TextField>
             <TextField select label={strings.TO} value={transferTo} onChange={(event) => setTransferTo(event.target.value)} SelectProps={{ native: true }}>
               <option value="" />
-              {sessions.filter((item) => item.status === bookcarsTypes.CashSessionStatus.Open && item._id !== transferFrom).map((item) => <option key={item._id} value={item._id}>{item.account} · {item.currency}</option>)}
+              {sessions.filter((item) => item.status === bookcarsTypes.CashSessionStatus.Open && item._id !== transferFrom).map((item) => <option key={item._id} value={item._id}>{accountName(item.account)} · {item.currency}</option>)}
             </TextField>
             <TextField autoFocus type="number" label={strings.AMOUNT} value={transferAmount} onChange={(event) => setTransferAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} />
             <TextField label={strings.REFERENCE} value={transferReference} onChange={(event) => setTransferReference(event.target.value)} />

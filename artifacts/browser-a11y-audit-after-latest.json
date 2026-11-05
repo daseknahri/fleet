@@ -1,0 +1,647 @@
+{
+  "slice": "GA-P2-A11Y-01",
+  "mode": "after",
+  "at": "2026-11-05T01:38:13.272Z",
+  "axeVersion": "4.10.2",
+  "surfaces": {
+    "dashboard": {
+      "url": "http://localhost:3002/",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 24,
+            "targets": [
+              ".agency-dashboard__eyebrow",
+              ".agency-dashboard__subtitle",
+              ".agency-dashboard__metric--mint > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
+              ".agency-dashboard__metric--blue > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
+              ".agency-dashboard__metric--amber > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 0,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 16,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 0,
+        "controlsNoLabel": {
+          "count": 0,
+          "samples": []
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      },
+      "keyboardProbe": [
+        {
+          "tag": "BUTTON",
+          "name": "open drawer",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "1",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "show more",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Nouvelle réservation",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Tout voir",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:22 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:23 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Volkswagen Golf Alex Morgan Départ 07 nov., 03:07 ",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Ford Mustang Convertible driver1 Départ 10 nov., 0",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Toyota Camry Alex Morgan Départ 17 nov., 03:07 Rés",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Planning Consulter la disponibilité",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Flotte Gérer les véhicules",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Clients Accéder aux comptes clients",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "Entretien Suivre les entretiens et dépenses",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        }
+      ]
+    },
+    "bookings": {
+      "url": "http://localhost:3002/bookings",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 63,
+            "targets": [
+              ".booking-details:nth-child(1) > .bs-reserved.bs > span",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(4) > .booking-detail-value",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(5) > .booking-detail-value",
+              ".booking-details:nth-child(1) > .booking-detail:nth-child(6) > .booking-detail-value",
+              "button[data-id=\"6aeb943421ad66aa3cc4fdb0\"]"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 2.92 (foreground color: #1e88e5, background color: #d9e7f4, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 0,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 58,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 16,
+        "controlsNoLabel": {
+          "count": 0,
+          "samples": []
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 14,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      },
+      "keyboardProbe": [
+        {
+          "tag": "BUTTON",
+          "name": "open drawer",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "1",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "show more",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "BUTTON",
+          "name": "NOUVELLE RÉSERVATION",
+          "focusVisible": true,
+          "outline": "none 0px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "Fournisseur",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "Apex Car Rentals",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "Apex Car Rentals",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "supplier.0a_i1cuq6yge5jr27gh21",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "supplier.0a_i1cuq6yge5jr27gh21",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "supplier.1prfs8gtswcf4jkspyzsr",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "supplier.1prfs8gtswcf4jkspyzsr",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "INPUT",
+          "name": "supplier.1prfs8gtswcf4jkspyzsr",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "supplier.1prfs8gtswcf4jkspyzsr",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        },
+        {
+          "tag": "SPAN",
+          "name": "Cocher tout",
+          "focusVisible": true,
+          "outline": "auto 1px"
+        }
+      ]
+    },
+    "contractWorkspace": {
+      "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 2,
+            "targets": [
+              ".info > span",
+              ".btn-secondary"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 2.35 (foreground color: #a8a8a8, background color: #fefefe, font size: 10.8pt (14.4px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "help": "Page should contain a level-one heading",
+            "nodes": 1,
+            "targets": [
+              "html"
+            ],
+            "firstFailure": "  Page must have a level-one heading"
+          }
+        ],
+        "incompleteContrast": 19,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 20,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 22,
+        "controlsNoLabel": {
+          "count": 3,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" required=\"\" value=\"reserved\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"MAD\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"damage\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 3,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "cashJournal": {
+      "url": "http://localhost:3002/caisse",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 2,
+            "targets": [
+              ".agency-cash__row:nth-child(3) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out",
+              ".agency-cash__row:nth-child(4) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 4.47 (foreground color: #b55235, background color: #fff0eb, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 6,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 4,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 5,
+        "controlsNoLabel": {
+          "count": 1,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "reports": {
+      "url": "http://localhost:3002/reports",
+      "axe": {
+        "violations": [],
+        "incompleteContrast": 3,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 5,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 3,
+        "controlsNoLabel": {
+          "count": 1,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "approbations": {
+      "url": "http://localhost:3002/approbations",
+      "axe": {
+        "violations": [],
+        "incompleteContrast": 5,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 5,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 6,
+        "controlsNoLabel": {
+          "count": 2,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+            },
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    },
+    "maintenance": {
+      "url": "http://localhost:3002/maintenance",
+      "axe": {
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": 6,
+            "targets": [
+              ".agency-maintenance__eyebrow",
+              ".agency-maintenance__subtitle",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(1) > .MuiCardContent-root.css-15q2cw4 > small",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(2) > .MuiCardContent-root.css-15q2cw4 > small",
+              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(3) > .MuiCardContent-root.css-15q2cw4 > small"
+            ],
+            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ],
+        "incompleteContrast": 1,
+        "incompleteOther": [
+          {
+            "id": "aria-valid-attr-value",
+            "nodes": 1
+          }
+        ]
+      },
+      "manual": {
+        "interactiveTotal": 7,
+        "interactiveNoName": {
+          "count": 0,
+          "samples": []
+        },
+        "controlsTotal": 2,
+        "controlsNoLabel": {
+          "count": 1,
+          "samples": [
+            {
+              "tag": "INPUT",
+              "type": "",
+              "name": "",
+              "placeholder": "",
+              "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+            }
+          ]
+        },
+        "positiveTabindex": {
+          "count": 0,
+          "samples": []
+        },
+        "imagesNoAlt": {
+          "total": 0,
+          "count": 0
+        },
+        "hasMain": true,
+        "title": "FleetRent Admin Panel"
+      }
+    }
+  },
+  "summary": {
+    "dashboard": {
+      "violationRules": 1,
+      "violationNodes": 24,
+      "byImpact": {
+        "serious": 24
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 0,
+      "positiveTabindex": 0,
+      "incompleteContrast": 0
+    },
+    "bookings": {
+      "violationRules": 1,
+      "violationNodes": 63,
+      "byImpact": {
+        "serious": 63
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 0,
+      "positiveTabindex": 0,
+      "incompleteContrast": 0
+    },
+    "contractWorkspace": {
+      "violationRules": 2,
+      "violationNodes": 3,
+      "byImpact": {
+        "serious": 2,
+        "moderate": 1
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 3,
+      "positiveTabindex": 0,
+      "incompleteContrast": 19
+    },
+    "cashJournal": {
+      "violationRules": 1,
+      "violationNodes": 2,
+      "byImpact": {
+        "serious": 2
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 1,
+      "positiveTabindex": 0,
+      "incompleteContrast": 6
+    },
+    "reports": {
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
+      "interactiveNoName": 0,
+      "controlsNoLabel": 1,
+      "positiveTabindex": 0,
+      "incompleteContrast": 3
+    },
+    "approbations": {
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
+      "interactiveNoName": 0,
+      "controlsNoLabel": 2,
+      "positiveTabindex": 0,
+      "incompleteContrast": 5
+    },
+    "maintenance": {
+      "violationRules": 1,
+      "violationNodes": 6,
+      "byImpact": {
+        "serious": 6
+      },
+      "interactiveNoName": 0,
+      "controlsNoLabel": 1,
+      "positiveTabindex": 0,
+      "incompleteContrast": 1
+    }
+  },
+  "session": {
+    "signedIn": true,
+    "language": "fr"
+  },
+  "bookingIdUsed": "6aeb943421ad66aa3cc4fdb0",
+  "outcome": "audit-complete"
+}

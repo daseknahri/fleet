@@ -12,6 +12,11 @@ const strings = new LocalizedStrings({
     TOKEN_EXPIRED: 'Your account activation link expired.',
     ACTIVATE: 'Activate',
   },
+  ar: {
+    ACTIVATE_HEADING: 'تفعيل الحساب',
+    TOKEN_EXPIRED: 'انتهت صلاحية رابط تفعيل حسابك.',
+    ACTIVATE: 'تفعيل',
+  },
   es: {
     ACTIVATE_HEADING: 'Activación de la cuenta',
     TOKEN_EXPIRED: 'El enlace de activación de su cuenta ha expirado.',

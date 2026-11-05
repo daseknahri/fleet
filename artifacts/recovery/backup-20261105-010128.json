@@ -1,0 +1,60 @@
+﻿{
+    "slice":  "GA-P10-OPS-BACKUP-AUTO-01",
+    "generatedAt":  "2026-11-05T01:01:35.0923102Z",
+    "archive":  "bookcars-20261105-010128.archive.gz",
+    "archiveBytes":  13572,
+    "dumpSeconds":  0.24,
+    "sourceDatabase":  "bookcars",
+    "sourceCollections":  29,
+    "sourceDocuments":  191,
+    "sourceCounts":  {
+                         "RentalPayment":  0,
+                         "PushToken":  0,
+                         "CashMovement":  7,
+                         "MaintenanceExpense":  1,
+                         "Setting":  1,
+                         "CashSession":  8,
+                         "Location":  4,
+                         "ContractInspection":  3,
+                         "User":  10,
+                         "LocationValue":  20,
+                         "AdditionalDriver":  2,
+                         "Car":  10,
+                         "AgencyMembership":  0,
+                         "MaintenanceWorkOrder":  0,
+                         "Notification":  14,
+                         "Token":  0,
+                         "Invoice":  0,
+                         "Country":  1,
+                         "BankDetails":  0,
+                         "ContractCharge":  0,
+                         "MaintenanceSchedule":  0,
+                         "Approval":  4,
+                         "Counter":  86,
+                         "NotificationCounter":  4,
+                         "DateBasedPrice":  0,
+                         "BookCarsDevSeed":  1,
+                         "ContractSnapshot":  0,
+                         "Booking":  15,
+                         "ParkingSpot":  0
+                     },
+    "verification":  {
+                         "scratchDatabase":  "bookcars_verify_20261105010128",
+                         "restoreSeconds":  4.14,
+                         "parity":  true,
+                         "mismatches":  [
+
+                                        ],
+                         "restoredTotal":  191,
+                         "scratchDropped":  true
+                     },
+    "retention":  {
+                      "keep":  2,
+                      "pruned":  [
+                                     "bookcars-20260102-000000.archive.gz",
+                                     "bookcars-20260101-000000.archive.gz"
+                                 ]
+                  },
+    "wallSeconds":  6.44,
+    "note":  "Local dev backup only. Nothing was sent off-host; scheduling and off-host retention are owner gates (see SETUP.md)."
+}

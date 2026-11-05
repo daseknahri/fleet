@@ -21,6 +21,15 @@ const strings = new LocalizedStrings({
     STATUS_MESSAGE: 'Check your mailbox and follow the steps described in the booking confirmation email to book your car.',
     SESSION_ID_MISMATCH: 'Session ID mismatch. Please try again.',
   },
+  ar: {
+    CONGRATULATIONS: 'تهانينا!',
+    SUCCESS: 'تم الدفع بنجاح. لقد أرسلنا إليك بريداً إلكترونياً للتأكيد.',
+    SUCCESS_PAY_LATER: 'تم حجزك بنجاح. لقد أرسلنا إليك بريداً إلكترونياً للتأكيد.',
+    ERROR: 'حدث خطأ ما! حاول مرة أخرى لاحقاً',
+    STATUS_TITLE: `${env.WEBSITE_NAME} تأكيد الحجز`,
+    STATUS_MESSAGE: 'تحقق من صندوق بريدك واتبع الخطوات الموضحة في بريد تأكيد الحجز لحجز سيارتك.',
+    SESSION_ID_MISMATCH: 'معرف الجلسة غير متطابق. يرجى المحاولة مرة أخرى.',
+  },
   es: {
     CONGRATULATIONS: '¡Felicitaciones!',
     SUCCESS: 'Tu pago se realizó con éxito. Te hemos enviado un correo de confirmación.',

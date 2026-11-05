@@ -126,11 +126,13 @@ const SupplierFilter = ({
                   type="checkbox"
                   data-id={supplier._id}
                   className="supplier-checkbox"
+                  aria-label={supplier.fullName}
                   onChange={handleCheckSupplierChange}
                 />
                 <span
                   role="button"
                   tabIndex={0}
+                  aria-label={supplier.fullName}
                   onClick={handleSupplierClick}
                   className="supplier"
                 >

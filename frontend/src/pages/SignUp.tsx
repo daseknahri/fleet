@@ -122,8 +122,8 @@ const SignUp = () => {
             <form onSubmit={handleSubmit(onSubmit)}>
               <div>
                 <FormControl fullWidth margin="dense" error={!!errors.fullName}>
-                  <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
-                  <OutlinedInput
+                  <InputLabel className="required" htmlFor="signup-fullName">{commonStrings.FULL_NAME}</InputLabel>
+                  <OutlinedInput id="signup-fullName"
                     type="text"
                     {...register('fullName')}
                     label={commonStrings.FULL_NAME}
@@ -132,8 +132,8 @@ const SignUp = () => {
                   />
                 </FormControl>
                 <FormControl fullWidth margin="dense" error={!!errors.email}>
-                  <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
-                  <OutlinedInput
+                  <InputLabel className="required" htmlFor="signup-email">{commonStrings.EMAIL}</InputLabel>
+                  <OutlinedInput id="signup-email"
                     type="text"
                     {...register('email')}
                     label={commonStrings.EMAIL}
@@ -148,8 +148,8 @@ const SignUp = () => {
                   <FormHelperText error={!!errors.email}>{errors.email?.message || ''}</FormHelperText>
                 </FormControl>
                 <FormControl fullWidth margin="dense" error={!!errors.phone}>
-                  <InputLabel className="required">{commonStrings.PHONE}</InputLabel>
-                  <OutlinedInput
+                  <InputLabel className="required" htmlFor="signup-phone">{commonStrings.PHONE}</InputLabel>
+                  <OutlinedInput id="signup-phone"
                     type="text"
                     {...register('phone')}
                     label={commonStrings.PHONE}
@@ -231,6 +231,7 @@ const SignUp = () => {
                           <Checkbox
                             {...register('tos')}
                             color="primary"
+                            inputProps={{ 'aria-label': commonStrings.TOS }}
                             onChange={() => {
                               if (errors.tos) {
                                 clearErrors('tos')

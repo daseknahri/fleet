@@ -69,7 +69,7 @@ const Bookings = () => {
   return (
     <Layout onLoad={onLoad} strict>
       {user && (
-        <div className="bookings">
+        <div className="bookings" role="main">
           <div className="col-1">
             {leftPanel && (
               <>

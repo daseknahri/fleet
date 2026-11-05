@@ -420,7 +420,7 @@ const UpdateBooking = () => {
   return (
     <Layout onLoad={onLoad} strict>
       {visible && booking && (
-        <div className="booking">
+        <div className="booking" role="main">
           <div className="col-1">
             <form onSubmit={handleSubmit(onSubmit)}>
               {!isSupplier && (

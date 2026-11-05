@@ -53,7 +53,7 @@ const customerName = (booking?: bookcarsTypes.Booking) => (
 
 const formatDate = (date: Date) => {
   const language = UserService.getLanguage()
-  const locale = language === 'fr' ? 'fr-MA' : language === 'es' ? 'es-ES' : 'en-GB'
+  const locale = language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
   return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
 }
 

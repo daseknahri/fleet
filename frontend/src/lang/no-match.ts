@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     NO_MATCH: 'Nothing to see here!',
   },
+  ar: {
+    NO_MATCH: 'لا شيء هنا!',
+  },
   es: {
     NO_MATCH: '¡No hay nada que ver aquí!',
   },

@@ -130,6 +130,7 @@ const BookingFilter = ({
             onChange={(e) => setValue('keyword', e.target.value)}
             placeholder={commonStrings.SEARCH_PLACEHOLDER}
             slotProps={{
+              htmlInput: { 'aria-label': commonStrings.SEARCH },
               input: {
                 endAdornment: keyword ? (
                   <IconButton

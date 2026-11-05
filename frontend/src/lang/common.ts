@@ -13,6 +13,8 @@ const strings = new LocalizedStrings({
     FULL_NAME: 'Nom complet',
     EMAIL: 'E-mail',
     PASSWORD: 'Mot de passe',
+    SHOW_PASSWORD: 'Afficher le mot de passe',
+    HIDE_PASSWORD: 'Masquer le mot de passe',
     EMAIL_ALREADY_REGISTERED: 'Cette adresse e-mail est déjà enregistrée.',
     CONFIRM_PASSWORD: 'Confirmer le mot de passe',
     PHONE: 'Téléphone',
@@ -93,7 +95,7 @@ const strings = new LocalizedStrings({
   },
   ar: {
     BOOKCARS: env.WEBSITE_NAME,
-    GENERIC_ERROR: 'حدث خطأ غير متوقع.', CHANGE_LANGUAGE_ERROR: 'حدث خطأ أثناء تغيير اللغة.', UPDATED: 'تم حفظ التعديلات بنجاح.', GO_TO_HOME: 'العودة إلى الصفحة الرئيسية', FULL_NAME: 'الاسم الكامل', EMAIL: 'البريد الإلكتروني', PASSWORD: 'كلمة المرور', EMAIL_ALREADY_REGISTERED: 'هذا البريد الإلكتروني مسجل بالفعل.', CONFIRM_PASSWORD: 'تأكيد كلمة المرور', PHONE: 'رقم الهاتف', LOCATION: 'الموقع', BIO: 'نبذة', IMAGE_REQUIRED: 'يرجى إضافة صورة.', LOADING: 'جار التحميل...', PLEASE_WAIT: 'يرجى الانتظار...', SEARCH: 'بحث', SEARCH_PLACEHOLDER: 'بحث...', CONFIRM_TITLE: 'تأكيد', PASSWORD_ERROR: 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.', PASSWORDS_DONT_MATCH: 'كلمتا المرور غير متطابقتين.', CREATE: 'إنشاء', UPDATE: 'تعديل', DELETE: 'حذف', SAVE: 'حفظ', CANCEL: 'إلغاء', RESET_PASSWORD: 'تغيير كلمة المرور', CURRENCY: PaymentService.getCurrencySymbol(), DAILY: '/يوم', DELETE_AVATAR_CONFIRM: 'هل تريد حذف الصورة؟', DELETE_IMAGE: 'حذف الصورة', UPLOAD_IMAGE: 'رفع صورة', UNCHECK_ALL: 'إلغاء تحديد الكل', CHECK_ALL: 'تحديد الكل', CLOSE: 'إغلاق', BOOKING_STATUS_VOID: 'فارغ', BOOKING_STATUS_PENDING: 'قيد التنفيذ', BOOKING_STATUS_DEPOSIT: 'عربون', BOOKING_STATUS_PAID: 'مدفوع', BOOKING_STATUS_PAID_IN_FULL: 'مدفوع بالكامل', BOOKING_STATUS_RESERVED: 'محجوز', BOOKING_STATUS_CANCELLED: 'ملغى', FROM: 'من', TO: 'إلى', OPTIONAL: 'إعدادات اختيارية', AND: 'و', RECORD_TYPE_ADMIN: 'مدير', RECORD_TYPE_SUPPLIER: 'المورد', RECORD_TYPE_USER: 'السائق', TYPE: 'النوع', CONFIRM: 'تأكيد', USER: 'المستخدم', INFO: 'معلومات', USER_TYPE_REQUIRED: 'يرجى تعبئة الحقل: النوع', FIX_ERRORS: 'يرجى تصحيح الأخطاء.', SEND_MESSAGE: 'إرسال رسالة', VERIFIED: 'حساب موثّق', CAR: 'مركبة', RESEND_ACTIVATION_LINK: 'إعادة إرسال رابط تفعيل الحساب', ACTIVATION_EMAIL_SENT: 'تم إرسال بريد التفعيل.', EMAIL_NOT_VALID: 'بريد إلكتروني غير صالح', PICK_UP_LOCATION: 'مكان الاستلام', DROP_OFF_LOCATION: 'مكان التسليم', PHONE_NOT_VALID: 'رقم هاتف غير صالح', ALL: 'الكل', TOS: 'قرأت وأوافق على شروط الاستخدام.', BIRTH_DATE: 'تاريخ الميلاد', RECAPTCHA_ERROR: 'خطأ في reCAPTCHA', TOS_ERROR: 'يرجى الموافقة على شروط الاستخدام.', BIRTH_DATE_NOT_VALID: `يجب أن تبلغ ${env.MINIMUM_AGE} سنة على الأقل.`, BIRTH_DATE_NOT_VALID_PART1: 'يجب أن يبلغ السائق', BIRTH_DATE_NOT_VALID_PART2: 'سنة على الأقل.', SUPPLIER: 'المورد', STATUS: 'الحالة', OPTIONS: 'الخيارات', VIEW: 'عرض', OF: 'من', ANY: 'أي', BACK: 'السابق', NEXT: 'التالي', LOCATION_TERM: 'الموقع / المصطلح', EDIT: 'تعديل', OR: 'أو', DRIVER_LICENSE: 'رخصة القيادة', UPLOAD_FILE: 'رفع ملف...'
+    GENERIC_ERROR: 'حدث خطأ غير متوقع.', CHANGE_LANGUAGE_ERROR: 'حدث خطأ أثناء تغيير اللغة.', UPDATED: 'تم حفظ التعديلات بنجاح.', GO_TO_HOME: 'العودة إلى الصفحة الرئيسية', FULL_NAME: 'الاسم الكامل', EMAIL: 'البريد الإلكتروني', PASSWORD: 'كلمة المرور', SHOW_PASSWORD: 'إظهار كلمة المرور', HIDE_PASSWORD: 'إخفاء كلمة المرور', EMAIL_ALREADY_REGISTERED: 'هذا البريد الإلكتروني مسجل بالفعل.', CONFIRM_PASSWORD: 'تأكيد كلمة المرور', PHONE: 'رقم الهاتف', LOCATION: 'الموقع', BIO: 'نبذة', IMAGE_REQUIRED: 'يرجى إضافة صورة.', LOADING: 'جار التحميل...', PLEASE_WAIT: 'يرجى الانتظار...', SEARCH: 'بحث', SEARCH_PLACEHOLDER: 'بحث...', CONFIRM_TITLE: 'تأكيد', PASSWORD_ERROR: 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.', PASSWORDS_DONT_MATCH: 'كلمتا المرور غير متطابقتين.', CREATE: 'إنشاء', UPDATE: 'تعديل', DELETE: 'حذف', SAVE: 'حفظ', CANCEL: 'إلغاء', RESET_PASSWORD: 'تغيير كلمة المرور', CURRENCY: PaymentService.getCurrencySymbol(), DAILY: '/يوم', DELETE_AVATAR_CONFIRM: 'هل تريد حذف الصورة؟', DELETE_IMAGE: 'حذف الصورة', UPLOAD_IMAGE: 'رفع صورة', UNCHECK_ALL: 'إلغاء تحديد الكل', CHECK_ALL: 'تحديد الكل', CLOSE: 'إغلاق', BOOKING_STATUS_VOID: 'فارغ', BOOKING_STATUS_PENDING: 'قيد التنفيذ', BOOKING_STATUS_DEPOSIT: 'عربون', BOOKING_STATUS_PAID: 'مدفوع', BOOKING_STATUS_PAID_IN_FULL: 'مدفوع بالكامل', BOOKING_STATUS_RESERVED: 'محجوز', BOOKING_STATUS_CANCELLED: 'ملغى', FROM: 'من', TO: 'إلى', OPTIONAL: 'إعدادات اختيارية', AND: 'و', RECORD_TYPE_ADMIN: 'مدير', RECORD_TYPE_SUPPLIER: 'المورد', RECORD_TYPE_USER: 'السائق', TYPE: 'النوع', CONFIRM: 'تأكيد', USER: 'المستخدم', INFO: 'معلومات', USER_TYPE_REQUIRED: 'يرجى تعبئة الحقل: النوع', FIX_ERRORS: 'يرجى تصحيح الأخطاء.', SEND_MESSAGE: 'إرسال رسالة', VERIFIED: 'حساب موثّق', CAR: 'مركبة', RESEND_ACTIVATION_LINK: 'إعادة إرسال رابط تفعيل الحساب', ACTIVATION_EMAIL_SENT: 'تم إرسال بريد التفعيل.', EMAIL_NOT_VALID: 'بريد إلكتروني غير صالح', PICK_UP_LOCATION: 'مكان الاستلام', DROP_OFF_LOCATION: 'مكان التسليم', PHONE_NOT_VALID: 'رقم هاتف غير صالح', ALL: 'الكل', TOS: 'قرأت وأوافق على شروط الاستخدام.', BIRTH_DATE: 'تاريخ الميلاد', RECAPTCHA_ERROR: 'خطأ في reCAPTCHA', TOS_ERROR: 'يرجى الموافقة على شروط الاستخدام.', BIRTH_DATE_NOT_VALID: `يجب أن تبلغ ${env.MINIMUM_AGE} سنة على الأقل.`, BIRTH_DATE_NOT_VALID_PART1: 'يجب أن يبلغ السائق', BIRTH_DATE_NOT_VALID_PART2: 'سنة على الأقل.', SUPPLIER: 'المورد', STATUS: 'الحالة', OPTIONS: 'الخيارات', VIEW: 'عرض', OF: 'من', ANY: 'أي', BACK: 'السابق', NEXT: 'التالي', LOCATION_TERM: 'الموقع / المصطلح', EDIT: 'تعديل', OR: 'أو', DRIVER_LICENSE: 'رخصة القيادة', UPLOAD_FILE: 'رفع ملف...'
   },
   en: {
     BOOKCARS: env.WEBSITE_NAME,
@@ -104,6 +106,8 @@ const strings = new LocalizedStrings({
     FULL_NAME: 'Full name',
     EMAIL: 'Email',
     PASSWORD: 'Password',
+    SHOW_PASSWORD: 'Show password',
+    HIDE_PASSWORD: 'Hide password',
     EMAIL_ALREADY_REGISTERED: 'This email address is already registered.',
     CONFIRM_PASSWORD: 'Confirm Password',
     PHONE: 'Phone',
@@ -191,6 +195,8 @@ const strings = new LocalizedStrings({
     FULL_NAME: 'Nombre completo',
     EMAIL: 'Correo electrónico',
     PASSWORD: 'Contraseña',
+    SHOW_PASSWORD: 'Mostrar contraseña',
+    HIDE_PASSWORD: 'Ocultar contraseña',
     EMAIL_ALREADY_REGISTERED: 'Esta dirección de correo electrónico ya está registrada.',
     CONFIRM_PASSWORD: 'Confirmar contraseña',
     PHONE: 'Teléfono',

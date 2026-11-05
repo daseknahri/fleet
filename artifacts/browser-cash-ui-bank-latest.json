@@ -1,0 +1,182 @@
+{
+  "slice": "GA-P0-CASH-UI-BANK-01",
+  "marker": "GA-BANK01-1793838791316",
+  "generatedAt": "2026-11-05T00:33:11.316Z",
+  "evidenceType": "UI-interaction (CDP mouse/keyboard on rendered controls); API used for read-back only",
+  "steps": [
+    {
+      "name": "load-page",
+      "at": "2026-11-05T00:33:11.790Z",
+      "apexId": "6ae166dda73203de8dd5bdbb",
+      "openAtStart": [],
+      "sessionLine": "AccountCashBankAccountCash · Session closed · MADOpening balance: 500 MAD · Expected: 300 MAD · Counted balance: 300 MAD · Discrepancy: 0 MADOpen cash session"
+    },
+    {
+      "name": "open-cash-ui",
+      "at": "2026-11-05T00:33:15.898Z",
+      "dialogAccount": {
+        "value": "cash",
+        "options": [
+          {
+            "value": "cash",
+            "label": "Cash",
+            "disabled": false
+          },
+          {
+            "value": "bank",
+            "label": "Bank",
+            "disabled": false
+          }
+        ]
+      },
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "session": {
+        "id": "6aebcecbee4ea49332eb9ba9",
+        "account": "cash",
+        "opening": 500,
+        "status": "open"
+      },
+      "sessionLine": "AccountCashBankAccountCash · Session open · MADOpening balance: 500 MAD · Expected: — · Counted balance: — · Discrepancy: —Add movementTransferClose session"
+    },
+    {
+      "name": "open-bank-ui",
+      "at": "2026-11-05T00:33:19.174Z",
+      "switcherOptions": [
+        {
+          "value": "cash",
+          "label": "Cash",
+          "disabled": false
+        },
+        {
+          "value": "bank",
+          "label": "Bank",
+          "disabled": false
+        }
+      ],
+      "lineBeforeOpen": "AccountCashBankAccountCash · Session openBank · Session closed · MADOpening balance: 1.000 MAD · Expected: 1.200 MAD · Counted balance: 1.200 MAD · Discrepancy: 0 MADOpen cash session",
+      "dialogAccount": {
+        "value": "bank",
+        "options": [
+          {
+            "value": "cash",
+            "label": "Cash",
+            "disabled": true
+          },
+          {
+            "value": "bank",
+            "label": "Bank",
+            "disabled": false
+          }
+        ]
+      },
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "session": {
+        "id": "6aebceceee4ea49332eb9baa",
+        "account": "bank",
+        "opening": 1000,
+        "status": "open"
+      },
+      "sessionLine": "AccountCashBankAccountCash · Session openBank · Session open · MADOpening balance: 1.000 MAD · Expected: — · Counted balance: — · Discrepancy: —Add movementTransferClose session"
+    },
+    {
+      "name": "transfer-ui",
+      "at": "2026-11-05T00:33:24.255Z",
+      "fromOptions": [
+        {
+          "value": "",
+          "label": ""
+        },
+        {
+          "value": "6aebceceee4ea49332eb9baa",
+          "label": "Bank · MAD"
+        },
+        {
+          "value": "6aebcecbee4ea49332eb9ba9",
+          "label": "Cash · MAD"
+        }
+      ],
+      "toOptionsBefore": [
+        {
+          "value": "",
+          "label": ""
+        },
+        {
+          "value": "6aebcecbee4ea49332eb9ba9",
+          "label": "Cash · MAD"
+        }
+      ],
+      "toAfter": {
+        "value": "6aebceceee4ea49332eb9baa",
+        "options": [
+          {
+            "value": "",
+            "label": ""
+          },
+          {
+            "value": "6aebceceee4ea49332eb9baa",
+            "label": "Bank · MAD"
+          }
+        ]
+      },
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "outMovement": {
+        "id": "6aebced3ee4ea49332eb9bab",
+        "direction": "out",
+        "amount": 200,
+        "transferId": "6aebced3ee4ea49332eb9bac"
+      },
+      "inMovement": {
+        "id": "6aebced3ee4ea49332eb9bac",
+        "direction": "in",
+        "amount": 200,
+        "transferId": "6aebced3ee4ea49332eb9bab"
+      }
+    },
+    {
+      "name": "close-cash-ui",
+      "at": "2026-11-05T00:33:27.513Z",
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "after": {
+        "status": "closed",
+        "expected": 300,
+        "counted": 300,
+        "discrepancy": 0
+      }
+    },
+    {
+      "name": "close-bank-ui",
+      "at": "2026-11-05T00:33:30.772Z",
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "after": {
+        "status": "closed",
+        "expected": 1200,
+        "counted": 1200,
+        "discrepancy": 0
+      }
+    }
+  ],
+  "finalState": {
+    "cashSessionId": "6aebcecbee4ea49332eb9ba9",
+    "bankSessionId": "6aebceceee4ea49332eb9baa",
+    "transferOutId": "6aebced3ee4ea49332eb9bab",
+    "transferInId": "6aebced3ee4ea49332eb9bac",
+    "marker": "GA-BANK01-1793838791316",
+    "resumed": false
+  },
+  "outcome": "complete"
+}

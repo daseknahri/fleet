@@ -10,6 +10,10 @@ const strings = new LocalizedStrings({
     REQUIRED_FIELD: 'Please fill in the field: ',
     REQUIRED_FIELDS: 'Please fill in the fields: ',
   },
+  ar: {
+    REQUIRED_FIELD: 'يرجى ملء الحقل: ',
+    REQUIRED_FIELDS: 'يرجى ملء الحقول: ',
+  },
   es: {
     REQUIRED_FIELD: 'Por favor, complete el campo: ',
     REQUIRED_FIELDS: 'Por favor, complete los campos: ',

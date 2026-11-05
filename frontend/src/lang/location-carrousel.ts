@@ -12,6 +12,11 @@ const strings = new LocalizedStrings({
     AVALIABLE_LOCATION: 'available location',
     AVALIABLE_LOCATIONS: 'available locations',
   },
+  ar: {
+    SELECT_LOCATION: 'اختر هذا الموقع',
+    AVALIABLE_LOCATION: 'موقع متاح',
+    AVALIABLE_LOCATIONS: 'مواقع متاحة',
+  },
   es: {
     SELECT_LOCATION: 'Seleccionar ubicación',
     AVALIABLE_LOCATION: 'ubicación disponible',

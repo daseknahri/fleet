@@ -14,6 +14,12 @@ const strings = new LocalizedStrings({
     RESET: 'Reset',
     EMAIL_SENT: 'If an account exists for this email address, password reset instructions will be sent.',
   },
+  ar: {
+    RESET_PASSWORD_HEADING: 'إعادة تعيين كلمة المرور',
+    RESET_PASSWORD: 'كلمة المرور الجديدة',
+    RESET: 'إعادة تعيين',
+    EMAIL_SENT: 'إذا كان هناك حساب مسجل بهذا البريد الإلكتروني، فسيتم إرسال تعليمات إعادة تعيين كلمة المرور.',
+  },
   es: {
     RESET_PASSWORD_HEADING: 'Restablecimiento de contraseña',
     RESET_PASSWORD: 'Por favor ingrese su dirección de correo electrónico para que podamos enviarle un correo electrónico para restablecer su contraseña.',

@@ -1,0 +1,113 @@
+{
+  "slice": "GA-P1-ADMIN-AR-LOCALE-05",
+  "at": "2026-11-05T00:53:22.476Z",
+  "checks": {
+    "bookingsAr": {
+      "url": "http://localhost:3002/bookings",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": true,
+      "hasArabicIndicDigits": false,
+      "sample": "1 حجز جديد المورد تحديد الكل الحالة فارغ قيد التنفيذ عربون مدفوع مدفوع بالكامل محجوز ملغى تحديد الكل بحث من MM/ DD/ YYYY إلى MM/ DD/ YYYY مكان الاستلام مكان التسليم بحث محجوز المركبة Volkswagen Golf السائق Alex Morgan الأيام 2 أيام (خميس, 5 نوفمبر 2026, 20:23 - سبت, 7 نوفمبر 2026, 20:23) مكان الاستلام San Francisco Airport (SFO) مكان التسليم San Francisco Airport (SFO) المورد Apex Car Rentals الإجمالي 1 000 MAD تعديل حذف محجوز المركبة Volkswagen Golf السائق Alex Morgan الأيام 2 أيام (خميس, 5 نوفمبر 2026, 20:22 - سبت, 7 نوفمبر 2026, 20:22) مكان الاستلام San Francisco Airport (SFO) مكان التسليم San Francisco Airport (SFO) المورد Apex Car Rentals الإجمالي 1 000 MAD تعديل حذف قيد التنفيذ المركبة",
+      "headerBookingsArabic": false,
+      "newBookingArabic": true,
+      "pickupArabic": true
+    },
+    "bookingWorkspaceAr": {
+      "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 المورد * ​ السائق * ​ مكان الاستلام * ​ مكان التسليم * ​ المركبة * ​ من * 11/ 05/ 2026 08: 23 PM إلى * 11/ 07/ 2026 08: 23 PM الحالة محجوز إعدادات اختيارية الإلغاء التعديلات الحماية من السرقة التغطية ضد أضرار التصادم التأمين الشامل سائق إضافي حفظ حذف إلغاء عمليات العقد الفحوصات لا توجد فحوصات أو رسوم. عداد المسافة عداد المسافة وقود % وقود % الحالة الحالة الأضرار الأضرار رفع صورة رفع التوقيع المرفقات لا مرفقات التسليم الإرجاع رسوم وأضرار لا توجد فحوصات أو رسوم. العملة MAD العملة النوع ضرر النوع المبلغ المبلغ السبب السبب إضافة رسوم إنشاء PDFإنهاء العقد",
+      "paymentsArabic": false,
+      "contractOpsEnglish": false
+    },
+    "clientsAr": {
+      "url": "http://localhost:3002/clients",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 الأسطول والعملاء العملاء حسابات العملاء وبيانات الاتصال الخاصة بوكالتك. إضافة عميل المستخدم Alex Morgan driver1 user user2 Rows per page: 30 1–4 of 4",
+      "titleArabic": true,
+      "addClientArabic": true
+    },
+    "createCarAr": {
+      "url": "http://localhost:3002/create-car",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 سيارة جديدة حجم الصورة الموصى به: 300x200 الاسم لوحة الترخيص المورد * الحد الأدنى للسن مواقع الاستلام * السعر اليومي (MAD) * السعر اليومي المخفض (MAD) أسعار حسب التواريخ السعر بالساعة (1h) (MAD) السعر بالساعة المخفض (1h) (MAD) سعر نصف الأسبوع (3 أيام) (MAD) سعر نصف الأسبوع المخفض (MAD) السعر الأسبوعي (MAD) السعر الأسبوعي المخفض (MAD) السعر الشهري (MAD) السعر الشهري المخفض (MAD) التأمين (MAD) * الفئة ​ الوسائط المتعددة Android Auto Apple CarPlay بلوتوث شاشة لمس التقييم CO2 (g/km) مدرجة في نتائج البحث محجوزة بالكامل قريباً حظر السيارة بعد نجاح الدفع المحرك ​ ناقل الحركة ​ المقاعد ​ الأبواب ​ سياسة الوقود ​ إعدادات اختيارية مكيف الهواء المسافة (كم/اليوم) الإلغاء (MAD) التعديلات (MAD) الحماية ",
+      "headingArabic": true,
+      "plateArabic": true
+    },
+    "settingsAr": {
+      "url": "http://localhost:3002/settings",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 الاسم الكامل البريد الإلكتروني رقم الهاتف الموقع نبذة تغيير كلمة المرور حفظ إلغاء إعدادات الشبكة تفعيل الإشعارات عبر البريد الإلكتروني إعدادات التأجير الحد الأدنى من الوقت المطلوب بالساعات قبل الاستلام الحد الأدنى لمدة التأجير بالساعات بين الاستلام والتسليم الحد الأدنى للساعة المسموح بها للاستلام والتسليم (مثال: 9 لـ 09:00) الحد الأقصى للساعة المسموح بها للاستلام والتسليم (مثال: 19 لـ 19:00) حفظ إلغاء التفاصيل البنكية صاحب الحساب اسم البنك IBAN SWIFT/BIC إظهار صفحة التفاصيل البنكية حفظ إلغاء"
+    },
+    "usersAr": {
+      "url": "http://localhost:3002/users",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 مستخدم جديد المستخدم admin Alex Morgan Apex Car Rentals driver1 supplier.0a_i1cuq6yge5jr27gh21 supplier.1prfs8gtswcf4jkspyzsr supplier.1prfs8gtswcf4jkspyzsr user Rows per page: 30 1–9 of 9"
+    },
+    "suppliersAr": {
+      "url": "http://localhost:3002/suppliers",
+      "lang": "ar",
+      "dir": "rtl",
+      "hasArabicText": true,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 مورد جديد 4 الموردون Apex Car Rentals 5 مركبات supplier.0a_i1cuq6yge5jr27gh21 2 مركبات supplier.1prfs8gtswcf4jkspyzsr 0 مركبة supplier.1prfs8gtswcf4jkspyzsr 0 مركبة"
+    },
+    "bookingsFr": {
+      "url": "http://localhost:3002/bookings",
+      "lang": "fr",
+      "dir": "ltr",
+      "hasArabicText": false,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 NOUVELLE RÉSERVATION Fournisseur Cocher tout Statut Vide En cours Acompte Payée Payée (totalité) Réservée Annulée Cocher tout Rechercher Début MM/ JJ/ AAAA Fin MM/ JJ/ AAAA Lieu de prise en charge Lieu de restitution RECHERCHER Réservée Voiture Volkswagen Golf Conducteur Alex Morgan Jours 2 jours (Jeu. 5 nov. 2026 20:23 - Sam. 7 nov. 2026 20:23) Lieu de prise en charge Aéroport de San Francisco (SFO) Lieu de restitution Aéroport de San Francisco (SFO) Fournisseur Apex Car Rentals Total 1 000 MAD MODIFIER SUPPRIMER Réservée Voiture Volkswagen Golf Conducteur Alex Morgan Jours 2 jours (Jeu. 5 nov. 2026 20:22 - Sam. 7 nov. 2026 20:22) Lieu de prise en charge Aéroport de San Francisco (SFO) Li"
+    },
+    "bookingWorkspaceFr": {
+      "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+      "lang": "fr",
+      "dir": "ltr",
+      "hasArabicText": false,
+      "hasArabicMonth": false,
+      "hasArabicIndicDigits": false,
+      "sample": "1 Fournisseur * ​ Conducteur * ​ Lieu de prise en charge * ​ Lieu de restitution * ​ Voiture * ​ Début * 05/ 11/ 2026 20: 23 Fin * 07/ 11/ 2026 20: 23 Statut Réservée Paramètres optionnels Annulation Modifications Protection contre le vol Couverture en cas de collision Assurance Tous Risques Conducteur supplémentaire SAUVEGARDER SUPPRIMER ANNULER Operations de contrat Inspections Aucune inspection ou frais. Odomètre Odomètre Carburant % Carburant % État État Dommages Dommages TÉLÉVERSER UNE PHOTO TÉLÉVERSER LA SIGNATURE Pièces jointes Aucune pièce jointe REMISE RETOUR Frais et dommages Aucune inspection ou frais. Devise MAD Devise Type Dommage Type Montant Montant Motif Motif AJOUTER DES FRA",
+      "contractOpsFrench": true
+    },
+    "summary": {
+      "bookingsArOk": true,
+      "workspaceArOk": true,
+      "workspaceFrOk": true,
+      "clientsArOk": true,
+      "createCarArOk": true,
+      "bookingsFrOk": true
+    }
+  },
+  "session": {
+    "signedIn": true,
+    "user": "admin@fleetrent.local"
+  },
+  "idFromDom": true,
+  "bookingId": "6aeb943421ad66aa3cc4fdb0",
+  "bookingHref": "/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+  "outcome": "all-checks-passed"
+}

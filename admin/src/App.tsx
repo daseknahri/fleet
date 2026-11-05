@@ -50,6 +50,7 @@ const Payments = lazy(() => import('@/pages/Payments'))
 const CashJournal = lazy(() => import('@/pages/CashJournal'))
 const Team = lazy(() => import('@/pages/Team'))
 const Reports = lazy(() => import('@/pages/Reports'))
+const Approbations = lazy(() => import('@/pages/Approbations'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -93,6 +94,7 @@ const router = createBrowserRouter([
       { path: 'caisse', element: <CashJournal /> },
       { path: 'team', element: <Team /> },
       { path: 'reports', element: <Reports /> },
+      { path: 'approbations', element: <Approbations /> },
       { path: 'sign-in', element: <SignIn /> },
       { path: 'activate', element: <Activate /> },
       { path: 'forgot-password', element: <ForgotPassword /> },

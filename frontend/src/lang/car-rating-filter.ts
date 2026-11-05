@@ -16,6 +16,13 @@ const strings = new LocalizedStrings({
     RATING_3: '(3 and up)',
     RATING_4: '(4 and up)',
   },
+  ar: {
+    RATING: 'التقييم',
+    RATING_1: '(1 فأكثر)',
+    RATING_2: '(2 فأكثر)',
+    RATING_3: '(3 فأكثر)',
+    RATING_4: '(4 فأكثر)',
+  },
   es: {
     RATING: 'Clasificación',
     RATING_1: '(1 y más)',

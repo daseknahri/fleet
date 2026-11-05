@@ -16,6 +16,7 @@ import { agencySupplierId } from '../utils/agencyAuthorization'
 import { getContractReceivable } from '../utils/contractReceivable'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
+import { contentMatchesExtension } from '../utils/fileContent'
 
 const idFrom = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
@@ -126,7 +127,7 @@ export const uploadFile = async (req: Request, res: Response) => {
  res.status(404).send('Contract or file not found'); return 
 }
     const ext = path.extname(file.originalname).toLowerCase()
-    if (!['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(ext) || file.size <= 0 || file.size > 5 * 1024 * 1024) {
+    if (!['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(ext) || file.size <= 0 || file.size > 5 * 1024 * 1024 || !contentMatchesExtension(file.buffer, ext)) {
  res.status(400).send('Invalid contract file'); return 
 }
     const filename = `${crypto.randomUUID()}${ext}`

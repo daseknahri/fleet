@@ -1,0 +1,1581 @@
+{
+ "slice": "GA-P2-SECURITY-REVIEW-01",
+ "date": "2026-11-05",
+ "kind": "Security self-review DRAFT (codebase review + live spot-proofs on the local dev stack; not a penetration test, no external scanners used)",
+ "threatModel": {
+  "assets": [
+   "agency financial data (cash sessions/movements, rental payments, invoices, approvals)",
+   "contract evidence files (inspections, signatures, receipts) in private storage",
+   "user accounts and session tokens",
+   "booking/customer PII"
+  ],
+  "actors": [
+   "unauthenticated internet user (customer frontend surface)",
+   "authenticated customer",
+   "agency staff with role-scoped membership (owner/manager/counterAgent/accountant/mechanic/readOnly)",
+   "agency supplier principal (owner of own agency scope)",
+   "platform admin"
+  ],
+  "trustBoundaries": [
+   "browser -> backend API (JWT cookie auth, origin-selected cookie names)",
+   "agency scope: every Gestion Auto route gated by verifyToken + agency permission; controllers re-scope queries by agency",
+   "public capability flows: checkout/payment status keyed by provider session/order ids",
+   "private files: downloads only through verifyToken-gated document routes; avatars/car images are public CDN by design"
+  ],
+  "topThreats": [
+   "cross-agency data access (IDOR) - mitigated by agency scoping + permission matrix, spot-proven",
+   "privilege escalation via staff roles - mitigated by role permission matrix, spot-proven",
+   "unauthenticated admin creation - route disabled in code, verified 404",
+   "session theft - httpOnly + SameSite=Strict cookies; Secure flag is a production configuration gate",
+   "malicious uploads - extension allowlist + private storage; content sniffing absent (F-SEC-2)",
+   "credential stuffing - Redis token-bucket rate limiter on auth endpoints"
+  ]
+ },
+ "routeAuthorizationMap": {
+  "routeFiles": 23,
+  "registrationsParsed": 151,
+  "note": "151 registrations parsed from source; one of them (POST /api/admin-sign-up) is commented out in userRoutes.ts, so 150 routes are live.",
+  "withVerifyToken": 118,
+  "withRouteLevelAgencyPermission": 78,
+  "publicByDesign": 33,
+  "publicRoutes": [
+   "bookingRoutes.ts POST /api/checkout",
+   "bookingRoutes.ts POST /api/confirm-payment-intent",
+   "bookingRoutes.ts DELETE /api/delete-temp-booking/:bookingId/:sessionId",
+   "bookingRoutes.ts GET /api/booking-id/:sessionId",
+   "carRoutes.ts GET /api/car/:id/:language",
+   "carRoutes.ts POST /api/frontend-cars/:page/:size",
+   "countryRoutes.ts GET /api/countries-with-locations/:language/:imageRequired/:minLocations",
+   "ipinfoRoutes.ts GET /api/country-code",
+   "locationRoutes.ts GET /api/location/:id/:language",
+   "locationRoutes.ts GET /api/locations/:page/:size/:language",
+   "locationRoutes.ts GET /api/locations-with-position/:language",
+   "locationRoutes.ts GET /api/location-id/:name/:language",
+   "paypalRoutes.ts POST /api/create-paypal-order",
+   "paypalRoutes.ts POST /api/check-paypal-order/:bookingId/:orderId",
+   "settingRoutes.ts GET /api/settings",
+   "stripeRoutes.ts POST /api/check-checkout-session/:sessionId",
+   "supplierRoutes.ts GET /api/all-suppliers",
+   "supplierRoutes.ts POST /api/frontend-suppliers",
+   "userRoutes.ts POST /api/sign-up",
+   "userRoutes.ts POST /api/admin-sign-up",
+   "userRoutes.ts GET /api/check-token/:type/:userId/:email/:token",
+   "userRoutes.ts DELETE /api/delete-tokens/:userId",
+   "userRoutes.ts POST /api/resend/:type/:email/:reset",
+   "userRoutes.ts POST /api/activate",
+   "userRoutes.ts POST /api/sign-in/:type",
+   "userRoutes.ts POST /api/social-sign-in",
+   "userRoutes.ts POST /api/sign-out",
+   "userRoutes.ts POST /api/validate-email",
+   "userRoutes.ts GET /api/confirm-email/:email/:token",
+   "userRoutes.ts POST /api/verify-recaptcha/:token/:ip",
+   "userRoutes.ts POST /api/send-email",
+   "userRoutes.ts POST /api/create-license",
+   "userRoutes.ts POST /api/delete-temp-license/:file"
+  ],
+  "fullMap": {
+   "agencyMembershipRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/agency-memberships/current",
+     "gates": [
+      "verifyToken",
+      "agencyAuth.requireAgencyMemberRead"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/agency-memberships/:supplierId",
+     "gates": [
+      "verifyToken",
+      "agencyAuth.requireAgencyMemberRead"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/agency-memberships/:supplierId",
+     "gates": [
+      "verifyToken",
+      "agencyAuth.requireAgencyOwner"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/agency-memberships/:supplierId/:membershipId",
+     "gates": [
+      "verifyToken",
+      "agencyAuth.requireAgencyOwner"
+     ],
+     "handler": "?"
+    }
+   ],
+   "approvalRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/approvals",
+     "gates": [
+      "verifyToken",
+      "perm:DecideInvoices",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "list"
+    },
+    {
+     "method": "POST",
+     "path": "/api/approvals",
+     "gates": [
+      "verifyToken",
+      "perm:ManageInvoices",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "create"
+    },
+    {
+     "method": "POST",
+     "path": "/api/approvals/:id/decide",
+     "gates": [
+      "verifyToken",
+      "perm:DecideInvoices",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "decide"
+    }
+   ],
+   "bankDetailsRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/upsert-bank-details",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/bank-details",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    }
+   ],
+   "bookingRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/create-booking",
+     "gates": [
+      "verifyToken",
+      "perm:ManageBookings",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/checkout",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/confirm-payment-intent",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-booking",
+     "gates": [
+      "verifyToken",
+      "perm:ManageBookings",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-booking-status",
+     "gates": [
+      "verifyToken",
+      "perm:ManageBookings",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-bookings",
+     "gates": [
+      "verifyToken",
+      "perm:ManageBookings",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-temp-booking/:bookingId/:sessionId",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/booking/:id/:language",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/booking-id/:sessionId",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/bookings/:page/:size/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ReadBookings",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/has-bookings/:driver",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cancel-booking/:id",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    }
+   ],
+   "carRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/create-car",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-car",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/check-car/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ReadFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/validate-license-plate/:licensePlate",
+     "gates": [
+      "verifyToken",
+      "perm:ReadFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/validate-license-plate/:id/:licensePlate",
+     "gates": [
+      "verifyToken",
+      "perm:ReadFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-car/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-car-image",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-car-image/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-car-image/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-temp-car-image/:image",
+     "gates": [
+      "verifyToken",
+      "perm:ManageFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/car/:id/:language",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cars/:page/:size",
+     "gates": [
+      "verifyToken",
+      "perm:ReadFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/booking-cars/:page/:size",
+     "gates": [
+      "verifyToken",
+      "perm:ReadFleet",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/frontend-cars/:page/:size",
+     "gates": [],
+     "handler": "?"
+    }
+   ],
+   "cashRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/cash/sessions",
+     "gates": [
+      "verifyToken",
+      "perm:ReadCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "listSessions"
+    },
+    {
+     "method": "GET",
+     "path": "/api/cash/sessions/current",
+     "gates": [
+      "verifyToken",
+      "perm:ReadCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "current"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cash/sessions",
+     "gates": [
+      "verifyToken",
+      "perm:ManageCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "open"
+    },
+    {
+     "method": "GET",
+     "path": "/api/cash/sessions/:sessionId/movements",
+     "gates": [
+      "verifyToken",
+      "perm:ReadCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "listMovements"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cash/sessions/:sessionId/movements",
+     "gates": [
+      "verifyToken",
+      "perm:ManageCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "createMovement"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cash/sessions/:sessionId/close",
+     "gates": [
+      "verifyToken",
+      "perm:ManageCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "close"
+    },
+    {
+     "method": "POST",
+     "path": "/api/cash/transfers",
+     "gates": [
+      "verifyToken",
+      "perm:ManageCash",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "transfer"
+    }
+   ],
+   "contractOperationRoutes.ts": [],
+   "countryRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/validate-country",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-country",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-country/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-country/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/country/:id/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/countries/:page/:size/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/countries-with-locations/:language/:imageRequired/:minLocations",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/check-country/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/country-id/:name/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    }
+   ],
+   "documentRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/supplier-contract/:supplierId/:filename",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/user-license/:userId/:filename",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/maintenance-expense-receipt/:expenseId/:filename",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    }
+   ],
+   "invoiceRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/invoices",
+     "gates": [
+      "verifyToken",
+      "perm:ReadInvoices",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "list"
+    },
+    {
+     "method": "POST",
+     "path": "/api/invoices",
+     "gates": [
+      "verifyToken",
+      "perm:ManageInvoices",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "create"
+    },
+    {
+     "method": "POST",
+     "path": "/api/invoices/:id/issue",
+     "gates": [
+      "verifyToken",
+      "perm:ManageInvoices",
+      "agencyAuth.requireInvoiceAgencyPermission",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "issue"
+    },
+    {
+     "method": "POST",
+     "path": "/api/invoices/:id/void",
+     "gates": [
+      "verifyToken",
+      "perm:ManageInvoices",
+      "agencyAuth.requireInvoiceAgencyPermission",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "voidInvoice"
+    },
+    {
+     "method": "POST",
+     "path": "/api/invoices/:id/payments",
+     "gates": [
+      "verifyToken",
+      "perm:ManageInvoices",
+      "agencyAuth.requireInvoiceAgencyPermission",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "recordPayment"
+    }
+   ],
+   "ipinfoRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/country-code",
+     "gates": [],
+     "handler": "?"
+    }
+   ],
+   "locationRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/validate-location",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-location",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-location/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-location/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/location/:id/:language",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/locations/:page/:size/:language",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/locations-with-position/:language",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/check-location/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ReadLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/location-id/:name/:language",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-location-image",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-location-image/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-location-image/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-temp-location-image/:image",
+     "gates": [
+      "verifyToken",
+      "perm:ManageLocations",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    }
+   ],
+   "maintenanceExpenseRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/maintenance-expenses/report",
+     "gates": [
+      "verifyToken",
+      "perm:ReadExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/maintenance-expenses/receipts",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission",
+      "upload-middleware"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/maintenance-expenses/receipts/:file",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/maintenance-expenses",
+     "gates": [
+      "verifyToken",
+      "perm:ReadExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/maintenance-expenses",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/maintenance-expenses/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/maintenance-expenses/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    }
+   ],
+   "maintenanceScheduleRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/maintenance-schedules",
+     "gates": [
+      "verifyToken",
+      "perm:ReadExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "list"
+    },
+    {
+     "method": "POST",
+     "path": "/api/maintenance-schedules",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "create"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/maintenance-schedules/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "update"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/maintenance-schedules/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "remove"
+    }
+   ],
+   "maintenanceWorkOrderRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/maintenance-work-orders",
+     "gates": [
+      "verifyToken",
+      "perm:ReadExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "list"
+    },
+    {
+     "method": "POST",
+     "path": "/api/maintenance-work-orders",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "create"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/maintenance-work-orders/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "update"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/maintenance-work-orders/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ManageExpenses",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "remove"
+    }
+   ],
+   "notificationRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/notification-counter/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/notifications/:userId/:page/:size",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/mark-notifications-as-read/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/mark-notifications-as-unread/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-notifications/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    }
+   ],
+   "paypalRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/create-paypal-order",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/check-paypal-order/:bookingId/:orderId",
+     "gates": [],
+     "handler": "?"
+    }
+   ],
+   "rentalPaymentRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/rental-payments",
+     "gates": [
+      "verifyToken",
+      "perm:ReadPayments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/rental-payments",
+     "gates": [
+      "verifyToken",
+      "perm:RecordPayments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/rental-payments/:id/reverse",
+     "gates": [
+      "verifyToken",
+      "perm:RecordPayments",
+      "agencyAuth.requirePaymentAgencyPermission",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    }
+   ],
+   "reportRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/reports/summary",
+     "gates": [
+      "verifyToken",
+      "perm:ReadPayments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "summary"
+    },
+    {
+     "method": "GET",
+     "path": "/api/reports/summary.csv",
+     "gates": [
+      "verifyToken",
+      "perm:ReadPayments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "exportCsv"
+    }
+   ],
+   "settingRoutes.ts": [
+    {
+     "method": "GET",
+     "path": "/api/settings",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-settings",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    }
+   ],
+   "stripeRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/check-checkout-session/:sessionId",
+     "gates": [],
+     "handler": "?"
+    }
+   ],
+   "supplierRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/validate-supplier",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "PUT",
+     "path": "/api/update-supplier",
+     "gates": [
+      "verifyToken",
+      "perm:ManageAgencyProfile",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-supplier/:id",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/supplier/:id",
+     "gates": [
+      "verifyToken",
+      "perm:ReadAgencyProfile",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/suppliers/:page/:size",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/all-suppliers",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/frontend-suppliers",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/admin-suppliers",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-contract/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ManagePrivateDocuments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-contract/:supplierId/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ManagePrivateDocuments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-contract/:supplierId/:language",
+     "gates": [
+      "verifyToken",
+      "perm:ManagePrivateDocuments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-temp-contract/:file",
+     "gates": [
+      "verifyToken",
+      "perm:ManagePrivateDocuments",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    }
+   ],
+   "userRoutes.ts": [
+    {
+     "method": "POST",
+     "path": "/api/sign-up",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/admin-sign-up",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-user",
+     "gates": [
+      "verifyToken",
+      "perm:ManageClients",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/check-token/:type/:userId/:email/:token",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "DELETE",
+     "path": "/api/delete-tokens/:userId",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/resend/:type/:email/:reset",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/activate",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/sign-in/:type",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/social-sign-in",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/sign-out",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/push-token/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-push-token/:userId/:token",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-push-token/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/validate-email",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/validate-access-token",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/confirm-email/:email/:token",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/resend-link",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-user",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-email-notifications",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-language",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/user/:id",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-avatar",
+     "gates": [
+      "verifyToken",
+      "upload-middleware"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-avatar/:userId",
+     "gates": [
+      "verifyToken",
+      "upload-middleware"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-avatar/:userId",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-temp-avatar/:avatar",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/change-password",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/check-password/:id/:password",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/users/:page/:size",
+     "gates": [
+      "verifyToken",
+      "perm:ReadClients",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-users",
+     "gates": [
+      "verifyToken",
+      "perm:ManageClients",
+      "agencyAuth.AgencyPermission"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/verify-recaptcha/:token/:ip",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/send-email",
+     "gates": [],
+     "handler": "?"
+    },
+    {
+     "method": "GET",
+     "path": "/api/has-password/:id",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/create-license",
+     "gates": [
+      "upload-middleware"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/update-license/:id",
+     "gates": [
+      "verifyToken",
+      "upload-middleware"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-license/:id",
+     "gates": [
+      "verifyToken"
+     ],
+     "handler": "?"
+    },
+    {
+     "method": "POST",
+     "path": "/api/delete-temp-license/:file",
+     "gates": [],
+     "handler": "?"
+    }
+   ]
+  }
+ },
+ "spotProofs": [
+  {
+   "check": "No-token GET /api/approvals",
+   "result": "403",
+   "verdict": "denied"
+  },
+  {
+   "check": "No-token GET /api/cash/sessions",
+   "result": "403",
+   "verdict": "denied"
+  },
+  {
+   "check": "No-token GET /api/maintenance-expense-receipt/6aea4767cbc139ed74491bc7/receipt.png (private download)",
+   "result": "403",
+   "verdict": "denied"
+  },
+  {
+   "check": "TRACE / on backend",
+   "result": "405",
+   "verdict": "denied (allowedMethods)"
+  },
+  {
+   "check": "Staff fixture (AgencyMembership role mechanic at agency 6ae166dda73203de8dd5bdbb; lacks DecideInvoices/ReadCash): GET /api/approvals",
+   "result": "403",
+   "verdict": "permission gate denied"
+  },
+  {
+   "check": "Same staff: POST /api/approvals/6aebccb0ee4ea49332eb9ba3/decide",
+   "result": "403",
+   "verdict": "permission gate denied"
+  },
+  {
+   "check": "Same staff: GET /api/cash/sessions",
+   "result": "403",
+   "verdict": "permission gate denied"
+  },
+  {
+   "check": "Same staff control: GET /api/maintenance-expenses (role HAS ReadExpenses)",
+   "result": "200",
+   "verdict": "control passes - denials are permission-specific"
+  },
+  {
+   "check": "Fresh supplier principal (own empty agency scope): GET /api/approvals and /api/cash/sessions return own-scope (empty) data; POST decide on another agency approval",
+   "result": "200 (own scope, empty) / 404 (foreign approval)",
+   "verdict": "cross-agency isolation holds"
+  },
+  {
+   "check": "POST /api/admin-sign-up with a synthetic admin payload",
+   "result": "404",
+   "verdict": "route disabled in code (commented out; first admin is created by setup/reset scripts) - NOT an exposure"
+  }
+ ],
+ "headersAndCors": {
+  "observedOnApiResponse": {
+   "Content-Security-Policy": "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'; upgrade-insecure-requests",
+   "X-Frame-Options": "SAMEORIGIN",
+   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+   "X-Content-Type-Options": "nosniff",
+   "Referrer-Policy": "no-referrer"
+  },
+  "corsAllowedOrigin": "Access-Control-Allow-Origin echoes the allowlisted http://localhost:3002 with Access-Control-Allow-Credentials: true",
+  "corsDisallowedOrigin": "preflight with Origin https://evil.example -> HTTP 500 (rejected by the CORS middleware; browser still blocks) - see F-SEC-4",
+  "stack": "full Helmet directive suite mounted individually in app.ts + nocache + allowedMethods"
+ },
+ "cookies": {
+  "evidence": "POST /api/sign-in/admin (documented dev login, in-process only) -> 200; Set-Cookie for the admin session cookie (bc-x-access-token-admin): HttpOnly, SameSite=Strict, Path=/, Domain=localhost, Max-Age=86400 (value never recorded)",
+  "secureFlag": "ABSENT in this dev configuration - see F-SEC-3"
+ },
+ "rateLimiting": {
+  "implementation": "Redis token bucket (Lua) in backend/src/middlewares/rateLimiter.ts, applied to signin, signup, socialSignin, resend, changePassword; capacity BC_RATE_LIMIT_CAPACITY default 10, refill 1 token / 2000ms (BC_RATE_LIMIT_REFILL_RATE_MS), HTTP 429 + RateLimit-Limit header on exhaustion",
+  "lightProbe": "12 sequential failed sign-ins for a nonexistent synthetic account all returned 204 (generic credential refusal) with no 429 - consistent with the refill rate over the ~8s probe; a valid sign-in immediately afterwards returned 200 (no collateral lockout). A parallel burst test was intentionally not run (light-probe scope)."
+ },
+ "uploadValidation": {
+  "receipts": {
+   "allowlist": [
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp"
+   ],
+   "multer": "memory storage, 5MB limit",
+   "traversal": "basename checks in controller",
+   "probes": [
+    {
+     "file": "evil.txt (text)",
+     "result": "400 Invalid receipt file type"
+    },
+    {
+     "file": "receipt.pdf.exe",
+     "result": "400 Invalid receipt file type"
+    },
+    {
+     "file": "fake.png (plain-text content, image/png mime)",
+     "result": "201 ACCEPTED - extension-only validation, no content sniffing (F-SEC-2); temp file removed afterwards via the delete-temp-receipt route (200)"
+    }
+   ]
+  },
+  "avatars": "same extension-allowlist pattern by code inspection (allowedImageExtensions); not separately probed"
+ },
+ "secretHandling": {
+  "method": "grep-level scan of 676 files (backend/src, backend/__tests__, admin/src, frontend/src, packages, __scripts, root configs/docs); only file:line + pattern class recorded, values never printed",
+  "hits": 25,
+  "classification": "No live secrets in source. Hits resolve to: route-path strings and UI labels matching the password keyword class; synthetic passwords in test fixtures; a token-NAME constant (backend/src/config/env.config.ts:209); the documented local-dev seed credential (backend/src/setup/setup.ts:68, same as SETUP.md); credential-in-URI class = local-dev Mongo URIs in __scripts/run-p0-tests.ps1:5, docker-compose.yml:29, docker-compose.dev.yml:29 and two roadmap evidence lines (GESTIONAUTO-ROADMAP.md:426, :470) - all loopback dev-stack values (F-SEC-6).",
+  "envFiles": "Only .env.example / .env.docker(.example) files are tracked by git; backend/.env, admin/.env and frontend/.env are all covered by .gitignore (git check-ignore verified)."
+ },
+ "findings": [
+  {
+   "id": "F-SEC-1",
+   "severity": "verified non-issue",
+   "text": "POST /api/admin-sign-up looks alarming in the route config but is commented out in userRoutes.ts (setup/reset scripts own first-admin creation) and empirically returns 404. Keep it disabled; optional cleanup of the dead config/controller."
+  },
+  {
+   "id": "F-SEC-2",
+   "severity": "low",
+   "text": "Receipt upload validates the file EXTENSION only: a plain-text file named .png was accepted (201). Receipts are stored privately and served through an authenticated download, which bounds the impact. Decision: add magic-byte content sniffing at upload (receipts + avatars share the pattern)."
+  },
+  {
+   "id": "F-SEC-3",
+   "severity": "low (production gate)",
+   "text": "Session cookie is HttpOnly + SameSite=Strict but has no Secure flag in the dev configuration (expected on http://localhost). The sign-in code clones env.COOKIE_OPTIONS, so production must set Secure via environment - fold into the existing production TLS/secrets gate checklist."
+  },
+  {
+   "id": "F-SEC-4",
+   "severity": "info",
+   "text": "A CORS preflight from a disallowed origin returns HTTP 500 instead of a clean denial response. Browsers still block the request; optional middleware polish to return 403/no-ACAO."
+  },
+  {
+   "id": "F-SEC-5",
+   "severity": "info",
+   "text": "Deleting a user leaves orphaned AgencyMembership rows (observed once during this review; the orphan was removed by exact ID). Inert (the user cannot authenticate), but a cascade or cleanup job is tidier. Decision: cascade memberships on user deletion or leave as documented behavior."
+  },
+  {
+   "id": "F-SEC-6",
+   "severity": "info",
+   "text": "Local-dev Mongo credentials appear in tracked files (compose files, the P0 script, two roadmap lines). They protect only the loopback dev stack; production credentials must be different and secret-managed (existing production gate). Optional: scrub the two roadmap lines."
+  },
+  {
+   "id": "F-SEC-7",
+   "severity": "info",
+   "text": "Sign-in does not enforce the user.verified flag (email activation is advisory in this build): an admin-created unverified supplier could sign in during this review. That is the intended admin-onboarding flow; for self-signup it means verification is not a sign-in barrier. Product decision if that should change."
+  }
+ ],
+ "fixesApplied": [],
+ "fixtureResidue": "None left behind: supplier B fixtures (6aebe22344f0a41ba9807d6e, 6aebe29544f0a41ba9807d70, and the final proof user) deleted via POST /api/delete-users with read-back 204; staff fixture user 6aebe35344f0a41ba9807d73 deleted the same way; its orphaned membership 6aebe35344f0a41ba9807d74 removed by exact ID (see F-SEC-5); the spoofed temp receipt was deleted via the domain route (200). The admin-signup probe created nothing (404)."
+}

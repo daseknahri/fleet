@@ -38,6 +38,7 @@ import {
   MonetizationOn as PricingIcon,
   Payments as PaymentsIcon,
   AccountBalanceWallet as CashJournalIcon,
+  FactCheck as ApprovalsIcon,
   Groups as TeamIcon,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
@@ -351,6 +352,15 @@ const Header = ({
                 >
                   <ListItemIcon><CashJournalIcon /></ListItemIcon>
                   <ListItemText primary={strings.CASH_JOURNAL} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/approbations')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><ApprovalsIcon /></ListItemIcon>
+                  <ListItemText primary={strings.APPROVALS} />
                 </ListItem>
                 <ListItem
                   onClick={() => {

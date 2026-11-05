@@ -14,6 +14,12 @@ const strings = new LocalizedStrings({
     SUBTITLE: 'Les comptes clients et leurs coordonnées pour votre agence.',
     ADD_CLIENT: 'Ajouter un client',
   },
+  ar: {
+    EYEBROW: 'الأسطول والعملاء',
+    TITLE: 'العملاء',
+    SUBTITLE: 'حسابات العملاء وبيانات الاتصال الخاصة بوكالتك.',
+    ADD_CLIENT: 'إضافة عميل',
+  },
   es: {
     EYEBROW: 'FLOTA Y CLIENTES',
     TITLE: 'Clientes',

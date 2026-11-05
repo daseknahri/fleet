@@ -1,0 +1,84 @@
+{
+  "slice": "GA-P1-ADMIN-AR-LOCALE-04",
+  "generatedAt": "2026-11-04T23:42:18.104Z",
+  "evidenceType": "browser-session render capture (authenticated CDP profile)",
+  "checks": {
+    "reportsArLangDir": true,
+    "reportsArTitle": true,
+    "reportsArNoFrenchFallback": true,
+    "reportsArNoEnglishFallback": true,
+    "reportsArNoErrorAlert": true,
+    "reportsArCardsRendered": true,
+    "reportsFrTitle": true,
+    "dashboardArLangDir": true,
+    "dashboardArTitle": true,
+    "dashboardArLabelsPresent": true,
+    "dashboardArDateFormat": true,
+    "dashboardFrTitle": true,
+    "noConsoleErrors": true
+  },
+  "captures": {
+    "reportsAr": {
+      "lang": "ar",
+      "dir": "rtl",
+      "h1": "التقارير",
+      "subtitle": "مؤشرات التشغيل والمالية المطابقة.",
+      "agencySelectPresent": true,
+      "cardLabels": [
+        "الإيرادات المحصلة",
+        "الودائع المحصلة",
+        "المبالغ المستحقة",
+        "مصاريف الصيانة",
+        "الهامش التقديري",
+        "استخدام الأسطول"
+      ],
+      "cardValues": [
+        "0 MAD",
+        "0 MAD",
+        "2.000 MAD",
+        "0 MAD",
+        "0 MAD",
+        "10.00%"
+      ],
+      "footer": "العقود: 2 · الفواتير: 0 · Africa/Casablanca · v2026-11-02.1",
+      "alerts": [],
+      "bodyHasFrench": false,
+      "bodyHasEnglishFallback": false
+    },
+    "reportsFr": {
+      "lang": "fr",
+      "dir": "ltr",
+      "h1": "Rapports",
+      "cardLabels": [
+        "Recettes encaissées",
+        "Dépôts encaissés",
+        "Créance de location",
+        "Dépenses d’entretien",
+        "Marge estimée",
+        "Utilisation de la flotte"
+      ]
+    },
+    "dashboardAr": {
+      "lang": "ar",
+      "dir": "rtl",
+      "h1": "يومك",
+      "arabicMonthRendered": "نونبر",
+      "englishDatePatternPresent": false,
+      "emptyBookingsArabic": false,
+      "loadErrorShown": false,
+      "hasArabicLabels": [
+        "المركبات المتاحة",
+        "قيد التأجير",
+        "وصول سريع",
+        "دفتر الصندوق"
+      ]
+    },
+    "dashboardFr": {
+      "lang": "fr",
+      "dir": "ltr",
+      "h1": "Votre journée"
+    }
+  },
+  "consoleErrors": [],
+  "allChecksPassed": true
+}

@@ -1,0 +1,102 @@
+{
+  "slice": "GA-P1-APPROVALS-UI-02",
+  "marker": "GA-APPROVALS-UI02-1793838253805",
+  "generatedAt": "2026-11-05T00:24:13.805Z",
+  "evidenceType": "UI-interaction (CDP mouse/keyboard on rendered controls); API used for fixture seed (A) and read-back only",
+  "steps": [
+    {
+      "name": "load-page",
+      "at": "2026-11-05T00:24:14.267Z",
+      "title": "Approvals",
+      "queueCardsBefore": 3,
+      "ui01ResidueRendered": "GA-P1-APPROVALS-UI-01 1793835848009ui-gap-verificationApprovedAmount: 1 MAD · Agency: Apex Car RentalsRequested by: admin · Requested on: 4 Nov 2026, 23:44Decided by: admin · Decided on: 4 Nov 2026, 23:44Reason: GA-P1-APPROVALS-UI-01 smoke decision"
+    },
+    {
+      "name": "nav-drawer",
+      "at": "2026-11-05T00:24:16.076Z",
+      "items": [
+        "Dashboard",
+        "Planning",
+        "Bookings",
+        "Payments",
+        "Cash journal",
+        "Approvals",
+        "Suppliers",
+        "Countries",
+        "Locations",
+        "Cars",
+        "Users",
+        "Customers",
+        "Maintenance",
+        "Team",
+        "Pricing",
+        "Settings",
+        "About",
+        "Terms of Service",
+        "Contact"
+      ],
+      "approvalsEntryPresent": true
+    },
+    {
+      "name": "seed-fixture-a",
+      "at": "2026-11-05T00:24:16.102Z",
+      "status": 201,
+      "id": "6aebccb0ee4ea49332eb9ba3",
+      "approvalStatus": "pending"
+    },
+    {
+      "name": "fixture-a-rendered",
+      "at": "2026-11-05T00:24:16.685Z",
+      "card": "GA-APPROVALS-UI02-1793838253805 Aui-proofPendingAmount: 2 MAD · Agency: Apex Car RentalsRequested by: admin · Requested on: 5 Nov 2026, 00:24Reason: synthetic fixture A (API seed)Decision reason (optional)Decision reason (optional)ApproveReject",
+      "approveButton": {
+        "x": 600.828125,
+        "y": 242.046875,
+        "disabled": false
+      },
+      "rejectButton": {
+        "x": 694.203125,
+        "y": 242.046875,
+        "disabled": false
+      }
+    },
+    {
+      "name": "fixture-a-decided-ui",
+      "at": "2026-11-05T00:24:18.217Z",
+      "rendered": "GA-APPROVALS-UI02-1793838253805 Aui-proofApprovedAmount: 2 MAD · Agency: Apex Car RentalsRequested by: admin · Requested on: 5 Nov 2026, 00:24Decided by: admin · Decided on: 5 Nov 2026, 00:24Reason: UI decision reason GA-APPROVALS-UI02-1793838253805",
+      "readback": {
+        "status": "approved",
+        "decidedBy": "6ae1668d7fce2c9a39cd8c84",
+        "decidedAt": "2026-11-05T00:24:17.856Z",
+        "reason": "UI decision reason GA-APPROVALS-UI02-1793838253805"
+      }
+    },
+    {
+      "name": "fixture-b-created-ui",
+      "at": "2026-11-05T00:24:22.561Z",
+      "rendered": "GA-APPROVALS-UI02-1793838253805 Bui-proofPendingAmount: 3 MAD · Agency: Apex Car RentalsRequested by: admin · Requested on: 5 Nov 2026, 00:24Reason: synthetic fixture B (UI form)Decision reason (optional)Decision reason (optional)ApproveReject",
+      "readback": {
+        "id": "6aebccb6ee4ea49332eb9ba4",
+        "supplier": "6ae166dda73203de8dd5bdbb",
+        "status": "pending",
+        "amount": 3
+      }
+    },
+    {
+      "name": "fixture-b-decided-ui",
+      "at": "2026-11-05T00:24:24.097Z",
+      "rendered": "GA-APPROVALS-UI02-1793838253805 Bui-proofRejectedAmount: 3 MAD · Agency: Apex Car RentalsRequested by: admin · Requested on: 5 Nov 2026, 00:24Decided by: admin · Decided on: 5 Nov 2026, 00:24Reason: UI rejection reason GA-APPROVALS-UI02-1793838253805",
+      "readback": {
+        "status": "rejected",
+        "decidedBy": "6ae1668d7fce2c9a39cd8c84",
+        "decidedAt": "2026-11-05T00:24:23.734Z",
+        "reason": "UI rejection reason GA-APPROVALS-UI02-1793838253805"
+      }
+    }
+  ],
+  "finalState": {
+    "fixtureA": "6aebccb0ee4ea49332eb9ba3",
+    "fixtureB": "6aebccb6ee4ea49332eb9ba4",
+    "residueNote": "No approval delete route exists; both fixtures remain as labeled synthetic records (subjects carry the GA-APPROVALS-UI02 marker)."
+  },
+  "outcome": "complete"
+}

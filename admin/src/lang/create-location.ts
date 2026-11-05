@@ -20,6 +20,15 @@ const strings = new LocalizedStrings({
     PARKING_SPOTS: 'Parking spots',
     PARENT_LOCATION: 'Parent Location',
   },
+  ar: {
+    NEW_LOCATION_HEADING: 'موقع جديد',
+    LOCATION_NAME: 'الموقع',
+    INVALID_LOCATION: 'هذا الموقع موجود بالفعل.',
+    LOCATION_CREATED: 'تم إنشاء الموقع بنجاح.',
+    COUNTRY: 'البلد',
+    PARKING_SPOTS: 'أماكن الوقوف',
+    PARENT_LOCATION: 'الموقع الأصلي',
+  },
   es: {
     NEW_LOCATION_HEADING: 'Nuevo lugar',
     LOCATION_NAME: 'Lugar',

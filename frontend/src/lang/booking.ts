@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     TOTAL: 'Total:',
   },
+  ar: {
+    TOTAL: 'المجموع:',
+  },
   es: {
     TOTAL: 'Total:',
   },

@@ -16,6 +16,13 @@ const strings = new LocalizedStrings({
     SEND: 'Send',
     MESSAGE_SENT: 'Message sent'
   },
+  ar: {
+    CONTACT_HEADING: 'اتصل بنا',
+    SUBJECT: 'الموضوع',
+    MESSAGE: 'الرسالة',
+    SEND: 'إرسال',
+    MESSAGE_SENT: 'تم إرسال الرسالة',
+  },
   es: {
     CONTACT_HEADING: 'Contacto',
     SUBJECT: 'Asunto',

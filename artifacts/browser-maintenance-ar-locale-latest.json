@@ -1,0 +1,47 @@
+{
+  "slice": "GA-P1-ADMIN-AR-LOCALE-03",
+  "generatedAt": "2026-11-04T22:31:08.050Z",
+  "method": "Authenticated admin browser session (CDP): one synthetic expense created via the session API, /maintenance rendered with ?l=ar and ?l=fr, DOM language/direction/headings/date cell captured; fixture deleted by exact ID afterwards. Browser-session rendering evidence, not physical clicks.",
+  "fixture": {
+    "createStatus": 201,
+    "expenseId": "6aebb22921ad66aa3cc4fdc1",
+    "car": "Ford Mustang Convertible"
+  },
+  "arabic": {
+    "url": "http://localhost:3002/maintenance?l=ar",
+    "docLang": "ar",
+    "dir": "rtl",
+    "h1": "الصيانة والمصروفات",
+    "tableHead": "التاريخالنوعالمركبةالمبلغالمسافةالموردالإجراءات",
+    "rowFound": true,
+    "rowDate": "4 نونبر 2026",
+    "rowText": "4 نونبر 2026إصلاحFord Mustang Convertible222,5 MAD123.456 kmGA locale fixture",
+    "bodyHasArabicTitle": true,
+    "bodyHasFrenchTitle": false
+  },
+  "french": {
+    "url": "http://localhost:3002/maintenance?l=fr",
+    "docLang": "fr",
+    "dir": "ltr",
+    "h1": "Entretien et dépenses",
+    "tableHead": "DateTypeVéhiculeMontantKilométrageFournisseurActions",
+    "rowFound": true,
+    "rowDate": "4 nov. 2026",
+    "rowText": "4 nov. 2026RéparationFord Mustang Convertible222,5 MAD123.456 kmGA locale fixture",
+    "bodyHasArabicTitle": false,
+    "bodyHasFrenchTitle": true
+  },
+  "checks": {
+    "arRtl": true,
+    "arDocLang": "ar",
+    "arTitleArabic": true,
+    "arDateHasArabicScript": true,
+    "arDateHasEnglishMonth": false,
+    "frTitleFrench": true,
+    "frDate": "4 nov. 2026"
+  },
+  "cleanup": {
+    "deleteStatus": 200,
+    "stillListed": false
+  }
+}

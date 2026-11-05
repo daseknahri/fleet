@@ -14,6 +14,7 @@ import * as env from '../config/env.config'
 import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { contentMatchesExtension } from '../utils/fileContent'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import DateBasedPrice from '../models/DateBasedPrice'
@@ -577,6 +578,11 @@ export const createImage = async (req: Request, res: Response) => {
       return
     }
 
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid car image file type')
+      return
+    }
+
     await asyncFs.writeFile(filepath, req.file.buffer)
     res.json(filename)
   } catch (err) {
@@ -634,6 +640,11 @@ export const updateImage = async (req: Request, res: Response) => {
       // security check: restrict allowed extensions
       const ext = path.extname(filename)
       if (!env.allowedImageExtensions.includes(ext.toLowerCase())) {
+        res.status(400).send('Invalid car image file type')
+        return
+      }
+
+      if (!contentMatchesExtension(file.buffer, ext)) {
         res.status(400).send('Invalid car image file type')
         return
       }

@@ -467,8 +467,8 @@ const Checkout = () => {
                         </div>
                         <div className="driver-details-form">
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-fullName">{commonStrings.FULL_NAME}</InputLabel>
+                            <OutlinedInput id="checkout-fullName"
                               {...register('fullName')}
                               type="text"
                               label={commonStrings.FULL_NAME}
@@ -478,8 +478,8 @@ const Checkout = () => {
                             />
                           </FormControl>
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-email">{commonStrings.EMAIL}</InputLabel>
+                            <OutlinedInput id="checkout-email"
                               // {...register('email')}
                               type="text"
                               label={commonStrings.EMAIL}
@@ -504,8 +504,8 @@ const Checkout = () => {
                             </FormHelperText>
                           </FormControl>
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.PHONE}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-phone">{commonStrings.PHONE}</InputLabel>
+                            <OutlinedInput id="checkout-phone"
                               // {...register('phone')}
                               type="text"
                               label={commonStrings.PHONE}
@@ -566,6 +566,7 @@ const Checkout = () => {
                                         }
                                       }}
                                       color="primary"
+                                      inputProps={{ 'aria-label': commonStrings.TOS }}
                                     />
                                   </td>
                                   <td>
@@ -624,8 +625,8 @@ const Checkout = () => {
                         </div>
                         <div className="driver-details-form">
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-additionalDriverFullName">{commonStrings.FULL_NAME}</InputLabel>
+                            <OutlinedInput id="checkout-additionalDriverFullName"
                               {...register('additionalDriverFullName')}
                               type="text"
                               label={commonStrings.FULL_NAME}
@@ -634,8 +635,8 @@ const Checkout = () => {
                             />
                           </FormControl>
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-additionalDriverEmail">{commonStrings.EMAIL}</InputLabel>
+                            <OutlinedInput id="checkout-additionalDriverEmail"
                               // {...register('additionalDriverEmail')}
                               inputRef={additionalDriverEmailRef}
                               value={additionalDriverEmail}
@@ -659,8 +660,8 @@ const Checkout = () => {
                             </FormHelperText>
                           </FormControl>
                           <FormControl fullWidth margin="dense">
-                            <InputLabel className="required">{commonStrings.PHONE}</InputLabel>
-                            <OutlinedInput
+                            <InputLabel className="required" htmlFor="checkout-additionalDriverPhone">{commonStrings.PHONE}</InputLabel>
+                            <OutlinedInput id="checkout-additionalDriverPhone"
                               // {...register('additionalDriverPhone')}
                               inputRef={additionalDriverPhoneRef}
                               value={additionalDriverPhone}

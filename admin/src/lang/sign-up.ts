@@ -16,6 +16,13 @@ const strings = new LocalizedStrings({
     RECAPTCHA_ERROR: 'Fill out the captcha to continue.',
     SIGN_UP_ERROR: 'An error occurred during sign up.',
   },
+  ar: {
+    SIGN_UP_HEADING: 'إنشاء حساب',
+    TOS_SIGN_UP: 'لقد قرأت وأوافق على شروط الاستخدام.',
+    SIGN_UP: 'إنشاء حساب',
+    RECAPTCHA_ERROR: 'يرجى إكمال اختبار التحقق للمتابعة.',
+    SIGN_UP_ERROR: 'حدث خطأ أثناء إنشاء الحساب.',
+  },
   es: {
     SIGN_UP_HEADING: 'Registrarse',
     TOS_SIGN_UP: 'He leído y acepto los Términos de uso.',

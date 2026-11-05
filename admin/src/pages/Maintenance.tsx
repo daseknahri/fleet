@@ -193,10 +193,15 @@ return '—'
 }
 
 
-const formatDate = (date: Date) => {
+const uiLocale = () => {
   const language = UserService.getLanguage()
 
-  const locale = language === 'fr' ? 'fr-MA' : language === 'es' ? 'es-ES' : 'en-GB'
+  return language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
+}
+
+
+const formatDate = (date: Date) => {
+  const locale = uiLocale()
 
   return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
 }
@@ -646,9 +651,9 @@ return
 
           <div className="agency-maintenance__toolbar">
 
-            <TextField size="small" placeholder={strings.SEARCH} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <TextField size="small" placeholder={strings.SEARCH} slotProps={{ htmlInput: { 'aria-label': strings.SEARCH } }} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
 
-            <TextField size="small" select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <TextField size="small" select label={strings.TYPE} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
 
               <MenuItem value="">{strings.ALL_TYPES}</MenuItem>
 
@@ -684,7 +689,7 @@ return
 
               <strong>{formatAmount(expense.amount)}</strong>
 
-              <span>{expense.mileage ? `${new Intl.NumberFormat().format(expense.mileage)} km` : 'â€”'}</span>
+              <span>{expense.mileage ? `${new Intl.NumberFormat(uiLocale()).format(expense.mileage)} km` : 'â€”'}</span>
 
               <span>{expense.vendor || expense.note || 'â€”'}</span>
 

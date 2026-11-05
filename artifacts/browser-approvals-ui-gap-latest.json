@@ -1,0 +1,24 @@
+{
+  "slice": "GA-P1-APPROVALS-UI-01",
+  "generatedAt": "2026-11-04T23:44:08.009Z",
+  "marker": "GA-P1-APPROVALS-UI-01 1793835848009",
+  "spaRoute": {
+    "url": "/approbations",
+    "h1": null,
+    "bodyExcerpt": "1English1Nothing to see here!Go to the home pageSettingsLanguageSign outSettingsSign outEnglishFrançaisEspañolالعربية"
+  },
+  "apiSmoke": {
+    "createStatus": 201,
+    "createdId": "6aebc34bee4ea49332eb9ba1",
+    "createdStatus": "pending",
+    "listContainsPending": true,
+    "decideStatus": 200,
+    "decidedStatus": "approved",
+    "decidedByPresent": true,
+    "decidedAtPresent": true,
+    "listAfterStatus": "approved",
+    "totalApprovalsVisibleToAdmin": 1
+  },
+  "conclusion": "Backend approval workflow is live and permission-gated, but no admin UI exists for the /approbations queue declared in GESTIONAUTO-MAP.md: the SPA route renders the NoMatch page, no admin page/service calls /api/approvals, and no product flow creates Approval records. The only decision UI in the admin is the separate contract-charge decision inside ContractOperations (POST /api/contract-operations/:bookingId/charges/:chargeId/decide).",
+  "residue": "One decided synthetic Approval record (subject = marker) remains in the dev database; the approvals API has no delete route. It is labeled and harmless."
+}

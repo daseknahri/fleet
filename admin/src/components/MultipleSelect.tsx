@@ -157,7 +157,7 @@ const MultipleSelect = ({
                       <>
                         <InputAdornment position="start">
                           {option.image ? (
-                            <Avatar src={bookcarsHelper.joinURL(env.CDN_USERS, option.image)} className="avatar-small suo" />
+                            <Avatar src={bookcarsHelper.joinURL(env.CDN_USERS, option.image)} alt="" className="avatar-small suo" />
                           ) : (
                             <AccountCircle className="avatar-small suo" color="disabled" />
                           )}
@@ -308,7 +308,7 @@ const MultipleSelect = ({
             return (
               <li {..._props} key={option._id} className={`${props.className} ms-option`}>
                 <span className="option-image">
-                  {option.image ? <Avatar src={bookcarsHelper.joinURL(env.CDN_USERS, option.image)} className="avatar-medium" /> : <AccountCircle className="avatar-medium" color="disabled" />}
+                  {option.image ? <Avatar src={bookcarsHelper.joinURL(env.CDN_USERS, option.image)} alt="" className="avatar-medium" /> : <AccountCircle className="avatar-medium" color="disabled" />}
                 </span>
                 <span className="option-name">{option.name}</span>
               </li>

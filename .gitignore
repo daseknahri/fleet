@@ -7,3 +7,4 @@
 /**/dist
 /node_modules
 .eslintcache
+artifacts/recovery/*.archive.gz

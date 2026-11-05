@@ -15,6 +15,12 @@ const strings = new LocalizedStrings({
     SUPPLIER_IMAGE_SIZE_ERROR: `The image must be in the format ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
     RECOMMENDED_IMAGE_SIZE: `Recommended image size: ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
   },
+  ar: {
+    CREATE_SUPPLIER_HEADING: 'مورد جديد',
+    INVALID_SUPPLIER_NAME: 'هذا المورد موجود بالفعل.',
+    SUPPLIER_IMAGE_SIZE_ERROR: `يجب أن تكون الصورة بالتنسيق ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
+    RECOMMENDED_IMAGE_SIZE: `حجم الصورة الموصى به: ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
+  },
   es: {
     CREATE_SUPPLIER_HEADING: 'Nuevo proveedor',
     INVALID_SUPPLIER_NAME: 'Este proveedor ya existe.',

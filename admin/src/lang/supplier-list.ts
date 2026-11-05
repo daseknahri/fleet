@@ -12,6 +12,11 @@ const strings = new LocalizedStrings({
     VIEW_SUPPLIER: 'View supplier profile',
     DELETE_SUPPLIER: 'Are you sure you want to delete this supplier and all its data?',
   },
+  ar: {
+    EMPTY_LIST: 'لا يوجد موردون.',
+    VIEW_SUPPLIER: 'عرض ملف المورد',
+    DELETE_SUPPLIER: 'هل تريد حذف هذا المورد وجميع بياناته؟',
+  },
   es: {
     EMPTY_LIST: 'No hay proveedores.',
     VIEW_SUPPLIER: 'Ver perfil del proveedor',

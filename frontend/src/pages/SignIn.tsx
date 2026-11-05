@@ -111,8 +111,8 @@ const SignIn = () => {
           <form onSubmit={handleSubmit(onSubmit)}>
             <h1 className="signin-form-title">{strings.SIGN_IN_HEADING}</h1>
             <FormControl fullWidth margin="dense" error={!!errors.email}>
-              <InputLabel>{commonStrings.EMAIL}</InputLabel>
-              <Input
+              <InputLabel htmlFor="signin-email">{commonStrings.EMAIL}</InputLabel>
+              <Input id="signin-email"
                 {...register('email')}
                 onChange={(e) => {
                   if (errors.email) {
@@ -139,7 +139,7 @@ const SignIn = () => {
                 setValue('password', e.target.value)
               }}
               required
-              autoComplete="password"
+              autoComplete="current-password"
             />
 
             <div className="stay-connected">

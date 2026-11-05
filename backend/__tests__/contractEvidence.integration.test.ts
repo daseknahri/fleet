@@ -45,11 +45,14 @@ afterAll(async () => {
 
 test('persists inspections, reviews charges, and creates a versioned PDF snapshot', async () => {
   const base = `/api/contract-operations/${booking._id}`
+  // GA-P2-SEC-FIX-01: real JFIF bytes - the previous plain-text fixture was itself
+  // the extension-spoof pattern that F-SEC-2 content validation now rejects.
+  const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xd9])
   const upload = await request(app).post(`${base}/files`).set(env.X_ACCESS_TOKEN, token)
-    .attach('file', Buffer.from('synthetic-photo'), { filename: 'handover.jpg', contentType: 'image/jpeg' })
+    .attach('file', photoBytes, { filename: 'handover.jpg', contentType: 'image/jpeg' })
   expect(upload.status).toBe(201); expect(upload.body.kind).toBe('photo'); ownedFiles.push(upload.body.filename)
   const fetched = await request(app).get(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, token)
-  expect(fetched.status).toBe(200); expect(fetched.body.toString()).toBe('synthetic-photo')
+  expect(fetched.status).toBe(200); expect(Buffer.from(fetched.body).toString('hex')).toBe(photoBytes.toString('hex'))
   const otherDenied = await request(app).get(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, otherToken)
   expect(otherDenied.status).toBe(404)
   const deleted = await request(app).delete(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, token)

@@ -11,7 +11,7 @@ Self-hosted car rental / fleet management system based on the open-source **Book
 | Backend API | http://localhost:4002 | REST API (`/api/...`), serves `/cdn/...` images |
 | Mailpit (email inbox) | http://localhost:8025 | Catches all SMTP mail sent by the system |
 | Mongo Express | http://localhost:8084 | DB admin UI, login `admin` / `admin` |
-| MongoDB | `localhost:27018` | Replica set `rs0`, user `admin` / `admin` (local dev only) |
+| MongoDB | `localhost:27018` | Replica set `rs0`, user `admin` / `<dev-password>` (local dev only) |
 | Redis | `localhost:6379` | Cache / rate limiter |
 
 All published service ports are bound to `127.0.0.1` so this development stack is reachable only from this computer.
@@ -93,3 +93,31 @@ No Stripe/PayPal keys are configured. The seeded supplier has **pay-later** enab
 - Frontend search (location + dates) → 5 cars with photos and MAD prices
 - Full checkout flow (pay-later) → booking visible in admin panel, status Pending, MAD 105 for 3 days
 - Confirmation emails delivered to Mailpit for admin, supplier and customer
+
+## Local backups (GA-P10-OPS-BACKUP-AUTO-01)
+
+Automated local backup of the dev database: `__scripts/backup-local.ps1`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File __scripts\backup-local.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File __scripts\backup-local.ps1 -Retention 5
+powershell -NoProfile -ExecutionPolicy Bypass -File __scripts\backup-local.ps1 -SkipVerify
+```
+
+What each run does:
+
+1. Reads the backend's MongoDB URI from the running backend container's environment and passes it to the mongo tools via the exec session's environment only (never printed or written anywhere).
+2. Dumps the `bookcars` database with `mongodump --archive --gzip` (inside the mongo container) into `artifacts/recovery/bookcars-<timestamp>.archive.gz`.
+3. Verifies the archive: restores it with `mongorestore` into a throwaway `bookcars_verify_<timestamp>` database, compares per-collection document counts against the source, then drops the scratch database and confirms it is gone. The run fails (non-zero exit) if parity fails.
+4. Retention: keeps the newest `-Retention` (default 7) archives produced by this script — identified by their sibling `backup-<timestamp>.json` summary — and deletes older ones. Summaries are never pruned (they are the audit log), and archives without a sibling summary (e.g. the GA-P10-RECOVERY-02 rehearsal archives) are never touched.
+5. Writes `artifacts/recovery/backup-<timestamp>.json` with the archive name/size, source counts, verification result, and retention actions.
+
+**Scheduling (owner gate — documented, NOT installed):** to run this daily, the owner can register a Windows Task Scheduler task, for example:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\Yassi\Documents\kimi\Workspaces\fleet\bookcars\__scripts\backup-local.ps1"' -WorkingDirectory 'C:\Users\Yassi\Documents\kimi\Workspaces\fleet\bookcars'
+$trigger = New-ScheduledTaskTrigger -Daily -At 03:30
+Register-ScheduledTask -TaskName 'GestionAuto-Backup' -Action $action -Trigger $trigger
+```
+
+This task has deliberately not been created: installing scheduled tasks on the machine and any off-host/encrypted retention of the archives are owner decisions. The script itself sends nothing off-host.

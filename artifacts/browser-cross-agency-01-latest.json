@@ -1,0 +1,45 @@
+{
+  "slice": "GA-P0-BROWSER-CROSS-AGENCY-01",
+  "generatedAt": "2026-11-04T21:39:35.722Z",
+  "method": "Fixtures created from the authenticated admin browser page context (CDP). Agency B authenticated through the real API sign-in (mobile token response); B calls carried only B token (no admin cookie, no admin Origin) because backend auth resolves admin-Origin requests to the signed admin cookie (middlewares/authJwt.ts, utils/authHelper.ts). Browser-session + API-client evidence, not physical UI clicks. Attempt 1 (same day) was invalidated for that cookie-precedence reason and is superseded by this run; its leftover B account was deleted and verified absent before this run. Synthetic password/token were held in process memory only and are not recorded.",
+  "result": {
+    "agencyA": {
+      "_id": "6ae166dda73203de8dd5bdbb",
+      "fullName": "Apex Car Rentals"
+    },
+    "carA": {
+      "_id": "6ae16880c32c01a5257a5c96",
+      "name": "Ford Mustang Convertible"
+    },
+    "uploadReceipt": 201,
+    "createExpenseA": 201,
+    "expenseA": "6aeba61721ad66aa3cc4fdbe",
+    "receiptA": "6ae166dda73203de8dd5bdbb_1793828375524_oOctyEiP6ODp0KIHqy4T6.pdf",
+    "ownerDownloadBefore": 200,
+    "ownerDownloadExact": true,
+    "createUserB": 200,
+    "signinB": 200,
+    "agencyB": {
+      "_id": "6aeba61721ad66aa3cc4fdbf",
+      "email": "ga-xagency-1793828375500@fixture.local"
+    },
+    "bOwnExpenseList": 200,
+    "bListContainsExpenseA": false,
+    "bListCount": 0,
+    "noTokenExpenseList": 403,
+    "bDownloadReceiptA": 403,
+    "bReport": {
+      "status": 200,
+      "total": 0,
+      "currency": "MAD"
+    },
+    "bDeleteExpenseA": 404,
+    "ownerDownloadAfterBDeleteAttempt": 200,
+    "ownerDownloadAfterBDeleteExact": true,
+    "cleanupDeleteExpenseA": 200,
+    "afterCleanupDownload": 404,
+    "cleanupDeleteUserB": 200,
+    "getUserBAfterDelete": 204,
+    "signinBAfterDelete": 204
+  }
+}

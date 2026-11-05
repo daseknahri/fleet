@@ -1,0 +1,949 @@
+{
+ "slice": "GA-P2-PERF-01",
+ "date": "2026-11-05",
+ "scope": "Read-only review. No index was added, dropped, or rebuilt; no code changed in this slice.",
+ "database": {
+  "collections": 29,
+  "totalDocuments": 195,
+  "caveat": "Dev database is tiny (195 documents); explain plans prove index SELECTION for the real query shapes, not production-volume performance."
+ },
+ "liveIndexesByCollection": {
+  "AdditionalDriver": {
+   "docs": 2,
+   "indexes": [
+    {
+     "key": {
+      "fullName": 1
+     }
+    },
+    {
+     "key": {
+      "email": 1
+     }
+    }
+   ]
+  },
+  "AgencyMembership": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "user": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "user": 1
+     },
+     "unique": true
+    },
+    {
+     "key": {
+      "user": 1,
+      "status": 1
+     }
+    }
+   ]
+  },
+  "Approval": {
+   "docs": 4,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "subjectType": 1,
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "subject": 1,
+      "subjectType": 1
+     },
+     "unique": true,
+     "partial": true
+    }
+   ]
+  },
+  "BankDetails": {
+   "docs": 0,
+   "indexes": []
+  },
+  "BookCarsDevSeed": {
+   "docs": 1,
+   "indexes": []
+  },
+  "Booking": {
+   "docs": 15,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "driver": 1
+     }
+    },
+    {
+     "key": {
+      "sessionId": 1
+     }
+    },
+    {
+     "key": {
+      "expireAt": 1
+     },
+     "expireAfterSeconds": 83400
+    },
+    {
+     "key": {
+      "supplier._id": 1,
+      "status": 1,
+      "expireAt": 1
+     }
+    },
+    {
+     "key": {
+      "driver._id": 1
+     }
+    },
+    {
+     "key": {
+      "car._id": 1
+     }
+    },
+    {
+     "key": {
+      "from": 1,
+      "to": 1
+     }
+    },
+    {
+     "key": {
+      "pickupLocation._id": 1
+     }
+    },
+    {
+     "key": {
+      "dropOffLocation._id": 1
+     }
+    },
+    {
+     "key": {
+      "supplier.fullName": 1
+     }
+    },
+    {
+     "key": {
+      "driver.fullName": 1
+     }
+    },
+    {
+     "key": {
+      "car.name": 1
+     }
+    },
+    {
+     "key": {
+      "lifecycle": 1
+     }
+    }
+   ]
+  },
+  "Car": {
+   "docs": 10,
+   "indexes": [
+    {
+     "key": {
+      "name": 1
+     }
+    },
+    {
+     "key": {
+      "licensePlate": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "available": 1
+     }
+    },
+    {
+     "key": {
+      "updatedAt": -1,
+      "_id": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "type": 1,
+      "available": 1,
+      "rating": -1,
+      "updatedAt": -1,
+      "_id": 1
+     }
+    },
+    {
+     "key": {
+      "available": 1,
+      "gearbox": 1,
+      "deposit": 1
+     }
+    },
+    {
+     "key": {
+      "seats": 1,
+      "doors": 1
+     }
+    },
+    {
+     "key": {
+      "mileage": 1,
+      "fuelPolicy": 1
+     }
+    },
+    {
+     "key": {
+      "locations": 1,
+      "available": 1,
+      "fullyBooked": 1
+     }
+    },
+    {
+     "key": {
+      "comingSoon": 1
+     }
+    },
+    {
+     "key": {
+      "range": 1
+     }
+    },
+    {
+     "key": {
+      "multimedia": 1
+     }
+    },
+    {
+     "key": {
+      "dailyPrice": 1,
+      "_id": 1
+     }
+    },
+    {
+     "key": {
+      "dateBasedPrices": 1
+     }
+    },
+    {
+     "key": {
+      "_fts": "text",
+      "_ftsx": 1
+     }
+    }
+   ]
+  },
+  "CashMovement": {
+   "docs": 7,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "session": 1
+     }
+    },
+    {
+     "key": {
+      "date": 1
+     }
+    },
+    {
+     "key": {
+      "idempotencyKey": 1
+     },
+     "unique": true,
+     "sparse": true
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "account": 1,
+      "date": -1
+     }
+    },
+    {
+     "key": {
+      "session": 1,
+      "date": 1
+     }
+    },
+    {
+     "key": {
+      "transferId": 1
+     }
+    }
+   ]
+  },
+  "CashSession": {
+   "docs": 8,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "openedAt": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "account": 1,
+      "status": 1
+     },
+     "unique": true,
+     "partial": true
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "openedAt": -1
+     }
+    }
+   ]
+  },
+  "ContractCharge": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "booking": 1,
+      "status": 1
+     }
+    }
+   ]
+  },
+  "ContractInspection": {
+   "docs": 3,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1
+     }
+    },
+    {
+     "key": {
+      "car": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "booking": 1,
+      "type": 1,
+      "occurredAt": -1
+     }
+    }
+   ]
+  },
+  "ContractSnapshot": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1,
+      "version": 1
+     },
+     "unique": true,
+     "sparse": true
+    }
+   ]
+  },
+  "Counter": {
+   "docs": 90,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1,
+      "name": 1,
+      "year": 1
+     },
+     "unique": true
+    }
+   ]
+  },
+  "Country": {
+   "docs": 1,
+   "indexes": [
+    {
+     "key": {
+      "values": 1
+     }
+    }
+   ]
+  },
+  "DateBasedPrice": {
+   "docs": 0,
+   "indexes": []
+  },
+  "Invoice": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "number": 1
+     },
+     "unique": true,
+     "sparse": true
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "createdAt": -1
+     }
+    },
+    {
+     "key": {
+      "paymentStatus": 1
+     }
+    }
+   ]
+  },
+  "Location": {
+   "docs": 4,
+   "indexes": [
+    {
+     "key": {
+      "country": 1
+     }
+    },
+    {
+     "key": {
+      "values": 1
+     }
+    }
+   ]
+  },
+  "LocationValue": {
+   "docs": 20,
+   "indexes": [
+    {
+     "key": {
+      "language": 1
+     }
+    },
+    {
+     "key": {
+      "value": 1
+     }
+    },
+    {
+     "key": {
+      "language": 1,
+      "value": 1
+     }
+    },
+    {
+     "key": {
+      "_fts": "text",
+      "_ftsx": 1
+     }
+    }
+   ]
+  },
+  "MaintenanceExpense": {
+   "docs": 1,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "car": 1
+     }
+    },
+    {
+     "key": {
+      "date": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "date": -1
+     }
+    },
+    {
+     "key": {
+      "car": 1,
+      "date": -1
+     }
+    }
+   ]
+  },
+  "MaintenanceSchedule": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "car": 1
+     }
+    },
+    {
+     "key": {
+      "nextDueDate": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "car": 1,
+      "nextDueDate": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "status": 1,
+      "nextDueDate": 1
+     }
+    }
+   ]
+  },
+  "MaintenanceWorkOrder": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "car": 1
+     }
+    },
+    {
+     "key": {
+      "status": 1
+     }
+    },
+    {
+     "key": {
+      "scheduledStart": 1
+     }
+    },
+    {
+     "key": {
+      "scheduledEnd": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "car": 1,
+      "scheduledStart": 1,
+      "scheduledEnd": 1
+     }
+    },
+    {
+     "key": {
+      "car": 1,
+      "status": 1,
+      "scheduledStart": 1,
+      "scheduledEnd": 1
+     }
+    }
+   ]
+  },
+  "Notification": {
+   "docs": 14,
+   "indexes": [
+    {
+     "key": {
+      "user": 1
+     }
+    },
+    {
+     "key": {
+      "user": 1,
+      "createdAt": -1,
+      "_id": 1
+     }
+    }
+   ]
+  },
+  "NotificationCounter": {
+   "docs": 4,
+   "indexes": [
+    {
+     "key": {
+      "user": 1
+     },
+     "unique": true
+    }
+   ]
+  },
+  "ParkingSpot": {
+   "docs": 0,
+   "indexes": []
+  },
+  "PushToken": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "user": 1
+     }
+    }
+   ]
+  },
+  "RentalPayment": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "supplier": 1
+     }
+    },
+    {
+     "key": {
+      "booking": 1
+     }
+    },
+    {
+     "key": {
+      "date": 1
+     }
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "date": -1
+     }
+    },
+    {
+     "key": {
+      "booking": 1,
+      "date": -1
+     }
+    },
+    {
+     "key": {
+      "idempotencyKey": 1
+     },
+     "unique": true,
+     "sparse": true
+    },
+    {
+     "key": {
+      "supplier": 1,
+      "status": 1,
+      "date": -1
+     }
+    }
+   ]
+  },
+  "Setting": {
+   "docs": 1,
+   "indexes": []
+  },
+  "Token": {
+   "docs": 0,
+   "indexes": [
+    {
+     "key": {
+      "user": 1
+     }
+    },
+    {
+     "key": {
+      "token": 1
+     }
+    },
+    {
+     "key": {
+      "expireAt": 1
+     },
+     "expireAfterSeconds": 86400
+    }
+   ]
+  },
+  "User": {
+   "docs": 10,
+   "indexes": [
+    {
+     "key": {
+      "email": 1
+     },
+     "unique": true
+    },
+    {
+     "key": {
+      "fullName": 1
+     }
+    },
+    {
+     "key": {
+      "expireAt": 1
+     },
+     "expireAfterSeconds": 83400
+    },
+    {
+     "key": {
+      "type": 1,
+      "expireAt": 1,
+      "fullName": 1
+     }
+    },
+    {
+     "key": {
+      "type": 1,
+      "expireAt": 1,
+      "email": 1
+     }
+    },
+    {
+     "key": {
+      "type": 1,
+      "expireAt": 1,
+      "fullName": 1,
+      "_id": 1
+     }
+    },
+    {
+     "key": {
+      "type": 1,
+      "expireAt": 1,
+      "email": 1,
+      "_id": 1
+     }
+    }
+   ]
+  }
+ },
+ "queryEvidence": [
+  {
+   "query": "bookingController.getBookings core $match (supplier._id $in, status $in, expireAt null) + sort createdAt:-1",
+   "plan": "SORT <- FETCH <- IXSCAN(supplier._id_1_status_1_expireAt_1)",
+   "verdict": "Filter fully indexed; sort in memory over the agency active set (bounded)."
+  },
+  {
+   "query": "reportController RentalPayment $match (supplier, date range, status posted)",
+   "plan": "FETCH <- IXSCAN(supplier_1_status_1_date_-1)",
+   "verdict": "Fully indexed."
+  },
+  {
+   "query": "reportController Booking overlap find (supplier, from<to, to>from, status $nin)",
+   "plan": "FETCH <- IXSCAN(supplier_1), 8 examined / 6 returned",
+   "verdict": "Supplier prefix used; two-sided date ranges are inherently single-range boundable; filtered remainder is the agency subset."
+  },
+  {
+   "query": "reportController Invoice $match (supplier, status $ne, createdAt range)",
+   "plan": "FETCH <- IXSCAN(supplier_1_createdAt_-1)",
+   "verdict": "Fully indexed."
+  },
+  {
+   "query": "reportController MaintenanceExpense $match (supplier, date range)",
+   "plan": "covered by supplier_1_date_-1 (model/live index present; same shape as RentalPayment match)",
+   "verdict": "Indexed."
+  },
+  {
+   "query": "approvalController list find(supplier scope) + sort createdAt:-1",
+   "plan": "SORT <- FETCH <- IXSCAN(supplier_1), 4 examined / 4 returned",
+   "verdict": "Prefix indexed; sort in memory; endpoint returns the full agency list without pagination (see finding F-PERF-2)."
+  },
+  {
+   "query": "cashController movements find(session) + sort date:-1, createdAt:-1",
+   "plan": "SORT <- FETCH <- IXSCAN(session_1)",
+   "verdict": "Session indexed (session_1_date_1 also exists); sort bounded by session size."
+  },
+  {
+   "query": "cashController sessions find(supplier) + sort openedAt:-1",
+   "plan": "FETCH <- IXSCAN(supplier_1_openedAt_-1)",
+   "verdict": "Fully indexed, no sort stage."
+  },
+  {
+   "query": "rentalPaymentController list find(supplier scope) + sort date:-1, createdAt:-1",
+   "plan": "SORT <- FETCH <- IXSCAN(supplier_1) at 0 matching docs; supplier_1_date_-1 exists for the sorted path",
+   "verdict": "Indexed."
+  },
+  {
+   "query": "bankDetailsController findOne()/findById",
+   "plan": "singleton settings document, no supplier field",
+   "verdict": "No index needed."
+  }
+ ],
+ "findings": [
+  {
+   "id": "F-PERF-1",
+   "severity": "low",
+   "text": "Booking list sorts createdAt in memory after the (supplier._id, status, expireAt) IXSCAN. Candidate if a single agency active-booking volume grows: compound (supplier._id, status, createdAt:-1). Not added: no production-volume evidence; current filter index is unambiguous and sufficient at observed scale."
+  },
+  {
+   "id": "F-PERF-2",
+   "severity": "low",
+   "text": "Approvals list endpoint returns the full agency list (sort createdAt:-1, in-memory) with no pagination and only a supplier prefix index. Candidate when approval volume grows: pagination + (supplier, createdAt:-1). Product/perf decision, not an unambiguous defect."
+  },
+  {
+   "id": "F-PERF-3",
+   "severity": "info",
+   "text": "Booking keyword search uses unanchored case-insensitive regex over supplier.fullName / driver.fullName / car.name; single-field indexes exist but unanchored regex cannot use them effectively. Bounded by the supplier+status pre-filter. Revisit only if search latency is reported at volume."
+  },
+  {
+   "id": "F-PERF-4",
+   "severity": "info",
+   "text": "RentalPayment collection holds 0 documents in the dev data, so report aggregation plans are verified by query shape and index presence, not by volume."
+  }
+ ],
+ "indexesAdded": [],
+ "indexesDropped": [],
+ "adminBundleBaseline": {
+  "modulesTransformed": 13986,
+  "previousRecordedBaseline": "13,983 modules (queues #2/#3 checkpoints); +3 with no new dependency added by this queue",
+  "buildFiles": 230,
+  "totalBytes": 2603266,
+  "jsBytes": 2513808,
+  "cssBytes": 85990,
+  "entryChunk": {
+   "file": "entries/index-BnTWAUft.js",
+   "bytes": 62413
+  },
+  "topContributors": [
+   {
+    "file": "chunks/DataGrid-D3UODLA7.js",
+    "bytes": 407741,
+    "note": "MUI X DataGrid (lazy route chunk)"
+   },
+   {
+    "file": "chunks/UserContext-TBwS3BGE.js",
+    "bytes": 388789,
+    "note": "session/user context + services + locale modules; largest shared chunk - future locale-splitting candidate, report only"
+   },
+   {
+    "file": "chunks/vendor-BM3ULV4T.js",
+    "bytes": 178287
+   },
+   {
+    "file": "chunks/DatePicker-E0LLKGB2.js",
+    "bytes": 174536,
+    "note": "MUI X date pickers (lazy)"
+   },
+   {
+    "file": "chunks/Scheduler-B__BVcs6.js",
+    "bytes": 136388,
+    "note": "scheduler route chunk (lazy)"
+   },
+   {
+    "file": "chunks/schemas-DXtSD4Up.js",
+    "bytes": 113930,
+    "note": "form validation schemas"
+   },
+   {
+    "file": "chunks/router-6St-fu23.js",
+    "bytes": 101236
+   }
+  ],
+  "notes": "Sizes are raw (uncompressed) build-output bytes. MUI X components (DataGrid + DatePicker + Scheduler) total ~719 KB of the 2.51 MB JS but load as lazy route chunks, not in the entry path. No speculative refactor performed; no duplicate-import smoking gun found at chunk level."
+ }
+}

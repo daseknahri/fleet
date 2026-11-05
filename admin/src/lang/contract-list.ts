@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     TITLE: 'Contracts',
   },
+  ar: {
+    TITLE: 'العقود',
+  },
   es: {
     TITLE: 'Contratos',
   }

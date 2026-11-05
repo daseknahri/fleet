@@ -12,6 +12,11 @@ const strings = new LocalizedStrings({
     CREATE_CLIENT_HEADING: 'New customer',
     BIRTH_DATE: 'Birth date',
   },
+  ar: {
+    CREATE_USER_HEADING: 'مستخدم جديد',
+    CREATE_CLIENT_HEADING: 'عميل جديد',
+    BIRTH_DATE: 'تاريخ الميلاد',
+  },
   es: {
     CREATE_USER_HEADING: 'Nuevo usuario',
     CREATE_CLIENT_HEADING: 'Nuevo cliente',

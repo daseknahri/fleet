@@ -24,6 +24,17 @@ const strings = new LocalizedStrings({
     DELETE_NOTIFICATION: 'Are you sure you want to delete this notification?',
     DELETE_NOTIFICATIONS: 'Are you sure you want to delete these notifications?',
   },
+  ar: {
+    EMPTY_LIST: 'لا توجد إشعارات',
+    VIEW: 'عرض',
+    MARK_AS_READ: 'تعيين كمقروء',
+    MARK_AS_UNREAD: 'تعيين كغير مقروء',
+    MARK_ALL_AS_READ: 'تعيين الكل كمقروء',
+    MARK_ALL_AS_UNREAD: 'تعيين الكل كغير مقروء',
+    DELETE_ALL: 'حذف الكل',
+    DELETE_NOTIFICATION: 'هل أنت متأكد من حذف هذا الإشعار؟',
+    DELETE_NOTIFICATIONS: 'هل أنت متأكد من حذف هذه الإشعارات؟',
+  },
   es: {
     EMPTY_LIST: 'No hay notificaciones',
     VIEW: 'Ver',

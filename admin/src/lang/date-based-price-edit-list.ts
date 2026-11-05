@@ -14,6 +14,12 @@ const strings = new LocalizedStrings({
     DAILY_PRICE: 'Daily Price',
     NEW_DATE_BASED_PRICE: 'New Date Based Price',
   },
+  ar: {
+    START_DATE: 'تاريخ البدء',
+    END_DATE: 'تاريخ الانتهاء',
+    DAILY_PRICE: 'السعر اليومي',
+    NEW_DATE_BASED_PRICE: 'سعر جديد حسب التاريخ',
+  },
   es: {
     START_DATE: 'Fecha de inicio',
     END_DATE: 'Fecha de finalización',

@@ -14,6 +14,12 @@ const strings = new LocalizedStrings({
     VALIDATION_EMAIL_SENT: 'Validation email sent.',
     VALIDATION_EMAIL_ERROR: 'An error occurred while sending validation email.',
   },
+  ar: {
+    VALIDATE_EMAIL: 'تم إرسال بريد إلكتروني للتحقق إلى عنوان بريدك الإلكتروني. يرجى التحقق من صندوق الوارد وتأكيد حسابك بالنقر على الرابط الموجود في البريد. ستنتهي صلاحيته بعد يوم واحد. إذا لم يصلك بريد التحقق، انقر على إعادة الإرسال.',
+    RESEND: 'إعادة الإرسال',
+    VALIDATION_EMAIL_SENT: 'تم إرسال بريد التحقق.',
+    VALIDATION_EMAIL_ERROR: 'حدث خطأ أثناء إرسال بريد التحقق.',
+  },
   es: {
     VALIDATE_EMAIL: 'Se ha enviado un correo electrónico de validación a su dirección de correo electrónico. Por favor, revise su bandeja de entrada y valide su cuenta haciendo clic en el enlace del correo electrónico. Expirará después de un día. Si no recibió el correo electrónico de validación, haga clic en reenviar.',
     RESEND: 'Reenviar',

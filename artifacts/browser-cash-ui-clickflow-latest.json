@@ -1,0 +1,118 @@
+{
+  "slice": "GA-P0-CASH-UI-CLICKFLOW-01",
+  "marker": "GA-CLICKFLOW-1793835221375",
+  "generatedAt": "2026-11-04T23:33:41.375Z",
+  "evidenceType": "UI-interaction (CDP mouse/keyboard on rendered controls); API used for read-back only",
+  "steps": [
+    {
+      "name": "load-page",
+      "at": "2026-11-04T23:33:41.845Z",
+      "agencyToolbarVisible": true,
+      "agencySelected": "Apex Car Rentals",
+      "sessionLine": "Session closed · MADOpening balance: 500 MAD · Expected: 650 MAD · Counted balance: 500 MAD · Discrepancy: -150 MADOpen cash session",
+      "alerts": [],
+      "buttons": [
+        "Open cash session"
+      ]
+    },
+    {
+      "name": "readback-start",
+      "at": "2026-11-04T23:33:41.860Z",
+      "apexId": "6ae166dda73203de8dd5bdbb",
+      "sessionsTotal": 3,
+      "openAtStart": []
+    },
+    {
+      "name": "open-session-ui",
+      "at": "2026-11-04T23:33:44.665Z",
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "session": {
+        "id": "6aebc0d8ee4ea49332eb9b9f",
+        "account": "cash",
+        "opening": 500,
+        "status": "open"
+      },
+      "sessionLine": "Session open · MADOpening balance: 500 MAD · Expected: — · Counted balance: — · Discrepancy: —Add movementTransferClose session",
+      "buttons": [
+        "Add movement",
+        "Transfer",
+        "Close session"
+      ]
+    },
+    {
+      "name": "add-movement-ui",
+      "at": "2026-11-04T23:34:00.881Z",
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "amountRowRendered": null,
+      "rowsRendered": [],
+      "sessionLine": "Session open · MADOpening balance: 500 MAD · Expected: — · Counted balance: — · Discrepancy: —Add movementTransferClose session",
+      "movement": {
+        "id": "6aebc0dcee4ea49332eb9ba0",
+        "direction": "in",
+        "amount": 150,
+        "source": "manual",
+        "note": "GA-P0-CASH-UI-CLICKFLOW-01 GA-CLICKFLOW-1793835221375"
+      }
+    },
+    {
+      "name": "transfer-dialog-ui",
+      "at": "2026-11-04T23:34:03.427Z",
+      "dialogTitle": "Transfer",
+      "selectDisplay": null,
+      "destinationOptionsRendered": [],
+      "finding": "No destination session is offered: the open-session dialog hardcodes account Cash and only one Cash session can be open per agency, so a second open account session cannot be created through this UI; transfer cannot be exercised at click level."
+    },
+    {
+      "name": "close-session-ui",
+      "at": "2026-11-04T23:34:06.206Z",
+      "preCloseSessionLine": "Session open · MADOpening balance: 500 MAD · Expected: — · Counted balance: — · Discrepancy: —Add movementTransferClose session",
+      "save": {
+        "attempt": 1,
+        "confirmed": true
+      },
+      "renderedAfter": "Session closed · MADOpening balance: 500 MAD · Expected: 650 MAD · Counted balance: 650 MAD · Discrepancy: 0 MADOpen cash session",
+      "final": {
+        "status": "closed",
+        "opening": 500,
+        "expected": 650,
+        "counted": 650,
+        "discrepancy": 0
+      }
+    }
+  ],
+  "fixApplied": "backend sign-in/socialSignin payload now includes user type + supplier (userController.ts)",
+  "finalState": {
+    "sessionId": "6aebc0d8ee4ea49332eb9b9f",
+    "movementId": "6aebc0dcee4ea49332eb9ba0",
+    "marker": "GA-CLICKFLOW-1793835221375"
+  },
+  "outcome": "flow-complete-except-transfer-ui-limitation",
+  "renderedJournalRowsAfterClose": [
+    "4 Nov 2026 · Income · Manual movement · GA-CLICKFLOW-1793835221375 · GA-P0-CASH-UI-CLICKFLOW-01 GA-CLICKFLOW-1793835221375 · Cash · +150 MAD",
+    "3 Nov 2026 · Expense · axa · — · Vehicle expense · -1.200 MAD"
+  ],
+  "disclosures": [
+    "Session 6aebc080ee4ea49332eb9b9d (opened via UI, received the first successful post-fix UI movement 6aebc084ee4ea49332eb9b9e, +150) was closed by the harness leftover handler with counted 500 instead of 650 (final discrepancy -150) because a page-context read-back returned a stale empty movement list. Harness error, not a product defect; the session remains as a closed domain record (the cash API has no session delete route).",
+    "Probe session 6aebb9cf21ad66aa3cc4fdc2 and leftover session 6aebbc4121ad66aa3cc4fdc3 were closed through the UI with counted = expected, discrepancy 0.",
+    "The canonical acceptance session is 6aebc0d8ee4ea49332eb9b9f: opened via UI (500), movement 6aebc0dcee4ea49332eb9ba0 via UI (+150, marker GA-CLICKFLOW-1793835221375), closed via UI with counted 650, expected 650, discrepancy 0.",
+    "While a session is open, the API/rendered session shows Expected as undefined (em dash); expected/counted/discrepancy materialize at close. This is current product behavior, recorded as an observation.",
+    "Transfer: the Transfer dialog rendered with no destination select/options because only one session is open; the open-session dialog hardcodes account Cash (CashJournal saveSession) and the UI exposes no way to open a second (e.g. Bank) account session, so a UI-level transfer between two open accounts is not possible in the current UI. Backend transfer behavior remains covered by the P0 API suites."
+  ],
+  "defectsFoundAndFixed": [
+    {
+      "id": "signin-payload-missing-type",
+      "detail": "Backend signin/socialSignin responses omitted user.type (and supplier). The admin SPA stores the sign-in response verbatim as the current user, so user.type was undefined after sign-in: CashJournal computed isAdmin=false, hid the agency selector, and sent cash mutations without the agency selector (open 403 / movement 400 Invalid cash movement / close 400). Fix: backend/src/controllers/userController.ts adds type + supplier to both loggedUser payloads. Verified: fresh sign-in returns type=admin; full UI flow then passes. Backend rebuilt (P0 build) and the compiled controller deployed into the running container; a desktop docker compose build reproduces it from source."
+    },
+    {
+      "id": "cashjournal-null-car-crash",
+      "detail": "CashJournal vehicleName() crashed on maintenance expenses whose car resolves to null, failing the whole journal load. Fix: vehicleName accepts null/undefined and renders an em dash. Verified: orphan expense row renders; admin lint 0; build green."
+    }
+  ],
+  "p0AfterFixes": "backend build 176 files; 7 suites / 35 tests; P0_EXIT=0"
+}

@@ -15,6 +15,7 @@ import User from '../models/User'
 import ParkingSpot from '../models/ParkingSpot'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
+import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 
 const canAccessAgencyLocation = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
@@ -796,6 +797,11 @@ export const createImage = async (req: Request, res: Response) => {
       return
     }
 
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid location image file type')
+      return
+    }
+
     await asyncFs.writeFile(filepath, req.file.buffer)
     res.json(filename)
   } catch (err) {
@@ -847,6 +853,11 @@ export const updateImage = async (req: Request, res: Response) => {
       // security check: restrict allowed extensions
       const ext = path.extname(filename)
       if (!env.allowedImageExtensions.includes(ext.toLowerCase())) {
+        res.status(400).send('Invalid location image file type')
+        return
+      }
+
+      if (!contentMatchesExtension(file.buffer, ext)) {
         res.status(400).send('Invalid location image file type')
         return
       }

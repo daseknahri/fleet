@@ -10,6 +10,7 @@ import MaintenanceExpense from '../models/MaintenanceExpense'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
+import { contentMatchesExtension } from '../utils/fileContent'
 import * as helper from '../utils/helper'
 
 const getScope = (req: Request): Record<string, unknown> => {
@@ -218,6 +219,10 @@ export const uploadReceipt = async (req: Request, res: Response) => {
     if (file.mimetype && !allowedMime.includes(file.mimetype.toLowerCase())) {
  res.status(400).send('Invalid receipt content type'); return 
 }
+    if (!contentMatchesExtension(file.buffer, ext)) {
+      res.status(400).send('Invalid receipt content')
+      return
+    }
     const userId = req.user?._id
     if (!userId) {
  res.status(403).send('Authentication required'); return 

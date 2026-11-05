@@ -289,7 +289,7 @@ const Car = ({
             {car.aircon && (
               <li className="aircon">
                 <Tooltip title={strings.AIRCON_TOOLTIP} placement="top">
-                  <div className="car-info-list-item">
+                  <div className="car-info-list-item" role="img">
                     <AirconIcon />
                   </div>
                 </Tooltip>

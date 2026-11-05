@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
   en: {
     UPDATE_USER_HEADING: 'User update',
   },
+  ar: {
+    UPDATE_USER_HEADING: 'تعديل المستخدم',
+  },
   es: {
     UPDATE_USER_HEADING: 'Actualización del usuario',
   },
