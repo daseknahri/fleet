@@ -302,7 +302,7 @@ const Header = ({
         env._LANGUAGES.map((language) => (
           <MenuItem onClick={handleLangMenuClose} data-code={language.code} key={language.code}>
             <div className="language">
-              <CircleFlag countryCode={language.countryCode as string} height={flagHeight} className="flag" title={language.label} />
+              <CircleFlag countryCode={language.countryCode as string} height={flagHeight} className="flag" title={language.label} alt="" />
               <span>{language.label}</span>
             </div>
           </MenuItem>
@@ -481,7 +481,7 @@ const Header = ({
               {isLoaded && (
                 <Button variant="contained" onClick={handleLangMenuOpen} disableElevation className="btn">
                   <div className="language">
-                    <CircleFlag countryCode={lang?.countryCode as string} height={flagHeight} className="flag" title={lang?.label} />
+                    <CircleFlag countryCode={lang?.countryCode as string} height={flagHeight} className="flag" title={lang?.label} alt={lang?.label} />
                   </div>
                 </Button>
               )}
@@ -530,7 +530,7 @@ const Header = ({
               </Button>
               <Button variant="contained" onClick={handleLangMenuOpen} disableElevation fullWidth className="btn">
                 <div className="language">
-                  <CircleFlag countryCode={lang?.countryCode as string} height={flagHeight} className="flag" title={lang?.label} />
+                  <CircleFlag countryCode={lang?.countryCode as string} height={flagHeight} className="flag" title={lang?.label} alt={lang?.label} />
                   {/* <span>{lang?.label}</span> */}
                 </div>
               </Button>

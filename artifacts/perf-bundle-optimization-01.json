@@ -1,0 +1,86 @@
+{
+  "slice": "GA-P2-PERF-BUNDLE-01",
+  "date": "2026-11-05",
+  "app": "admin",
+  "scopeNote": "The GA-P2-PERF-01 baseline (artifacts/perf-index-review-01.json, key adminBundleBaseline) is the ADMIN bundle: its top chunks (DataGrid, UserContext, MUI X) exist only in admin. The customer frontend was never baselined and is untouched by this slice.",
+  "method": "Official `npm run build` in admin/ (ts:build + rolldown-vite), byte totals over admin/build/ (files, total bytes, JS/CSS split, entry file size, top chunks by size). Identical script for before and after.",
+  "baselineReproduced": "Before any change, a fresh official build reproduced the GA-P2-PERF-01 baseline byte-for-byte including chunk hashes (13,986 modules transformed; entry index-BnTWAUft.js).",
+  "before": {
+    "modulesTransformed": 13986,
+    "files": 230,
+    "totalBytes": 2603266,
+    "jsBytes": 2513808,
+    "cssBytes": 85990,
+    "entryFile": "entries/index-BnTWAUft.js",
+    "entryBytes": 62413,
+    "topChunks": [
+      { "name": "DataGrid-D3UODLA7.js", "bytes": 407741 },
+      { "name": "UserContext-TBwS3BGE.js", "bytes": 388789 },
+      { "name": "vendor-BM3ULV4T.js", "bytes": 178287 },
+      { "name": "DatePicker-E0LLKGB2.js", "bytes": 174536 },
+      { "name": "Scheduler-B__BVcs6.js", "bytes": 136388 },
+      { "name": "schemas-DXtSD4Up.js", "bytes": 113930 },
+      { "name": "router-6St-fu23.js", "bytes": 101236 }
+    ]
+  },
+  "after": {
+    "modulesTransformed": 13880,
+    "files": 235,
+    "totalBytes": 2461209,
+    "jsBytes": 2371833,
+    "cssBytes": 85990,
+    "entryFile": "entries/index-DWyTnjUY.js",
+    "entryBytes": 41347,
+    "topChunks": [
+      { "name": "DataGrid-DHlCRFw6.js", "bytes": 407775 },
+      { "name": "UserContext-CYmkTxYa.js", "bytes": 237045 },
+      { "name": "vendor-6LVjuGmv.js", "bytes": 178287 },
+      { "name": "DatePicker-DbDNrbRK.js", "bytes": 174570 },
+      { "name": "Scheduler-Dha0OGwX.js", "bytes": 136388 },
+      { "name": "schemas-4VWjCC9_.js", "bytes": 113930 },
+      { "name": "router-DaqH3MeC.js", "bytes": 101236 }
+    ]
+  },
+  "delta": { "totalBytes": -142057, "totalPct": -5.46, "entryBytes": -21066, "entryPct": -33.75, "userContextBytes": -151744, "userContextPct": -39.03 },
+  "changes": [
+    {
+      "fix": "Dynamic MUI locales (active language only)",
+      "files": ["admin/src/main.tsx"],
+      "detail": "main.tsx statically imported fr/es/en locale objects for @mui/material, @mui/x-date-pickers and @mui/x-data-grid into the entry chunk (~27 KB rendered). The theme is built once at boot from the already-resolved language, so the three locale modules are now loaded with await import() and only the active language's objects are passed to createTheme. Post-build attribution: zero locale modules remain in the entry chunk; rolldown emits per-package lazy locale chunks fetched at boot (grid locales-DvRQZaRj.js 16,390 B; pickers locales-CBqq3aIF.js 4,146 B + enUS-DFb3YswD.js 2,071 B; material locale-ChsvE_X5.js 1,999 B)."
+    },
+    {
+      "fix": "Axios dedupe via vite alias",
+      "files": ["admin/vite.config.ts"],
+      "detail": "Chain packages/bookcars-helper -> ':currency-converter' (packages/currency-converter) -> easy-currencies pulled a second, nested axios 1.13.2 (browser build 71,178 rendered bytes) into the shared UserContext chunk, beside admin's own axios 1.21.0. Added 'axios': path.resolve(__dirname, 'node_modules/axios') to resolve.alias, following the config's existing react/react-dom pattern. easy-currencies only uses axios.create()/GET. Post-build attribution: nested copy eliminated; a single axios remains."
+    },
+    {
+      "fix": "validator deep imports",
+      "files": ["admin/src/models/BookingForm.ts", "admin/src/models/SettingsForm.ts", "admin/src/models/SupplierForm.ts", "admin/src/models/UserForm.ts", "admin/src/utils/helper.ts"],
+      "detail": "Admin source uses exactly two validator functions (isMobilePhone in the four form models; isURL in utils/helper.ts) but imported the whole library (~68 KB rendered in the UserContext chunk: isTaxID 27,843; isIdentityCard 11,536; index 11,526; isMobilePhone 9,217; isVAT 7,867). Files now import validator/es/lib/isMobilePhone and validator/es/lib/isURL directly. Post-build: validator footprint is 10,522 rendered bytes in UserContext (isURL + deps) plus a dedicated lazy isMobilePhone chunk (7,781 B final)."
+    }
+  ],
+  "notDone": [
+    {
+      "candidate": "Per-language splitting of the 58 localized-strings lang modules (GA-P2-PERF-01 future candidate)",
+      "reason": "Attribution shows they are not concentrated in the initial chunks: only lang/cars.ts (16,246 rendered) and lang/common.ts (13,163 rendered) sit in the UserContext chunk; the other 56 modules already live in lazy route chunks. Every module statically embeds all four locales behind a synchronous LocalizedStrings API read at render by ~100 components; splitting requires restructuring module shape plus async language loading, which is not behavior-preserving."
+    },
+    {
+      "candidate": "MUI X DataGrid / DatePicker / Scheduler and schemas chunk splitting",
+      "reason": "Already lazy route-level chunks (all admin routes are React.lazy in App.tsx); they are not on the initial path. Nothing to split."
+    }
+  ],
+  "verification": {
+    "adminLint": "exit 0 (0 errors, 0 warnings)",
+    "officialBuild": "exit 0 (ts:build clean)",
+    "p0Gate": "7 suites / 36 tests, P0_EXIT=0",
+    "docker": "docker compose build bc-admin failed from the SSH session with the Docker Desktop credential-helper error ('A specified logon session does not exist'; also with --pull=false), the environment limit recorded in earlier queues. Fallback used: host build (admin/.env verified byte-identical to admin/.env.docker) copied into a temp container from bc-admin c5da8b14, committed as image 676c49f2, bc-admin recreated from it; volumes untouched. First commit attempt recorded the temp container's sleep command as image CMD (first recreated container ran no nginx, port closed, no other effect); recommitted with the original nginx CMD restored and verified via docker inspect and nginx master/worker as PID 1 before smokes were run.",
+    "smokes": {
+      "adminIndex": "GET :3002/ -> 200, serves entry index-DWyTnjUY.js",
+      "entryAndInitialChunks": "entries/index-DWyTnjUY.js 200; chunks/UserContext-CYmkTxYa.js 200; chunks/locales-DvRQZaRj.js 200",
+      "lazyChunkOnDemand": "chunks/SignIn-BeElW-73.js -> 200",
+      "browserBoot": "Automation Chrome: :3002/sign-in renders the full sign-in form (title 'FleetRent Admin Panel', email/password/stay-connected inputs, Sign in button, English locale resolved at runtime via the new dynamic import), no error boundary",
+      "frontendRegression": "GET :8080/ -> 200 (frontend untouched)",
+      "backendRegression": "GET :4002/api/reports/summary unauthenticated -> 403"
+    }
+  }
+}

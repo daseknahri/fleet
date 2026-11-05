@@ -33,6 +33,7 @@ export default ({ mode }: { mode: string }) => {
       alias: {
         'react': path.resolve(__dirname, 'node_modules/react'),
         'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
+        'axios': path.resolve(__dirname, 'node_modules/axios'),
 
         '@': path.resolve(__dirname, './src'),
         ':bookcars-types': path.resolve(__dirname, '../packages/bookcars-types'),

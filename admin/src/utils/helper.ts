@@ -1,5 +1,5 @@
 import { toast } from 'react-toastify'
-import validator from 'validator'
+import isURL from 'validator/es/lib/isURL'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
@@ -751,7 +751,7 @@ export const carOptionAvailable = (car: bookcarsTypes.Car | undefined, option: s
  * @param {string} url
  * @returns {boolean}
  */
-export const isValidURL = (url: string) => validator.isURL(url, { protocols: ['http', 'https'] })
+export const isValidURL = (url: string) => isURL(url, { protocols: ['http', 'https'] })
 
 /**
  * Download URI.

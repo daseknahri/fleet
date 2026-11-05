@@ -1,0 +1,176 @@
+{
+  "slice": "GA-P0-EVIDENCE-AVAILABILITY-01",
+  "requirement": "Roadmap section 10 item 7: maintenance work orders and downtime affect availability correctly (downtime-to-availability leg; receipt lifecycle already evidenced by GA-P0-MAINTENANCE-BROWSER-02).",
+  "semantics": "Work orders with status scheduled or inProgress block overlapping reserving bookings (strict overlap scheduledStart < booking.to && scheduledEnd > booking.from); completed/cancelled do not block; deletion removes the block. Guard: backend/src/utils/bookingReservationHelper.ts saveBookingsWithAvailability, invoked by booking create/checkout-finalize/update/updateStatus.",
+  "windows": {
+    "D1": {
+      "from": "2027-03-10T00:00:00.000Z",
+      "to": "2027-03-12T00:00:00.000Z"
+    },
+    "W_OVERLAP": {
+      "from": "2027-03-10T12:00:00.000Z",
+      "to": "2027-03-11T12:00:00.000Z"
+    },
+    "W_AFTER": {
+      "from": "2027-03-13T10:00:00.000Z",
+      "to": "2027-03-15T10:00:00.000Z"
+    },
+    "W_BOUNDARY": {
+      "from": "2027-03-08T10:00:00.000Z",
+      "to": "2027-03-10T00:00:00.000Z"
+    },
+    "W_CANCEL": {
+      "from": "2027-03-11T13:00:00.000Z",
+      "to": "2027-03-11T23:00:00.000Z"
+    },
+    "D2": {
+      "from": "2027-04-10T00:00:00.000Z",
+      "to": "2027-04-12T00:00:00.000Z"
+    },
+    "W2": {
+      "from": "2027-04-10T12:00:00.000Z",
+      "to": "2027-04-11T12:00:00.000Z"
+    }
+  },
+  "steps": [
+    {
+      "step": "create-work-order-scheduled",
+      "status": 201,
+      "workOrder": "6aec8afb97fc63e031a1405f",
+      "window": {
+        "from": "2027-03-10T00:00:00.000Z",
+        "to": "2027-03-12T00:00:00.000Z"
+      },
+      "workOrderStatus": "scheduled"
+    },
+    {
+      "step": "a-overlap-denied",
+      "status": 400,
+      "bodyExcerpt": "Internal Error: BookingConflictError: The car is no longer available for the selected rental dates",
+      "window": {
+        "from": "2027-03-10T12:00:00.000Z",
+        "to": "2027-03-11T12:00:00.000Z"
+      },
+      "persistedBookingsForWindow": 0
+    },
+    {
+      "step": "a-note-pending-not-reserving",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14061",
+      "bookingStatus": "pending",
+      "note": "Pending is not a reserving status, so the guard does not engage at create; the same guard re-runs when a booking transitions into a reserving status (finalize/update/updateStatus), so the block cannot be bypassed through this path."
+    },
+    {
+      "step": "b-non-overlap-after-allowed",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14062",
+      "window": {
+        "from": "2027-03-13T10:00:00.000Z",
+        "to": "2027-03-15T10:00:00.000Z"
+      }
+    },
+    {
+      "step": "b-boundary-end-at-downtime-start-allowed",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14063",
+      "window": {
+        "from": "2027-03-08T10:00:00.000Z",
+        "to": "2027-03-10T00:00:00.000Z"
+      }
+    },
+    {
+      "step": "c-complete-work-order",
+      "status": 200,
+      "workOrderStatus": "completed"
+    },
+    {
+      "step": "c-overlap-allowed-after-completion",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14064",
+      "window": {
+        "from": "2027-03-10T12:00:00.000Z",
+        "to": "2027-03-11T12:00:00.000Z"
+      }
+    },
+    {
+      "step": "c-cancel-work-order",
+      "status": 200,
+      "workOrderStatus": "cancelled"
+    },
+    {
+      "step": "c-overlap-allowed-when-cancelled",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14065",
+      "window": {
+        "from": "2027-03-11T13:00:00.000Z",
+        "to": "2027-03-11T23:00:00.000Z"
+      }
+    },
+    {
+      "step": "c-create-work-order-inprogress",
+      "status": 201,
+      "workOrder": "6aec8afb97fc63e031a14066",
+      "window": {
+        "from": "2027-04-10T00:00:00.000Z",
+        "to": "2027-04-12T00:00:00.000Z"
+      }
+    },
+    {
+      "step": "c-inprogress-overlap-denied",
+      "status": 400,
+      "bodyExcerpt": "Internal Error: BookingConflictError: The car is no longer available for the selected rental dates",
+      "window": {
+        "from": "2027-04-10T12:00:00.000Z",
+        "to": "2027-04-11T12:00:00.000Z"
+      },
+      "persistedBookingsForWindow": 0
+    },
+    {
+      "step": "c-delete-work-order",
+      "status": 200
+    },
+    {
+      "step": "c-overlap-allowed-after-removal",
+      "status": 200,
+      "booking": "6aec8afb97fc63e031a14068",
+      "window": {
+        "from": "2027-04-10T12:00:00.000Z",
+        "to": "2027-04-11T12:00:00.000Z"
+      }
+    },
+    {
+      "step": "delete-wo1-and-list-readback",
+      "deleteStatus": 200,
+      "listStatus": 200,
+      "workOrdersForFixtureCar": 0
+    }
+  ],
+  "fixtures": {
+    "supplier": "6aec8afb97fc63e031a14059",
+    "driver": "6aec8afb97fc63e031a1405a",
+    "car": "6aec8afb97fc63e031a1405e",
+    "location": "6aec8afb97fc63e031a1405d",
+    "workOrder1": "6aec8afb97fc63e031a1405f",
+    "workOrder2": "6aec8afb97fc63e031a14066"
+  },
+  "cleanup": {
+    "deleted": {
+      "bookings": 6,
+      "workOrders": 0,
+      "cars": 1,
+      "locations": 1,
+      "values": 1,
+      "users": 2
+    },
+    "remaining": {
+      "bookings": 0,
+      "bookingsForFixtureCar": 0,
+      "workOrders": 0,
+      "workOrdersForFixtureCar": 0,
+      "cars": 0,
+      "locations": 0,
+      "values": 0,
+      "users": 0
+    }
+  }
+}

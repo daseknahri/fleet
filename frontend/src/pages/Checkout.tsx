@@ -31,7 +31,8 @@ import { loadStripe } from '@stripe/stripe-js'
 import { PayPalButtons } from '@paypal/react-paypal-js'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import validator from 'validator'
+import isEmail from 'validator/es/lib/isEmail'
+import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import { createSchema, FormFields } from '@/models/CheckoutForm'
 import CarList from '@/components/CarList'
 import * as bookcarsTypes from ':bookcars-types'
@@ -153,7 +154,7 @@ const Checkout = () => {
   const payInFull = useWatch({ control, name: 'payInFull' })
 
   const validatePhone = (phone: string) => {
-    return validator.isMobilePhone(phone)
+    return isMobilePhone(phone)
   }
 
   const onSubmit = async (data: FormFields) => {
@@ -495,7 +496,7 @@ const Checkout = () => {
                               }}
                               onBlur={(e) => {
                                 trigger('email')
-                                setEmailInfo(validator.isEmail(e.target.value))
+                                setEmailInfo(isEmail(e.target.value))
                               }}
                             />
                             <FormHelperText error={!!errors.email}>

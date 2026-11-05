@@ -98,7 +98,6 @@ const Slick = forwardRef<typeof ReactSlick, SlickProps>(({ children, ...props },
         <div
           onMouseDownCapture={handleMouseDown}
           onClickCapture={handleChildClick}
-          aria-modal="true"
         >
           {child}
         </div>

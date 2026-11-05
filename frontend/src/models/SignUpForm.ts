@@ -1,13 +1,14 @@
 import { z } from 'zod'
-import validator from 'validator'
+import isEmail from 'validator/es/lib/isEmail'
+import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import { intervalToDuration } from 'date-fns'
 import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
 
 export const schema = z.object({
   fullName: z.string(),
-  email: z.string().refine((value) => !value || validator.isEmail(value), { message: commonStrings.EMAIL_NOT_VALID }),
-  phone: z.string().refine((value) => !value || validator.isMobilePhone(value), { message: commonStrings.PHONE_NOT_VALID }),
+  email: z.string().refine((value) => !value || isEmail(value), { message: commonStrings.EMAIL_NOT_VALID }),
+  phone: z.string().refine((value) => !value || isMobilePhone(value), { message: commonStrings.PHONE_NOT_VALID }),
   birthDate: z.date().refine((value) => {
     const sub = intervalToDuration({ start: value, end: new Date() }).years ?? 0
     return sub >= env.MINIMUM_AGE

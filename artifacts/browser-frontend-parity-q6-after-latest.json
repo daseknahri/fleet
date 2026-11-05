@@ -1,0 +1,318 @@
+{
+  "slice": "GA-P2-FRONTEND-PARITY-01",
+  "label": "q6-after",
+  "base": "http://localhost:8081",
+  "at": "2026-11-05T13:01:02.415Z",
+  "axeVersion": "4.10.2",
+  "languages": {
+    "fr": {
+      "surfaces": {
+        "home": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 5,
+            "incompleteOther": [
+              {
+                "id": "no-autoplay-audio",
+                "nodes": 1
+              }
+            ]
+          },
+          "manual": {
+            "interactiveTotal": 21,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 1,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 11,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "fr",
+            "docDir": "ltr",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 0,
+            "textSample": "FleetRent MAD Les meilleures offres de location de voitures Réservez votre voiture aujourd'hui! Service Assistance routière 24h/24 pour une tranquillité d'esprit. Pas de frais cachés Ce que vous voyez est ce que vous payez. Flotte distinctive Choisissez parmi une large sélection de véhicules haut de gamme et fiables. Kilométrage illimité Explorez les villes et au-delà sans limites. * s'applique lo"
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 5
+          }
+        },
+        "signIn": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 1,
+            "incompleteOther": []
+          },
+          "manual": {
+            "interactiveTotal": 14,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 4,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 3,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "fr",
+            "docDir": "ltr",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 0,
+            "textSample": "FleetRent MAD Connexion E-mail Mot de passe Rester connecté Mot de passe oublié ? ou S'INSCRIRE SE CONNECTER FleetRent À Propos À propos de Nous Politique de cookies Politique de Confidentialité Conditions d'utilisation Louer une Voiture Fournisseurs Lieux Support Contact FAQ info@fleetrent.local Abonnez-vous Abonnez-vous à notre liste de diffusion pour recevoir les dernières mises à jour ! E-mail"
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 1
+          }
+        },
+        "signUp": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 6,
+            "incompleteOther": []
+          },
+          "manual": {
+            "interactiveTotal": 16,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 8,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 3,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "fr",
+            "docDir": "ltr",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 0,
+            "textSample": "FleetRent MAD Inscription Nom complet Nom complet * E-mail E-mail * Téléphone Téléphone * Date de naissance * JJ/ MM/ AAAA Date de naissance * Mot de passe Mot de passe * Confirmer le mot de passe Confirmer le mot de passe * J'ai lu et j'accepte les conditions générales d'utilisation. ou S'INSCRIRE ANNULER FleetRent À Propos À propos de Nous Politique de cookies Politique de Confidentialité Condit"
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 6
+          }
+        }
+      },
+      "searchFlow": {
+        "steps": [],
+        "error": "pickup combobox never mounted"
+      }
+    },
+    "ar": {
+      "surfaces": {
+        "home": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 2,
+            "incompleteOther": [
+              {
+                "id": "no-autoplay-audio",
+                "nodes": 1
+              }
+            ]
+          },
+          "manual": {
+            "interactiveTotal": 21,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 1,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 11,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "ar",
+            "docDir": "rtl",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 1175,
+            "textSample": "FleetRent MAD أفضل عروض تأجير السيارات احجز سيارتك اليوم! الخدمة مساعدة على الطريق على مدار الساعة لراحة بالك. بدون رسوم مخفية ما تراه هو ما تدفعه. أسطول مميز اختر من مجموعة واسعة من المركبات الموثوقة والمتميزة. عدد أميال غير محدود استكشف المدن وما حولها بلا حدود. *يطبق عند الإشارة إليه ما الذي يميزنا؟ مجموعة واسعة من المركبات من سيارات المدن الصغيرة إلى سيارات الدفع الرباعي الفاخرة، يلبي أسطولنا "
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 2
+          }
+        },
+        "signIn": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 1,
+            "incompleteOther": []
+          },
+          "manual": {
+            "interactiveTotal": 14,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 4,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 3,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "ar",
+            "docDir": "rtl",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 303,
+            "textSample": "FleetRent MAD تسجيل الدخول البريد الإلكتروني كلمة المرور البقاء متصلاً هل نسيت كلمة المرور؟ أو تسجيل تسجيل الدخول FleetRent المؤسسة من نحن سياسة ملفات تعريف الارتباط سياسة الخصوصية شروط الاستخدام استئجار سيارة الموردون المواقع الدعم اتصل بنا الأسئلة الشائعة info@fleetrent.local اشترك اشترك في قائمتنا البريدية لتصلك آخر التحديثات! البريد الإلكتروني البريد الإلكتروني * اشترك دفع آمن 100% مع FleetRen"
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 1
+          }
+        },
+        "signUp": {
+          "axe": {
+            "violations": [],
+            "incompleteContrast": 6,
+            "incompleteOther": []
+          },
+          "manual": {
+            "interactiveTotal": 16,
+            "interactiveNoName": {
+              "count": 1,
+              "samples": [
+                {
+                  "tag": "BUTTON",
+                  "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+                  "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+                }
+              ]
+            },
+            "controlsTotal": 8,
+            "controlsNoLabel": {
+              "count": 0,
+              "samples": []
+            },
+            "positiveTabindex": {
+              "count": 0,
+              "samples": []
+            },
+            "imagesNoAlt": {
+              "total": 3,
+              "count": 0
+            },
+            "hasMain": true,
+            "docLang": "ar",
+            "docDir": "rtl",
+            "title": "FleetRent Rental Service",
+            "arabicChars": 412,
+            "textSample": "FleetRent MAD إنشاء حساب الاسم الكامل الاسم الكامل * البريد الإلكتروني البريد الإلكتروني * رقم الهاتف رقم الهاتف * تاريخ الميلاد * MM/ DD/ YYYY تاريخ الميلاد * كلمة المرور كلمة المرور * تأكيد كلمة المرور تأكيد كلمة المرور * قرأت وأوافق على شروط الاستخدام. أو تسجيل إلغاء FleetRent المؤسسة من نحن سياسة ملفات تعريف الارتباط سياسة الخصوصية شروط الاستخدام استئجار سيارة الموردون المواقع الدعم اتصل بنا ا"
+          },
+          "summary": {
+            "violationRules": 0,
+            "violationNodes": 0,
+            "interactiveNoName": 1,
+            "controlsNoLabel": 0,
+            "positiveTabindex": 0,
+            "incompleteContrast": 6
+          }
+        }
+      },
+      "searchFlow": {
+        "steps": [],
+        "error": "pickup combobox never mounted"
+      }
+    }
+  },
+  "outcome": "audit-complete"
+}

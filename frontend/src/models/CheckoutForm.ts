@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import validator from 'validator'
+import isEmail from 'validator/es/lib/isEmail'
+import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import { intervalToDuration } from 'date-fns'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
@@ -18,10 +19,10 @@ const validateBirthDate = (car?: bookcarsTypes.Car, date?: Date) => {
 const baseSchema = z.object({
     // Driver details
     fullName: z.string().optional(),
-    email: z.string().refine((value) => !value || validator.isEmail(value), {
+    email: z.string().refine((value) => !value || isEmail(value), {
         message: commonStrings.EMAIL_NOT_VALID,
     }).optional(),
-    phone: z.string().refine((value) => !value || validator.isMobilePhone(value), {
+    phone: z.string().refine((value) => !value || isMobilePhone(value), {
         message: commonStrings.PHONE_NOT_VALID,
     }).optional(),
     birthDate: z.date().optional(),
@@ -45,12 +46,12 @@ const baseSchema = z.object({
     // Additional driver details
     additionalDriverFullName: z.string().optional(),
     additionalDriverEmail: z.string()
-        .refine((value) => !value || validator.isEmail(value), {
+        .refine((value) => !value || isEmail(value), {
             message: commonStrings.EMAIL_NOT_VALID,
         }).optional(),
     additionalDriverPhone: z
         .string()
-        .refine((value) => !value || validator.isMobilePhone(value), {
+        .refine((value) => !value || isMobilePhone(value), {
             message: commonStrings.PHONE_NOT_VALID,
         }).optional()
     ,

@@ -4,9 +4,6 @@ import { ToastContainer } from 'react-toastify'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 
-import { frFR as corefrFR, enUS as coreenUS, esES as coresES } from '@mui/material/locale'
-import { frFR, enUS, esES } from '@mui/x-date-pickers/locales'
-import { frFR as dataGridfrFR, enUS as dataGridenUS, esES as dataGridesEs } from '@mui/x-data-grid/locales'
 import { disableDevTools } from ':disable-react-devtools'
 import * as helper from '@/utils/helper'
 import * as UserService from '@/services/UserService'
@@ -208,6 +205,24 @@ document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
 const isFr = language === 'fr'
 const isEs = language === 'es'
 
+// Load only the resolved language's MUI locale objects: the theme is built once at boot,
+// so the other languages' locale data stays out of the entry chunk.
+const coreLocale = isFr
+  ? (await import('@mui/material/locale')).frFR
+  : isEs
+    ? (await import('@mui/material/locale')).esES
+    : (await import('@mui/material/locale')).enUS
+const pickerLocale = isFr
+  ? (await import('@mui/x-date-pickers/locales')).frFR
+  : isEs
+    ? (await import('@mui/x-date-pickers/locales')).esES
+    : (await import('@mui/x-date-pickers/locales')).enUS
+const dataGridLocale = isFr
+  ? (await import('@mui/x-data-grid/locales')).frFR
+  : isEs
+    ? (await import('@mui/x-data-grid/locales')).esES
+    : (await import('@mui/x-data-grid/locales')).enUS
+
 const theme = createTheme(
   {
     palette: {
@@ -289,9 +304,9 @@ const theme = createTheme(
       },
     },
   },
-  isFr ? frFR : isEs ? esES : enUS,
-  isFr ? dataGridfrFR : isEs ? dataGridesEs : dataGridenUS,
-  isFr ? corefrFR : isEs ? coresES : coreenUS,
+  pickerLocale,
+  dataGridLocale,
+  coreLocale,
 )
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
