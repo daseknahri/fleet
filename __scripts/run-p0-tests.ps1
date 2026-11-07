@@ -1,12 +1,19 @@
 # Runs the authoritative Mongo-backed P0 test suites against 127.0.0.1:27018.
 # Loads backend/.env.docker, then overrides BC_DB_URI to the host-published port.
+# The Mongo credential is never hardcoded: set BC_P0_MONGO_PASSWORD or pass -DbUri.
 [CmdletBinding()]
 param(
-  [string]$DbUri = 'mongodb://admin:admin@127.0.0.1:27018/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0&directConnection=true',
+  [string]$DbUri = '',
   [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($DbUri)) {
+  if ([string]::IsNullOrWhiteSpace($env:BC_P0_MONGO_PASSWORD)) {
+    throw 'BC_P0_MONGO_PASSWORD is not set. Set it to the local MongoDB admin password for 127.0.0.1:27018 (the same credential as the local stack BC_DB_URI in backend/.env.docker), or pass -DbUri explicitly.'
+  }
+  $DbUri = "mongodb://admin:$($env:BC_P0_MONGO_PASSWORD)@127.0.0.1:27018/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0&directConnection=true"
+}
 $repo = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $repo 'backend/.env.docker'
 
@@ -45,7 +52,8 @@ $suites = @(
   '__tests__/maintenanceReceiptSchedule.integration.test.ts',
   '__tests__/reportReconciliation.integration.test.ts',
   '__tests__/securityBaseline.integration.test.ts',
-  '__tests__/providerCurrent.integration.test.ts'
+  '__tests__/providerCurrent.integration.test.ts',
+  '__tests__/approvalsProducer.integration.test.ts'
 )
 
 Write-Host '=== P0 suites ==='
