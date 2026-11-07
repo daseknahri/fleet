@@ -42,6 +42,7 @@ const Suppliers = () => {
     <Layout onLoad={onLoad} strict>
       {user && (
         <div className="suppliers">
+          <h1 className="sr-only">{strings.SUPPLIERS}</h1>
           <div className="col-1">
             <div className="col-1-container">
               <Search className="search" onSubmit={handleSearch} />

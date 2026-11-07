@@ -249,6 +249,24 @@ export const update = async (req: Request, res: Response) => {
       return
     }
 
+    // H-023 (hardening Wave 4): reactivation must enforce the same
+    // single-active-agency invariant as create. Without this check an owner
+    // could reactivate a membership while the staff user is active in another
+    // agency, leaving the account with two active memberships — a state
+    // verifyToken rejects outright, locking the staff user out completely.
+    if (body.status === bookcarsTypes.AgencyMembershipStatus.Active
+      && membership.status !== bookcarsTypes.AgencyMembershipStatus.Active) {
+      const activeElsewhere = await AgencyMembership.exists({
+        user: membership.user,
+        status: bookcarsTypes.AgencyMembershipStatus.Active,
+        supplier: { $ne: supplierId },
+      })
+      if (activeElsewhere) {
+        sendError(res, 409, 'Staff user already has an active agency membership')
+        return
+      }
+    }
+
     if (body.role !== undefined) {
       membership.role = body.role
     }

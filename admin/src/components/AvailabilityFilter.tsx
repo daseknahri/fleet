@@ -140,11 +140,11 @@ const AvailabilityFilter = ({
     <Accordion title={strings.AVAILABILITY} className={`${className ? `${className} ` : ''}availability-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={availableRef} type="checkbox" className="availability-checkbox" onChange={handleAvailableChange} />
+          <input ref={availableRef} type="checkbox" className="availability-checkbox" onChange={handleAvailableChange} aria-label={strings.AVAILABLE} />
           <span role="button" tabIndex={0} onClick={handleAvailableClick}>{strings.AVAILABLE}</span>
         </div>
         <div className="filter-element">
-          <input ref={unavailableRef} type="checkbox" className="availability-checkbox" onChange={handleUnavailableChange} />
+          <input ref={unavailableRef} type="checkbox" className="availability-checkbox" onChange={handleUnavailableChange} aria-label={strings.UNAVAILABLE} />
           <span role="button" tabIndex={0} onClick={handleUnavailableClick}>{strings.UNAVAILABLE}</span>
         </div>
         <div className="filter-actions">

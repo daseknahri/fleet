@@ -12,7 +12,10 @@ describe('security baseline', () => {
 
   test('returns security headers and rejects an untrusted CORS origin', async () => {
     const response = await request(app).get('/api/reports/summary').set('Origin', 'https://untrusted.example')
-    expect(response.status).toBe(500)
+    // Baseline amended 2026-11-05 (GA-P10-DECISIONS-01, F-SEC-4): the owner
+    // decided a CORS denial is a clean 403, not a 500 server error. This
+    // expectation was 500 before the amendment.
+    expect(response.status).toBe(403)
     expect(response.headers['x-content-type-options']).toBe('nosniff')
     expect(response.headers['x-frame-options']).toBe('SAMEORIGIN')
   })

@@ -15,8 +15,8 @@ routes.route(routeNames.getSuppliers).get(authJwt.verifyToken, authJwt.authAdmin
 routes.route(routeNames.getAllSuppliers).get(supplierController.getAllSuppliers)
 routes.route(routeNames.getFrontendSuppliers).post(supplierController.getFrontendSuppliers)
 routes.route(routeNames.getAdminSuppliers).post(authJwt.verifyToken, authJwt.authAdmin, supplierController.getAdminSuppliers)
-routes.route(routeNames.createContract).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), multer({ storage: multer.memoryStorage() }).single('file')], supplierController.createContract)
-routes.route(routeNames.updateContract).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), multer({ storage: multer.memoryStorage() }).single('file')], supplierController.updateContract)
+routes.route(routeNames.createContract).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], supplierController.createContract)
+routes.route(routeNames.updateContract).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], supplierController.updateContract)
 routes.route(routeNames.deleteContract).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), supplierController.deleteContract)
 routes.route(routeNames.deleteTempContract).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManagePrivateDocuments), supplierController.deleteTempContract)
 

@@ -1,0 +1,2339 @@
+{
+  "slice": "B2-money",
+  "startedAt": "2026-11-06T02:33:41.138Z",
+  "fixture": {
+    "supplier": {
+      "id": "6ae166dda73203de8dd5bdbb",
+      "name": "Apex Car Rentals",
+      "priceChangeRate": 0
+    },
+    "location": {
+      "id": "6ae166dda73203de8dd5bdcc",
+      "name": "San Francisco Airport (SFO)",
+      "sourcedFromCar": "6ae16880c32c01a5257a5c96"
+    }
+  },
+  "expectationTable": {
+    "inputs": {
+      "dailyPrice": 2000,
+      "days": 6,
+      "priceChangeRate": 0,
+      "total": 12000,
+      "partialPayment": 4000,
+      "paymentDate": "2026-12-10T12:00:00.000Z",
+      "transfer": 1500,
+      "currency": "MAD",
+      "reportWindow": {
+        "from": "2026-12-01",
+        "to": "2026-12-31"
+      },
+      "counterWindow": {
+        "from": "2026-11-01",
+        "to": "2026-11-30"
+      }
+    },
+    "moneyStory": {
+      "afterBooking_decDelta": {
+        "contracts": 1,
+        "fleetVehicles": 1,
+        "bookedVehicleDays": 6,
+        "fleetCapacityDays": 31,
+        "receivable": 12000,
+        "revenueCollected": 0,
+        "estimatedMargin": 0,
+        "invoiceCount": 0,
+        "invoicedTotal": 0,
+        "invoicedPaid": 0
+      },
+      "afterIssue_decDelta": {
+        "invoiceCount": 1,
+        "invoicedTotal": 12000,
+        "invoicedPaid": 0
+      },
+      "paymentPending": {
+        "paymentStatus": "pending",
+        "invoicePaidAmount": 0,
+        "backendOutstanding": 12000,
+        "pageRemainingPerDecision": 12000,
+        "reportRevenueDelta": 0,
+        "cashConfirmedDelta": 0,
+        "cashPendingDelta": 4000
+      },
+      "approvalBlocked": {
+        "linkStatus": 409,
+        "selfDecideStatus": 403
+      },
+      "afterConfirm": {
+        "invoicePaidAmount": 4000,
+        "invoicePaymentStatus": "partial",
+        "backendOutstanding": 8000,
+        "reportRevenueDelta": 4000,
+        "reportReceivableDelta": 8000,
+        "reportMarginDelta": 4000,
+        "reportInvoicedPaidDelta": 4000,
+        "cashConfirmedDelta": 4000
+      },
+      "afterTransfer": {
+        "cashConfirmedDelta": 2500,
+        "bankConfirmedDelta": 1500
+      },
+      "afterReversal": {
+        "invoicePaidAmount": 0,
+        "invoicePaymentStatus": "unpaid",
+        "backendOutstanding": 12000,
+        "decRevenueDelta": 0,
+        "decReceivableDelta": 12000,
+        "novRevenueDeltaVsBaseline": 0,
+        "cashUnchanged": true
+      }
+    }
+  },
+  "steps": [
+    {
+      "n": "T1-1",
+      "name": "named-trace-records",
+      "at": "2026-11-06T02:33:50.271Z",
+      "action": "GET /api/rental-payments (admin, unscoped); extract the two B1 residue records by exact ID",
+      "api": {
+        "list": 200,
+        "totalPayments": 2
+      },
+      "expected": "both records present; original = 120 MAD credit since reversed; reversal = 120 MAD debit, posted, reversedFrom = original",
+      "observed": {
+        "original": {
+          "id": "6aed318d257b892b04a8b048",
+          "supplier": "6ae166dda73203de8dd5bdbb",
+          "date": "2026-11-20T10:00:00.000Z",
+          "createdAt": "2026-11-06T01:46:53.351Z",
+          "updatedAt": "2026-11-06T02:05:07.290Z",
+          "amount": 120,
+          "currency": "MAD",
+          "method": "cash",
+          "purpose": "rent",
+          "direction": "credit",
+          "status": "reversed",
+          "source": "manual",
+          "reversedFrom": null,
+          "settledAt": "2026-11-20T10:00:00.000Z",
+          "idempotencyKey": "gaq12b1-pay-0001"
+        },
+        "reversal": {
+          "id": "6aed35d33ded07b5f333f92a",
+          "supplier": "6ae166dda73203de8dd5bdbb",
+          "date": "2026-11-06T02:05:07.283Z",
+          "createdAt": "2026-11-06T02:05:07.284Z",
+          "updatedAt": "2026-11-06T02:05:07.284Z",
+          "amount": 120,
+          "currency": "MAD",
+          "method": "cash",
+          "purpose": "rent",
+          "direction": "debit",
+          "status": "posted",
+          "source": "adjustment",
+          "reversedFrom": "6aed318d257b892b04a8b048",
+          "settledAt": "2026-11-06T02:05:07.283Z",
+          "idempotencyKey": "gaq12b1-rev-0001"
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "T1-2",
+      "name": "named-trace-windows",
+      "at": "2026-11-06T02:33:50.384Z",
+      "action": "reportController mechanization (hand sum over the API payment/booking data, Casablanca day bounds) vs GET /api/reports/summary for Apex over 5 windows",
+      "expected": "report revenueCollected == hand-summed Posted signed rent payments in every window; the pair contributes: W_NOV_B1 -120 (reversal counted, original excluded by status), W_ORIG_ONLY 0, W_REV_ONLY -120, W_NEITHER 0, W_BOTH_WIDE -120 (NOT 0)",
+      "observed": {
+        "windows": {
+          "W_NOV_B1": {
+            "window": {
+              "from": "2026-11-01",
+              "to": "2026-11-30"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 4350,
+            "receivableHandComputed": 4470,
+            "contractsHandCounted": 6,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4470,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 6,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_ORIG_ONLY": {
+            "window": {
+              "from": "2026-11-15",
+              "to": "2026-11-25"
+            },
+            "rentHandSummed": 0,
+            "rentalTotalHandSummed": 2210,
+            "receivableHandComputed": 2210,
+            "contractsHandCounted": 3,
+            "countedPayments": [],
+            "reportRevenueCollected": 0,
+            "reportReceivable": 2210,
+            "reportEstimatedMargin": 0,
+            "reportContracts": 3,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_REV_ONLY": {
+            "window": {
+              "from": "2026-11-01",
+              "to": "2026-11-10"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 3970,
+            "receivableHandComputed": 4090,
+            "contractsHandCounted": 4,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4090,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 4,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_NEITHER": {
+            "window": {
+              "from": "2026-10-01",
+              "to": "2026-10-31"
+            },
+            "rentHandSummed": 0,
+            "rentalTotalHandSummed": 325,
+            "receivableHandComputed": 325,
+            "contractsHandCounted": 1,
+            "countedPayments": [],
+            "reportRevenueCollected": 0,
+            "reportReceivable": 325,
+            "reportEstimatedMargin": 0,
+            "reportContracts": 1,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_BOTH_WIDE": {
+            "window": {
+              "from": "2026-10-01",
+              "to": "2026-12-31"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 4675,
+            "receivableHandComputed": 4795,
+            "contractsHandCounted": 7,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4795,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 7,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          }
+        },
+        "pairContributions": {
+          "W_NOV_B1": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ],
+          "W_ORIG_ONLY": [],
+          "W_REV_ONLY": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ],
+          "W_NEITHER": [],
+          "W_BOTH_WIDE": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ]
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "T1-3",
+      "name": "named-trace-verdict",
+      "at": "2026-11-06T02:33:50.385Z",
+      "action": "classification of the -120 / +120 pair against the metric dictionary and the reversal code path",
+      "observed": {
+        "mechanism": [
+          "Original 6aed318d257b892b04a8b048: date=2026-11-20T10:00:00.000Z (B1 walk created it with date = booking pickup 2026-11-20, walk.mjs: date: FROM), direction credit, amount 120; after cleanup reversal its status is 'reversed' so reportController's status:Posted match excludes it in EVERY window, whatever its date.",
+          "Reversal 6aed35d33ded07b5f333f92a: date=2026-11-06T02:05:07.283Z (reverseRentalPayment defaults the reversal date to new Date() at cleanup time, 2026-11-06), direction debit, amount 120, status 'posted', reversedFrom=6aed318d257b892b04a8b048. It is counted by the Posted signed sum as -120 in every window containing 2026-11-06.",
+          "reportController.ts:63: payments aggregate = { supplier, date in window, status: Posted } with debit -> -amount. The pair therefore contributes -120 (not 0) to revenueCollected in the B1 window and in any window covering the reversal date, including a window covering BOTH records (W_BOTH_WIDE measured -120): the annulment nets to zero in NO window that shows the reversal.",
+          "receivable (reportController build): max(0, rentalTotal(bookings overlapping window, status nin void/cancelled) - rentInWindow). B1 deleted its booking and voided its invoice, so the fixture rentalTotal is gone; but rentInWindow for Nov carries the lone -120 debit, so receivable = (other contracts' rentalTotal) - (-120) = baseline + 120. Hand-check for W_NOV_B1: rentalTotal=4350, rent=-120, receivable=4470. The +120 is owed by nobody: it is the arithmetic shadow of the unpaired debit.",
+          "Same double-undo in every Posted-only signed-sum consumer: ledger.ts getRecordedPurposeTotal (a reversed 120 payment on a live 300 contract would leave recorded = -120, remaining = 420) and contractReceivable.ts (postedPayments = -120, outstanding = total + 120, clamped only at >= 0). Only invoicePayment.ts escapes, because it sums only the invoice-linked payment IDs and the reversal is never linked.",
+          "Root cause: backend/src/utils/ledger.ts reverseRentalPayment performs BOTH annulment mechanisms at once - it flips the original to status Reversed (removing the credit from every Posted sum) AND posts a compensating Debit with status Posted (adding -amount to every Posted sum). Either mechanism alone nets to zero; together they net to -amount."
+        ],
+        "classification": "DEFECT (not correct windowed accounting). A fully reversed payment must net to zero in unwindowed balances in all states, and to zero in any report window covering both entries; here it nets to -120 in the measured window and +120 phantom receivable persists after the booking and invoice are gone. The cross-period dating (original value-dated 2026-11-20, reversal dated at reversal time 2026-11-06) is ordinary cash-basis contra timing and is NOT the defect; the status flip combined with the Posted contra debit is.",
+        "fixPlan": "Minimal, pattern-following: in reverseRentalPayment, create the reversal debit with status Reversed as well (the annulled pair carries Reversed on both records), so every Posted-only signed sum nets the pair to exactly zero in every window and balance, while both records stay fully visible in payment lists with direction/reversedFrom audit fields. All existing test assertions are preserved (reversal body direction/purpose/reversedFrom, replay idempotency, original status Reversed, invoice recompute to the remaining linked payments). Also fix the sibling propagation gap found in code review for the B2 story: confirmRentalPayment never recomputes linked invoices (reverseRentalPayment does), leaving invoice paidAmount stale after an accountant confirms a pending payment - add the same linked-invoice recompute loop there. Historical data note: the B1 debit already stored as Posted is not rewritten by the code fix; it remains as disclosed residue in the Nov window (no payment edit/delete route exists)."
+      },
+      "verdict": "DEFECT-CONFIRMED"
+    },
+    {
+      "n": "T1-1",
+      "name": "named-trace-records",
+      "at": "2026-11-06T04:23:22.427Z",
+      "action": "GET /api/rental-payments (admin, unscoped); extract the two B1 residue records by exact ID",
+      "api": {
+        "list": 200,
+        "totalPayments": 2
+      },
+      "expected": "both records present; original = 120 MAD credit since reversed; reversal = 120 MAD debit, posted, reversedFrom = original",
+      "observed": {
+        "original": {
+          "id": "6aed318d257b892b04a8b048",
+          "supplier": "6ae166dda73203de8dd5bdbb",
+          "date": "2026-11-20T10:00:00.000Z",
+          "createdAt": "2026-11-06T01:46:53.351Z",
+          "updatedAt": "2026-11-06T02:05:07.290Z",
+          "amount": 120,
+          "currency": "MAD",
+          "method": "cash",
+          "purpose": "rent",
+          "direction": "credit",
+          "status": "reversed",
+          "source": "manual",
+          "reversedFrom": null,
+          "settledAt": "2026-11-20T10:00:00.000Z",
+          "idempotencyKey": "gaq12b1-pay-0001"
+        },
+        "reversal": {
+          "id": "6aed35d33ded07b5f333f92a",
+          "supplier": "6ae166dda73203de8dd5bdbb",
+          "date": "2026-11-06T02:05:07.283Z",
+          "createdAt": "2026-11-06T02:05:07.284Z",
+          "updatedAt": "2026-11-06T02:05:07.284Z",
+          "amount": 120,
+          "currency": "MAD",
+          "method": "cash",
+          "purpose": "rent",
+          "direction": "debit",
+          "status": "posted",
+          "source": "adjustment",
+          "reversedFrom": "6aed318d257b892b04a8b048",
+          "settledAt": "2026-11-06T02:05:07.283Z",
+          "idempotencyKey": "gaq12b1-rev-0001"
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "T1-2",
+      "name": "named-trace-windows",
+      "at": "2026-11-06T04:23:22.534Z",
+      "action": "reportController mechanization (hand sum over the API payment/booking data, Casablanca day bounds) vs GET /api/reports/summary for Apex over 5 windows",
+      "expected": "report revenueCollected == hand-summed Posted signed rent payments in every window; the pair contributes: W_NOV_B1 -120 (reversal counted, original excluded by status), W_ORIG_ONLY 0, W_REV_ONLY -120, W_NEITHER 0, W_BOTH_WIDE -120 (NOT 0)",
+      "observed": {
+        "windows": {
+          "W_NOV_B1": {
+            "window": {
+              "from": "2026-11-01",
+              "to": "2026-11-30"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 4350,
+            "receivableHandComputed": 4470,
+            "contractsHandCounted": 6,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4470,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 6,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_ORIG_ONLY": {
+            "window": {
+              "from": "2026-11-15",
+              "to": "2026-11-25"
+            },
+            "rentHandSummed": 0,
+            "rentalTotalHandSummed": 2210,
+            "receivableHandComputed": 2210,
+            "contractsHandCounted": 3,
+            "countedPayments": [],
+            "reportRevenueCollected": 0,
+            "reportReceivable": 2210,
+            "reportEstimatedMargin": 0,
+            "reportContracts": 3,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_REV_ONLY": {
+            "window": {
+              "from": "2026-11-01",
+              "to": "2026-11-10"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 3970,
+            "receivableHandComputed": 4090,
+            "contractsHandCounted": 4,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4090,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 4,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_NEITHER": {
+            "window": {
+              "from": "2026-10-01",
+              "to": "2026-10-31"
+            },
+            "rentHandSummed": 0,
+            "rentalTotalHandSummed": 325,
+            "receivableHandComputed": 325,
+            "contractsHandCounted": 1,
+            "countedPayments": [],
+            "reportRevenueCollected": 0,
+            "reportReceivable": 325,
+            "reportEstimatedMargin": 0,
+            "reportContracts": 1,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          },
+          "W_BOTH_WIDE": {
+            "window": {
+              "from": "2026-10-01",
+              "to": "2026-12-31"
+            },
+            "rentHandSummed": -120,
+            "rentalTotalHandSummed": 4675,
+            "receivableHandComputed": 4795,
+            "contractsHandCounted": 7,
+            "countedPayments": [
+              {
+                "id": "6aed35d33ded07b5f333f92a",
+                "date": "2026-11-06T02:05:07.283Z",
+                "status": "posted",
+                "direction": "debit",
+                "amount": 120,
+                "signed": -120
+              }
+            ],
+            "reportRevenueCollected": -120,
+            "reportReceivable": 4795,
+            "reportEstimatedMargin": -120,
+            "reportContracts": 7,
+            "revenueMatchesHandSum": true,
+            "receivableMatchesHandComputed": true
+          }
+        },
+        "pairContributions": {
+          "W_NOV_B1": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ],
+          "W_ORIG_ONLY": [],
+          "W_REV_ONLY": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ],
+          "W_NEITHER": [],
+          "W_BOTH_WIDE": [
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "date": "2026-11-06T02:05:07.283Z",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120,
+              "signed": -120
+            }
+          ]
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "T1-3",
+      "name": "named-trace-verdict",
+      "at": "2026-11-06T04:23:22.535Z",
+      "action": "classification of the -120 / +120 pair against the metric dictionary and the reversal code path",
+      "observed": {
+        "mechanism": [
+          "Original 6aed318d257b892b04a8b048: date=2026-11-20T10:00:00.000Z (B1 walk created it with date = booking pickup 2026-11-20, walk.mjs: date: FROM), direction credit, amount 120; after cleanup reversal its status is 'reversed' so reportController's status:Posted match excludes it in EVERY window, whatever its date.",
+          "Reversal 6aed35d33ded07b5f333f92a: date=2026-11-06T02:05:07.283Z (reverseRentalPayment defaults the reversal date to new Date() at cleanup time, 2026-11-06), direction debit, amount 120, status 'posted', reversedFrom=6aed318d257b892b04a8b048. It is counted by the Posted signed sum as -120 in every window containing 2026-11-06.",
+          "reportController.ts:63: payments aggregate = { supplier, date in window, status: Posted } with debit -> -amount. The pair therefore contributes -120 (not 0) to revenueCollected in the B1 window and in any window covering the reversal date, including a window covering BOTH records (W_BOTH_WIDE measured -120): the annulment nets to zero in NO window that shows the reversal.",
+          "receivable (reportController build): max(0, rentalTotal(bookings overlapping window, status nin void/cancelled) - rentInWindow). B1 deleted its booking and voided its invoice, so the fixture rentalTotal is gone; but rentInWindow for Nov carries the lone -120 debit, so receivable = (other contracts' rentalTotal) - (-120) = baseline + 120. Hand-check for W_NOV_B1: rentalTotal=4350, rent=-120, receivable=4470. The +120 is owed by nobody: it is the arithmetic shadow of the unpaired debit.",
+          "Same double-undo in every Posted-only signed-sum consumer: ledger.ts getRecordedPurposeTotal (a reversed 120 payment on a live 300 contract would leave recorded = -120, remaining = 420) and contractReceivable.ts (postedPayments = -120, outstanding = total + 120, clamped only at >= 0). Only invoicePayment.ts escapes, because it sums only the invoice-linked payment IDs and the reversal is never linked.",
+          "Root cause: backend/src/utils/ledger.ts reverseRentalPayment performs BOTH annulment mechanisms at once - it flips the original to status Reversed (removing the credit from every Posted sum) AND posts a compensating Debit with status Posted (adding -amount to every Posted sum). Either mechanism alone nets to zero; together they net to -amount."
+        ],
+        "classification": "DEFECT (not correct windowed accounting). A fully reversed payment must net to zero in unwindowed balances in all states, and to zero in any report window covering both entries; here it nets to -120 in the measured window and +120 phantom receivable persists after the booking and invoice are gone. The cross-period dating (original value-dated 2026-11-20, reversal dated at reversal time 2026-11-06) is ordinary cash-basis contra timing and is NOT the defect; the status flip combined with the Posted contra debit is.",
+        "fixPlan": "Minimal, pattern-following: in reverseRentalPayment, create the reversal debit with status Reversed as well (the annulled pair carries Reversed on both records), so every Posted-only signed sum nets the pair to exactly zero in every window and balance, while both records stay fully visible in payment lists with direction/reversedFrom audit fields. All existing test assertions are preserved (reversal body direction/purpose/reversedFrom, replay idempotency, original status Reversed, invoice recompute to the remaining linked payments). Also fix the sibling propagation gap found in code review for the B2 story: confirmRentalPayment never recomputes linked invoices (reverseRentalPayment does), leaving invoice paidAmount stale after an accountant confirms a pending payment - add the same linked-invoice recompute loop there. Historical data note: the B1 debit already stored as Posted is not rewritten by the code fix; it remains as disclosed residue in the Nov window (no payment edit/delete route exists)."
+      },
+      "verdict": "DEFECT-CONFIRMED"
+    },
+    {
+      "n": 0,
+      "name": "auth+discovery+baselines",
+      "at": "2026-11-06T04:29:59.335Z",
+      "action": "UI sign-in as admin; Apex discovery; orphan sweep; Dec/Nov report baselines; cash+bank session baselines (reuse open sessions or open 0-balance ones)",
+      "expected": "admin session valid; baselines captured; one open cash and one open bank session for Apex",
+      "observed": {
+        "signInVia": "ui-form",
+        "decBase": {
+          "contracts": 0,
+          "fleetVehicles": 5,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 0,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 155,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "novBase": {
+          "contracts": 6,
+          "fleetVehicles": 5,
+          "revenueCollected": -120,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 4470,
+          "bookedVehicleDays": 26,
+          "fleetCapacityDays": 150,
+          "utilizationPercent": 17.33,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": -120
+        },
+        "cashSession": {
+          "id": "6aed57c73ded07b5f333f92b",
+          "openedByWalk": true,
+          "balance": 0
+        },
+        "bankSession": {
+          "id": "6aed57c73ded07b5f333f92c",
+          "openedByWalk": true,
+          "balance": 0
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 1,
+      "name": "setup-staff-actors",
+      "at": "2026-11-06T04:29:59.546Z",
+      "action": "POST /api/agency-memberships/:supplierId x3 (manager, counterAgent, accountant) - provisions staff logins with passwords held in process memory only",
+      "expected": "3 active memberships created for Apex with the requested roles",
+      "observed": {
+        "manager": "6aed57c73ded07b5f333f92d",
+        "counter": "6aed57c73ded07b5f333f92f",
+        "accountant": "6aed57c73ded07b5f333f931"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 2,
+      "name": "setup-fixture-and-booking",
+      "at": "2026-11-06T04:29:59.740Z",
+      "action": "create renter + car (2000 MAD/day) + booking 2026-12-10T10:00:00.000Z..2026-12-16T10:00:00.000Z price 12000 MAD via admin create paths",
+      "expected": "booking stored at 12000 MAD (>= 10,000 approval threshold); Dec report deltas per expectation table",
+      "observed": {
+        "bookingId": "6aed57c73ded07b5f333f935",
+        "carId": "6aed57c73ded07b5f333f934",
+        "renterId": "6aed57c73ded07b5f333f933",
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 12000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "surfaces": {
+          "rentalTotal": 12000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [],
+          "pageRemainingAsCoded": 12000,
+          "pageRentAsCoded": 0,
+          "pagePostedNetForBooking": 0,
+          "backendPostedRent": 0,
+          "backendOutstanding": 12000,
+          "invoice": null,
+          "approvals": []
+        },
+        "checks": [
+          {
+            "check": "stored price == hand-computed TOTAL",
+            "pass": true
+          },
+          {
+            "check": "dec contracts +1",
+            "pass": true
+          },
+          {
+            "check": "dec bookedVehicleDays +6",
+            "pass": true
+          },
+          {
+            "check": "dec receivable +TOTAL",
+            "pass": true
+          },
+          {
+            "check": "dec revenue 0",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding == TOTAL",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 3,
+      "name": "invoice-issue-approval-produced",
+      "at": "2026-11-06T04:29:59.851Z",
+      "action": "POST /api/invoices then POST /api/invoices/:id/issue (admin = requester)",
+      "api": {
+        "create": 201,
+        "issue": 200
+      },
+      "expected": "invoice issued; exactly one pending approval request at TOTAL in the queue",
+      "observed": {
+        "invoice": {
+          "status": "issued",
+          "total": 12000,
+          "paidAmount": 0,
+          "paymentStatus": "unpaid",
+          "number": "GA-2026-000002"
+        },
+        "approvals": [
+          {
+            "id": "6aed57c73ded07b5f333f937",
+            "status": "pending",
+            "amount": 12000,
+            "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+            "decidedBy": null
+          }
+        ],
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 12000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "checks": [
+          {
+            "check": "invoice issued with GA number",
+            "pass": true
+          },
+          {
+            "check": "invoice total == TOTAL",
+            "pass": true
+          },
+          {
+            "check": "one approval request pending",
+            "pass": true
+          },
+          {
+            "check": "approval amount == TOTAL",
+            "pass": true
+          },
+          {
+            "check": "approval requestedBy == admin (issuer)",
+            "pass": false
+          },
+          {
+            "check": "dec invoicedTotal +TOTAL",
+            "pass": false
+          },
+          {
+            "check": "dec invoicedPaid 0",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": 4,
+      "name": "counter-records-pending-payment",
+      "at": "2026-11-06T04:30:14.718Z",
+      "action": "sign in as counter agent; POST /api/rental-payments (4000 cash, rent); POST confirm (self) probe; GET /api/approvals probe; POST cash movement into caisse session; read back as admin",
+      "api": {
+        "createPayment": 201,
+        "selfConfirm": 403,
+        "approvalsList": 403,
+        "createMovement": 201
+      },
+      "expected": "payment + cash entry land as PENDING and count nowhere; counter confirm 403; counter approvals 403",
+      "observed": {
+        "signInVia": "ui-form",
+        "payment": {
+          "id": "6aed57ce3ded07b5f333f939",
+          "status": "pending",
+          "direction": "credit",
+          "amount": 4000,
+          "date": "2026-12-10T12:00:00.000Z",
+          "reversedFrom": null
+        },
+        "surfaces": {
+          "rentalTotal": 12000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "pending",
+              "direction": "credit",
+              "amount": 4000,
+              "date": "2026-12-10T12:00:00.000Z",
+              "reversedFrom": null
+            }
+          ],
+          "pageRemainingAsCoded": 8000,
+          "pageRentAsCoded": 4000,
+          "pagePostedNetForBooking": 4000,
+          "backendPostedRent": 0,
+          "backendOutstanding": 12000,
+          "invoice": {
+            "status": "issued",
+            "total": 12000,
+            "paidAmount": 0,
+            "paymentStatus": "unpaid",
+            "number": "GA-2026-000002"
+          },
+          "approvals": [
+            {
+              "id": "6aed57c73ded07b5f333f937",
+              "status": "pending",
+              "amount": 12000,
+              "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+              "decidedBy": null
+            }
+          ]
+        },
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 12000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "cashDelta": {
+          "balance": 0,
+          "pendingNet": 4000
+        },
+        "checks": [
+          {
+            "check": "payment created 201 as pending (counter-agent rule)",
+            "pass": true
+          },
+          {
+            "check": "counter cannot confirm own entry (403)",
+            "pass": true
+          },
+          {
+            "check": "counter cannot read approvals queue (403, no DecideInvoices)",
+            "pass": true
+          },
+          {
+            "check": "cash movement created 201 as pending",
+            "pass": true
+          },
+          {
+            "check": "invoice still 0/unpaid",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding still TOTAL (pending never counts)",
+            "pass": true
+          },
+          {
+            "check": "report revenue delta still 0",
+            "pass": true
+          },
+          {
+            "check": "report receivable delta still TOTAL",
+            "pass": true
+          },
+          {
+            "check": "cash confirmed delta 0 while pending",
+            "pass": true
+          },
+          {
+            "check": "cash pending delta +PAY",
+            "pass": true
+          },
+          {
+            "check": "payments-page remaining == TOTAL per decision 1.5 (pending never counts)",
+            "pass": false
+          }
+        ]
+      },
+      "verdict": "FAIL",
+      "defectRefs": [
+        "GAQ12B2-D3"
+      ]
+    },
+    {
+      "n": 5,
+      "name": "approval-blocking",
+      "at": "2026-11-06T04:30:14.745Z",
+      "action": "as admin (requester): POST /api/invoices/:id/payments (link) and POST /api/approvals/:id/decide (self-approve) while the request is pending",
+      "api": {
+        "link": 409,
+        "linkBody": "Invoice approval is pending",
+        "selfDecide": 403
+      },
+      "expected": "link 409 (Invoice approval is pending); self-decide 403 (requester cannot decide)",
+      "observed": {
+        "checks": [
+          {
+            "check": "link blocked 409 while approval pending",
+            "pass": true
+          },
+          {
+            "check": "requester self-decide blocked 403",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 6,
+      "name": "manager-approves",
+      "at": "2026-11-06T04:30:30.057Z",
+      "action": "sign in as manager staff; POST /api/approvals/:id/decide {decision: approved}",
+      "api": {
+        "decide": 200
+      },
+      "expected": "approval approved by the manager; queue record is the source of truth",
+      "observed": {
+        "signInVia": "ui-form",
+        "approvals": [
+          {
+            "id": "6aed57c73ded07b5f333f937",
+            "status": "approved",
+            "amount": 12000,
+            "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+            "decidedBy": "6aed57c73ded07b5f333f92d"
+          }
+        ],
+        "checks": [
+          {
+            "check": "decide 200",
+            "pass": true
+          },
+          {
+            "check": "approval now approved",
+            "pass": true
+          },
+          {
+            "check": "decidedBy == manager (not requester)",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 7,
+      "name": "link-pending-payment",
+      "at": "2026-11-06T04:30:30.121Z",
+      "action": "POST /api/invoices/:id/payments {payment} as admin after approval",
+      "api": {
+        "link": 200
+      },
+      "expected": "link succeeds; invoice paidAmount stays 0 until the payment itself is confirmed/posted",
+      "observed": {
+        "invoice": {
+          "status": "issued",
+          "total": 12000,
+          "paidAmount": 0,
+          "paymentStatus": "unpaid",
+          "number": "GA-2026-000002"
+        },
+        "surfaces": {
+          "rentalTotal": 12000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "pending",
+              "direction": "credit",
+              "amount": 4000,
+              "date": "2026-12-10T12:00:00.000Z",
+              "reversedFrom": null
+            }
+          ],
+          "pageRemainingAsCoded": 8000,
+          "pageRentAsCoded": 4000,
+          "pagePostedNetForBooking": 4000,
+          "backendPostedRent": 0,
+          "backendOutstanding": 12000,
+          "invoice": {
+            "status": "issued",
+            "total": 12000,
+            "paidAmount": 0,
+            "paymentStatus": "unpaid",
+            "number": "GA-2026-000002"
+          },
+          "approvals": [
+            {
+              "id": "6aed57c73ded07b5f333f937",
+              "status": "approved",
+              "amount": 12000,
+              "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+              "decidedBy": "6aed57c73ded07b5f333f92d"
+            }
+          ]
+        },
+        "checks": [
+          {
+            "check": "link 200 after approval",
+            "pass": true
+          },
+          {
+            "check": "invoice still 0/unpaid (linked payment is pending; recompute counts Posted only)",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding still TOTAL",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 8,
+      "name": "accountant-confirms-posts",
+      "at": "2026-11-06T04:30:46.507Z",
+      "action": "sign in as accountant; POST /api/rental-payments/:id/confirm; POST /api/cash/sessions/:id/movements/:id/confirm; read back as admin",
+      "api": {
+        "confirmPayment": 200,
+        "confirmMovement": 200
+      },
+      "expected": "payment posts; invoice paidAmount 4000/partial; reports revenue/invoicedPaid +4000, receivable +8000; caisse confirmed +4000",
+      "observed": {
+        "signInVia": "ui-form",
+        "payment": {
+          "id": "6aed57ce3ded07b5f333f939",
+          "status": "posted",
+          "direction": "credit",
+          "amount": 4000,
+          "date": "2026-12-10T12:00:00.000Z",
+          "reversedFrom": null
+        },
+        "invoice": {
+          "status": "issued",
+          "total": 12000,
+          "paidAmount": 0,
+          "paymentStatus": "unpaid",
+          "number": "GA-2026-000002"
+        },
+        "surfaces": {
+          "rentalTotal": 12000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "posted",
+              "direction": "credit",
+              "amount": 4000,
+              "date": "2026-12-10T12:00:00.000Z",
+              "reversedFrom": null
+            }
+          ],
+          "pageRemainingAsCoded": 8000,
+          "pageRentAsCoded": 4000,
+          "pagePostedNetForBooking": 4000,
+          "backendPostedRent": 4000,
+          "backendOutstanding": 8000,
+          "invoice": {
+            "status": "issued",
+            "total": 12000,
+            "paidAmount": 0,
+            "paymentStatus": "unpaid",
+            "number": "GA-2026-000002"
+          },
+          "approvals": [
+            {
+              "id": "6aed57c73ded07b5f333f937",
+              "status": "approved",
+              "amount": 12000,
+              "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+              "decidedBy": "6aed57c73ded07b5f333f92d"
+            }
+          ]
+        },
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 4000,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 8000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 4000
+        },
+        "cashDelta": {
+          "balance": 4000,
+          "pendingNet": 0
+        },
+        "checks": [
+          {
+            "check": "confirm payment 200 -> posted",
+            "pass": true
+          },
+          {
+            "check": "confirm cash movement 200 -> confirmed",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding == TOTAL-PAY",
+            "pass": true
+          },
+          {
+            "check": "payments-page remaining == TOTAL-PAY",
+            "pass": true
+          },
+          {
+            "check": "report revenue delta +PAY",
+            "pass": true
+          },
+          {
+            "check": "report receivable delta TOTAL-PAY",
+            "pass": true
+          },
+          {
+            "check": "report margin delta +PAY",
+            "pass": true
+          },
+          {
+            "check": "cash confirmed delta +PAY",
+            "pass": true
+          },
+          {
+            "check": "cash pending delta back to 0",
+            "pass": true
+          },
+          {
+            "check": "invoice paidAmount == PAY after confirmation",
+            "pass": false
+          },
+          {
+            "check": "invoice paymentStatus == partial",
+            "pass": false
+          },
+          {
+            "check": "report invoicedPaid delta +PAY",
+            "pass": false
+          }
+        ]
+      },
+      "verdict": "FAIL",
+      "defectRefs": [
+        "GAQ12B2-D2"
+      ]
+    },
+    {
+      "n": 9,
+      "name": "cash-to-bank-transfer",
+      "at": "2026-11-06T04:31:02.952Z",
+      "action": "sign in as manager; POST /api/cash/transfers {cash -> bank, 1500 MAD}",
+      "api": {
+        "transfer": 201
+      },
+      "expected": "paired out/in movements; caisse 2500 net, bank +1500 net; reports untouched",
+      "observed": {
+        "cashDelta": {
+          "balance": 2500,
+          "pendingNet": 0
+        },
+        "bankDelta": {
+          "balance": 1500,
+          "pendingNet": 0
+        },
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 4000,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 8000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 4000
+        },
+        "checks": [
+          {
+            "check": "transfer 201 with paired movements",
+            "pass": true
+          },
+          {
+            "check": "cash confirmed delta PAY-TRANSFER",
+            "pass": true
+          },
+          {
+            "check": "bank confirmed delta +TRANSFER",
+            "pass": true
+          },
+          {
+            "check": "report revenue unchanged by transfer",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": 10,
+      "name": "reversal-leg",
+      "at": "2026-11-06T04:31:03.158Z",
+      "action": "POST /api/rental-payments/:id/reverse as admin; read back invoice / payments-page data / contract outstanding / Dec+Nov reports / caisse+bank",
+      "api": {
+        "reverse": 201
+      },
+      "expected": "invoice 0/unpaid; contract outstanding back to TOTAL; Dec revenue/margin deltas 0 and receivable +TOTAL; Nov window shows no residual from this pair; caisse/bank unchanged (no payment->caisse propagation exists)",
+      "observed": {
+        "reversal": {
+          "id": "6aed58063ded07b5f333f93f",
+          "status": "posted",
+          "date": "2026-11-06T04:31:02.974Z"
+        },
+        "surfaces": {
+          "rentalTotal": 12000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000,
+              "date": "2026-12-10T12:00:00.000Z",
+              "reversedFrom": null
+            },
+            {
+              "id": "6aed58063ded07b5f333f93f",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 4000,
+              "date": "2026-11-06T04:31:02.974Z",
+              "reversedFrom": "6aed57ce3ded07b5f333f939"
+            }
+          ],
+          "pageRemainingAsCoded": 12000,
+          "pageRentAsCoded": 0,
+          "pagePostedNetForBooking": -4000,
+          "backendPostedRent": -4000,
+          "backendOutstanding": 16000,
+          "invoice": {
+            "status": "issued",
+            "total": 12000,
+            "paidAmount": 0,
+            "paymentStatus": "unpaid",
+            "number": "GA-2026-000002"
+          },
+          "approvals": [
+            {
+              "id": "6aed57c73ded07b5f333f937",
+              "status": "approved",
+              "amount": 12000,
+              "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+              "decidedBy": "6aed57c73ded07b5f333f92d"
+            }
+          ]
+        },
+        "decDelta": {
+          "contracts": 1,
+          "fleetVehicles": 1,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 12000,
+          "bookedVehicleDays": 6,
+          "fleetCapacityDays": 31,
+          "utilizationPercent": 3.23,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "novDeltaVsBaseline": {
+          "contracts": 0,
+          "fleetVehicles": 1,
+          "revenueCollected": -4000,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 4000,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 30,
+          "utilizationPercent": -2.89,
+          "invoiceCount": 1,
+          "invoicedTotal": 12000,
+          "invoicedPaid": 0,
+          "estimatedMargin": -4000
+        },
+        "novDeltaAcrossReversal": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": -4000,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 4000,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": -4000
+        },
+        "cashDelta": {
+          "balance": 2500,
+          "pendingNet": 0
+        },
+        "bankDelta": {
+          "balance": 1500,
+          "pendingNet": 0
+        },
+        "cashNote": "caisse/bank session totals do not move when a rental payment is reversed: RentalPayment and CashMovement are separate ledgers with no link and no movement-reversal route; the drawer correction is a manual offsetting movement (done at cleanup and disclosed).",
+        "checks": [
+          {
+            "check": "reversal 201 debit with reversedFrom",
+            "pass": true
+          },
+          {
+            "check": "invoice back to 0/unpaid (recompute on reversal)",
+            "pass": true
+          },
+          {
+            "check": "dec revenue delta back to 0",
+            "pass": true
+          },
+          {
+            "check": "dec receivable delta back to TOTAL",
+            "pass": true
+          },
+          {
+            "check": "dec margin delta back to 0",
+            "pass": true
+          },
+          {
+            "check": "dec invoicedPaid back to 0",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding back to TOTAL (annulled pair nets to zero)",
+            "pass": false
+          },
+          {
+            "check": "Nov revenue delta vs baseline == 0 for this pair (annulment nets in the reversal window too)",
+            "pass": false
+          }
+        ]
+      },
+      "verdict": "FAIL",
+      "defectRefs": [
+        "GAQ12B2-D1",
+        "GAQ12B2-D1"
+      ]
+    },
+    {
+      "n": "NOTE-1",
+      "name": "addendum-step3-and-defect-registry",
+      "at": "2026-11-06T04:32:35.935Z",
+      "action": "resolve step-3 check failures; register defects D1/D2/D3 and observations O1/O2 in the ledger",
+      "observed": {
+        "adminIdResolved": "6ae1668d7fce2c9a39cd8c84",
+        "step3RequestedBy": "check failure was a harness capture artifact: lib signIn read _id from the validate-access-token body, which carries none (state.adminId was null). The approval requestedBy 6ae1668d7fce2c9a39cd8c84 equals the admin id read back through the users list (same fallback B1 used), and step 5 independently proves requester identity server-side: the decide endpoint returned 403 for the admin attempt because requestedBy == caller.",
+        "step3InvoicedWindow": "check expectation was mis-windowed, product behavior is correct: report invoice aggregates key on invoice createdAt (reportController build), and the fixture invoice was created in real time (2026-11-06), so its count/total land in the NOVEMBER window (step 10 novDeltaVsBaseline shows invoiceCount 1, invoicedTotal 12000) and December invoiced deltas are 0 by design. Verify-phase invoicedPaid checks are therefore measured on the Nov window. Step 8s invoicedPaid failure remains a true D2 signal because the invoice paidAmount field itself stayed 0 (direct read-back), which zeroes invoicedPaid in every window.",
+        "defectsRegistered": [
+          "GAQ12B2-D1",
+          "GAQ12B2-D2",
+          "GAQ12B2-D3"
+        ],
+        "observationsRegistered": [
+          "GAQ12B2-O1",
+          "GAQ12B2-O2"
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "FIX",
+      "name": "ledger-fixes-applied",
+      "at": "2026-11-06T04:32:36.004Z",
+      "action": "patched backend/src/utils/ledger.ts (D1 reversal debit status; D2 confirm recomputes linked invoices); build + layer + restart happen in build-layer.ps1",
+      "observed": {
+        "file": "backend/src/utils/ledger.ts"
+      },
+      "verdict": "APPLIED"
+    },
+    {
+      "n": "V1a",
+      "name": "postfix-confirm-recomputes-invoice",
+      "at": "2026-11-06T04:34:26.848Z",
+      "action": "fresh counter agent records payment2 (pending) -> admin links -> fresh accountant confirms -> read back invoice + reports",
+      "expected": "invoice paidAmount moves to 4000/partial at confirmation (D2 fixed); reports invoicedPaid follows",
+      "observed": {
+        "invoice": {
+          "status": "issued",
+          "total": 12000,
+          "paidAmount": 4000,
+          "paymentStatus": "partial",
+          "number": "GA-2026-000002"
+        },
+        "backendPostedRent": 0,
+        "backendOutstanding": 12000,
+        "decDeltaAcrossPayment2": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": 4000,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": -4000,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 4000
+        },
+        "checks": [
+          {
+            "check": "payment2 created pending (counter rule still intact)",
+            "pass": true
+          },
+          {
+            "check": "link2 200",
+            "pass": true
+          },
+          {
+            "check": "confirm2 200",
+            "pass": true
+          },
+          {
+            "check": "D2 FIXED: invoice paidAmount == 4000 after confirmation",
+            "pass": true
+          },
+          {
+            "check": "D2 FIXED: invoice paymentStatus == partial",
+            "pass": true
+          },
+          {
+            "check": "D2 FIXED: report invoicedPaid delta +4000 across confirm (Nov window: invoice aggregates key on invoice createdAt, real-time Nov)",
+            "pass": true
+          },
+          {
+            "check": "report revenue delta +4000 across payment2",
+            "pass": true
+          },
+          {
+            "check": "backend outstanding == 12000 with disclosed leg1 residue (posted sum = -4000 leg1 debit + 4000 payment2)",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "V1b",
+      "name": "postfix-reversal-nets-zero-nov-window",
+      "at": "2026-11-06T04:34:26.977Z",
+      "action": "reverse payment2 (post-fix code); re-measure the SAME November window used by the Task-1 trace and by the pre-fix reversal leg",
+      "expected": "the post-fix pair nets to zero in the Nov window (pre-fix leg moved it -4000) and in Dec; invoice returns to 0/unpaid",
+      "observed": {
+        "reversal2": {
+          "id": "6aed58d22a25a97a3caeb982",
+          "status": "reversed",
+          "date": "2026-11-06T04:34:26.862Z"
+        },
+        "novDeltaAcrossLeg": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 0,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "decDeltaAcrossLeg": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 0,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "invoice": {
+          "status": "issued",
+          "total": 12000,
+          "paidAmount": 0,
+          "paymentStatus": "unpaid",
+          "number": "GA-2026-000002"
+        },
+        "checks": [
+          {
+            "check": "reversal2 201; body status is reversed (annulled pair)",
+            "pass": true
+          },
+          {
+            "check": "invoice back to 0/unpaid",
+            "pass": true
+          },
+          {
+            "check": "D1 FIXED (same Nov window): Nov revenue delta across the whole leg == 0",
+            "pass": true
+          },
+          {
+            "check": "D1 FIXED (same Nov window): Nov receivable delta across the whole leg == 0",
+            "pass": true
+          },
+          {
+            "check": "Dec revenue delta across the whole leg == 0",
+            "pass": true
+          },
+          {
+            "check": "Nov invoicedPaid delta across the whole leg == 0",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "V2",
+      "name": "postfix-clean-annulment-booking2",
+      "at": "2026-11-06T04:34:27.194Z",
+      "action": "fresh booking2 (2000 MAD, Dec 20-21): admin payment 500 posted -> reverse (post-fix) -> read back contract + Dec/Nov reports",
+      "expected": "the annulled pair nets to zero everywhere with no residue term: outstanding returns to exactly the contract total",
+      "observed": {
+        "surfacesMid": {
+          "rentalTotal": 2000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed58d32a25a97a3caeb984",
+              "status": "posted",
+              "direction": "credit",
+              "amount": 500,
+              "date": "2026-12-20T12:00:00.000Z",
+              "reversedFrom": null
+            }
+          ],
+          "pageRemainingAsCoded": 1500,
+          "pageRentAsCoded": 500,
+          "pagePostedNetForBooking": 500,
+          "backendPostedRent": 500,
+          "backendOutstanding": 1500,
+          "invoice": null,
+          "approvals": []
+        },
+        "surfacesAfter": {
+          "rentalTotal": 2000,
+          "bookingStatus": "reserved",
+          "lifecycle": "draft",
+          "payments": [
+            {
+              "id": "6aed58d32a25a97a3caeb984",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500,
+              "date": "2026-12-20T12:00:00.000Z",
+              "reversedFrom": null
+            },
+            {
+              "id": "6aed58d32a25a97a3caeb985",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500,
+              "date": "2026-11-06T04:34:27.116Z",
+              "reversedFrom": "6aed58d32a25a97a3caeb984"
+            }
+          ],
+          "pageRemainingAsCoded": 2000,
+          "pageRentAsCoded": 0,
+          "pagePostedNetForBooking": 0,
+          "backendPostedRent": 0,
+          "backendOutstanding": 2000,
+          "invoice": null,
+          "approvals": []
+        },
+        "decDelta": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 0,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "novDelta": {
+          "contracts": 0,
+          "fleetVehicles": 0,
+          "revenueCollected": 0,
+          "depositsCollected": 0,
+          "expenses": 0,
+          "receivable": 0,
+          "bookedVehicleDays": 0,
+          "fleetCapacityDays": 0,
+          "utilizationPercent": 0,
+          "invoiceCount": 0,
+          "invoicedTotal": 0,
+          "invoicedPaid": 0,
+          "estimatedMargin": 0
+        },
+        "checks": [
+          {
+            "check": "payment3 posted by admin",
+            "pass": true
+          },
+          {
+            "check": "mid-state outstanding 1500",
+            "pass": true
+          },
+          {
+            "check": "reversal3 201",
+            "pass": true
+          },
+          {
+            "check": "D1 FIXED (clean contract): outstanding back to exactly 2000",
+            "pass": true
+          },
+          {
+            "check": "D1 FIXED (clean contract): posted rent sum back to 0",
+            "pass": true
+          },
+          {
+            "check": "Dec revenue delta back to 0 after reversal",
+            "pass": true
+          },
+          {
+            "check": "Dec receivable delta back to 0 after reversal",
+            "pass": true
+          },
+          {
+            "check": "Nov revenue delta across reversal == 0",
+            "pass": true
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "V3",
+      "name": "task1-windows-postfix",
+      "at": "2026-11-06T04:34:27.241Z",
+      "action": "re-run the Task-1 report windows after the fix (B1 pair data is historical and unrewritten)",
+      "expected": "B1 window still shows the pre-fix pair stored in data (revenue -120 from the B1 debit, -4120 absolute in Nov including the B2 pre-fix leg1 debit of -4000); post-fix pairs (payment2, payment3) contribute 0 to every window, as proven in V1b/V2 by before/after deltas on the same windows",
+      "observed": {
+        "windows": {
+          "W_NOV_B1": {
+            "revenueCollected": -4120,
+            "receivable": 8470,
+            "estimatedMargin": -4120
+          },
+          "W_ORIG_ONLY": {
+            "revenueCollected": 0,
+            "receivable": 2210,
+            "estimatedMargin": 0
+          },
+          "W_REV_ONLY": {
+            "revenueCollected": -4120,
+            "receivable": 8090,
+            "estimatedMargin": -4120
+          },
+          "W_BOTH_WIDE": {
+            "revenueCollected": -4120,
+            "receivable": 22795,
+            "estimatedMargin": -4120
+          }
+        },
+        "note": "Absolute Nov revenue now = B1 residue (-120) + B2 leg1 pre-fix residue (-4000) = -4120. The code fix prevents new occurrences; rewriting stored payment history is impossible through the API (no edit/delete route for rental payments) and was not attempted."
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "FIX-ADMIN",
+      "name": "payments-page-posted-only-fix",
+      "at": "2026-11-06T04:36:25.641Z",
+      "action": "patched admin/src/pages/Payments.tsx (paymentTotals + postedNetTotal count Posted/status-less payments only, mirroring backend postedMatch); admin build + layer in build-layer-admin.ps1",
+      "observed": {
+        "file": "admin/src/pages/Payments.tsx"
+      },
+      "verdict": "APPLIED"
+    },
+    {
+      "n": "CLEANUP",
+      "name": "cleanup-by-exact-id",
+      "at": "2026-11-06T12:50:37.378Z",
+      "action": "void invoice; delete bookings/car/users; caisse offsets to zero; close walk-opened sessions; suspend memberships; read-backs (finalize script after cleanup.mjs exited in its read-back section)",
+      "observed": {
+        "at": "2026-11-06T12:50:37.265Z",
+        "actions": [
+          {
+            "name": "void-invoice",
+            "status": 200
+          },
+          {
+            "name": "delete-booking",
+            "status": 200
+          },
+          {
+            "name": "delete-booking2",
+            "status": 200
+          },
+          {
+            "name": "delete-car",
+            "status": 200
+          },
+          {
+            "name": "offset-cash-movement",
+            "status": 201,
+            "note": "from cleanup.mjs run transcript 2026-11-06 resume"
+          },
+          {
+            "name": "offset-bank-movement",
+            "status": 201,
+            "note": "from cleanup.mjs run transcript 2026-11-06 resume"
+          },
+          {
+            "name": "close-session-cash",
+            "status": 200
+          },
+          {
+            "name": "close-session-bank",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_counter",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_accountant",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_counter2",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_accountant2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_counter",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_accountant",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_counter2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_accountant2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-renter",
+            "status": 200
+          }
+        ],
+        "readBack": {
+          "bookingGetStatus": 204,
+          "booking2GetStatus": 204,
+          "carGetStatus": 204,
+          "usersKeywordCount": 0,
+          "carsKeywordCount": 0,
+          "decReportDeltaVsBaseline": {
+            "contracts": 0,
+            "fleetVehicles": 0,
+            "revenueCollected": 0,
+            "depositsCollected": 0,
+            "expenses": 0,
+            "receivable": 0,
+            "bookedVehicleDays": 0,
+            "fleetCapacityDays": 0,
+            "utilizationPercent": 0,
+            "invoiceCount": 0,
+            "invoicedTotal": 0,
+            "invoicedPaid": 0,
+            "estimatedMargin": 0
+          },
+          "novReportDeltaVsBaseline": {
+            "contracts": 0,
+            "fleetVehicles": 0,
+            "revenueCollected": -4000,
+            "depositsCollected": 0,
+            "expenses": 0,
+            "receivable": 4000,
+            "bookedVehicleDays": 0,
+            "fleetCapacityDays": 0,
+            "utilizationPercent": 0,
+            "invoiceCount": 0,
+            "invoicedTotal": 0,
+            "invoicedPaid": 0,
+            "estimatedMargin": -4000
+          },
+          "cashSessionFinal": {
+            "account": "cash",
+            "status": "closed",
+            "openingBalance": 0,
+            "balance": 0,
+            "confirmedNet": 0,
+            "pendingNet": 0,
+            "movementCount": 3,
+            "movements": [
+              {
+                "id": "6aed57ce3ded07b5f333f93a",
+                "direction": "in",
+                "amount": 4000,
+                "status": "confirmed",
+                "source": "manual",
+                "transferId": null,
+                "reference": "GAQ12B2-PAY-1"
+              },
+              {
+                "id": "6aedccd2bcb3c1762c7d3f1b",
+                "direction": "out",
+                "amount": 2500,
+                "status": "confirmed",
+                "source": "adjustment",
+                "transferId": null,
+                "reference": "GAQ12B2-OFFSET-CASH"
+              },
+              {
+                "id": "6aed57fe3ded07b5f333f93d",
+                "direction": "out",
+                "amount": 1500,
+                "status": "confirmed",
+                "source": "transfer",
+                "transferId": "6aed57fe3ded07b5f333f93e",
+                "reference": "GAQ12B2-TRF-1"
+              }
+            ]
+          },
+          "bankSessionFinal": {
+            "account": "bank",
+            "status": "closed",
+            "openingBalance": 0,
+            "balance": 0,
+            "confirmedNet": 0,
+            "pendingNet": 0,
+            "movementCount": 2,
+            "movements": [
+              {
+                "id": "6aedccd2bcb3c1762c7d3f1c",
+                "direction": "out",
+                "amount": 1500,
+                "status": "confirmed",
+                "source": "adjustment",
+                "transferId": null,
+                "reference": "GAQ12B2-OFFSET-BANK"
+              },
+              {
+                "id": "6aed57fe3ded07b5f333f93e",
+                "direction": "in",
+                "amount": 1500,
+                "status": "confirmed",
+                "source": "transfer",
+                "transferId": "6aed57fe3ded07b5f333f93d",
+                "reference": "GAQ12B2-TRF-1"
+              }
+            ]
+          }
+        },
+        "residue": [
+          {
+            "type": "RentalPayment (story payment 1, reversed pre-fix)",
+            "id": "6aed57ce3ded07b5f333f939",
+            "why": "no delete route for rental payments; reversed in walk leg S10 on pre-fix code - its reversal debit remains Posted (pre-fix data artifact, contributes -4000 to Nov-window revenue and +4000 to Nov receivable until data is corrected outside the API)"
+          },
+          {
+            "type": "RentalPayment (leg1 reversal debit, Posted - pre-fix artifact)",
+            "id": "6aed58063ded07b5f333f93f",
+            "why": "no delete route; created by pre-fix reverseRentalPayment with status Posted (defect GAQ12B2-D1, fixed in code for future reversals)"
+          },
+          {
+            "type": "RentalPayment (payment2, reversed post-fix)",
+            "id": "6aed58b92a25a97a3caeb980",
+            "why": "no delete route; annulled pair (both records Reversed) nets to zero in every window and balance"
+          },
+          {
+            "type": "RentalPayment (payment2 reversal debit, Reversed)",
+            "id": "6aed58d22a25a97a3caeb982",
+            "why": "no delete route; post-fix annulment record"
+          },
+          {
+            "type": "RentalPayment (booking2 payment, reversed post-fix)",
+            "id": "6aed58d32a25a97a3caeb984",
+            "why": "no delete route; annulled pair nets to zero"
+          },
+          {
+            "type": "RentalPayment (booking2 reversal debit, Reversed)",
+            "id": "6aed58d32a25a97a3caeb985",
+            "why": "no delete route; post-fix annulment record"
+          },
+          {
+            "type": "Invoice (voided)",
+            "id": "6aed57c73ded07b5f333f936",
+            "why": "no delete route for invoices; voided so it is excluded from report invoiced totals"
+          },
+          {
+            "type": "Approval (approved, decided)",
+            "id": "6aed57c73ded07b5f333f937",
+            "why": "no delete route for approvals; decided queue record remains as the audit source of truth"
+          },
+          {
+            "type": "CashMovement (cashMovement)",
+            "id": "6aed57ce3ded07b5f333f93a",
+            "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+          },
+          {
+            "type": "CashMovement (transferOut)",
+            "id": "6aed57fe3ded07b5f333f93d",
+            "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+          },
+          {
+            "type": "CashMovement (transferIn)",
+            "id": "6aed57fe3ded07b5f333f93e",
+            "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+          },
+          {
+            "type": "CashMovement (offsetCashMovement)",
+            "id": "6aedccd2bcb3c1762c7d3f1b",
+            "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+          },
+          {
+            "type": "CashMovement (offsetBankMovement)",
+            "id": "6aedccd2bcb3c1762c7d3f1c",
+            "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+          },
+          {
+            "type": "CashSession (opened by walk, closed at cleanup)",
+            "id": "6aed57c73ded07b5f333f92b",
+            "why": "no delete route for cash sessions; closed with discrepancy 0"
+          },
+          {
+            "type": "CashSession (opened by walk, closed at cleanup)",
+            "id": "6aed57c73ded07b5f333f92c",
+            "why": "no delete route for cash sessions; closed with discrepancy 0"
+          },
+          {
+            "type": "AgencyMembership (membership_manager, suspended)",
+            "id": "6aed57c73ded07b5f333f92e",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_counter, suspended)",
+            "id": "6aed57c73ded07b5f333f930",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_accountant, suspended)",
+            "id": "6aed57c73ded07b5f333f932",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_counter2, suspended)",
+            "id": "6aed58b12a25a97a3caeb97c",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_accountant2, suspended)",
+            "id": "6aed58b12a25a97a3caeb97e",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "Invoice number counter",
+            "id": "GA-2026 sequence incremented by 1",
+            "why": "system Counter document is a sequence, not a fixture record"
+          }
+        ],
+        "note": "Mutations executed by cleanup.mjs on resume (2026-11-06); that process exited during its read-back section before persisting ledger.cleanup. Actions above are transcribed from its stdout; read-backs below were re-measured by this finalize script."
+      },
+      "verdict": "DONE"
+    }
+  ],
+  "defects": [
+    {
+      "id": "GAQ12B2-D1",
+      "title": "Payment reversal double-undo: annulled pair nets to -amount in every Posted-only signed sum",
+      "severity": "money coherence defect (Task-1 named trace + walk step 10)",
+      "rootCause": "backend/src/utils/ledger.ts reverseRentalPayment flips the original to status Reversed (removing its credit from every Posted-only signed sum) AND creates the compensating debit with status Posted (adding -amount to the same sums). Consumers: reportController.ts:63 (windowed revenue/receivable/margin), contractReceivable.ts:29-56 (contract outstanding), ledger.ts getRecordedPurposeTotal (remaining-balance guard), admin Payments.tsx postedNetTotal.",
+      "evidence": "Trace T1-1/T1-2: B1 pair (original 6aed318d257b892b04a8b048 credit 120 date 2026-11-20 status reversed; reversal 6aed35d33ded07b5f333f92a debit 120 date 2026-11-06 status posted) contributes -120 to revenue in the B1 Nov window and in a wide Oct-Dec window containing BOTH records; receivable 4470 = 4350 - (-120). Walk S10 (live, 4000 MAD): backendPostedRent -4000, contract outstanding 16000 on a 12000 contract, Nov revenue -4000 / receivable +4000 across the reversal.",
+      "fix": "ledger.ts: reversal debit is created with status Reversed (annulled pair carries Reversed on both records); see fix.mjs + FIX step. Verified in V1b/V2."
+    },
+    {
+      "id": "GAQ12B2-D2",
+      "title": "Confirming a pending payment never recomputes linked invoices (invoice paidAmount goes stale)",
+      "severity": "money coherence defect (walk step 8)",
+      "rootCause": "backend/src/utils/ledger.ts confirmRentalPayment posts the payment but, unlike reverseRentalPayment, never calls recomputeInvoicePayment for invoices linked to the payment (utils/invoicePayment.ts). Reports invoicedPaid sums the stored invoice.paidAmount, so it goes stale the same way.",
+      "evidence": "Walk S8: accountant confirms the 4000 payment (posted; contract outstanding 8000; report revenue +4000; caisse +4000) but the linked invoice still reads paidAmount 0 / unpaid and report invoicedPaid delta stays 0.",
+      "fix": "ledger.ts: confirmRentalPayment mirrors the reversal path and recomputes every linked invoice after posting; see fix.mjs + FIX step. Verified in V1a."
+    },
+    {
+      "id": "GAQ12B2-D3",
+      "title": "Payments page amount-due counts pending (and reversed-original) payments as received",
+      "severity": "money coherence defect, admin frontend (walk step 4)",
+      "rootCause": "admin/src/pages/Payments.tsx paymentTotals reduce sums every payment for a booking regardless of status (direction-signed only), so a counter-agent PENDING entry reduces the page amount-due/remaining immediately, contradicting decision 1.5 (pending entries never count toward recorded totals) and every backend consumer (Posted-only). Its sibling postedNetTotal skips only status reversed and also counts pending. After a reversal the same status-blind sum is right only by accident (it counts both the reversed credit and the Posted debit).",
+      "evidence": "Walk S4: with the 4000 payment pending, page-formula remaining = 8000 while backend outstanding = 12000 and reports revenue delta = 0. Walk S10: page-formula remaining = 12000 (accidentally correct) while the page postedNet for the booking = -4000.",
+      "fix": "Payments.tsx: paymentTotals and postedNetTotal count only Posted (or legacy status-less) payments, mirroring backend postedMatch semantics; see fix-admin step. (Separate admin build/layer.)"
+    }
+  ],
+  "observations": [
+    {
+      "id": "GAQ12B2-O1",
+      "title": "Payment reversal does not propagate to the caisse (separate ledgers, no movement-reversal route)",
+      "evidence": "Walk S10: after the rental payment reversal, cash session delta stayed +2500 and bank +1500. RentalPayment and CashMovement share no link; CashMovement has no reverse/delete route, so the drawer correction is a manual offsetting movement (performed at cleanup, labeled GAQ12B2-OFFSET-*). Recorded as an observation/design note, not fixed."
+    },
+    {
+      "id": "GAQ12B2-O2",
+      "title": "Confirm endpoints are API-only: the admin UI exposes no confirm action for pending payments or cash movements",
+      "evidence": "admin/src/services/RentalPaymentService.ts has list/create/reverse only; CashService.ts has no confirmMovement call, although both backend routes exist and are exercised in this walk. Pending entries therefore cannot be confirmed from the shipped UI. Observation only."
+    }
+  ],
+  "notes": [],
+  "cleanup": {
+    "at": "2026-11-06T12:50:37.265Z",
+    "actions": [
+      {
+        "name": "void-invoice",
+        "status": 200
+      },
+      {
+        "name": "delete-booking",
+        "status": 200
+      },
+      {
+        "name": "delete-booking2",
+        "status": 200
+      },
+      {
+        "name": "delete-car",
+        "status": 200
+      },
+      {
+        "name": "offset-cash-movement",
+        "status": 201,
+        "note": "from cleanup.mjs run transcript 2026-11-06 resume"
+      },
+      {
+        "name": "offset-bank-movement",
+        "status": 201,
+        "note": "from cleanup.mjs run transcript 2026-11-06 resume"
+      },
+      {
+        "name": "close-session-cash",
+        "status": 200
+      },
+      {
+        "name": "close-session-bank",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_counter",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_accountant",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_counter2",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_accountant2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_counter",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_accountant",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_counter2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_accountant2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-renter",
+        "status": 200
+      }
+    ],
+    "readBack": {
+      "bookingGetStatus": 204,
+      "booking2GetStatus": 204,
+      "carGetStatus": 204,
+      "usersKeywordCount": 0,
+      "carsKeywordCount": 0,
+      "decReportDeltaVsBaseline": {
+        "contracts": 0,
+        "fleetVehicles": 0,
+        "revenueCollected": 0,
+        "depositsCollected": 0,
+        "expenses": 0,
+        "receivable": 0,
+        "bookedVehicleDays": 0,
+        "fleetCapacityDays": 0,
+        "utilizationPercent": 0,
+        "invoiceCount": 0,
+        "invoicedTotal": 0,
+        "invoicedPaid": 0,
+        "estimatedMargin": 0
+      },
+      "novReportDeltaVsBaseline": {
+        "contracts": 0,
+        "fleetVehicles": 0,
+        "revenueCollected": -4000,
+        "depositsCollected": 0,
+        "expenses": 0,
+        "receivable": 4000,
+        "bookedVehicleDays": 0,
+        "fleetCapacityDays": 0,
+        "utilizationPercent": 0,
+        "invoiceCount": 0,
+        "invoicedTotal": 0,
+        "invoicedPaid": 0,
+        "estimatedMargin": -4000
+      },
+      "cashSessionFinal": {
+        "account": "cash",
+        "status": "closed",
+        "openingBalance": 0,
+        "balance": 0,
+        "confirmedNet": 0,
+        "pendingNet": 0,
+        "movementCount": 3,
+        "movements": [
+          {
+            "id": "6aed57ce3ded07b5f333f93a",
+            "direction": "in",
+            "amount": 4000,
+            "status": "confirmed",
+            "source": "manual",
+            "transferId": null,
+            "reference": "GAQ12B2-PAY-1"
+          },
+          {
+            "id": "6aedccd2bcb3c1762c7d3f1b",
+            "direction": "out",
+            "amount": 2500,
+            "status": "confirmed",
+            "source": "adjustment",
+            "transferId": null,
+            "reference": "GAQ12B2-OFFSET-CASH"
+          },
+          {
+            "id": "6aed57fe3ded07b5f333f93d",
+            "direction": "out",
+            "amount": 1500,
+            "status": "confirmed",
+            "source": "transfer",
+            "transferId": "6aed57fe3ded07b5f333f93e",
+            "reference": "GAQ12B2-TRF-1"
+          }
+        ]
+      },
+      "bankSessionFinal": {
+        "account": "bank",
+        "status": "closed",
+        "openingBalance": 0,
+        "balance": 0,
+        "confirmedNet": 0,
+        "pendingNet": 0,
+        "movementCount": 2,
+        "movements": [
+          {
+            "id": "6aedccd2bcb3c1762c7d3f1c",
+            "direction": "out",
+            "amount": 1500,
+            "status": "confirmed",
+            "source": "adjustment",
+            "transferId": null,
+            "reference": "GAQ12B2-OFFSET-BANK"
+          },
+          {
+            "id": "6aed57fe3ded07b5f333f93e",
+            "direction": "in",
+            "amount": 1500,
+            "status": "confirmed",
+            "source": "transfer",
+            "transferId": "6aed57fe3ded07b5f333f93d",
+            "reference": "GAQ12B2-TRF-1"
+          }
+        ]
+      }
+    },
+    "residue": [
+      {
+        "type": "RentalPayment (story payment 1, reversed pre-fix)",
+        "id": "6aed57ce3ded07b5f333f939",
+        "why": "no delete route for rental payments; reversed in walk leg S10 on pre-fix code - its reversal debit remains Posted (pre-fix data artifact, contributes -4000 to Nov-window revenue and +4000 to Nov receivable until data is corrected outside the API)"
+      },
+      {
+        "type": "RentalPayment (leg1 reversal debit, Posted - pre-fix artifact)",
+        "id": "6aed58063ded07b5f333f93f",
+        "why": "no delete route; created by pre-fix reverseRentalPayment with status Posted (defect GAQ12B2-D1, fixed in code for future reversals)"
+      },
+      {
+        "type": "RentalPayment (payment2, reversed post-fix)",
+        "id": "6aed58b92a25a97a3caeb980",
+        "why": "no delete route; annulled pair (both records Reversed) nets to zero in every window and balance"
+      },
+      {
+        "type": "RentalPayment (payment2 reversal debit, Reversed)",
+        "id": "6aed58d22a25a97a3caeb982",
+        "why": "no delete route; post-fix annulment record"
+      },
+      {
+        "type": "RentalPayment (booking2 payment, reversed post-fix)",
+        "id": "6aed58d32a25a97a3caeb984",
+        "why": "no delete route; annulled pair nets to zero"
+      },
+      {
+        "type": "RentalPayment (booking2 reversal debit, Reversed)",
+        "id": "6aed58d32a25a97a3caeb985",
+        "why": "no delete route; post-fix annulment record"
+      },
+      {
+        "type": "Invoice (voided)",
+        "id": "6aed57c73ded07b5f333f936",
+        "why": "no delete route for invoices; voided so it is excluded from report invoiced totals"
+      },
+      {
+        "type": "Approval (approved, decided)",
+        "id": "6aed57c73ded07b5f333f937",
+        "why": "no delete route for approvals; decided queue record remains as the audit source of truth"
+      },
+      {
+        "type": "CashMovement (cashMovement)",
+        "id": "6aed57ce3ded07b5f333f93a",
+        "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+      },
+      {
+        "type": "CashMovement (transferOut)",
+        "id": "6aed57fe3ded07b5f333f93d",
+        "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+      },
+      {
+        "type": "CashMovement (transferIn)",
+        "id": "6aed57fe3ded07b5f333f93e",
+        "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+      },
+      {
+        "type": "CashMovement (offsetCashMovement)",
+        "id": "6aedccd2bcb3c1762c7d3f1b",
+        "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+      },
+      {
+        "type": "CashMovement (offsetBankMovement)",
+        "id": "6aedccd2bcb3c1762c7d3f1c",
+        "why": "no delete/reverse route for cash movements; fixture movements net to zero across the two sessions after the cleanup offsets"
+      },
+      {
+        "type": "CashSession (opened by walk, closed at cleanup)",
+        "id": "6aed57c73ded07b5f333f92b",
+        "why": "no delete route for cash sessions; closed with discrepancy 0"
+      },
+      {
+        "type": "CashSession (opened by walk, closed at cleanup)",
+        "id": "6aed57c73ded07b5f333f92c",
+        "why": "no delete route for cash sessions; closed with discrepancy 0"
+      },
+      {
+        "type": "AgencyMembership (membership_manager, suspended)",
+        "id": "6aed57c73ded07b5f333f92e",
+        "why": "no delete route for memberships; suspended and the staff user deleted"
+      },
+      {
+        "type": "AgencyMembership (membership_counter, suspended)",
+        "id": "6aed57c73ded07b5f333f930",
+        "why": "no delete route for memberships; suspended and the staff user deleted"
+      },
+      {
+        "type": "AgencyMembership (membership_accountant, suspended)",
+        "id": "6aed57c73ded07b5f333f932",
+        "why": "no delete route for memberships; suspended and the staff user deleted"
+      },
+      {
+        "type": "AgencyMembership (membership_counter2, suspended)",
+        "id": "6aed58b12a25a97a3caeb97c",
+        "why": "no delete route for memberships; suspended and the staff user deleted"
+      },
+      {
+        "type": "AgencyMembership (membership_accountant2, suspended)",
+        "id": "6aed58b12a25a97a3caeb97e",
+        "why": "no delete route for memberships; suspended and the staff user deleted"
+      },
+      {
+        "type": "Invoice number counter",
+        "id": "GA-2026 sequence incremented by 1",
+        "why": "system Counter document is a sequence, not a fixture record"
+      }
+    ],
+    "note": "Mutations executed by cleanup.mjs on resume (2026-11-06); that process exited during its read-back section before persisting ledger.cleanup. Actions above are transcribed from its stdout; read-backs below were re-measured by this finalize script."
+  },
+  "finishedAt": "2026-11-06T12:50:37.376Z"
+}

@@ -202,7 +202,7 @@ ${i18n.t('REGARDS')}<br>
     res.json(car)
   } catch (err) {
     logger.error(`[car.create] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -391,7 +391,7 @@ export const update = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[car.update] ${i18n.t('ERROR')} ${_id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -409,6 +409,18 @@ export const checkCar = async (req: Request, res: Response) => {
 
   try {
     const _id = new mongoose.Types.ObjectId(id)
+    if (req.user?.type !== bookcarsTypes.UserType.Admin) {
+      // Scope the check to the caller's agency: without this, any agency
+      // could probe whether another agency's car has bookings.
+      const agencyId = agencySupplierId(req)
+      const ownCar = agencyId
+        ? await Car.findOne({ _id, supplier: new mongoose.Types.ObjectId(agencyId) }).select('_id').lean()
+        : null
+      if (!ownCar) {
+        res.sendStatus(204)
+        return
+      }
+    }
     const count = await Booking
       .find({ car: _id })
       .limit(1)
@@ -422,7 +434,7 @@ export const checkCar = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[car.check] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -457,7 +469,7 @@ export const validateLicensePlate = async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error(`[car.validateLicensePlate] ${i18n.t('ERROR')} ${licensePlate}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -492,7 +504,7 @@ export const validateCarLicensePlate = async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error(`[car.validateLicensePlate] ${i18n.t('ERROR')} ${licensePlate}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -549,7 +561,7 @@ export const deleteCar = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[car.delete] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -587,7 +599,7 @@ export const createImage = async (req: Request, res: Response) => {
     res.json(filename)
   } catch (err) {
     logger.error(`[car.createImage] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -660,7 +672,7 @@ export const updateImage = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[car.updateImage] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -707,7 +719,7 @@ export const deleteImage = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[car.deleteImage] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -755,7 +767,7 @@ export const deleteTempImage = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[car.deleteTempImage] ${i18n.t('ERROR')} ${image}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -813,7 +825,7 @@ export const getCar = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[car.getCar] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1035,7 +1047,7 @@ export const getCars = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[car.getCars] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1100,7 +1112,7 @@ export const getBookingCars = async (req: Request, res: Response) => {
     res.json(cars)
   } catch (err) {
     logger.error(`[car.getBookingCars] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1324,12 +1336,20 @@ export const getFrontendCars = async (req: Request, res: Response) => {
                         ]
                       },
                       {
-                        $or: [
-                          { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
+                        $and: [
+                          // Terminal lifecycles (completed/cancelled contracts)
+                          // no longer reserve the car (GAQ12B1, mirrors the
+                          // enforcement helper's lifecycle exclusion).
+                          { $not: { $in: ['$lifecycle', [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled]] } },
                           {
-                            $and: [
-                              { $eq: ['$status', bookcarsTypes.BookingStatus.Void] },
-                              { $gt: ['$expireAt', new Date()] },
+                            $or: [
+                              { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
+                              {
+                                $and: [
+                                  { $eq: ['$status', bookcarsTypes.BookingStatus.Void] },
+                                  { $gt: ['$expireAt', new Date()] },
+                                ],
+                              },
                             ],
                           },
                         ],
@@ -1441,7 +1461,7 @@ export const getFrontendCars = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[car.getFrontendCars] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 

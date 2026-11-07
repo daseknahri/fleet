@@ -1,0 +1,298 @@
+{
+  "slice": "GA-Q12-A4 frontend consistency sweep (list/filter behavior, format audit, responsive+RTL)",
+  "date": "2026-11-06",
+  "app": "frontend (customer) http://localhost:8080",
+  "method": "Code-first audit of every list/filter/format surface in frontend/src, browser-confirmed via CDP (automation Chrome 127.0.0.1:9229) in fr + ar at 375px and 1440px. Search composition verified live on San Francisco Airport (SFO, 5 seeded cars). Signed-in pages visited as the documented dev customer through the real sign-in UI (credentials parsed from SETUP.md at runtime, memory only, never printed or stored). No booking or payment was completed; checkout was measured at the review step only. Raw evidence: C:\\Users\\Yassi\\ga-q12-work-fe\\a4-probe.json (baseline), a4-detail3.json (booking detail baseline), a4-verify.json (post-fix).",
+  "behaviorMatrix": [
+    {
+      "screen": "Search (/search)",
+      "shape": "Two-column: col-1 = CarFilter form (pickup/dropoff LocationSelectList, from/to DateTimePicker, same-location checkbox; submit-applied) + map + 'SHOW/HIDE FILTERS' toggle button revealing 11 Accordion filter groups: Supplier (checkbox logos, only rendered when >1 supplier), Rating (radio 1-4 stars / Any, single value), Range (checkbox multi), Multimedia (checkbox multi), Seats (radio 2/4/5/5+ / Any, single value -1/2/4/5/6), Specs (checkbox multi), Car Type (checkbox multi), Gearbox (checkbox multi), Mileage (checkbox multi), Fuel Policy (checkbox multi), Deposit (radio thresholds). No price filter exists (deposit threshold is the closest) and there is NO sort control anywhere on the screen. Col-2 = CarList cards.",
+      "composition": "All sidebar filters are held as separate state in Search.tsx and passed together into CarService.getCars payload (and into getFrontendSuppliers); CarList refetches on any change and resets to page 1. LIVE-VERIFIED composing in fr and ar (see filterCompositionEvidence).",
+      "pagination": "CLASSIC Pager (prev/next + 'x-y of N') on desktop, CARS_PAGE_SIZE=15; infinite scroll on mobile (env.isMobile) or when PAGINATION_MODE=INFINITE_SCROLL. Count header '(N cars available)' from totalRecords sits above the cards.",
+      "empty": "CarList EMPTY_LIST card when 0 results."
+    },
+    {
+      "screen": "Customer bookings (/bookings)",
+      "shape": "Left column (always visible, not behind a toggle): SupplierFilter (same checkbox component as Search), StatusFilter (checkbox list of booking statuses), BookingFilter Accordion form (From/To DatePickers via the ar-aware DatePicker, pickup/dropoff LocationSelectList, keyword text field with clear button; submit-applied via SEARCH button). No sort control of its own; desktop DataGrid columns are sortable by header (except the action column).",
+      "composition": "BookingList payload combines suppliers + statuses + filter (dates/locations/keyword) + car + user in one getBookings call; sidebar checkbox filters apply immediately, BookingFilter applies on submit. Same immediate-vs-submit split as Search (CarFilter submit + sidebar live).",
+      "pagination": "Desktop: MUI DataGrid server pagination, BOOKINGS_PAGE_SIZE=20 (paginationModel). Mobile: card list with infinite append, BOOKINGS_MOBILE_PAGE_SIZE=10.",
+      "empty": "DataGrid localized EMPTY_LIST state on desktop; mobile card variant renders rows only (already filed in A3)."
+    },
+    {
+      "screen": "Locations (/locations)",
+      "shape": "No list, no filter, no search, no pagination: a full-screen Leaflet map of all locations with positions; clicking a marker opens a dialog containing the standard SearchForm (ranges preselected to all).",
+      "composition": "n/a - the only action is map-marker -> booking search for that pickup location."
+    },
+    {
+      "screen": "Suppliers (/suppliers)",
+      "shape": "Plain unfiltered grid of all suppliers (logo + name) from getAllSuppliers. No filter, no search, no sort, no pagination, no empty state.",
+      "composition": "n/a"
+    },
+    {
+      "screen": "Notifications (/notifications)",
+      "shape": "Single list (NotificationList): header checkbox (select all/indeterminate), per-row checkbox, mark-read / mark-unread / delete icon actions on the selection, per-row view action. No filter, no search, no sort.",
+      "composition": "n/a",
+      "pagination": "Custom classic prev/next pager (PAGE_SIZE=30) with 'x-y of N' row-count - same Pager pattern family as CarList's Pager component but hand-rolled inside NotificationList.",
+      "empty": "Localized EMPTY_LIST card ('Pas de notifications' in fr)."
+    }
+  ],
+  "siblingConsistency": [
+    "Filter composition model is consistent: Search and Bookings both mix immediate checkbox/radio sidebar filters with one submit-applied date/location form (CarFilter / BookingFilter). Both reset/refetch coherently when any input changes.",
+    "Pagination is the main sibling divergence in shape, not in pattern: Search uses the shared Pager component (or infinite scroll on mobile), Bookings uses DataGrid pagination on desktop / infinite append on mobile, Notifications hand-rolls the same prev/next + row-count pattern. All three are classic paging on desktop and load-more on mobile - behaviorally alike, implemented three ways (filed, not unified: redesign risk, no user-visible incoherence).",
+    "SupplierFilter is literally the same component on Search and Bookings. Seats/Rating/Deposit are single-select radios; Type/Gearbox/Mileage/Fuel/Multimedia/Specs are multi-checkboxes; the mix matches each attribute's cardinality.",
+    "Locations and Suppliers are the outliers by design: browse-only surfaces (map / logo grid) with no list machinery at all."
+  ],
+  "filterCompositionEvidence": {
+    "setup": "Home SearchForm -> 'San Francisco Airport (SFO)' (fr option label 'Aéroport de San Francisco (SFO)'), default +3d/+3d dates, submit -> /search. Baseline identical in fr and ar.",
+    "baseline": {
+      "countText_fr": "(5 voitures disponibles)",
+      "countText_ar": "(5 سيارات متاحة)",
+      "cars": [
+        "Volkswagen Golf (5 seats, Manual, 105 MAD)",
+        "Toyota Camry (5, Automatic, 165 MAD)",
+        "Tesla Model 3 (5, Automatic, 195 MAD)",
+        "BMW X3 (5, Automatic, 255 MAD)",
+        "Ford Mustang Convertible (4, Automatic, 285 MAD)"
+      ]
+    },
+    "step1_seats_5": {
+      "action": "Open filters, select Seats = 5",
+      "fr": "(4 voitures disponibles) - Mustang (4 seats) removed, other 4 unchanged",
+      "ar": "(4 سيارات متاحة) - identical subset"
+    },
+    "step2_plus_gearbox_automatic": {
+      "action": "Additionally restrict Gearbox to Automatic only (uncheck-equivalent: check Automatic, Manual stays unchecked)",
+      "fr": "(3 voitures disponibles) - Golf (Manual) also removed; remaining Camry/Tesla/BMW X3 all 5-seat Automatic",
+      "ar": "identical subset and count text in Arabic"
+    },
+    "verdict": "Two filters compose coherently in both languages: each step's rendered set is a strict subset of the previous step and the count text always equals the number of rendered cards. No composition defect found. Supplier composition could not be exercised live because the seed has exactly 1 supplier and SupplierFilter renders only when >1 supplier exists (code-verified composition path instead: supplierIds are part of the same getCars payload)."
+  },
+  "formatAudit": {
+    "standard": "MAD + Africa/Casablanca + resolved-language locale",
+    "price": {
+      "verdict": "CONSISTENT everywhere",
+      "detail": "Every price rendering in the frontend goes through the single shared helper bookcarsHelper.formatPrice(value, commonStrings.CURRENCY, language) (packages/bookcars-helper): formatNumber groups thousands with ',' for en and ' ' (space) for fr/ar/es, decimals only when fractional (2dp, '.' separator); formatPrice appends the symbol after the amount for MAD ('105 MAD', '1 000 MAD' in fr-style grouping) and prefixes only for $/£-class symbols. CURRENCY = PaymentService.getCurrencySymbol(), base currency MAD (env BASE_CURRENCY default MAD; only MAD configured in the dev stack). Surfaces checked: search cards (total + per-day + deposit), checkout summary (per-day, total, payment panel), booking list grid + mobile cards, booking detail, CheckoutStatus, home car-size boxes (per-hour/per-day), extras/options strings in utils/helper.ts. No raw or divergent price rendering found.",
+      "liveSamples": [
+        "Search card: '105 MAD' total, '35 MAD' per day (fr+ar identical)",
+        "Bookings grid: '1,000 MAD' - en grouping because BookingList is keyed to the account language (see filed item F-3)",
+        "Checkout total: '105 MAD' (fr+ar)"
+      ]
+    },
+    "dates": [
+      {
+        "surface": "Search cards (Car.tsx)",
+        "date": "No calendar dates rendered; only duration via helper.getDays ('Price for N days') and price/day.",
+        "timezone": "n/a"
+      },
+      {
+        "surface": "Checkout summary (pages/Checkout.tsx)",
+        "date": "Range label: getDaysShort + '(' + format(from) + ' - ' + format(to) + ')' with date-fns. fr: 'eee d LLL yyyy kk:mm' (24h). Other languages before A4: 'eee, d LLL yyyy, p', except es which diverged to 'eee, d LLLL yyyy HH:mm' (full month, HH:mm) and ar which fell back to enUS. FIXED by A4-F1/F2: es aligned to the sibling pattern, ar now uses arMA.",
+        "timezone": "Browser-local (date-fns format has no timezone conversion; nothing in the frontend pins Africa/Casablanca - see filed item F-2).",
+        "live": {
+          "fr_before_after": "3 jours (Lun. 9 nov. 2026 10:00 - Jeu. 12 nov. 2026 10:00) - unchanged by the fix",
+          "ar_before": "3 يومs (Mon, 9 Nov 2026, 10:00 AM - Thu, 12 Nov 2026, 10:00 AM) - English range inside an Arabic page",
+          "ar_after": "3 أيام (اثنـ, 9 نونـ 2026, 10:00 ص - خميـ, 12 نونـ 2026, 10:00 ص) - arMA month names + Arabic AM/PM marker"
+        }
+      },
+      {
+        "surface": "Booking list - desktop DataGrid (components/BookingList.tsx getDate)",
+        "date": "FROM/TO columns are date-only 'DD-MM-YYYY' built from local getters (d.getDate()-d.getMonth()+1-d.getFullYear()), no time, no locale. Live: '05-11-2026' / '07-11-2026'.",
+        "timezone": "Browser-local getters.",
+        "divergence": "Same booking on the same screen's mobile variant renders a verbose localized datetime range (below). Filed as F-4, not changed (grid density is the upstream design; changing it alters column widths/sorting display for all users)."
+      },
+      {
+        "surface": "Booking list - mobile cards + CheckoutStatus (components/CheckoutStatus.tsx)",
+        "date": "Range label identical in shape to Checkout: getDaysShort + '(format(from) - format(to))', fr 'eee d LLL yyyy kk:mm', else 'eee, d LLL yyyy, p'. Before A4, ar fell back to enUS here too; FIXED by A4-F1 (arMA). Live mobile sample (account language en): '2 days (Thu, 5 Nov 2026, 8:23 PM - Sat, 7 Nov 2026, 8:23 PM)'.",
+        "timezone": "Browser-local."
+      },
+      {
+        "surface": "Notifications (components/NotificationList.tsx)",
+        "date": "Before A4: 'eee d LLLL, kk:mm' for fr and 'eee, d LLLL, kk:mm' for every other language - full month name, NO YEAR, 24h kk:mm even where sibling screens use the locale 'p' pattern; ar fell back to enUS. Live baseline (fr UI): 'Wed, 28 October, 03:07' (English because the component keys off the account language, en). FIXED by A4-F1/F3: aligned to the sibling range pattern 'eee d LLL yyyy kk:mm' (fr) / 'eee, d LLL yyyy, p' (others) with arMA added - abbreviated month, year present, locale time convention.",
+        "timezone": "Browser-local."
+      },
+      {
+        "surface": "Booking detail (/booking) + Search/Car filters (components/DateTimePicker.tsx)",
+        "date": "MUI DateTimePicker via AdapterDateFns. Before A4 its adapterLocale handled fr/es only, so ar fell back to enUS ('11/05/2026 08:23 PM' MM/DD/YYYY 12h baseline) - while the sibling DatePicker.tsx (used in BookingFilter and Checkout birth dates) already mapped ar -> arMA. FIXED by A4-F1: DateTimePicker now mirrors DatePicker exactly.",
+        "timezone": "Browser-local."
+      },
+      {
+        "surface": "DatePicker (components/DatePicker.tsx)",
+        "date": "Reference pattern: adapterLocale fr/es/arMA/enUS - the only date surface that already resolved Arabic correctly before A4.",
+        "timezone": "Browser-local; also normalizes picked dates to 10:00 local."
+      },
+      {
+        "surface": "Home",
+        "date": "No booking dates rendered (SearchForm pickers only, see DateTimePicker row). Prices: formatPrice per-hour/per-day in the car-size boxes - consistent with the global price pattern."
+      }
+    ],
+    "daysLabel": {
+      "detail": "helper.getDays/getDaysShort appended a Latin 's' to the singular day word for plurals in every language - correct by accident for fr 'jour->jours', en 'day->days', es 'día->días', but broken for ar: 'يوم' -> 'يومs' (mixed-script, live-verified in checkout and on car cards). FIXED by A4-F5 with a per-locale PRICE_DAYS_PART_2_PLURAL string (fr 'jours', en 'days', ar 'أيام', es 'días'); fr/en/es output is byte-identical to before, ar now renders '3 أيام' / 'السعر لمدة 3 أيام' (live-verified)."
+    }
+  },
+  "responsiveRtl": {
+    "matrix": "Every route measured at 375px and 1440px in fr and ar (guest: /, /locations, /suppliers, /search incl. filters-open, /checkout review; signed-in: /bookings, /booking detail, /settings, /notifications). Full DOM measurements in a4-probe.json / a4-detail3.json.",
+    "documentOverflow": "NONE on any route/width/language: document scrollWidth never exceeded innerWidth (1440 runs: 1425 = viewport minus scrollbar, except DataGrid pages at exactly 1440). No page scrolls horizontally.",
+    "homeWhyServices": "A1's clipped bleed PERSISTED at baseline and is FIXED by A4-F4. Baseline at 375px (fr and ar): .why-box and .services-box were fixed 400px wide, rect -12..388 on a 375px viewport (containers .why-boxes/.services-boxes -22..398); the <=960px media query stacked them vertically but never shrank the 400px width, unlike the page's own home-search pattern. The boxes contain no interactive control (icon + title + text only), so no control was hidden; the box border/padding sliver (~13px per side) was clipped by the page's overflow-hidden root. After F4: why-box 10..365 (355px), services-box 20..355 (335px), fully on-screen in fr and ar; 1440px layout unchanged (400px boxes, same rects as baseline).",
+    "otherOffendersClassified": [
+      "Leaflet tiles/markers extending past the viewport on /, /locations, /search, /checkout at both widths: map internals clipped by the map container (overflow hidden) - by design, no content or control lost.",
+      "Home LocationCarrousel 'CHOISIR CE LIEU' / 'اختر هذا الموقع' buttons at negative/>375 offsets at 375px: off-screen slick-carousel slides, reachable by swiping - by design.",
+      "MUI Switch hidden native inputs (PrivateSwitchBase-input, rect e.g. -8..106 at checkout-375 fr, -24..90 on booking detail): opacity-0 inputs inside the visible switch track; the switches themselves are fully visible and operable. Not clipped controls.",
+      "One ar-375 home SPAN (pickup-location label, -44..39): inside an off-screen carousel slide, same class as above."
+    ],
+    "perRoute": [
+      {
+        "route": "/",
+        "result": "375: only the why/services bleed (fixed) + carousel/map internals. 1440: clean."
+      },
+      {
+        "route": "/search (+filters open)",
+        "result": "Clean at both widths in fr+ar: no clipped controls with filters expanded; only Leaflet tiles beyond bounds."
+      },
+      {
+        "route": "/checkout (review step)",
+        "result": "Clean at both widths in fr+ar (dir=rtl confirmed in ar); only Leaflet tiles + switch hidden inputs beyond bounds."
+      },
+      {
+        "route": "/bookings",
+        "result": "Zero offenders at both widths. Note: after sign-in the app adopts the account language (dev customer = en), so signed-in pages render LTR/en regardless of the pre-login fr/ar selection - see filed item F-3."
+      },
+      {
+        "route": "/booking (detail)",
+        "result": "Zero layout offenders at 1440 and 375 (only switch hidden inputs). DateTimePicker inputs baseline '11/05/2026 08:23 PM' (enUS, account language en)."
+      },
+      {
+        "route": "/settings",
+        "result": "Zero offenders at both widths."
+      },
+      {
+        "route": "/notifications",
+        "result": "Zero offenders at both widths."
+      },
+      {
+        "route": "/locations",
+        "result": "Only Leaflet internals beyond bounds at both widths."
+      },
+      {
+        "route": "/suppliers",
+        "result": "Zero offenders at both widths in fr+ar (dir=rtl confirmed in ar)."
+      }
+    ],
+    "rtl": "Guest pages set document.dir=rtl in ar (main.tsx) and mirror correctly (search filters, checkout, home boxes all measured in RTL with no breakage). Signed-in pages follow the account language instead (F-3)."
+  },
+  "fixes": [
+    {
+      "id": "A4-F1",
+      "title": "Arabic date locale fell back to English (enUS) on five date surfaces",
+      "rootCause": "BookingList, CheckoutStatus, Checkout, NotificationList built their date-fns locale as fr/es/else-enUS, and DateTimePicker's adapterLocale did the same - while the sibling DatePicker.tsx already mapped ar -> arMA (Moroccan Arabic). Arabic users therefore saw English day/month names and AM/PM in booking ranges, checkout, notifications and every date-time picker, inside otherwise fully Arabic pages.",
+      "files": [
+        "frontend/src/components/BookingList.tsx",
+        "frontend/src/components/CheckoutStatus.tsx",
+        "frontend/src/pages/Checkout.tsx",
+        "frontend/src/components/NotificationList.tsx",
+        "frontend/src/components/DateTimePicker.tsx"
+      ],
+      "change": "Import arMA from date-fns/locale (the exact locale DatePicker already uses) and add the ar branch to each locale resolution, mirroring DatePicker's expression.",
+      "evidence": "Guest checkout in ar, before: '3 يومs (Mon, 9 Nov 2026, 10:00 AM - Thu, 12 Nov 2026, 10:00 AM)'. After: '3 أيام (اثنـ, 9 نونـ 2026, 10:00 ص - خميـ, 12 نونـ 2026, 10:00 ص)'. fr checkout byte-identical before/after. BookingList/NotificationList/booking-detail pickers key off the account language (en for the dev customer), so their ar branch is code-verified against the DatePicker pattern rather than live-rendered; no account record was mutated to force it."
+    },
+    {
+      "id": "A4-F2",
+      "title": "Checkout es date-range format diverged from sibling screens",
+      "rootCause": "Checkout.tsx alone special-cased es to 'eee, d LLLL yyyy HH:mm' (full month + HH:mm) while BookingList and CheckoutStatus render the same range for es with 'eee, d LLL yyyy, p'.",
+      "files": [
+        "frontend/src/pages/Checkout.tsx"
+      ],
+      "change": "Removed the es special case; Checkout now uses the exact _format expression shared by BookingList/CheckoutStatus.",
+      "evidence": "Code diff; fr and ar live outputs verified unchanged/corrected after rebuild (above). es output now follows the sibling pattern by construction."
+    },
+    {
+      "id": "A4-F3",
+      "title": "Notification timestamps used a one-off format with no year",
+      "rootCause": "NotificationList used 'eee d LLLL, kk:mm' / 'eee, d LLLL, kk:mm' (full month, no year, 24h clock for all languages) - a format found on no other surface, so a notification from a previous year is indistinguishable from this year's, and non-fr times ignore the locale convention used everywhere else.",
+      "files": [
+        "frontend/src/components/NotificationList.tsx"
+      ],
+      "change": "Aligned _format to the sibling pattern: fr 'eee d LLL yyyy kk:mm', others 'eee, d LLL yyyy, p' (with the F1 arMA locale).",
+      "evidence": "Baseline live: 'Wed, 28 October, 03:07' (no year). Code-verified alignment; live re-render in en/fr account languages follows the same expression as the verified booking/checkout surfaces."
+    },
+    {
+      "id": "A4-F4",
+      "title": "Home why/services boxes overflowed phone viewports (A1 bleed)",
+      "rootCause": "home.css fixes .why-box/.services-box at width:400px; the <=960px media query only stacked them into a column without shrinking the width (the page's own home-search block does shrink via calc(100% - 20px)). At 375px the boxes measured -12..388 (containers -22..398), clipped ~13px per side by the page root's overflow-hidden.",
+      "files": [
+        "frontend/src/assets/css/home.css"
+      ],
+      "change": "Inside the existing <=960px media query only: .why-box { width: calc(100% - 20px); max-width: 400px } and .services-box { width: calc(100% - 40px); max-width: 400px } (widths net of their existing 10px/20px side margins, mirroring the home-search pattern). Desktop rules untouched.",
+      "evidence": "375px fr+ar after: why-box 10..365 (355px), services-box 20..355 (335px), document scrollWidth 375, no bleed. 1440px fr+ar: boxes still 400px at identical rects to baseline. No control was hidden by the bleed before or after (boxes are text/icon only) - the fix removes content clipping."
+    },
+    {
+      "id": "A4-F5",
+      "title": "Arabic day-count label rendered mixed-script 'يومs'",
+      "rootCause": "utils/helper.ts getDays/getDaysShort pluralized by appending a Latin 's' to the singular day word for all languages; Arabic 'يوم' became 'يومs'.",
+      "files": [
+        "frontend/src/utils/helper.ts",
+        "frontend/src/lang/cars.ts"
+      ],
+      "change": "Added PRICE_DAYS_PART_2_PLURAL to all four locales of lang/cars.ts (fr 'jours', en 'days', ar 'أيام', es 'días') and made getDays/getDaysShort choose singular/plural strings instead of appending 's'. fr/en/es output is identical to before by construction.",
+      "evidence": "Live ar checkout before: '3 يومs (...)'; after: '3 أيام (...)'. Live ar car card after: 'السعر لمدة 3 أيام' (getDays). Live fr after: 'Prix pour 3 jours' / '3 jours' - unchanged."
+    }
+  ],
+  "filedItems": [
+    {
+      "id": "A4-X1",
+      "item": "No surface pins Africa/Casablanca: all date rendering uses browser-local time",
+      "reason": "This is uniform, not divergent - every surface (date-fns format, local getters, MUI pickers) renders in the viewer's browser timezone, so no screen disagrees with another. Pinning Casablanca would require a timezone-aware formatting layer (e.g. date-fns-tz, not currently a dependency) across shared packages plus a product decision for travelers booking from abroad. Out of scope for minimal pattern-aligning fixes; flagged against the stated standard for an owner decision."
+    },
+    {
+      "id": "A4-X2",
+      "item": "Bookings list, booking detail strings and NotificationList render in the ACCOUNT language (user.language), not the UI language",
+      "reason": "Bookings.tsx passes language={user.language} to BookingList/BookingFilter and NotificationList keys its locale/strings off user?.language; after sign-in the app also syncs the UI to the account language (dev customer: en - all signed-in measurements ran dir=ltr/en even when fr/ar was selected pre-login, and the bookings grid showed '1,000 MAD' en grouping + '05-11-2026' inside a French session). Whether account language or UI language should govern these surfaces is a product decision (it also affects notification emails/documents); A3 already documented the en-account behavior. Not changed; F1 still fixes the locale table for accounts whose language IS ar."
+    },
+    {
+      "id": "A4-X3",
+      "item": "Bookings desktop grid FROM/TO are date-only 'DD-MM-YYYY' while the mobile variant shows a verbose localized datetime range",
+      "reason": "Same data, two presentations on one screen family (responsive variants). The grid format is the upstream DataGrid design (compact, sortable); replacing it with the verbose range would change column widths and density for all users. No information is hidden (times are visible in the detail view). Filed as a design divergence, not an objective defect."
+    },
+    {
+      "id": "A4-X4",
+      "item": "No price filter and no sort control on /search",
+      "reason": "Absence is uniform (nothing to align to): every sibling list also lacks sorting except the bookings DataGrid's built-in column sort. Adding a price filter or sort is a new feature with backend payload changes - explicitly out of A4 scope. Recorded in the behavior matrix so the gap is visible."
+    },
+    {
+      "id": "A4-X5",
+      "item": "Pagination implemented three ways (shared Pager / DataGrid / hand-rolled in NotificationList)",
+      "reason": "Behaviorally consistent for users (classic paging on desktop, load-more on mobile, 'x-y of N' counts). Unifying implementations is a refactor with regression risk and no user-visible incoherence to fix."
+    },
+    {
+      "id": "A4-X6",
+      "item": "Location names are localized per language in the search autocomplete for fr ('Aéroport de San Francisco (SFO)') but fall back to English in ar ('San Francisco Airport (SFO)')",
+      "reason": "Location name translations are backend/seed data, not frontend rendering code; the frontend displays what the API returns per language. Data-completeness item for the seed/i18n data owner, not a frontend consistency fix."
+    },
+    {
+      "id": "A4-X7",
+      "item": "Notification message bodies are stored English text ('Your booking for Volkswagen Golf is cancelled') in every UI language",
+      "reason": "Message bodies are generated and persisted by the backend at event time; the frontend renders them verbatim. Localizing them is a backend/notification-generation change, out of frontend scope. The timestamp rendering around them was fixed (F1/F3)."
+    },
+    {
+      "id": "A4-X8",
+      "item": "Price numbers use Western digits and ' ' / ',' grouping in Arabic (formatNumber), never Arabic-Indic digits",
+      "reason": "The single shared formatPrice/formatNumber helper behaves identically on every surface, so there is no inter-surface divergence to align; changing digit shaping would alter the shared packages/bookcars-helper used beyond this frontend and is a product/locale decision. Recorded for visibility."
+    }
+  ],
+  "buildAndLayer": {
+    "lint": "npm run lint (full frontend) exit 0; eslint on the 8 changed files exit 0. stylelint on home.css reports 9 errors, all on pre-existing lines (17, 117-118, 390, 417) untouched by A4; the added media-query rules introduce none (stylelint is not part of the npm run lint gate).",
+    "build": "npm run build exit 0 (tsc + vite, built in 18.27s).",
+    "layering": "frontend/build copied into bookcars-bc-frontend-1:/usr/share/nginx/html via docker cp (exit 0); served entry changed index-CWCDKKs_.js -> index-ijS2HmGY.js, verified by fetching http://localhost:8080/ after layering. Post-fix browser verification (a4-verify.json) ran against the layered build.",
+    "git": "No commit, no push. A4 changes left in the working tree alongside the pre-existing queue #10 + #12 A2/A3 uncommitted work, which was preserved (including SearchForm/MultipleSelect/SignUp/Checkout A2/A3 edits; A4's Checkout.tsx edit is additive on top of A3's ToS fix). __scripts/run-p0-tests.ps1 was NOT touched by A4 (its modified state pre-dates this slice). No booking/payment was completed; no records were created, mutated or deleted."
+  },
+  "filesChanged": [
+    "frontend/src/components/BookingList.tsx",
+    "frontend/src/components/CheckoutStatus.tsx",
+    "frontend/src/components/DateTimePicker.tsx",
+    "frontend/src/components/NotificationList.tsx",
+    "frontend/src/pages/Checkout.tsx",
+    "frontend/src/lang/cars.ts",
+    "frontend/src/utils/helper.ts",
+    "frontend/src/assets/css/home.css",
+    "artifacts/ui-consistency-q12-frontend.json (this file)"
+  ]
+}

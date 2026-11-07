@@ -13,7 +13,25 @@ const round = (n: number) => Number(n.toFixed(2))
 const date = (value: unknown, fallback: Date) => {
  if (value === undefined || value === '') {
 return fallback
-} const raw = String(value); const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T23:59:59.999Z`) : new Date(raw); return Number.isNaN(d.getTime()) ? null : d 
+} const raw = String(value); const d = new Date(raw); return Number.isNaN(d.getTime()) ? null : d 
+}
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+const casablancaDayStart = (yyyyMmDd: string) => {
+  // UTC instant of 00:00:00.000 Africa/Casablanca on the given local date,
+  // resolved through Intl so UTC-offset changes are honored.
+  const utcGuess = new Date(`${yyyyMmDd}T00:00:00.000Z`).getTime()
+  const offsetAt = (t: number) => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Casablanca', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(t))
+    const p: Record<string, number> = {}
+    for (const part of parts) {
+      if (part.type !== 'literal') {
+        p[part.type] = Number(part.value)
+      }
+    }
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(t / 1000) * 1000
+  }
+  const firstPass = utcGuess - offsetAt(utcGuess)
+  return new Date(utcGuess - offsetAt(firstPass))
 }
 const supplierFor = (req: Request) => {
  const raw = req.user?.type === types.UserType.Admin ? req.query.supplier : agencySupplierId(req); return typeof raw === 'string' && mongoose.isValidObjectId(raw) ? new mongoose.Types.ObjectId(raw) : null 
@@ -26,10 +44,19 @@ const build = async (req: Request) => {
   const supplier = supplierFor(req); if (!supplier) {
 return null
 }
-  const now = new Date(); const from = date(req.query.from, new Date(now.getFullYear(), now.getMonth(), 1)); const to = date(req.query.to, now); if (from && to && String(req.query.to || '').length === 10) {
-to.setUTCDate(to.getUTCDate() + 1)
-}
-  if (!from || !to || from > to) {
+  const now = new Date()
+  // Metric dictionary v2026-11-02.1: date ranges are inclusive and use
+  // Africa/Casablanca. The Reports UI sends date-only values, so a
+  // date-only bound covers that whole Casablanca local day (from =
+  // 00:00:00.000 local, to = 23:59:59.999 local). Previously a date-only
+  // value was parsed as end-of-day UTC and the end pushed one more day,
+  // shifting the window about a day at both ends
+  // (GA-P2-REPORT-DEFINITIONS-01, 2026-11-05).
+  const fromRaw = typeof req.query.from === 'string' ? req.query.from : ''
+  const toRaw = typeof req.query.to === 'string' ? req.query.to : ''
+  const from = DATE_ONLY.test(fromRaw) ? casablancaDayStart(fromRaw) : date(req.query.from, new Date(now.getFullYear(), now.getMonth(), 1))
+  const to = DATE_ONLY.test(toRaw) ? new Date(casablancaDayStart(toRaw).getTime() + 86400000 - 1) : date(req.query.to, now)
+  if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
 throw new Error('Invalid range')
 }
   const [payments, expenses, bookings, fleet, invoices] = await Promise.all([

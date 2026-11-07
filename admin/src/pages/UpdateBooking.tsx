@@ -28,6 +28,7 @@ import { strings as blStrings } from '@/lang/booking-list'
 import { strings as bfStrings } from '@/lang/booking-filter'
 import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/booking'
+import { visuallyHidden } from '@mui/utils'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
 import * as UserService from '@/services/UserService'
@@ -420,7 +421,8 @@ const UpdateBooking = () => {
   return (
     <Layout onLoad={onLoad} strict>
       {visible && booking && (
-        <div className="booking" role="main">
+        <div className="booking">
+          <h1 style={visuallyHidden}>{strings.UPDATE_BOOKING_HEADING}</h1>
           <div className="col-1">
             <form onSubmit={handleSubmit(onSubmit)}>
               {!isSupplier && (

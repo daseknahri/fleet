@@ -8,6 +8,7 @@ import BookingList from '@/components/BookingList'
 import SupplierFilter from '@/components/SupplierFilter'
 import StatusFilter from '@/components/StatusFilter'
 import BookingFilter from '@/components/BookingFilter'
+import { strings as headerStrings } from '@/lang/header'
 // import Progress from '@/components/Progress'
 import * as SupplierService from '@/services/SupplierService'
 
@@ -50,6 +51,7 @@ const Bookings = () => {
       <Layout onLoad={onLoad} strict>
         {user && (
           <div className="bookings">
+            <h1 className="sr-only">{headerStrings.BOOKINGS}</h1>
             <div className="col-1">
               <div>
                 <SupplierFilter suppliers={allSuppliers} onChange={handleSupplierFilterChange} className="cl-supplier-filter" />

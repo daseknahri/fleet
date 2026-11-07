@@ -1,0 +1,516 @@
+{
+ "slice": "Gestion Auto queue #12 A3 - ADMIN state & feedback coherence",
+ "date": "2026-11-06",
+ "app": "admin (http://localhost:3002)",
+ "method": "code-first audit of admin/src/pages + admin/src/components (lists, detail, forms), browser confirmation of changed/uncertain screens in fr + ar",
+ "notification_mechanism": "react-toastify via utils/helper.ts: helper.error(err?, message?) -> toast.error(message || commonStrings.GENERIC_ERROR); helper.info(message) -> toast.info(message). GA pages additionally use MUI Alert for page-level load/action errors.",
+ "dominant_patterns": {
+  "loading": "Fetch in try/catch/finally with setLoading(false) in finally; indicator = SimpleBackdrop (CircularProgress + PLEASE_WAIT/LOADING text) on detail/update pages, inline CircularProgress/ellipsis or DataGrid loading prop on lists/GA panels. Resolves on success AND error.",
+  "empty": "Card variant=outlined className=empty-list with Typography color=textSecondary {strings.EMPTY_LIST} (per-list lang file, fr/ar/en/es) when rows empty and not loading - Car/Supplier/Location/Country/Notification lists. GA panels use their own __empty div + localized EMPTY string. DataGrid lists (Booking/User) were the outliers (fixed F11).",
+  "error": "Fetch failure -> helper.error toast (GENERIC_ERROR or api message) AND, on detail/update pages, error/formError state -> root pages/Error (GENERIC_ERROR + GO_TO_HOME). GA pages -> MUI Alert (LOAD_ERROR/strings.ERROR) + toast. No screen should end blank or with a stuck spinner.",
+  "success_feedback": "Two co-dominant variants by flow: stay-on-page updates/creates -> helper.info toast (UPDATED, *_CREATED, SETTINGS_UPDATED, PASSWORD_UPDATE); navigate-away creates/deletes -> navigation to the list (CreateCar->/cars, CreateUser->/users, deletes->list). GA in-place pages -> dialog closes + row/list visibly updates (Team, Maintenance, Payments, Cash, Approbations, ContractOperations).",
+  "destructive_confirmation": "MUI Dialog disableEscapeKeyDown maxWidth=xs, DialogTitle commonStrings.CONFIRM_TITLE, body DELETE_* string, Cancel variant=contained btn-secondary, confirm variant=contained color=error DELETE. Used by BookingList, CarList, UserList, SupplierList, LocationList, CountryList, NotificationList, Avatar, and Car/Supplier/User/UpdateBooking detail pages. Lists with linked records first show a CANNOT_DELETE info dialog.",
+  "form_validation": "RHF + zod resolver, mode onSubmit; fields error={!!errors.x} + helperText/FormHelperText errors.x.message; Car/Supplier create+update also pass onError -> setFocus(first error field). GA dialog forms: manual checks -> formError/sessionError state + MUI Alert inside/above the dialog."
+ },
+ "screens": {
+  "Dashboard (/, /dashboard)": {
+   "loading": "useCallback fetch try/catch/finally setLoading(false); inline CircularProgress in activity panel, metrics show em-dash while loading; resolves on error",
+   "empty": "EMPTY_BOOKINGS panel with icon + create-booking CTA when latestBookings empty",
+   "error": "loadError state -> MUI Alert LOAD_ERROR + helper.error toast; finally clears loading",
+   "success_feedback": "n/a (read-only)",
+   "destructive_confirmation": "none",
+   "form_validation": "n/a (no form)"
+  },
+  "Bookings (/bookings)": {
+   "loading": "DEFECT (fixed F3): onLoad awaited SupplierService.getAllSuppliers() with no try/catch - failure left loadingSuppliers=true and BookingList DataGrid loading=true forever. BookingList fetchData itself: try/catch/finally",
+   "empty": "DataGrid lists: no empty card upstream; DEFECT (fixed F11): desktop grid showed unlocalized MUI default 'No rows', mobile list rendered blank. booking-list lang already carried EMPTY_LIST in fr/ar/en/es",
+   "error": "BookingList fetch catch -> helper.error toast + finally; page-level supplier fetch was silent (fixed F3)",
+   "success_feedback": "navigate-away creates; BookingList status update via dialog, delete reloads list",
+   "destructive_confirmation": "BookingList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error; status update dialog likewise",
+   "form_validation": "BookingFilter RHF (BookingFilterForm) - filter form, submits values object"
+  },
+  "Clients (/clients)": {
+   "loading": "UserList fetchData try/catch/finally, DataGrid loading prop",
+   "empty": "DEFECT (fixed F11, via UserList): grid default 'No rows' unlocalized; user-list lang had no EMPTY_LIST (added fr/ar/en/es)",
+   "error": "UserList catch -> helper.error toast + finally",
+   "success_feedback": "navigate-away create (/create-user?from=clients)",
+   "destructive_confirmation": "UserList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error",
+   "form_validation": "Search component RHF, keyword submit only"
+  },
+  "Scheduler (/scheduler, /calendar)": {
+   "loading": "DEFECT (fixed F5): onLoad awaited getAllSuppliers() unguarded; render gate {user && suppliers} meant failure = whole page blank, silent. VehicleScheduler fetch: try/catch/finally-ish with helper.error",
+   "empty": "Scheduler renders empty calendar grid (no list empty message - calendar semantics)",
+   "error": "VehicleScheduler catch -> helper.error toast; page-level fetch was silent (fixed F5)",
+   "success_feedback": "Event create/edit via scheduler editor (third-party @aldabil/react-scheduler), visual calendar update",
+   "destructive_confirmation": "Scheduler event delete: two-step inline confirm in EventActions (deleteConfirm state, Delete/Cancel buttons) - library pattern, cancel safe",
+   "form_validation": "Scheduler editor form (library) + VehicleSchedulerFilter RHF-style submit"
+  },
+  "Maintenance (/maintenance)": {
+   "loading": "onLoad try/catch/finally setLoading(false); loading shows ellipsis placeholder + summary em-dashes",
+   "empty": "Expenses: EMPTY / EMPTY_CARS message; schedules: NO_SCHEDULES; report: NO_REPORT",
+   "error": "loadError -> Alert LOAD_ERROR + helper.error toast; save errors -> Alert in dialog (SAVE_ERROR/api detail) + toast",
+   "success_feedback": "Dialog closes + row inserted/updated in place (visual); no toast - consistent GA in-place pattern",
+   "destructive_confirmation": "Expense delete: MUI Dialog (DELETE title, DELETE_CONFIRM text, Cancel/Delete error). Schedule delete: window.confirm(DELETE_SCHEDULE_CONFIRM) - confirmation exists, localized, cancel safe; divergent from MUI pattern - FILED (see filed_items)",
+   "form_validation": "Manual validation: invalid -> setFormError/setScheduleFormError(true) + Alert in dialog (SAVE_ERROR/SCHEDULE_SAVE_ERROR or api detail)"
+  },
+  "Payments (/payments)": {
+   "loading": "reload useCallback try/catch/finally setLoading(false); ellipsis placeholder while loading",
+   "empty": "EMPTY for payment list, NO_OVERDUE for overdue panel",
+   "error": "loadError -> Alert LOAD_ERROR + toast; save -> formError Alert SAVE_ERROR + toast with api message; reversal -> toast",
+   "success_feedback": "Create: dialog closes + row prepended; reversal: setNotice(REVERSED) inline notice + row status flips",
+   "destructive_confirmation": "Reversal: window.confirm(REVERSE_CONFIRM) - exists, localized, cancel safe; divergent from MUI Dialog - FILED. No delete flow",
+   "form_validation": "Manual validation: invalid -> setFormError(true) + Alert SAVE_ERROR in dialog"
+  },
+  "CashJournal (/caisse)": {
+   "loading": "onLoad try/catch(main fetch)/finally setLoading(false); agency fetch separately try/catch helper.error; ellipsis placeholder",
+   "empty": "EMPTY message when filtered list empty; NO_SESSION label when no open session",
+   "error": "loadError -> Alert LOAD_ERROR; session ops -> sessionError Alert + helper.error toast (dual pattern)",
+   "success_feedback": "Dialog closes + onLoad reload (visual refresh)",
+   "destructive_confirmation": "No delete flow (sessions open/close, movements, transfers are creates)",
+   "form_validation": "DEFECT (fixed F10): saveTransfer returned silently on missing destination/amount - only silent validation return among GA save handlers (siblings all set sessionError/formError). Now sets sessionError + toast with new TRANSFER_ERROR string (fr/ar/en/es). Other dialogs: API errors surface via sessionError+toast; movement/session amounts go to API which validates"
+  },
+  "Team (/team)": {
+   "loading": "A2-fixed pattern (reference): loadMemberships/loadAgencies try/catch/finally; CircularProgress in empty container while loading; resolves on success and error",
+   "empty": "EMPTY message ('Aucun collaborateur...') when no members",
+   "error": "loadError -> Alert LOAD_ERROR, plus UNAUTHORIZED (401/403) / NETWORK_ERROR alerts derived from status; create/update -> helper.error toast with CREATE_ERROR/UPDATE_ERROR",
+   "success_feedback": "Dialog closes + loadMemberships reload (visual); role/status selects update row in place",
+   "destructive_confirmation": "No delete flow (role/status updates only, not destructive)",
+   "form_validation": "Manual validation: missing fields/agency -> setFormError(true) + Alert FORM_ERROR in dialog"
+  },
+  "Reports (/reports)": {
+   "loading": "load try/catch/finally; CircularProgress + LOADING text panel",
+   "empty": "EMPTY text when no report (and no supplier selected)",
+   "error": "error state -> Alert ERROR; export failure -> same Alert",
+   "success_feedback": "n/a (read-only + CSV export download)",
+   "destructive_confirmation": "none",
+   "form_validation": "Date range + agency select, no validation needed (defaults set)"
+  },
+  "Approbations (/approbations)": {
+   "loading": "load try/catch/finally; CircularProgress + LOADING text",
+   "empty": "EMPTY text when list empty (suppressed while error shown - correct)",
+   "error": "error -> Alert with api message (helper.getErrorMessage); decide/create -> actionError Alert",
+   "success_feedback": "List reloads after decide/create (visual); form fields reset on create",
+   "destructive_confirmation": "Approve/Reject are decisions, not deletes: immediate buttons with optional reason field - by design (decision record is the audit trail)",
+   "form_validation": "Create button disabled until subject/subjectType/amount present (prevention pattern); server errors -> actionError Alert"
+  },
+  "SignIn (/sign-in)": {
+   "loading": "No data fetch backdrop; isSubmitting via RHF",
+   "empty": "n/a",
+   "error": "signinError() -> setError('root') + localized root error message under form; blacklisted -> root error IS_BLACKLISTED",
+   "success_feedback": "Navigate to / (or deep-link target) on success",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms (SignInForm); root error rendered via pages/Error block"
+  },
+  "Activate (/activate)": {
+   "loading": "isSubmitting; onLoad token check try/catch -> setError('root')",
+   "empty": "n/a (NoMatch when already signed in)",
+   "error": "Fetch failure -> root Error page; submit failures -> helper.error toast",
+   "success_feedback": "Resend -> helper.info ACTIVATION_EMAIL_SENT toast; success -> navigate /",
+   "destructive_confirmation": "Token cleanup calls only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "ForgotPassword (/forgot-password)": {
+   "loading": "isSubmitting",
+   "empty": "n/a",
+   "error": "helper.error toast on failure",
+   "success_feedback": "Success status -> navigate /sign-in (visual)",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms (email FormHelperText pattern)"
+  },
+  "ResetPassword (/reset-password)": {
+   "loading": "isSubmitting; token/user fetch try/catch -> setError('root')",
+   "empty": "n/a (NoMatch when signed in)",
+   "error": "Root Error page on fetch failure; toast on submit failure",
+   "success_feedback": "Navigate / on success",
+   "destructive_confirmation": "deleteTokens cleanup only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "Suppliers (/suppliers)": {
+   "loading": "SupplierList fetchData try/catch/finally + init flag; page InfoBox count",
+   "empty": "SupplierList: Card.empty-list EMPTY_LIST when rows empty and !init && !loading",
+   "error": "helper.error toast + finally",
+   "success_feedback": "navigate-away create",
+   "destructive_confirmation": "SupplierList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (+ CANNOT_DELETE info dialog when linked)",
+   "form_validation": "Search RHF keyword only"
+  },
+  "Supplier (/supplier?c=)": {
+   "loading": "loading=true initial Backdrop LOADING; onLoad try/catch sets setLoading(false) on every branch incl. catch",
+   "empty": "Embedded CarList empty card applies",
+   "error": "catch -> setLoading(false)+setError(true)+setVisible(false) -> pages/Error (GENERIC_ERROR + home link)",
+   "success_feedback": "Avatar change in place; delete success -> navigate /suppliers",
+   "destructive_confirmation": "Detail delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (+ supplier list dialogs)",
+   "form_validation": "n/a"
+  },
+  "CreateSupplier (/create-supplier)": {
+   "loading": "Backdrop while isSubmitting/avatar upload (loading state)",
+   "empty": "n/a",
+   "error": "Submit failure -> submitError in-form Error (GENERIC_ERROR) + helper.error toast in catch",
+   "success_feedback": "Success -> navigate /suppliers (navigate-away pattern)",
+   "destructive_confirmation": "Temp avatar/contract cleanup on cancel - not user-facing deletes",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms with onError setFocus"
+  },
+  "UpdateSupplier (/update-supplier?c=)": {
+   "loading": "Backdrop PLEASE_WAIT; onLoad catches set setLoading(false) on all branches",
+   "empty": "n/a",
+   "error": "DEFECT (fixed F8): onLoad catch set submitError(true) but that flag only rendered inside the {visible} form, and catch set visible=false -> blank page. Root-level {submitError && !visible && <Error>} added, mirroring UpdateCar/UpdateCountry root Error",
+   "success_feedback": "Update success -> helper.info UPDATED toast (stay-on-page pattern); activation resend -> info ACTIVATION_EMAIL_SENT",
+   "destructive_confirmation": "Embedded ContractList file delete has NO confirmation - FILED (attachment replace/remove, see filed_items)",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms with onError setFocus"
+  },
+  "Locations (/locations)": {
+   "loading": "LocationList try/catch/finally + init",
+   "empty": "LocationList empty card EMPTY_LIST",
+   "error": "helper.error toast + finally",
+   "success_feedback": "navigate-away create",
+   "destructive_confirmation": "LocationList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (+ info dialog when linked)",
+   "form_validation": "Search RHF"
+  },
+  "CreateLocation (/create-location)": {
+   "loading": "Backdrop loading for image upload/submit",
+   "empty": "n/a",
+   "error": "helper.error toast; non-200 -> helper.error",
+   "success_feedback": "Success -> helper.info LOCATION_CREATED toast + form reset (stay-on-page pattern)",
+   "destructive_confirmation": "Temp image cleanup only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "UpdateLocation (/update-location)": {
+   "loading": "Backdrop; onLoad catch -> setLoading(false)+setFormError(true)+setVisible(false)",
+   "empty": "n/a",
+   "error": "Root {formError && <Error/>} rendered outside form gate - error page shown",
+   "success_feedback": "helper.info LOCATION_UPDATED toast",
+   "destructive_confirmation": "Temp image cleanup only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "Cars (/cars)": {
+   "loading": "DEFECT (fixed F4): admin branch awaited getAllSuppliers() unguarded - failure skipped setLoadingSuppliers(false)/setLoading(false) at end of onLoad: filter CircularProgress stuck + CarList loading prop stuck. CarList fetchData itself try/catch/finally",
+   "empty": "CarList empty card EMPTY_LIST",
+   "error": "CarList catch -> toast + finally; page-level fetch was silent (fixed F4)",
+   "success_feedback": "navigate-away create",
+   "destructive_confirmation": "CarList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (+ CANNOT_DELETE_CAR info dialog)",
+   "form_validation": "Filter components are controlled selects/sliders, no submit validation"
+  },
+  "Car (/car?cr=)": {
+   "loading": "Backdrop PLEASE_WAIT; outer onLoad catch resolves loading. DEFECT (fixed F2): admin branch inner catch (getAllSuppliers) only toasted - loading stayed true, no error state: stuck backdrop. Now setLoading(false)+setError(true)+setVisible(false), mirroring the outer catch and Supplier.tsx",
+   "empty": "Embedded BookingList (see Bookings)",
+   "error": "Outer catch -> pages/Error; inner catch now same (fixed F2)",
+   "success_feedback": "Avatar change in place; delete -> window.location /cars",
+   "destructive_confirmation": "Detail delete: check() first - 200 shows CANNOT_DELETE_CAR info Dialog, 204 opens MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error",
+   "form_validation": "n/a"
+  },
+  "CreateCar (/create-car)": {
+   "loading": "Backdrop loading (image upload + submit states setLoading false on validation exits)",
+   "empty": "n/a",
+   "error": "helper.error toast; license-plate 204 -> toast LICENSE_PLATE_ALREADY_EXISTS; image errors -> in-form Error IMAGE_REQUIRED/CAR_IMAGE_SIZE_ERROR",
+   "success_feedback": "Success -> navigate /cars",
+   "destructive_confirmation": "Temp image cleanup only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms with onError setFocus; image presence checked manually -> setImageError"
+  },
+  "UpdateCar (/update-car?cr=)": {
+   "loading": "Backdrop; onLoad catch -> setLoading(false)+setFormError(true)+setVisible(false)",
+   "empty": "n/a",
+   "error": "Root {formError && <Error/>} outside gate",
+   "success_feedback": "helper.info UPDATED toast; plate-exists toast",
+   "destructive_confirmation": "Temp image cleanup only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms with onError setFocus"
+  },
+  "CreateBooking (/create-booking)": {
+   "loading": "No page backdrop; isSubmitting; select lists show own loading via service fetch finally",
+   "empty": "n/a (form)",
+   "error": "onSubmit guard (!carObj/fromError/toError) -> helper.error toast; create failure -> toast",
+   "success_feedback": "Success -> navigate / ",
+   "destructive_confirmation": "none",
+   "form_validation": "Zod schema makes main selects optional; empties reach onSubmit guard -> generic toast (feedback present, not field-level - upstream pattern, FILED as acceptable); additional-driver sub-fields use FormHelperText pattern"
+  },
+  "UpdateBooking (/update-booking?b=)": {
+   "loading": "Backdrop; onLoad catch -> setLoading(false)+setFormError(true)+setVisible(false)",
+   "empty": "Embedded ContractOperations: EMPTY texts for inspections/charges, NO_FILES caption",
+   "error": "Root {formError && <Error/>}; ContractOperations: error state -> Alert with api message on every action (all try/catch/finally busy)",
+   "success_feedback": "Save -> helper.info UPDATED toast; delete -> navigate /; status dialog updates in place",
+   "destructive_confirmation": "Booking delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error; ContractOperations has no delete flow",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms; ContractOperations manual inputs rely on API errors -> Alert"
+  },
+  "Users (/users)": {
+   "loading": "UserList try/catch/finally, DataGrid loading",
+   "empty": "DEFECT (fixed F11, via UserList): unlocalized 'No rows'; EMPTY_LIST string added",
+   "error": "helper.error toast + finally",
+   "success_feedback": "navigate-away create",
+   "destructive_confirmation": "UserList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (DELETE_USER/DELETE_USERS wording); blacklist is a flag update, not delete",
+   "form_validation": "Search + UserTypeFilter, no validation"
+  },
+  "User (/user?u=)": {
+   "loading": "Backdrop LOADING; onLoad branches resolve loading",
+   "empty": "Embedded BookingList (see Bookings)",
+   "error": "DEFECT (fixed F9): onLoad catch toasted but set no error/noMatch state -> blank page. Added error state + pages/Error render, mirroring Car/Supplier detail pages",
+   "success_feedback": "Avatar in place; delete -> navigate /users",
+   "destructive_confirmation": "Detail delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error",
+   "form_validation": "n/a"
+  },
+  "CreateUser (/create-user)": {
+   "loading": "Backdrop loading on avatar/upload paths",
+   "empty": "n/a",
+   "error": "Submit non-200 -> setFormError(true) in-form Error; catch -> toast",
+   "success_feedback": "Success -> navigate /users or /clients (navigate-away)",
+   "destructive_confirmation": "Temp avatar/license cleanup on cancel only",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms; supplier-type avatar required -> setAvatarError in-form Error IMAGE_REQUIRED"
+  },
+  "UpdateUser (/update-user?u=)": {
+   "loading": "Backdrop (loading||isSubmitting); onLoad branches resolve loading",
+   "empty": "n/a",
+   "error": "DEFECT (fixed F7): onLoad catch set no error flag at all (formError is never set true in this file) -> blank page after toast. Now setFormError(true) in catch + root {formError && !visible && <Error GENERIC_ERROR>} mirroring UpdateCar root Error",
+   "success_feedback": "Update success -> helper.info UPDATED toast",
+   "destructive_confirmation": "Embedded DriverLicense file delete has NO confirmation - FILED (attachment, see filed_items)",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms (no onError setFocus - minor divergence, FILED)"
+  },
+  "Settings (/settings)": {
+   "loading": "DEFECT (fixed F6): onLoad awaited getBankDetails()+getSettings() unguarded before setVisible(true)/setLoading(false) - failure = Backdrop PLEASE_WAIT forever, silent. Now try/catch(helper.error)/finally(setVisible+setLoading false); profile form (already loaded from context) shows",
+   "empty": "n/a",
+   "error": "Was silent/stuck (fixed F6); submit paths already toast (helper.error) and info on success",
+   "success_feedback": "helper.info SETTINGS_UPDATED toast (both profile + SettingForm/BankDetailsForm via parent)",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms (SettingsForm + SettingForm + BankDetailsForm sub-forms, FormHelperText in SettingForm)"
+  },
+  "Notifications (/notifications)": {
+   "loading": "DEFECT (fixed F1): NotificationList fetch set loading=true, success set false, but catch only toasted and the !_data early-return also skipped it - Backdrop LOADING stuck forever on any fetch error (same class as the q12 Team bug). Added finally{setLoading(false)}, the dominant list pattern (Booking/Car/User/Supplier/Location/Country lists all use finally)",
+   "empty": "Empty card EMPTY_LIST when totalRecords===0",
+   "error": "helper.error toast (present); with F1 the backdrop now also resolves",
+   "success_feedback": "Mark read/unread update rows + notification count in place (visual)",
+   "destructive_confirmation": "Delete (single + selected): MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error",
+   "form_validation": "n/a"
+  },
+  "ChangePassword (/change-password)": {
+   "loading": "Backdrop loading while submitting",
+   "empty": "n/a",
+   "error": "helper.error toast (+ PASSWORD_UPDATE_ERROR on non-200)",
+   "success_feedback": "helper.info PASSWORD_UPDATE toast + navigate",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "Countries (/countries)": {
+   "loading": "CountryList try/catch/finally + init",
+   "empty": "CountryList empty card EMPTY_LIST",
+   "error": "helper.error toast + finally",
+   "success_feedback": "navigate-away create",
+   "destructive_confirmation": "CountryList delete: MUI Dialog disableEscapeKeyDown, title commonStrings.CONFIRM_TITLE, Cancel btn-secondary, Delete color=error (+ info dialog when linked)",
+   "form_validation": "Search RHF"
+  },
+  "CreateCountry (/create-country)": {
+   "loading": "isSubmitting",
+   "empty": "n/a",
+   "error": "helper.error toast",
+   "success_feedback": "helper.info COUNTRY_CREATED toast + reset (stay-on-page)",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "UpdateCountry (/update-country)": {
+   "loading": "Backdrop; onLoad catch -> setLoading(false)+setError(true)+setVisible(false)",
+   "empty": "n/a",
+   "error": "Root {error && <Error/>}",
+   "success_feedback": "helper.info COUNTRY_UPDATED toast",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "BankDetails (/bank-details)": {
+   "loading": "No loading indicator at all (fetch in onLoad, blank until data) - no stuck state possible; FILED",
+   "empty": "n/a (NoMatch when showBankDetailsPage is false)",
+   "error": "helper.error toast on failure; page stays blank after toast - FILED (gated read-only info page)",
+   "success_feedback": "n/a (read-only)",
+   "destructive_confirmation": "none",
+   "form_validation": "n/a (read-only)"
+  },
+  "Pricing (/pricing), About, ToS, Contact (/contact)": {
+   "loading": "Static content, no fetch (Contact form: ContactForm isSubmitting spinner)",
+   "empty": "n/a",
+   "error": "ContactForm catch -> helper.error toast",
+   "success_feedback": "ContactForm success -> helper.info MESSAGE_SENT toast + reset",
+   "destructive_confirmation": "none",
+   "form_validation": "ContactForm RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms"
+  },
+  "NoMatch (404) / Error pages": {
+   "loading": "n/a",
+   "empty": "NoMatch message + home link for unknown routes and missing/invalid entity ids (noMatch state in detail/update pages)",
+   "error": "pages/Error: GENERIC_ERROR + GO_TO_HOME button - the root error pattern referenced by Car/Supplier/Update* pages",
+   "success_feedback": "n/a",
+   "destructive_confirmation": "n/a",
+   "form_validation": "n/a"
+  },
+  "SignUp (/sign-up) - NOT ROUTED": {
+   "loading": "Route commented out in App.tsx; page exists with Backdrop + root error pattern",
+   "empty": "n/a",
+   "error": "setError('root', SIGN_UP_ERROR)",
+   "success_feedback": "n/a",
+   "destructive_confirmation": "none",
+   "form_validation": "RHF+zod, mode onSubmit, error={!!errors.x}+helperText/FormHelperText errors.x.message, onError setFocus(first) on Car/Supplier forms - dead route, tabulated for completeness"
+  },
+  "pages/ContractOperations.tsx - NOT ROUTED": {
+   "loading": "Unrouted duplicate of components/ContractOperations.tsx (the live one, embedded in UpdateBooking); identical state pattern: load try/catch/finally, Alert error, EMPTY texts",
+   "empty": "see component",
+   "error": "see component",
+   "success_feedback": "see component",
+   "destructive_confirmation": "none",
+   "form_validation": "see component - dead file, tabulated for completeness"
+  }
+ },
+ "fixes": [
+  {
+   "id": "F1",
+   "screen": "Notifications (/notifications)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/components/NotificationList.tsx",
+   "root_cause": "fetch() catch (line ~82) called helper.error(err) without setLoading(false), and the !_data early return also skipped it; loading initial true + Backdrop rendered while loading -> stuck backdrop on any fetch error",
+   "change": "Removed setLoading(false) from success path, added finally { setLoading(false) } - the pattern used by BookingList/CarList/UserList/etc.",
+   "verification": "Browser fr+ar (a3-verify): /notifications loads, spinner 0, no stuck backdrop, 4 notification items render (normal path). Forced-error path is code-proven: finally{setLoading(false)} is the same construct as the other six lists; no safe read-only way to make the notifications endpoint fail in the live session."
+  },
+  {
+   "id": "F2",
+   "screen": "Car (/car?cr=)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/pages/Car.tsx",
+   "root_cause": "onLoad admin branch inner catch (line ~138, getAllSuppliers) only called helper.error(err): setLoading(false) never ran and no error state was set -> stuck Backdrop",
+   "change": "Inner catch now also setLoading(false); setError(true); setVisible(false) - identical to the outer catch in the same function and to Supplier.tsx",
+   "verification": "CORRECTED 2026-11-06 (coordinator pass, same correction class as F7-F9): a nonexistent id on /car renders the NoMatch page (raw a3-verify output: hasGeneric=false, NoMatch body in fr+ar) with no progressbar - NOT the pages/Error page as originally worded. The fixed inner admin-branch catch (all-suppliers failing while the car fetch succeeds) cannot be forced read-only, so the fix stands as a 3-line mirror of the page's own outer catch: code-proven, with the browser check confirming a non-blank terminal page and no stuck spinner."
+  },
+  {
+   "id": "F3",
+   "screen": "Bookings (/bookings)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/pages/Bookings.tsx",
+   "root_cause": "onLoad awaited SupplierService.getAllSuppliers() with no try/catch; failure left setLoadingSuppliers(false)/setLeftPanel(true) unreached and BookingList suppliers undefined (its fetch guard never fires, DataGrid loading stays true) - silent stuck page",
+   "change": "Wrapped fetch in try/catch/finally: catch helper.error(err) + fallback suppliers (admin [] / own id), finally setLeftPanel(true) + setLoadingSuppliers(false)",
+   "verification": "Browser fr+ar: /bookings loads, DataGrid present, 10 rows, spinner 0 (normal path). Forced supplier-endpoint failure not safely triggerable read-only; fix mirrors Dashboard/Maintenance try/catch/finally."
+  },
+  {
+   "id": "F4",
+   "screen": "Cars (/cars)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/pages/Cars.tsx",
+   "root_cause": "onLoad admin branch awaited getAllSuppliers() unguarded; failure skipped the trailing setLoadingSuppliers(false)/setLoading(false): supplier-filter CircularProgress stuck and CarList loading prop stuck, silent",
+   "change": "Admin fetch wrapped in try/catch: catch helper.error(err) + setSuppliers([]); trailing loading resets now always reached",
+   "verification": "Browser fr+ar: /cars loads, 7 car cards, .filter-progress count 0, spinner 0 (normal path). Same forced-error caveat as F3."
+  },
+  {
+   "id": "F5",
+   "screen": "Scheduler (/scheduler, /calendar)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/pages/Scheduler.tsx",
+   "root_cause": "onLoad awaited getAllSuppliers() unguarded and render is gated on {user && suppliers}: failure = entire page blank, silent",
+   "change": "try/catch/finally like F3: catch helper.error(err) + fallback suppliers, finally setLeftPanel(true); page now renders (empty calendar) with a toast",
+   "verification": "Browser fr+ar: /scheduler renders (.scheduler present, ~950 chars content), spinner 0 (normal path). Same forced-error caveat as F3."
+  },
+  {
+   "id": "F6",
+   "screen": "Settings (/settings)",
+   "dimension": "a/c loading+error",
+   "file": "admin/src/pages/Settings.tsx",
+   "root_cause": "onLoad awaited BankDetailsService.getBankDetails() and SettingService.getSettings() unguarded before setVisible(true)/setLoading(false) (loading initial true): failure = Backdrop PLEASE_WAIT forever, silent",
+   "change": "Both fetches wrapped in try/catch(helper.error)/finally(setVisible(true), setLoading(false)) - profile form (already populated from user context) now always shows",
+   "verification": "Browser fr+ar: /settings renders the profile form (email input present), no stuck backdrop (normal path). Same forced-error caveat as F3."
+  },
+  {
+   "id": "F7",
+   "screen": "UpdateUser (/update-user?u=)",
+   "dimension": "c error",
+   "file": "admin/src/pages/UpdateUser.tsx",
+   "root_cause": "onLoad catch (line ~183) toasted but set no error flag - formError in this file is never set true anywhere, and its Error render sits inside the visible form: fetch failure = blank page",
+   "change": "Catch now setFormError(true); added root render {formError && !visible && <Error message={GENERIC_ERROR}>} next to the NoMatch render, mirroring UpdateCar's root {formError && <Error/>}",
+   "verification": "CODE-PROVEN ONLY (corrected 2026-11-06, A3 follow-up): the fix changes only the exception path - onLoad catch now setFormError(true) with a root {formError && !visible && <Error>} render - and a nonexistent id never triggers it: the fetch resolves falsy and the pre-existing noMatch branch renders NoMatch. Browser check (a3-diag/a3-verify + a3-followup, fr+ar) confirms only that /update-user?u=<nonexistent> is non-blank, has no stuck spinner (progressbar 0) and ends on the sensible terminal NoMatch page (fr 'Rien à voir ici !' / ar 'لا شيء هنا!'). The exception path itself is verified by code inspection (mirror of UpdateCar root Error), not by a browser probe."
+  },
+  {
+   "id": "F8",
+   "screen": "UpdateSupplier (/update-supplier?c=)",
+   "dimension": "c error",
+   "file": "admin/src/pages/UpdateSupplier.tsx",
+   "root_cause": "onLoad catch set submitError(true)+setVisible(false), but submitError only rendered inside the {visible} form (line ~477): fetch failure = blank page",
+   "change": "Added root render {submitError && !visible && <Error message={GENERIC_ERROR}>} next to the NoMatch render",
+   "verification": "CODE-PROVEN ONLY (corrected 2026-11-06, A3 follow-up): the fix changes only the exception path - the added root {submitError && !visible && <Error>} render for when onLoad's catch fires - and a nonexistent id never triggers it: the fetch resolves falsy and the pre-existing noMatch branch renders NoMatch. Browser check (a3-diag/a3-verify + a3-followup, fr+ar) confirms only that /update-supplier?c=<nonexistent> is non-blank, has no stuck spinner (progressbar 0) and ends on the sensible terminal NoMatch page (fr 'Rien à voir ici !' / ar 'لا شيء هنا!'). The exception path itself is verified by code inspection (mirrors UpdateCar/UpdateCountry root Error), not by a browser probe."
+  },
+  {
+   "id": "F9",
+   "screen": "User (/user?u=)",
+   "dimension": "c error",
+   "file": "admin/src/pages/User.tsx",
+   "root_cause": "onLoad catch (line ~120) toasted + setLoading(false) but the page has no error state/render at all (siblings Car/Supplier have error state + <Error/>): fetch failure = blank page",
+   "change": "Added error state, setError(true) in catch, import Error from './Error' and {error && <Error/>} render - identical to Car.tsx/Supplier.tsx",
+   "verification": "CODE-PROVEN ONLY (corrected 2026-11-06, A3 follow-up): the fix changes only the exception path - added error state, setError(true) in catch and {error && <Error/>} render - and a nonexistent id never triggers it: the fetch resolves falsy and the pre-existing noMatch branch renders NoMatch. Browser check (a3-diag/a3-verify + a3-followup, fr+ar) confirms only that /user?u=<nonexistent> is non-blank, has no stuck spinner (progressbar 0) and ends on the sensible terminal NoMatch page (fr 'Rien à voir ici !' / ar 'لا شيء هنا!'). The exception path itself is verified by code inspection (identical to Car.tsx/Supplier.tsx), not by a browser probe."
+  },
+  {
+   "id": "F10",
+   "screen": "CashJournal (/caisse) transfer dialog",
+   "dimension": "f form validation",
+   "file": "admin/src/pages/CashJournal.tsx + admin/src/lang/cash-journal.ts",
+   "root_cause": "saveTransfer() began with a silent return when destination/amount missing - the only silent validation return among GA save handlers (saveMovement/saveSession/Payments/Team/Maintenance all set sessionError/formError + Alert/toast)",
+   "change": "Guard now also rejects amount <= 0 (aligning Payments handleSave) and sets sessionError + sessionErrorMessage(strings.TRANSFER_ERROR) + helper.error toast, the file's dual pattern; TRANSFER_ERROR added to en/fr/es/ar in lang/cash-journal.ts",
+   "verification": "NOT browser-verified: the Transfer dialog is only reachable with an OPEN cash session, and a sweep of all 13 agencies x both accounts (a3-cash2) found no open session (only closed/none); opening one is a mutation reserved to Phase B. Verified by code inspection (guard now sets sessionError + toast, the file's dual pattern), full lint and build. Recommend a Phase B spot-check on an open session."
+  },
+  {
+   "id": "F11",
+   "screen": "Bookings + Users + Clients (DataGrid lists)",
+   "dimension": "b empty",
+   "file": "admin/src/components/BookingList.tsx, admin/src/components/UserList.tsx, admin/src/lang/user-list.ts",
+   "root_cause": "The two DataGrid lists had no localized empty state: desktop showed MUI default English 'No rows' in fr/ar UI, BookingList mobile (rows.map) rendered literally blank; booking-list lang already carried EMPTY_LIST, user-list lang had none",
+   "change": "DataGrid localeText={{ noRowsLabel: strings.EMPTY_LIST }} on both grids; BookingList mobile branch renders the dominant Card.empty-list (class already styled in booking-list.css) when !loading && rows empty; EMPTY_LIST added to user-list.ts in fr/ar/en/es",
+   "verification": "Mobile VERIFIED (a3-mobile4, 800px viewport, fr): BookingList mobile branch renders the new .empty-list card 'Pas de réservations.' for a car with zero bookings on its detail page, spinner 0. Desktop VERIFIED 2026-11-06 by the A3 follow-up probe (a3-followup.mjs, CDP desktop 1440px): on /users and /bookings, typing nonsense keyword 'zzqxnomatch99' into the visible input[name=\"keyword\"] and submitting via form.requestSubmit() drove both grids to 0 rows with the localized DataGrid no-rows label rendered in .MuiDataGrid-overlay - /users fr 'Pas d’utilisateurs.', ar 'لا يوجد مستخدمون.'; /bookings fr 'Pas de réservations.', ar 'لا توجد حجوزات.' - no English 'No rows' and no stuck spinner (progressbar 0 after settle) in all four combinations; the /users filter is confirmed by network hits /api/users/1/30/?s=zzqxnomatch99. /clients shares UserList. NOTE: earlier harness attempts (Enter-key submit, generic input selectors) never actually submitted the filter - the grids stayed unfiltered - so the desktop claim in the original verification text was unsupported until this probe."
+  }
+ ],
+ "filed_divergent_but_acceptable": [
+  {
+   "item": "Maintenance schedule delete + Payments reversal use window.confirm (localized DELETE_SCHEDULE_CONFIRM / REVERSE_CONFIRM) instead of the MUI CONFIRM_TITLE dialog",
+   "reason": "Confirmation exists, wording is localized in fr/ar/en/es, cancel is safe (early return, no mutation). Not absent feedback; converting two working GA flows to dialogs was judged higher-risk than the coherence gain. Revisit if owner wants pixel-uniform dialogs."
+  },
+  {
+   "item": "ContractList (supplier contract file) and DriverLicense (user license file) delete icons act without a confirmation dialog",
+   "reason": "These are attachment remove/replace controls inside create/update forms (the same class as temp-file cleanup, which also has no dialog); the record itself is not deleted and the file can be re-uploaded before saving. Avatar delete - a persisted profile image outside a form - does have the dialog. Flagged for owner judgment rather than unilaterally adding dialogs to upstream form components."
+  },
+  {
+   "item": "BankDetails page has no loading indicator and stays blank after a fetch-error toast",
+   "reason": "No stuck state is possible (nothing ever spins), the error is toasted, and the page is a gated read-only info page (NoMatch unless showBankDetailsPage). Cosmetic only."
+  },
+  {
+   "item": "CreateBooking/UpdateBooking main select fields have no field-level helper text on empty submit",
+   "reason": "Feedback is present: zod schema makes them optional and onSubmit's guard fires helper.error toast; the additional-driver sub-form uses the full FormHelperText pattern. Field-level errors for select lists would require plumbing RHF errors into four select components - beyond minimal alignment."
+  },
+  {
+   "item": "UpdateUser/CreateUser/CreateBooking RHF forms do not pass onError setFocus(first field), unlike Car/Supplier forms",
+   "reason": "Field helper texts still render (feedback present); focus-jump is a nicety, not absent feedback."
+  },
+  {
+   "item": "GA pages (Team/Maintenance/Payments/Cash/Approbations) give no toast on create/update success",
+   "reason": "Consistent within the GA family: dialog closes and the row/list visibly updates or reloads; Payments reversal additionally sets an inline REVERSED notice. In-place visual feedback, not silence."
+  },
+  {
+   "item": "Scheduler event delete uses the scheduler library's two-step inline confirm instead of the MUI dialog",
+   "reason": "Library-native pattern, confirmation + cancel present and safe."
+  }
+ ],
+ "build_and_layer": {
+  "lint_changed_files": "npx eslint on all 14 changed files: exit 0, no output",
+  "lint_full": "npm run lint (eslint .): exit 0",
+  "build": "npm run build: exit 0, built in 19.15s; new entry entries/index-DIBr4WtN.js",
+  "layer": "docker cp admin/build -> bookcars-bc-admin-1:/usr/share/nginx/build_new, cp -a into /usr/share/nginx/html (layer5 pattern from A2); served GET http://localhost:3002/ entry changed index-B4nPy9A-.js -> index-DIBr4WtN.js",
+  "git": "no commit/push; __scripts/run-p0-tests.ps1 untouched; diff for the 14 files: 81 insertions, 31 deletions (incl. lang single-line edits)"
+ },
+ "browser_verification": {
+  "harness": "CDP 127.0.0.1:9229 scripts in C:/Users/Yassi/ga-q12-work/: a3-verify.mjs, a3-diag.mjs, a3-cash.mjs, a3-cash2.mjs, a3-mobile.mjs, a3-mobile2.mjs, a3-mobile4.mjs (outputs a3-*-out.txt). Existing signed-in session reused; no credentials printed or stored. Probes read-only + dialog open/cancel + empty submits only.",
+  "also_verified": [
+   "Delete dialog on /suppliers (fr+ar): opens with CONFIRM_TITLE + DELETE_SUPPLIER wording, Cancel closes it, row count unchanged (4 -> 4).",
+   "CreateCar empty submit (fr+ar): RHF helper texts appear ('Requis', price/age messages; ar equivalents) and focus moves to the first error field (name) via onError - dominant validation pattern confirmed working.",
+   "Regression routes /car and /supplier with nonexistent ids (fr+ar): localized Error page, no spinner.",
+   "Team (A2 reference), Dashboard, Reports, Approbations, Maintenance, Payments, Cash normal paths load with resolving indicators in the main pass."
+  ]
+ },
+ "corrections": [
+  {
+   "date": "2026-11-06",
+   "source": "Gestion Auto queue #12 slice A3 follow-up - evidence correction + desktop filter-to-empty probe (harness C:/Users/Yassi/ga-q12-work/a3-followup.mjs, output a3-followup-out.txt)",
+   "changes": [
+    "F7/F8/F9 verification downgraded to CODE-PROVEN ONLY: the original text claimed browser-verified GENERIC_ERROR pages for nonexistent ids, but a nonexistent id resolves falsy and renders the pre-existing NoMatch page (raw a3-diag/a3-verify output showed NoMatch with hasGeneric=false; re-confirmed fr+ar by a3-followup) - the fixed exception (fetch-throws) path was never exercised by any probe. Browser evidence supports only: non-blank, no stuck spinner, sensible terminal page (NoMatch) in fr+ar.",
+    "F11 verification rewritten: the mobile BookingList empty card was and remains verified (a3-mobile4). The original desktop claim was unsupported - the harness had never successfully driven the desktop grids to empty (typing registered but form submission did not take effect; grids stayed unfiltered). Desktop was re-probed 2026-11-06 using the visible input[name=\"keyword\"] + form.requestSubmit() and is now genuinely verified on /users and /bookings in fr+ar, with the exact rendered empty labels recorded in F11.",
+    "Noted without a field change (per the A3 worker's own correction): the CreateCar empty submit is focus-to-first-error verified (active element = name field, fr+ar); helper-text rendering was not captured in the harness output."
+   ]
+  },
+  {
+   "date": "2026-11-06",
+   "by": "queue #12 coordinator, on the A3 follow-up worker's flag",
+   "change": "F2 verification wording corrected: bad-id /car renders NoMatch (not pages/Error); fix reclassified as code-proven mirror of the verified outer catch."
+  }
+ ]
+}

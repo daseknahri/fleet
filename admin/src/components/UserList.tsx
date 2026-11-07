@@ -147,13 +147,13 @@ const UserList = ({
 
           if (__user.avatar) {
             if (__user.type === bookcarsTypes.RecordType.Supplier) {
-              userAvatar = <img src={bookcarsHelper.joinURL(env.CDN_USERS, row.avatar)} alt={row.fullName} />
+              userAvatar = <img src={bookcarsHelper.joinURL(env.CDN_USERS, row.avatar)} alt="" />
             } else {
               const userAvatarUrl = __user.avatar
                 ? ((__user.avatar.startsWith('https://') || __user.avatar.startsWith('http://')) ? __user.avatar : bookcarsHelper.joinURL(env.CDN_USERS, __user.avatar))
                 : ''
 
-              const avatar = <Avatar src={userAvatarUrl} className="avatar-small" />
+              const avatar = <Avatar src={userAvatarUrl} alt="" className="avatar-small" />
               if (__user.verified) {
                 userAvatar = (
                   <Badge
@@ -246,7 +246,7 @@ const UserList = ({
       },
       {
         field: 'action',
-        headerName: '',
+        headerName: commonStrings.ACTIONS,
         sortable: false,
         disableColumnMenu: true,
         renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.User>) => {
@@ -288,7 +288,7 @@ const UserList = ({
             </Tooltip>
           </div>
         ) : (
-          <></>
+          <span className="sr-only">{commonStrings.ACTIONS}</span>
         )),
       },
     ]
@@ -378,6 +378,7 @@ const UserList = ({
             setSelectedIds(Array.from(new Set(_selectedIds.ids)).map((id) => id.toString()))
             setReloadColumns(true)
           }}
+          localeText={{ noRowsLabel: strings.EMPTY_LIST }}
           getRowClassName={(params: any) => (params.row.blacklisted ? 'us-blacklisted' : '')}
           disableRowSelectionOnClick
         />

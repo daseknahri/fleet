@@ -21,6 +21,7 @@ import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
+import AgencyMembership from '../models/AgencyMembership'
 
 /**
  * Validate Supplier by fullname.
@@ -49,7 +50,7 @@ export const validate = async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error(`[supplier.validate] ${i18n.t('ERROR')} ${fullName}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -132,7 +133,7 @@ export const update = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[supplier.update] ${i18n.t('ERROR')} ${_id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -183,6 +184,13 @@ export const deleteSupplier = async (req: Request, res: Response) => {
 
       await NotificationCounter.deleteMany({ user: id })
       await Notification.deleteMany({ user: id })
+      // H-024 (hardening Wave 4): the cascade predates agency memberships and
+      // left them behind - a deleted agency's staff kept an active membership
+      // (and therefore a live agency context in verifyToken) pointing at a
+      // supplier that no longer exists. Remove the agency's memberships with
+      // the rest of its data. The staff user accounts themselves are global
+      // and stay; with no active membership they fail closed at verifyToken.
+      await AgencyMembership.deleteMany({ supplier: id })
       const additionalDrivers = (
         await Booking
           .find(
@@ -214,7 +222,7 @@ export const deleteSupplier = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[supplier.delete] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -293,7 +301,7 @@ export const getSupplier = async (req: Request, res: Response) => {
     })
   } catch (err) {
     logger.error(`[supplier.getSupplier] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -367,7 +375,7 @@ export const getSuppliers = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[supplier.getSuppliers] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -398,7 +406,7 @@ export const getAllSuppliers = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[supplier.getAllSuppliers] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -568,12 +576,20 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
                         ]
                       },
                       {
-                        $or: [
-                          { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
+                        $and: [
+                          // Terminal lifecycles (completed/cancelled contracts)
+                          // no longer reserve the car (GAQ12B1, mirrors the
+                          // enforcement helper's lifecycle exclusion).
+                          { $not: { $in: ['$lifecycle', [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled]] } },
                           {
-                            $and: [
-                              { $eq: ['$status', bookcarsTypes.BookingStatus.Void] },
-                              { $gt: ['$expireAt', new Date()] },
+                            $or: [
+                              { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
+                              {
+                                $and: [
+                                  { $eq: ['$status', bookcarsTypes.BookingStatus.Void] },
+                                  { $gt: ['$expireAt', new Date()] },
+                                ],
+                              },
                             ],
                           },
                         ],
@@ -658,7 +674,7 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[supplier.getFrontendSuppliers] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -800,7 +816,7 @@ export const getAdminSuppliers = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[supplier.getAdminSuppliers] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -846,7 +862,7 @@ export const createContract = async (req: Request, res: Response) => {
     res.json(filename)
   } catch (err) {
     logger.error(`[supplier.createContract] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -927,7 +943,7 @@ export const updateContract = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[supplier.updateContract] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -979,7 +995,7 @@ export const deleteContract = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[supplier.deleteContract] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1025,6 +1041,6 @@ export const deleteTempContract = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[supplier.deleteTempContract] ${i18n.t('ERROR')} ${file}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }

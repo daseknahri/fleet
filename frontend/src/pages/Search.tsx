@@ -5,6 +5,7 @@ import { Tune as FiltersIcon } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings } from '@/lang/search'
+import { visuallyHidden } from '@mui/utils'
 import * as helper from '@/utils/helper'
 import env from '@/config/env.config'
 import * as LocationService from '@/services/LocationService'
@@ -252,6 +253,7 @@ const Search = () => {
       <Layout onLoad={onLoad} strict={false}>
         {visible && supplierIds && pickupLocation && dropOffLocation && from && to && (
           <div className="search">
+            <h1 style={visuallyHidden}>{strings.SEARCH_HEADING}</h1>
             <div className="col-1">
               {!loading && (
                 <>

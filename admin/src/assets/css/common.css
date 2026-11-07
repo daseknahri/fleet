@@ -28,7 +28,7 @@
 }
 
 .btn-secondary {
-  background-color: #999 !important;
+  background-color: #757575 !important;
   color: #fff !important;
 }
 
@@ -218,7 +218,7 @@
 }
 
 .info span {
-  color: #a8a8a8;
+  color: #757575;
   display: inline-block;
   font-size: 0.9em;
   line-height: 1em;
@@ -249,12 +249,26 @@
   height: 20px !important;
 }
 
-div.content {
+.content {
   display: flex;
   flex-direction: column;
   flex: 1 0 auto;
   margin: 0;
   padding: 0;
+}
+
+/* GA hardening Wave 5: visually hidden but available to assistive tech
+   (used for page h1s and grid action-column headers). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .form-label {

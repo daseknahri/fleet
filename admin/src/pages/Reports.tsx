@@ -57,9 +57,9 @@ return
   }
   const lang = UserService.getLanguage(); strings.setLanguage(lang === 'ar' ? 'ar' : lang === 'fr' ? 'fr' : lang === 'es' ? 'es' : 'en')
   const value = (key: string) => report?.metrics[key] || 0
-  const money = (n: number) => `${new Intl.NumberFormat('fr-MA', { maximumFractionDigits: 2 }).format(n)} ${report?.currency || env.CURRENCY}`
+  const money = (n: number) => `${new Intl.NumberFormat(lang === 'ar' ? 'ar-MA' : lang === 'fr' ? 'fr-MA' : lang === 'es' ? 'es-ES' : 'en-GB', { maximumFractionDigits: 2 }).format(n)} ${report?.currency || env.CURRENCY}`
   const cards = [['revenueCollected', strings.REVENUE], ['depositsCollected', strings.DEPOSITS], ['receivable', strings.RECEIVABLE], ['expenses', strings.EXPENSES], ['estimatedMargin', strings.MARGIN]]
-  return <Layout strict onLoad={load}><main className="agency-dashboard">
+  return <Layout strict onLoad={load}><div className="agency-dashboard">
     <Box className="agency-dashboard__heading"><div><Typography component="h1" className="agency-dashboard__title">{strings.TITLE}</Typography><Typography>{strings.SUBTITLE}</Typography></div><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>{helper.admin(user) && <FormControl size="small" sx={{ minWidth: 220 }}><InputLabel id={agencyLabelId}>{strings.AGENCY}</InputLabel><Select label={strings.AGENCY} labelId={agencyLabelId} value={supplierId} onChange={e => {
  setSupplierId(e.target.value); setReport(null) 
 }}>{suppliers.map(supplier => <MenuItem key={supplier._id} value={supplier._id}>{supplier.fullName}</MenuItem>)}</Select></FormControl>}<TextField size="small" type="date" label={strings.FROM} value={from} onChange={e => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} /><TextField size="small" type="date" label={strings.TO} value={to} onChange={e => setTo(e.target.value)} InputLabelProps={{ shrink: true }} /><Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => load(user || undefined)}>{strings.REFRESH}</Button><Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportReport} disabled={!report}>{strings.EXPORT}</Button></Box></Box>
@@ -69,7 +69,7 @@ return
       <Box sx={{ flex: '1 1 220px', minWidth: 220 }}><Card><CardContent><Typography color="text.secondary">{strings.UTILIZATION}</Typography><Typography variant="h5" component="h2">{value('utilizationPercent').toFixed(2)}%</Typography></CardContent></Card></Box>
       <Box sx={{ width: '100%' }}><Typography>{strings.CONTRACTS}: {value('contracts')} · {strings.INVOICES}: {value('invoiceCount')} · {report.timezone} · v{report.metricDictionaryVersion}</Typography></Box>
     </Box>}
-  </main></Layout>
+  </div></Layout>
 }
 export default Reports
 

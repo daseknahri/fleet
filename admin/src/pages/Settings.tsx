@@ -125,18 +125,28 @@ const Settings = () => {
       setValue('bio', _user.bio || '')
       setEnableEmailNotifications(_user.enableEmailNotifications || false)
 
-      const bankDetails = await BankDetailsService.getBankDetails()
-      if (bankDetails) {
-        setBankDetails(bankDetails)
-      }
+      try {
+        // H-022 (hardening Wave 4): only the platform admin uses the bank
+        // details below (the form renders for admins only); other roles
+        // either cannot read the endpoint (staff - it 403'd here too) or
+        // never see the form (suppliers), so only fetch it for admins.
+        if (helper.admin(_user)) {
+          const bankDetails = await BankDetailsService.getBankDetails()
+          if (bankDetails) {
+            setBankDetails(bankDetails)
+          }
+        }
 
-      const settings = await SettingService.getSettings()
-      if (settings) {
-        setSettings(settings)
+        const settings = await SettingService.getSettings()
+        if (settings) {
+          setSettings(settings)
+        }
+      } catch (err) {
+        helper.error(err)
+      } finally {
+        setVisible(true)
+        setLoading(false)
       }
-
-      setVisible(true)
-      setLoading(false)
     }
   }
 
@@ -160,16 +170,17 @@ const Settings = () => {
                 className="avatar-ctn"
               />
               <FormControl fullWidth margin="dense">
-                <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
-                <Input {...register('fullName')} type="text" required autoComplete="off" />
+                <InputLabel className="required" htmlFor="settings-fullName">{commonStrings.FULL_NAME}</InputLabel>
+                <Input id="settings-fullName" {...register('fullName')} type="text" required autoComplete="off" />
               </FormControl>
               <FormControl fullWidth margin="dense">
-                <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
-                <Input {...register('email')} type="text" disabled />
+                <InputLabel className="required" htmlFor="settings-email">{commonStrings.EMAIL}</InputLabel>
+                <Input id="settings-email" {...register('email')} type="text" disabled />
               </FormControl>
               <FormControl fullWidth margin="dense" error={!!errors.phone}>
-                <InputLabel>{commonStrings.PHONE}</InputLabel>
+                <InputLabel htmlFor="settings-phone">{commonStrings.PHONE}</InputLabel>
                 <Input
+                  id="settings-phone"
                   {...register('phone')}
                   type="text"
                   autoComplete="off"
@@ -182,12 +193,12 @@ const Settings = () => {
                 <FormHelperText>{errors.phone?.message || ''}</FormHelperText>
               </FormControl>
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.LOCATION}</InputLabel>
-                <Input {...register('location')} type="text" autoComplete="off" />
+                <InputLabel htmlFor="settings-location">{commonStrings.LOCATION}</InputLabel>
+                <Input id="settings-location" {...register('location')} type="text" autoComplete="off" />
               </FormControl>
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.BIO}</InputLabel>
-                <Input {...register('bio')} type="text" autoComplete="off" />
+                <InputLabel htmlFor="settings-bio">{commonStrings.BIO}</InputLabel>
+                <Input id="settings-bio" {...register('bio')} type="text" autoComplete="off" />
               </FormControl>
               <div className="buttons">
                 <Button variant="contained" className="btn-primary btn-margin btn-margin-bottom" size="small" onClick={() => navigate('/change-password')}>

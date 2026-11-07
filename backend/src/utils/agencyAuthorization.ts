@@ -99,6 +99,7 @@ export enum AgencyPermission {
   RecordPayments = 'recordPayments',
   ReadCash = 'readCash',
   ManageCash = 'manageCash',
+  RecordCash = 'recordCash',
   ReadInvoices = 'readInvoices',
   ManageInvoices = 'manageInvoices',
   DecideInvoices = 'decideInvoices',
@@ -123,6 +124,7 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadPayments,
     AgencyPermission.ReadCash,
     AgencyPermission.ManageCash,
+    AgencyPermission.RecordCash,
     AgencyPermission.ReadInvoices,
     AgencyPermission.ManageInvoices,
     AgencyPermission.DecideInvoices,
@@ -135,6 +137,13 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadClients,
     AgencyPermission.ManageClients,
     AgencyPermission.ReadPrivateDocuments,
+    // Authorization matrix ("Record pending" for payment entry and the
+    // cash drawer), confirmed by owner decision 1.5 (GA-P10-DECISIONS-01):
+    // counter agents may record payment and cash entries, which stay
+    // pending until an accountant or above confirms them.
+    AgencyPermission.RecordPayments,
+    AgencyPermission.ReadCash,
+    AgencyPermission.RecordCash,
   ],
   [bookcarsTypes.AgencyRole.Accountant]: [
     AgencyPermission.ReadAgencyProfile,
@@ -148,6 +157,7 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.RecordPayments,
     AgencyPermission.ReadCash,
     AgencyPermission.ManageCash,
+    AgencyPermission.RecordCash,
     AgencyPermission.ReadInvoices,
     AgencyPermission.ManageInvoices,
   ],
@@ -192,6 +202,43 @@ const requestedSupplierId = (req: Request) => (
  * Admin requests may supply an agency selector; agency owners and staff are
  * always resolved from their authenticated identity/membership.
  */
+export const requireAnyAgencyPermission = (permissions: AgencyPermission[]) => async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!req.user) {
+    res.status(401).send({ message: 'Unauthorized!' })
+    return
+  }
+
+  if (req.user.type === bookcarsTypes.UserType.User) {
+    res.status(403).send({ message: 'Agency access required' })
+    return
+  }
+
+  if (req.user.type === bookcarsTypes.UserType.Admin) {
+    req.agency = {
+      supplierId: requestedSupplierId(req) || '',
+      role: bookcarsTypes.AgencyRole.Owner,
+    }
+    next()
+    return
+  }
+
+  const requested = req.user.type === bookcarsTypes.UserType.Supplier
+    ? undefined
+    : (requestedSupplierId(req) || req.agency?.supplierId)
+  const context = await getAgencyContext(req.user, requested)
+  if (!context || !permissions.some((permission) => hasAgencyPermission(context, permission))) {
+    res.status(403).send({ message: 'Insufficient agency permission' })
+    return
+  }
+
+  req.agency = context
+  next()
+}
+
 export const requireAgencyPermission = (permission: AgencyPermission) => async (
   req: Request,
   res: Response,

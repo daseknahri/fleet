@@ -56,6 +56,22 @@ const userSchema = new Schema<env.User>(
     verifiedAt: {
       type: Date,
     },
+    // How the account was created: 'self' through the public sign-up
+    // endpoints, 'admin' through an authenticated create flow. Legacy
+    // rows carry no marker and default to 'admin' (exempt), so nobody
+    // is locked out retroactively (decision F-SEC-7, GA-P10-DECISIONS-01).
+    signupOrigin: {
+      type: String,
+      enum: ['self', 'admin'],
+      default: 'admin',
+    },
+    // Server-side session revocation (H-007): bumped whenever the password
+    // changes. JWTs carry the version they were issued with (tv claim) and
+    // token verification rejects them once it no longer matches.
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
     active: {
       type: Boolean,
       default: false,

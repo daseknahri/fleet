@@ -20,6 +20,7 @@ import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/create-car'
+import { visuallyHidden } from '@mui/utils'
 import * as CarService from '@/services/CarService'
 import * as helper from '@/utils/helper'
 import Error from './Error'
@@ -354,6 +355,7 @@ const UpdateCar = () => {
       {!formError && !noMatch && (
         <div className="create-car">
           <Paper className="car-form car-form-wrapper" elevation={10} style={visible ? {} : { display: 'none' }}>
+            <h1 style={visuallyHidden}>{strings.UPDATE_CAR_HEADING}</h1>
             <form onSubmit={handleSubmit(onSubmit, onError)}>
               <Avatar
                 type={bookcarsTypes.RecordType.Car}

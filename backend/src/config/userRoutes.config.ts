@@ -27,6 +27,7 @@ const routes = {
   getUsers: '/api/users/:page/:size',
   delete: '/api/delete-users',
   checkPassword: '/api/check-password/:id/:password',
+  checkPasswordPost: '/api/check-password/:id',
   signout: '/api/sign-out',
   verifyRecaptcha: '/api/verify-recaptcha/:token/:ip',
   sendEmail: '/api/send-email',

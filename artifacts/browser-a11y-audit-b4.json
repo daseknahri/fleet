@@ -1,0 +1,1726 @@
+{
+ "slice": "GA-P12-REG-B4-01",
+ "label": "queue12 B4 regression close axe re-check",
+ "base": "http://localhost:3002 (admin), http://localhost:8080 (frontend)",
+ "at": "2026-11-06",
+ "axeVersion": "4.10.2",
+ "method": "Same harnesses as queue #10 (admin: artifacts/browser-a11y-audit-01.cjs pattern; frontend: browser-frontend-parity-01.cjs pattern), axe-core 4.10.2 injected from C:\\Users\\Yassi\\ga-q4-axe.min.js, admin language forced via update-language API, frontend fr/ar passes with real search/booking flow.",
+ "admin": {
+  "fr": {
+   "slice": "GA-P12-REG-B4-01 (admin axe, queue #10 method)",
+   "mode": "fr",
+   "at": "2026-11-06T14:05:56.622Z",
+   "axeVersion": "4.10.2",
+   "surfaces": {
+    "dashboard": {
+     "url": "http://localhost:3002/",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 0,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 16,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 0,
+      "controlsNoLabel": {
+       "count": 0,
+       "samples": []
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     },
+     "keyboardProbe": [
+      {
+       "tag": "BUTTON",
+       "name": "open drawer",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Notifications",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "show more",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Nouvelle réservation",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Tout voir",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:22 ",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan Départ 05 nov., 20:23 ",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan Départ 07 nov., 03:07 ",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Ford Mustang Convertible driver1 Départ 10 nov., 0",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Toyota Camry Alex Morgan Départ 17 nov., 03:07 Rés",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Planning Consulter la disponibilité",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Flotte Gérer les véhicules",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Clients Accéder aux comptes clients",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Entretien Suivre les entretiens et dépenses",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      }
+     ]
+    },
+    "bookings": {
+     "url": "http://localhost:3002/bookings",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 0,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 58,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 16,
+      "controlsNoLabel": {
+       "count": 0,
+       "samples": []
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 14,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     },
+     "keyboardProbe": [
+      {
+       "tag": "BUTTON",
+       "name": "open drawer",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Notifications",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "show more",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "NOUVELLE RÉSERVATION",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "Fournisseur",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "Apex Car Rentals",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "Apex Car Rentals",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.0a_i1cuq6yge5jr27gh21",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.0a_i1cuq6yge5jr27gh21",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "Cocher tout",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      }
+     ]
+    },
+    "contractWorkspace": {
+     "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 19,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 20,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 22,
+      "controlsNoLabel": {
+       "count": 3,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" required=\"\" value=\"reserved\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"MAD\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"damage\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 3,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "cashJournal": {
+     "url": "http://localhost:3002/caisse",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 6,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 4,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 5,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "reports": {
+     "url": "http://localhost:3002/reports",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 3,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 5,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 3,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "approbations": {
+     "url": "http://localhost:3002/approbations",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 5,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 5,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 6,
+      "controlsNoLabel": {
+       "count": 2,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "maintenance": {
+     "url": "http://localhost:3002/maintenance",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 1,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 7,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 2,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    }
+   },
+   "summary": {
+    "dashboard": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 0,
+     "positiveTabindex": 0,
+     "incompleteContrast": 0
+    },
+    "bookings": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 0,
+     "positiveTabindex": 0,
+     "incompleteContrast": 0
+    },
+    "contractWorkspace": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 3,
+     "positiveTabindex": 0,
+     "incompleteContrast": 19
+    },
+    "cashJournal": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 6
+    },
+    "reports": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 3
+    },
+    "approbations": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 2,
+     "positiveTabindex": 0,
+     "incompleteContrast": 5
+    },
+    "maintenance": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 1
+    }
+   },
+   "session": {
+    "signedIn": true,
+    "language": "fr"
+   },
+   "requestedLanguage": "fr",
+   "bookingIdUsed": "6aeb943421ad66aa3cc4fdb0",
+   "outcome": "audit-complete"
+  },
+  "ar": {
+   "slice": "GA-P12-REG-B4-01 (admin axe, queue #10 method)",
+   "mode": "ar",
+   "at": "2026-11-06T14:07:06.515Z",
+   "axeVersion": "4.10.2",
+   "surfaces": {
+    "dashboard": {
+     "url": "http://localhost:3002/",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 0,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 16,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 0,
+      "controlsNoLabel": {
+       "count": 0,
+       "samples": []
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     },
+     "keyboardProbe": [
+      {
+       "tag": "BUTTON",
+       "name": "open drawer",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "الإشعارات",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "show more",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "حجز جديد",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "عرض الكل",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan الاستلام 05 نونبر، 20:",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan الاستلام 05 نونبر، 20:",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Volkswagen Golf Alex Morgan الاستلام 07 نونبر، 03:",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Ford Mustang Convertible driver1 الاستلام 10 نونبر",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "Toyota Camry Alex Morgan الاستلام 17 نونبر، 03:07 ",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "التخطيط تحقق من التوفر",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "الأسطول إدارة المركبات",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "العملاء فتح حسابات العملاء",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "الصيانة تتبع الصيانة والمصاريف",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      }
+     ]
+    },
+    "bookings": {
+     "url": "http://localhost:3002/bookings",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 0,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 58,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 16,
+      "controlsNoLabel": {
+       "count": 0,
+       "samples": []
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 14,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     },
+     "keyboardProbe": [
+      {
+       "tag": "BUTTON",
+       "name": "open drawer",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "الإشعارات",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "show more",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "BUTTON",
+       "name": "حجز جديد",
+       "focusVisible": true,
+       "outline": "none 0px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "المورد",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "Apex Car Rentals",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "Apex Car Rentals",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.0a_i1cuq6yge5jr27gh21",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.0a_i1cuq6yge5jr27gh21",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "INPUT",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "supplier.1prfs8gtswcf4jkspyzsr",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      },
+      {
+       "tag": "SPAN",
+       "name": "تحديد الكل",
+       "focusVisible": true,
+       "outline": "auto 1px"
+      }
+     ]
+    },
+    "contractWorkspace": {
+     "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 20,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 20,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 22,
+      "controlsNoLabel": {
+       "count": 3,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" required=\"\" value=\"reserved\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"MAD\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"damage\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 3,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "cashJournal": {
+     "url": "http://localhost:3002/caisse",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 5,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 4,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 5,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "reports": {
+     "url": "http://localhost:3002/reports",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 2,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 5,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 3,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "approbations": {
+     "url": "http://localhost:3002/approbations",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 4,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 5,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 6,
+      "controlsNoLabel": {
+       "count": 2,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+        },
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"6ae166dda73203de8dd5bdbb\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    },
+    "maintenance": {
+     "url": "http://localhost:3002/maintenance",
+     "axe": {
+      "violations": [],
+      "incompleteContrast": 1,
+      "incompleteOther": [
+       {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+       }
+      ]
+     },
+     "manual": {
+      "interactiveTotal": 7,
+      "interactiveNoName": {
+       "count": 0,
+       "samples": []
+      },
+      "controlsTotal": 2,
+      "controlsNoLabel": {
+       "count": 1,
+       "samples": [
+        {
+         "tag": "INPUT",
+         "type": "",
+         "name": "",
+         "placeholder": "",
+         "html": "<input aria-invalid=\"false\" aria-hidden=\"true\" tabindex=\"-1\" class=\"MuiSelect-nativeInput css-147e5lo\" value=\"\">"
+        }
+       ]
+      },
+      "positiveTabindex": {
+       "count": 0,
+       "samples": []
+      },
+      "imagesNoAlt": {
+       "total": 0,
+       "count": 0
+      },
+      "hasMain": true,
+      "title": "FleetRent Admin Panel"
+     }
+    }
+   },
+   "summary": {
+    "dashboard": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 0,
+     "positiveTabindex": 0,
+     "incompleteContrast": 0
+    },
+    "bookings": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 0,
+     "positiveTabindex": 0,
+     "incompleteContrast": 0
+    },
+    "contractWorkspace": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 3,
+     "positiveTabindex": 0,
+     "incompleteContrast": 20
+    },
+    "cashJournal": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 5
+    },
+    "reports": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 2
+    },
+    "approbations": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 2,
+     "positiveTabindex": 0,
+     "incompleteContrast": 4
+    },
+    "maintenance": {
+     "violationRules": 0,
+     "violationNodes": 0,
+     "byImpact": {},
+     "interactiveNoName": 0,
+     "controlsNoLabel": 1,
+     "positiveTabindex": 0,
+     "incompleteContrast": 1
+    }
+   },
+   "session": {
+    "signedIn": true,
+    "language": "fr"
+   },
+   "requestedLanguage": "ar",
+   "bookingIdUsed": "6aeb943421ad66aa3cc4fdb0",
+   "outcome": "audit-complete"
+  }
+ },
+ "frontend": {
+  "slice": "GA-P12-REG-B4-01 (frontend axe, queue #10 method)",
+  "label": "b4",
+  "base": "http://localhost:8080",
+  "at": "2026-11-06T14:07:59.374Z",
+  "axeVersion": "4.10.2",
+  "languages": {
+   "fr": {
+    "surfaces": {
+     "home": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 18,
+       "incompleteOther": [
+        {
+         "id": "no-autoplay-audio",
+         "nodes": 1
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 39,
+       "interactiveNoName": {
+        "count": 4,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 5,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 32,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "fr",
+       "docDir": "ltr",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 0,
+       "textSample": "FleetRent MAD Les meilleures offres de location de voitures Réservez votre voiture aujourd'hui! Lieu de prise en charge * Lieu de prise en charge * Date de prise en charge 09/ 11/ 2026 10: 00 Date de prise en charge Date de retour 12/ 11/ 2026 10: 00 Date de retour RECHERCHER Restituer au même endroit Service Assistance routière 24h/24 pour une tranquillité d'esprit. Pas de frais cachés Ce que vou"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 4,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 18
+      }
+     },
+     "search": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 0,
+       "incompleteOther": [
+        {
+         "id": "aria-prohibited-attr",
+         "nodes": 60
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 19,
+       "interactiveNoName": {
+        "count": 2,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 4,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 37,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "fr",
+       "docDir": "ltr",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 0,
+       "textSample": "FleetRent MAD Résultats de recherche + − Voir sur la carte Lieu / terme Lieu de prise en charge * ​ Date de prise en charge 09/ 11/ 2026 10: 00 Date de retour 12/ 11/ 2026 10: 00 RECHERCHER Restituer au même endroit AFFICHER LES FILTRES Auto FleetRent pour vous (5 voitures disponibles) Apex Car Rentals 4.50 (10 locations) Effet CO2 Volkswagen Golf Prix pour 3 jours 105 MAD Prix par jour : 35 MAD E"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 2,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 0
+      }
+     },
+     "bookingFlow": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 0,
+       "incompleteOther": [
+        {
+         "id": "aria-prohibited-attr",
+         "nodes": 12
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 18,
+       "interactiveNoName": {
+        "count": 2,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 16,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 20,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "fr",
+       "docDir": "ltr",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 0,
+       "textSample": "FleetRent MAD Réserver Maintenant + − Voir sur la carte Apex Car Rentals 4.50 (10 locations) Effet CO2 Volkswagen Golf E M 5 4 Kilométrage : 250 KM/jour Politique carburant : Plein/Plein Annulation: Inclus Modifications: Inclus Protection contre le vol: 10 MAD/jour Couverture en cas de collision: 15 MAD/jour Assurance Tous Risques: 25 MAD/jour Conducteur supplémentaire: 5 MAD/jour Dépôt de garanti"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 2,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 0
+      }
+     },
+     "signIn": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 1,
+       "incompleteOther": []
+      },
+      "manual": {
+       "interactiveTotal": 14,
+       "interactiveNoName": {
+        "count": 1,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         }
+        ]
+       },
+       "controlsTotal": 4,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 3,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "fr",
+       "docDir": "ltr",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 0,
+       "textSample": "FleetRent MAD Connexion E-mail Mot de passe Rester connecté Mot de passe oublié ? ou S'INSCRIRE SE CONNECTER FleetRent À Propos À propos de Nous Politique de cookies Politique de Confidentialité Conditions d'utilisation Louer une Voiture Fournisseurs Lieux Support Contact FAQ info@fleetrent.local Abonnez-vous Abonnez-vous à notre liste de diffusion pour recevoir les dernières mises à jour ! E-mail"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 1,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 1
+      }
+     },
+     "signUp": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 6,
+       "incompleteOther": []
+      },
+      "manual": {
+       "interactiveTotal": 16,
+       "interactiveNoName": {
+        "count": 1,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         }
+        ]
+       },
+       "controlsTotal": 8,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 3,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "fr",
+       "docDir": "ltr",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 0,
+       "textSample": "FleetRent MAD Inscription Nom complet Nom complet * E-mail E-mail * Téléphone Téléphone * Date de naissance * JJ/ MM/ AAAA Date de naissance * Mot de passe Mot de passe * Confirmer le mot de passe Confirmer le mot de passe * J'ai lu et j'accepte les conditions générales d'utilisation. ou S'INSCRIRE ANNULER FleetRent À Propos À propos de Nous Politique de cookies Politique de Confidentialité Condit"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 1,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 6
+      }
+     }
+    },
+    "searchFlow": {
+     "steps": [
+      "typeAttempt0=true",
+      "options=true"
+     ],
+     "pickedLocation": "Aéroport de Los Angeles (LAX)",
+     "submitText": "Rechercher",
+     "submitVia": "cdp-click",
+     "reachedSearch": true,
+     "bookVia": "fallback",
+     "reachedBooking": true
+    }
+   },
+   "ar": {
+    "surfaces": {
+     "home": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 18,
+       "incompleteOther": [
+        {
+         "id": "no-autoplay-audio",
+         "nodes": 1
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 39,
+       "interactiveNoName": {
+        "count": 4,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 5,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 32,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "ar",
+       "docDir": "rtl",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 1389,
+       "textSample": "FleetRent MAD أفضل عروض تأجير السيارات احجز سيارتك اليوم! مكان الاستلام * مكان الاستلام * تاريخ الاستلام 11/ 09/ 2026 10: 00 ص تاريخ الاستلام تاريخ التسليم 11/ 12/ 2026 10: 00 ص تاريخ التسليم بحث الإرجاع في نفس الموقع الخدمة مساعدة على الطريق على مدار الساعة لراحة بالك. بدون رسوم مخفية ما تراه هو ما تدفعه. أسطول مميز اختر من مجموعة واسعة من المركبات الموثوقة والمتميزة. عدد أميال غير محدود استكشف ا"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 4,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 18
+      }
+     },
+     "search": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 0,
+       "incompleteOther": [
+        {
+         "id": "aria-prohibited-attr",
+         "nodes": 60
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 19,
+       "interactiveNoName": {
+        "count": 2,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 4,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 37,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "ar",
+       "docDir": "rtl",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 1060,
+       "textSample": "FleetRent MAD نتائج البحث + − عرض على الخريطة الموقع / المصطلح مكان الاستلام * ​ تاريخ الاستلام 11/ 09/ 2026 10: 00 ص تاريخ التسليم 11/ 12/ 2026 10: 00 ص بحث الإرجاع في نفس الموقع إظهار الفلاتر سيارة FleetRent لك (5 سيارات متاحة) Apex Car Rentals 4.50 (10 رحلات) تأثير CO2 Volkswagen Golf السعر لمدة 3 أيام 105 MAD السعر لليوم: 35 MAD E M 5 4 المسافة المقطوعة: 250 كم/يوم سياسة الوقود: ممتلئ/ممتلئ ال"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 2,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 0
+      }
+     },
+     "bookingFlow": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 0,
+       "incompleteOther": [
+        {
+         "id": "aria-prohibited-attr",
+         "nodes": 12
+        }
+       ]
+      },
+      "manual": {
+       "interactiveTotal": 18,
+       "interactiveNoName": {
+        "count": 2,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         },
+         {
+          "tag": "IMG",
+          "cls": "leaflet-marker-icon leaflet-zoom-animated leaflet-interactiv",
+          "html": "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAApCAYAAADAk4LOAAAFgUlEQVR4Aa1XA5BjWRTN2oW17d3YaZtr2962HUzbDNpjszW24mRt28p47v7zq/bXZtrp/lWnXr337j3nPCe85NcypgSFdugCpW5Y"
+         }
+        ]
+       },
+       "controlsTotal": 16,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 20,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "ar",
+       "docDir": "rtl",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 1215,
+       "textSample": "FleetRent MAD احجز الآن + − عرض على الخريطة Apex Car Rentals 4.50 (10 رحلات) تأثير CO2 Volkswagen Golf E M 5 4 المسافة المقطوعة: 250 كم/يوم سياسة الوقود: ممتلئ/ممتلئ الإلغاء: مشمول التعديلات: مشمول الحماية من السرقة: 10 MAD/يوم تغطية أضرار التصادم: 15 MAD/يوم تأمين شامل: 25 MAD/يوم سائق إضافي: 5 MAD/يوم مبلغ الضمان: 200 MAD خيارات الحجز الإلغاءمشمول التعديلاتمشمول الحماية من السرقة+ 30 MAD (10 MAD"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 2,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 0
+      }
+     },
+     "signIn": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 1,
+       "incompleteOther": []
+      },
+      "manual": {
+       "interactiveTotal": 14,
+       "interactiveNoName": {
+        "count": 1,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         }
+        ]
+       },
+       "controlsTotal": 4,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 3,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "ar",
+       "docDir": "rtl",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 303,
+       "textSample": "FleetRent MAD تسجيل الدخول البريد الإلكتروني كلمة المرور البقاء متصلاً هل نسيت كلمة المرور؟ أو تسجيل تسجيل الدخول FleetRent المؤسسة من نحن سياسة ملفات تعريف الارتباط سياسة الخصوصية شروط الاستخدام استئجار سيارة الموردون المواقع الدعم اتصل بنا الأسئلة الشائعة info@fleetrent.local اشترك اشترك في قائمتنا البريدية لتصلك آخر التحديثات! البريد الإلكتروني البريد الإلكتروني * اشترك دفع آمن 100% مع FleetRen"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 1,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 1
+      }
+     },
+     "signUp": {
+      "axe": {
+       "violations": [],
+       "incompleteContrast": 6,
+       "incompleteOther": []
+      },
+      "manual": {
+       "interactiveTotal": 16,
+       "interactiveNoName": {
+        "count": 1,
+        "samples": [
+         {
+          "tag": "BUTTON",
+          "cls": "MuiButtonBase-root MuiButton-root MuiButton-contained MuiBut",
+          "html": "<button class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-"
+         }
+        ]
+       },
+       "controlsTotal": 8,
+       "controlsNoLabel": {
+        "count": 0,
+        "samples": []
+       },
+       "positiveTabindex": {
+        "count": 0,
+        "samples": []
+       },
+       "imagesNoAlt": {
+        "total": 3,
+        "count": 0
+       },
+       "hasMain": true,
+       "docLang": "ar",
+       "docDir": "rtl",
+       "title": "FleetRent Rental Service",
+       "arabicChars": 412,
+       "textSample": "FleetRent MAD إنشاء حساب الاسم الكامل الاسم الكامل * البريد الإلكتروني البريد الإلكتروني * رقم الهاتف رقم الهاتف * تاريخ الميلاد * MM/ DD/ YYYY تاريخ الميلاد * كلمة المرور كلمة المرور * تأكيد كلمة المرور تأكيد كلمة المرور * قرأت وأوافق على شروط الاستخدام. أو تسجيل إلغاء FleetRent المؤسسة من نحن سياسة ملفات تعريف الارتباط سياسة الخصوصية شروط الاستخدام استئجار سيارة الموردون المواقع الدعم اتصل بنا ا"
+      },
+      "summary": {
+       "violationRules": 0,
+       "violationNodes": 0,
+       "interactiveNoName": 1,
+       "controlsNoLabel": 0,
+       "positiveTabindex": 0,
+       "incompleteContrast": 6
+      }
+     }
+    },
+    "searchFlow": {
+     "steps": [
+      "typeAttempt0=true",
+      "options=true"
+     ],
+     "pickedLocation": "Los Angeles Airport (LAX)",
+     "submitText": "بحث",
+     "submitVia": "cdp-click",
+     "reachedSearch": true,
+     "bookVia": "fallback",
+     "reachedBooking": true
+    }
+   }
+  },
+  "outcome": "audit-complete"
+ },
+ "comparison": {
+  "baselineAdmin": "artifacts/browser-a11y-audit-after-latest.json (queue #10, fr only): 0 violation rules/nodes on all 7 surfaces",
+  "baselineFrontend": "artifacts/browser-frontend-parity-q10-latest.json: 0 violations on all surfaces fr+ar",
+  "verdict": "MATCHES BASELINE: 0 axe violations on every admin surface (fr AND ar - ar is new coverage in B4) and every frontend surface (fr+ar); per-surface summaries identical to queue #10 including manual-probe caveats (interactiveNoName counts are title/aria-labelledby-named elements, not axe violations; incompleteContrast is an incomplete/manual-review class, unchanged).",
+  "findingFixed": "GAQ12B4-D3: first B4 sweep exposed 1 critical button-name node per admin surface - the header notifications IconButtons had no accessible name (desktop aria-label=\"\" empty, mobile none). Pre-existing upstream code (Header.tsx identical to HEAD at those lines; queue #10 sweep viewport did not render the mobile header). Fixed: aria-label=strings.NOTIFICATIONS on both buttons + NOTIFICATIONS added to admin/src/lang/header.ts (fr/ar/en/es). Post-fix sweeps: 0 violations, interactiveNoName 0 on all surfaces.",
+  "harnessNote": "Admin nginx limit_req (50r/s burst 100, shared gateway IP) can 429 the tail chunks of a cold contract-workspace load, rendering the app error page; axe then reports the error page (3 moderate landmark/heading nodes). Resolved by a repeat navigation once chunks cache; the clean re-run shows 0 violations and incompleteContrast 19 (fr) / 20 (ar), matching baseline. Same class of artifact queue #10 documented."
+ },
+ "outcome": "PASS - zero axe violations everywhere; one pre-existing accessible-name defect found and fixed (GAQ12B4-D3)."
+}

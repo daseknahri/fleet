@@ -22,7 +22,7 @@ const countrySchema = z.object({
 
 const locationSchema = z.object({
   _id: z.string(),
-  country: countrySchema,
+  country: countrySchema.nullable().optional(),
   values: z.array(locationValueSchema),
   name: z.string(),
   image: z.string().optional(),

@@ -15,7 +15,7 @@
 
 .agency-dashboard__eyebrow {
   margin-bottom: 8px;
-  color: #738181;
+  color: #657171;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .13em;
@@ -32,7 +32,7 @@
 
 .agency-dashboard__subtitle {
   margin-top: 9px;
-  color: #738181;
+  color: #657171;
   font-size: 14px;
 }
 
@@ -108,7 +108,7 @@
 
 .agency-dashboard__metric-detail {
   margin-top: 3px;
-  color: #97a2a1;
+  color: #6B7776;
   font-size: 11px;
 }
 
@@ -139,7 +139,7 @@
 
 .agency-dashboard__panel-copy {
   margin-top: 5px;
-  color: #879391;
+  color: #697472;
   font-size: 12px;
 }
 
@@ -208,7 +208,7 @@
 .agency-dashboard__booking-info span,
 .agency-dashboard__booking-date span {
   overflow: hidden;
-  color: #879391;
+  color: #697472;
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -291,7 +291,7 @@
 }
 
 .agency-dashboard__shortcut small {
-  color: #879391;
+  color: #697472;
   font-size: 10px;
 }
 

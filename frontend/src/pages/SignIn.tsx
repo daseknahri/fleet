@@ -108,7 +108,7 @@ const SignIn = () => {
 
       <div className="signin">
         <Paper className={`signin-form ${visible ? '' : 'hidden'}`} elevation={10}>
-          <form onSubmit={handleSubmit(onSubmit)}>
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
             <h1 className="signin-form-title">{strings.SIGN_IN_HEADING}</h1>
             <FormControl fullWidth margin="dense" error={!!errors.email}>
               <InputLabel htmlFor="signin-email">{commonStrings.EMAIL}</InputLabel>

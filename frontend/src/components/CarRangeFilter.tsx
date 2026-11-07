@@ -331,7 +331,7 @@ const CarRangeFilter = ({
     <Accordion title={strings.RANGE} collapse={collapse} className={`${className ? `${className} ` : ''}range-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={miniRef} type="checkbox" className="range-checkbox" onChange={handleCheckMiniChange} />
+          <input ref={miniRef} type="checkbox" className="range-checkbox" onChange={handleCheckMiniChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Mini)} />
           <span
             onClick={handleMiniClick}
             role="button"
@@ -341,7 +341,7 @@ const CarRangeFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={midiRef} type="checkbox" className="range-checkbox" onChange={handleCheckMidiChange} />
+          <input ref={midiRef} type="checkbox" className="range-checkbox" onChange={handleCheckMidiChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Midi)} />
           <span
             onClick={handleMidiClick}
             role="button"
@@ -351,7 +351,7 @@ const CarRangeFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={maxiRef} type="checkbox" className="range-checkbox" onChange={handleCheckMaxiChange} />
+          <input ref={maxiRef} type="checkbox" className="range-checkbox" onChange={handleCheckMaxiChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Maxi)} />
           <span
             onClick={handleMaxiClick}
             role="button"
@@ -361,7 +361,7 @@ const CarRangeFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={scooterRef} type="checkbox" className="range-checkbox" onChange={handleCheckScooterChange} />
+          <input ref={scooterRef} type="checkbox" className="range-checkbox" onChange={handleCheckScooterChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Scooter)} />
           <span
             onClick={handleScooterClick}
             role="button"
@@ -372,7 +372,7 @@ const CarRangeFilter = ({
         </div>
 
         <div className="filter-element">
-          <input ref={busRef} type="checkbox" className="range-checkbox" onChange={handleCheckBusChange} />
+          <input ref={busRef} type="checkbox" className="range-checkbox" onChange={handleCheckBusChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Bus)} />
           <span
             onClick={handleBusClick}
             role="button"
@@ -382,7 +382,7 @@ const CarRangeFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={truckRef} type="checkbox" className="range-checkbox" onChange={handleCheckTruckChange} />
+          <input ref={truckRef} type="checkbox" className="range-checkbox" onChange={handleCheckTruckChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Truck)} />
           <span
             onClick={handleTruckClick}
             role="button"
@@ -392,7 +392,7 @@ const CarRangeFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={caravanRef} type="checkbox" className="range-checkbox" onChange={handleCheckCaravanChange} />
+          <input ref={caravanRef} type="checkbox" className="range-checkbox" onChange={handleCheckCaravanChange} aria-label={helper.getCarRange(bookcarsTypes.CarRange.Caravan)} />
           <span
             onClick={handleCaravanClick}
             role="button"

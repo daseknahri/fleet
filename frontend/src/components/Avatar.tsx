@@ -185,6 +185,15 @@ const Avatar = ({
               badgeContent={(
                 <Box
                   className="avatar-action-box"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={commonStrings.DELETE_IMAGE}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleDeleteAvatar(e as unknown as React.MouseEvent<HTMLElement>)
+                    }
+                  }}
                   onClick={handleDeleteAvatar}
                   sx={{
                     borderRadius: '50%'
@@ -203,6 +212,15 @@ const Avatar = ({
                 badgeContent={(
                   <Box
                     className="avatar-action-box"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={commonStrings.UPLOAD_IMAGE}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleUpload()
+                      }
+                    }}
                     onClick={handleUpload}
                     sx={{
                       borderRadius: '50%'
@@ -226,6 +244,15 @@ const Avatar = ({
                 <div>
                   <Box
                     className="avatar-action-box"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={commonStrings.UPLOAD_IMAGE}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleUpload()
+                      }
+                    }}
                     onClick={handleUpload}
                     sx={{
                       borderRadius: '50%'

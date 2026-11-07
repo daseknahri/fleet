@@ -22,7 +22,7 @@ const formatDateTime = (date?: string) => (date
 
 const formatAmount = (approval: ApprovalService.Approval) => (approval.amount === undefined
   ? '—'
-  : `${new Intl.NumberFormat('fr-MA', { maximumFractionDigits: 2 }).format(approval.amount)} ${approval.currency || env.CURRENCY}`)
+  : `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(approval.amount)} ${approval.currency || env.CURRENCY}`)
 
 const statusLabel = (status: bookcarsTypes.ApprovalDecision) => (status === bookcarsTypes.ApprovalDecision.Approved
   ? strings.APPROVED
@@ -31,6 +31,10 @@ const statusLabel = (status: bookcarsTypes.ApprovalDecision) => (status === book
 const statusColor = (status: bookcarsTypes.ApprovalDecision) => (status === bookcarsTypes.ApprovalDecision.Approved
   ? 'success'
   : status === bookcarsTypes.ApprovalDecision.Rejected ? 'error' : 'warning') as 'success' | 'error' | 'warning'
+
+const subjectTypeLabel = (subjectType: string) => (subjectType === 'invoice'
+  ? strings.TYPE_INVOICE
+  : subjectType === 'contract-charge' ? strings.TYPE_CONTRACT_CHARGE : subjectType)
 
 const Approbations = () => {
   const { user } = useUserContext() as UserContextType
@@ -62,6 +66,21 @@ const Approbations = () => {
         setSuppliers(available)
         setSupplierNames(Object.fromEntries(available.map((s) => [s._id || '', s.fullName || s.email || ''])))
         setForm((current) => (current.supplier ? current : { ...current, supplier: available[0]?._id || '' }))
+      } else if (currentUser.type === bookcarsTypes.UserType.Supplier) {
+        // Non-admin viewers only ever see their own agency; seed its display
+        // name so the agency column does not fall back to an id fragment.
+        setSupplierNames({ [currentUser._id || '']: currentUser.fullName || currentUser.email || '' })
+      } else if (list.length > 0) {
+        // Staff viewers: approvals all belong to their own agency — resolve
+        // its display name best-effort (falls back to the id fragment).
+        try {
+          const ownAgency = await SupplierService.getSupplier(list[0].supplier)
+          if (ownAgency?.fullName) {
+            setSupplierNames({ [list[0].supplier]: ownAgency.fullName })
+          }
+        } catch {
+          // Name resolution is cosmetic; the backend record stays authoritative.
+        }
       }
       // Resolve requester/decider display names best-effort; ids that cannot
       // be resolved fall back to a short id rendering.
@@ -142,7 +161,7 @@ const Approbations = () => {
 
   return (
     <Layout strict onLoad={load}>
-      <main className="agency-dashboard">
+      <div className="agency-dashboard">
         <Box className="agency-dashboard__heading">
           <div>
             <Typography component="h1" className="agency-dashboard__title">{strings.TITLE}</Typography>
@@ -174,7 +193,7 @@ const Approbations = () => {
                 <CardContent>
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Typography variant="h6" component="h2">{approval.subject}</Typography>
-                    <Chip size="small" label={approval.subjectType} />
+                    <Chip size="small" label={subjectTypeLabel(approval.subjectType)} />
                     <Chip size="small" color={statusColor(approval.status)} label={statusLabel(approval.status)} />
                   </Box>
                   <Typography variant="body2">
@@ -228,7 +247,7 @@ const Approbations = () => {
             <Button sx={{ mt: 2 }} variant="contained" disabled={busy || !form.subject.trim() || !form.subjectType.trim() || !form.amount} onClick={create}>{strings.CREATE}</Button>
           </CardContent>
         </Card>
-      </main>
+      </div>
     </Layout>
   )
 }

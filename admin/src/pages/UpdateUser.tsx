@@ -183,6 +183,7 @@ const UpdateUser = () => {
           } catch (err) {
             helper.error(err)
             setLoading(false)
+            setFormError(true)
             setVisible(false)
           }
         } else {
@@ -579,6 +580,7 @@ const UpdateUser = () => {
         </div>
       )}
       {(loading || isSubmitting) && <Backdrop text={commonStrings.PLEASE_WAIT} disableMargin />}
+      {formError && !visible && <Error message={commonStrings.GENERIC_ERROR} />}
       {noMatch && <NoMatch hideHeader />}
     </Layout>
   )

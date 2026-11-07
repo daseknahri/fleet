@@ -12,6 +12,7 @@ import { strings as commonStrings } from '@/lang/common'
 import { strings as blStrings } from '@/lang/booking-list'
 import { strings as bfStrings } from '@/lang/booking-filter'
 import { strings as csStrings } from '@/lang/cars'
+import { strings as headerStrings } from '@/lang/header'
 import env from '@/config/env.config'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
@@ -323,6 +324,7 @@ const Booking = () => {
     <Layout onLoad={onLoad} strict>
       {visible && booking && (
         <div className="booking">
+          <h1 className="sr-only">{headerStrings.BOOKINGS}</h1>
           <div className="col-1">
             <form onSubmit={handleSubmit}>
               {!env.HIDE_SUPPLIERS && (

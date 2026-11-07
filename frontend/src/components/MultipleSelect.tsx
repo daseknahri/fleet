@@ -136,9 +136,6 @@ const MultipleSelect = ({
           }
         }}
         onChange={(event: React.SyntheticEvent<Element, Event>, newValue: any) => {
-          if (event && event.type === 'keydown' && 'key' in event && event.key === 'Enter') {
-            return
-          }
           key = key || ''
           if (multiple) {
             setValues(newValue)

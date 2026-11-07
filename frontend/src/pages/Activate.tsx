@@ -151,7 +151,7 @@ const Activate = () => {
         <div className="activate">
           <Paper className="activate-form" elevation={10}>
             <h1>{reset ? rpStrings.RESET_PASSWORD_HEADING : strings.ACTIVATE_HEADING}</h1>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
 
               <PasswordInput
                 label={commonStrings.PASSWORD}

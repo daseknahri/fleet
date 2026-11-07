@@ -98,6 +98,7 @@ const UserTypeFilter = ({
               data-value={userType.value}
               className="user-type-checkbox"
               onChange={handleUserTypeChange}
+              aria-label={helper.getUserType(userType.value)}
             />
             <span
               onClick={handleUserTypeClick}

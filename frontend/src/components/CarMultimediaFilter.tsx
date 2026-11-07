@@ -215,7 +215,7 @@ const CarMultimediaFilter = ({
     <Accordion title={strings.MULTIMEDIA} collapse={collapse} className={`${className ? `${className} ` : ''}multimedia-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={touchscreenRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckTouchscreenChange} />
+          <input ref={touchscreenRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckTouchscreenChange} aria-label={strings.TOUCHSCREEN} />
           <span
             onClick={handleTouchscreenClick}
             role="button"
@@ -225,7 +225,7 @@ const CarMultimediaFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={bluetoothRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckBluetoothChange} />
+          <input ref={bluetoothRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckBluetoothChange} aria-label={strings.BLUETOOTH} />
           <span
             onClick={handleBluetoothClick}
             role="button"
@@ -235,7 +235,7 @@ const CarMultimediaFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={androidAutoRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckAndroidAutoChange} />
+          <input ref={androidAutoRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckAndroidAutoChange} aria-label={strings.ANDROID_AUTO} />
           <span
             onClick={handleAndroidAutoClick}
             role="button"
@@ -245,7 +245,7 @@ const CarMultimediaFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={appleCarPlayRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckAppleCarPlayChange} />
+          <input ref={appleCarPlayRef} type="checkbox" className="multimedia-checkbox" onChange={handleCheckAppleCarPlayChange} aria-label={strings.APPLE_CAR_PLAY} />
           <span
             onClick={handleAppleCarPlayClick}
             role="button"

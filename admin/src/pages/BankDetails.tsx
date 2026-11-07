@@ -34,23 +34,23 @@ const BankDetails = () => {
             <h1 className="bank-details-form-title">{strings.BANK_DETAILS}</h1>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel>{strings.ACCOUNT_HOLDER}</InputLabel>
-              <Input type="text" readOnly autoComplete="off" value={bankDetails.accountHolder} />
+              <InputLabel htmlFor="bankDetails-accountHolder">{strings.ACCOUNT_HOLDER}</InputLabel>
+              <Input id="bankDetails-accountHolder" type="text" readOnly autoComplete="off" value={bankDetails.accountHolder} />
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel>{strings.BANK_NAME}</InputLabel>
-              <Input type="text" readOnly autoComplete="off" value={bankDetails.bankName} />
+              <InputLabel htmlFor="bankDetails-bankName">{strings.BANK_NAME}</InputLabel>
+              <Input id="bankDetails-bankName" type="text" readOnly autoComplete="off" value={bankDetails.bankName} />
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel>{strings.IBAN}</InputLabel>
-              <Input type="text" readOnly autoComplete="off" value={bankDetails.iban} />
+              <InputLabel htmlFor="bankDetails-iban">{strings.IBAN}</InputLabel>
+              <Input id="bankDetails-iban" type="text" readOnly autoComplete="off" value={bankDetails.iban} />
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel>{strings.SWIFT_BIC}</InputLabel>
-              <Input type="text" readOnly autoComplete="off" value={bankDetails.swiftBic} />
+              <InputLabel htmlFor="bankDetails-swiftBic">{strings.SWIFT_BIC}</InputLabel>
+              <Input id="bankDetails-swiftBic" type="text" readOnly autoComplete="off" value={bankDetails.swiftBic} />
             </FormControl>
 
           </Paper>

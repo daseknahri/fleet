@@ -1,0 +1,1969 @@
+{
+  "slice": "B3-fleet-people",
+  "startedAt": "2026-11-06T12:58:15.687Z",
+  "fixture": {},
+  "steps": [
+    {
+      "n": "S0",
+      "name": "auth+discovery+sweep",
+      "at": "2026-11-06T12:58:19.391Z",
+      "action": "UI sign-in as platform admin; Apex discovery; GAQ12B3 orphan sweep; seed location/country discovery; settings snapshot",
+      "observed": {
+        "signInVia": "ui-form",
+        "adminType": null,
+        "apexId": "6ae166dda73203de8dd5bdbb",
+        "supplierCount": 4,
+        "otherSupplierId": "6ae9230581cbf71648f7e713",
+        "seedLocationId": "6ae166dda73203de8dd5bdcc",
+        "countryId": "6ae166dda73203de8dd5bdc6",
+        "existingApexCars": 5
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "F1",
+      "name": "location-create",
+      "at": "2026-11-06T12:58:19.429Z",
+      "action": "POST /api/create-location (GAQ12B3 North Depot, Apex) then GET location + locations list (car-form dropdown source)",
+      "api": {
+        "create": 200,
+        "get": 200
+      },
+      "observed": {
+        "locationId": "6aedceebbcb3c1762c7d3f1e",
+        "getName": "GAQ12B3 North Depot",
+        "inList": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "F2",
+      "name": "car-create+visibility",
+      "at": "2026-11-06T12:58:19.488Z",
+      "action": "POST create-car-image + create-car (300 MAD/day, new GAQ12B3 location, Apex supplier); admin list search; GET car; guest frontend-cars search at the new location; frontend-suppliers",
+      "api": {
+        "createCar": 200,
+        "getCar": 200,
+        "frontendCars": 400,
+        "frontendSuppliers": 400
+      },
+      "observed": {
+        "carId": "6aedceebbcb3c1762c7d3f1f",
+        "adminSearchFound": true,
+        "carSupplier": "6ae166dda73203de8dd5bdbb",
+        "carLocations": [
+          "6aedceebbcb3c1762c7d3f1e"
+        ],
+        "frontendFound": false,
+        "frontendDailyPrice": null,
+        "frontendSuppliersHasApex": false
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "F3",
+      "name": "car-update-reflected",
+      "at": "2026-11-06T12:58:19.520Z",
+      "action": "PUT /api/update-car (name -> GT, dailyPrice 300 -> 450); read back GET car + frontend search",
+      "api": {
+        "update": 200
+      },
+      "observed": {
+        "adminName": "GAQ12B3 Test Hatch GT",
+        "adminDailyPrice": 450,
+        "frontendName": null,
+        "frontendDailyPrice": null
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "F4",
+      "name": "location-rename+supplier-assignment",
+      "at": "2026-11-06T12:58:19.580Z",
+      "action": "PUT update-location rename; GET location + GET car (location link intact); supplier assignment: update-car supplier -> other supplier -> back to Apex (admin), read-backs at each hop",
+      "api": {
+        "locationUpdate": 200
+      },
+      "observed": {
+        "renamedName": "GAQ12B3 North Depot Renamed",
+        "carStillLinksLocation": true,
+        "supplierSwap": {
+          "swapStatus": 400,
+          "midSupplier": "6ae166dda73203de8dd5bdbb",
+          "backStatus": 200,
+          "endSupplier": "6ae166dda73203de8dd5bdbb"
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "F5",
+      "name": "delete-guards-observed",
+      "at": "2026-11-06T12:58:19.662Z",
+      "action": "create Annex location, attach to car, DELETE it while in use; read back car + frontend search at deleted location; DELETE fake location id; DELETE fake supplier id as admin",
+      "observed": {
+        "loc2Create": 200,
+        "loc2DeleteWhileInUse": 200,
+        "carAfterDelete": {
+          "locations": [
+            "6aedceebbcb3c1762c7d3f1e"
+          ],
+          "status": 200
+        },
+        "frontendSearchAtDeletedLocation": {
+          "status": 400
+        },
+        "fakeLocationDelete": 204,
+        "fakeSupplierDeleteAsAdmin": 204
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "F2b",
+      "name": "frontend-visibility-full-payload",
+      "at": "2026-11-06T13:00:22.021Z",
+      "action": "POST /api/frontend-cars with the full storefront filter payload (the minimal payload returns 400 - the endpoint requires the filter fields); POST /api/frontend-suppliers",
+      "api": {
+        "frontendCars": 200,
+        "frontendSuppliers": 400
+      },
+      "observed": {
+        "frontendFound": true,
+        "frontendName": "GAQ12B3 Test Hatch GT",
+        "frontendDailyPrice": 450,
+        "frontendSuppliersHasApex": false,
+        "resultCount": 1
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "F4b",
+      "name": "supplier-swap-detail",
+      "at": "2026-11-06T13:00:22.043Z",
+      "action": "update-car supplier -> other supplier with Apex locations (capture body); if rejected, retry with locations [] and restore immediately",
+      "observed": {
+        "swapWithApexLocations": {
+          "status": 400,
+          "body": "\"Invalid locations for supplier\""
+        },
+        "swapWithNoLocations": {
+          "status": 400,
+          "body": "\"Invalid locations for supplier\""
+        },
+        "midSupplier": null,
+        "restored": null
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "F5b",
+      "name": "in-use-location-delete-deep",
+      "at": "2026-11-06T13:00:22.140Z",
+      "action": "create Annex2, attach to car (verify 2 locations), DELETE while in use, read back GET car (populated), admin cars list (raw), frontend search at the deleted location; restore car locations",
+      "observed": {
+        "annexCreate": 200,
+        "annexId": "6aedcf66bcb3c1762c7d3f23",
+        "attachStatus": 200,
+        "locationsBeforeDelete": [
+          "6aedceebbcb3c1762c7d3f1e",
+          "6aedcf66bcb3c1762c7d3f23"
+        ],
+        "deleteStatus": 200,
+        "getCarLocationsAfter": [
+          "6aedceebbcb3c1762c7d3f1e"
+        ],
+        "adminListLocationsAfter": [
+          "6aedceebbcb3c1762c7d3f1e",
+          "6aedcf66bcb3c1762c7d3f23"
+        ],
+        "frontendSearchAtDeletedLocation": {
+          "status": 200,
+          "count": 0
+        }
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "P1",
+      "name": "people-provisioning",
+      "at": "2026-11-06T13:01:27.688Z",
+      "action": "POST /api/agency-memberships/:apex x5 (manager, counterAgent, accountant, mechanic, readOnly) + POST /api/create-user renter; membership list read-back",
+      "api": {
+        "createUserRenter": 200,
+        "membershipList": 200
+      },
+      "observed": {
+        "staff": [
+          {
+            "role": "manager",
+            "userId": "6aedcfa7bcb3c1762c7d3f24",
+            "membershipId": "6aedcfa7bcb3c1762c7d3f25"
+          },
+          {
+            "role": "counterAgent",
+            "userId": "6aedcfa7bcb3c1762c7d3f26",
+            "membershipId": "6aedcfa7bcb3c1762c7d3f27"
+          },
+          {
+            "role": "accountant",
+            "userId": "6aedcfa7bcb3c1762c7d3f28",
+            "membershipId": "6aedcfa7bcb3c1762c7d3f29"
+          },
+          {
+            "role": "mechanic",
+            "userId": "6aedcfa7bcb3c1762c7d3f2a",
+            "membershipId": "6aedcfa7bcb3c1762c7d3f2b"
+          },
+          {
+            "role": "readOnly",
+            "userId": "6aedcfa7bcb3c1762c7d3f2c",
+            "membershipId": "6aedcfa7bcb3c1762c7d3f2d"
+          }
+        ],
+        "renterId": "6aedcfa7bcb3c1762c7d3f2e",
+        "fixtureMembershipsListed": [
+          {
+            "role": "readOnly",
+            "status": "active",
+            "email": "gaq12b3.readonly@test.bookcars.ma"
+          },
+          {
+            "role": "mechanic",
+            "status": "active",
+            "email": "gaq12b3.mechanic@test.bookcars.ma"
+          },
+          {
+            "role": "accountant",
+            "status": "active",
+            "email": "gaq12b3.accountant@test.bookcars.ma"
+          },
+          {
+            "role": "counterAgent",
+            "status": "active",
+            "email": "gaq12b3.counter@test.bookcars.ma"
+          },
+          {
+            "role": "manager",
+            "status": "active",
+            "email": "gaq12b3.manager@test.bookcars.ma"
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "P2",
+      "name": "role-signin-landing",
+      "at": "2026-11-06T13:01:55.355Z",
+      "action": "real UI sign-in per staff role (admin app) + renter (frontend app) + Apex supplier-owner if SETUP.md carries supplier credentials; validate-access-token + memberships/current per actor",
+      "observed": {
+        "manager": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "currentStatus": 200,
+          "currentRole": null
+        },
+        "counter": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "currentStatus": 403,
+          "currentRole": null
+        },
+        "accountant": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "currentStatus": 403,
+          "currentRole": null
+        },
+        "mechanic": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "currentStatus": 403,
+          "currentRole": null
+        },
+        "readonly": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "currentStatus": 403,
+          "currentRole": null
+        },
+        "renter": {
+          "via": "ui-form",
+          "type": null,
+          "userId": null,
+          "app": "frontend"
+        },
+        "ownerSupplier": {
+          "error": "sign-in failed"
+        }
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "M0",
+      "name": "matrix-fixtures",
+      "at": "2026-11-06T13:01:55.469Z",
+      "action": "admin: create-booking 12,000 MAD on fleet car (Dec window); invoice create+issue (approval producer >= 10,000); ensure one open cash session for Apex",
+      "api": {
+        "booking": 200,
+        "invoiceCreate": 201,
+        "invoiceIssue": 200
+      },
+      "observed": {
+        "bookingId": "6aedcfc3bcb3c1762c7d3f35",
+        "invoiceId": "6aedcfc3bcb3c1762c7d3f36",
+        "invoiceNumber": "GA-2026-000003",
+        "approval": {
+          "id": "6aedcfc3bcb3c1762c7d3f37",
+          "status": "pending",
+          "amount": 12000,
+          "requestedBy": "6ae1668d7fce2c9a39cd8c84"
+        },
+        "cashSessionId": "6aedcfc3bcb3c1762c7d3f38"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "M1",
+      "name": "role-action-matrix",
+      "at": "2026-11-06T13:02:22.733Z",
+      "action": "per-actor live probe battery (17 actions; destructive actions probed on fake IDs or throwaway fixtures so the permission layer outcome is the signal; creations recorded for cleanup)",
+      "observed": {
+        "actors": [
+          "platformAdmin(=Owner ctx)",
+          "manager",
+          "counterAgent",
+          "accountant",
+          "mechanic",
+          "readOnly",
+          "renter(customer)"
+        ]
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "M2",
+      "name": "approval-decide-story",
+      "at": "2026-11-06T13:02:29.321Z",
+      "action": "admin (requester) self-decide probe; manager decide approve; read back queue record",
+      "api": {
+        "selfDecide": 403,
+        "managerDecide": 200
+      },
+      "observed": {
+        "approvalStatus": "approved",
+        "decidedBy": "6aedcfa7bcb3c1762c7d3f24",
+        "requestedBy": "6ae1668d7fce2c9a39cd8c84",
+        "managerId": "6aedcfa7bcb3c1762c7d3f24"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "M3",
+      "name": "payment-story",
+      "at": "2026-11-06T13:02:42.497Z",
+      "action": "counter records 500 MAD cash on matrix booking; counter confirm probe; accountant confirm; accountant reverse (admin fallback); read back payment pair",
+      "api": {
+        "record": 201,
+        "recordStatus": "pending",
+        "counterConfirm": 403,
+        "accountantConfirm": 200,
+        "accountantReverse": 400,
+        "adminReverse": 400
+      },
+      "observed": {
+        "pair": [
+          {
+            "id": "6aedcfe8bcb3c1762c7d3f40",
+            "status": "posted",
+            "direction": "credit",
+            "amount": 500,
+            "reversedFrom": null
+          }
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "M4",
+      "name": "cash-movement-story",
+      "at": "2026-11-06T13:02:52.433Z",
+      "action": "counter records 200 MAD cash movement (pending expected); counter confirm probe; accountant confirms; read back movement",
+      "api": {
+        "create": 201,
+        "createdStatus": "pending",
+        "counterConfirm": 403,
+        "accountantConfirm": 200
+      },
+      "observed": {
+        "movement": {
+          "id": "6aedcff5bcb3c1762c7d3f41",
+          "status": "confirmed",
+          "amount": 200,
+          "direction": "in"
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "P3",
+      "name": "suspend-revoke-delete",
+      "at": "2026-11-06T13:03:21.962Z",
+      "action": "admin PUT membership status=suspended (mechanic); fresh mechanic sign-in + agency probes (reports, memberships/current); admin delete-users by exact ID; GET user + keyword search read-backs; raw API sign-in attempt with the real (in-memory) password after deletion",
+      "api": {
+        "suspend": 200,
+        "deleteUser": 200,
+        "getUserAfter": 204,
+        "signinAfterDelete": 204
+      },
+      "observed": {
+        "afterSuspend": {
+          "signInOk": false,
+          "signInType": null,
+          "signInError": "sign-in failed for gaq12b3.mechanic@test.bookcars.ma: 404 \"<!DOCTYPE html>\\n<html lang=\\\"en\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<title>Error</title>\\n</head>\\n<body>\\n<pre>Cannot POST /api/sign-in</",
+          "reportsStatus": null,
+          "currentStatus": null
+        },
+        "usersKeywordCount": 0
+      },
+      "verdict": "CHECK"
+    },
+    {
+      "n": "M5",
+      "name": "supplier-update-coherence",
+      "at": "2026-11-06T13:03:21.980Z",
+      "action": "GET /api/supplier/:apex; PUT /api/update-supplier with the fetched object unchanged (no-op echo); GET read-back. NOTE: no create-supplier API route exists (routes expose update/delete/get only) - supplier provisioning is a platform/setup operation, recorded as observation.",
+      "api": {
+        "echoPut": 200
+      },
+      "observed": {
+        "nameBefore": "Apex Car Rentals",
+        "nameAfter": "Apex Car Rentals",
+        "phoneAfter": null
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "A2a",
+      "name": "validate-body-shape",
+      "at": "2026-11-06T13:04:34.685Z",
+      "action": "POST /api/validate-access-token as admin; record body keys",
+      "observed": {
+        "status": 200,
+        "keys": "string"
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A2b-note",
+      "name": "manager-delete-deferred-to-manager2",
+      "at": "2026-11-06T13:04:34.710Z",
+      "action": "manager password lives only in walk2 process memory; the real-car delete test is executed with a fresh manager2 fixture in A2d",
+      "observed": {
+        "throwCarCreated": 200,
+        "throwCarId": "6aedd062bcb3c1762c7d3f42"
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A2c",
+      "name": "payment-reversal-proper",
+      "at": "2026-11-06T13:04:34.753Z",
+      "action": "POST /api/rental-payments/:id/reverse as admin with the required idempotencyKey (M3 attempts sent {reason} only -> 400 Invalid rental payment reversal, per controller validation); read back pair + invoice",
+      "api": {
+        "reverse": 201
+      },
+      "observed": {
+        "pair": [
+          {
+            "id": "6aedcfe8bcb3c1762c7d3f40",
+            "status": "reversed",
+            "direction": "credit",
+            "amount": 500,
+            "reversedFrom": null
+          },
+          {
+            "id": "6aedd062bcb3c1762c7d3f43",
+            "status": "reversed",
+            "direction": "debit",
+            "amount": 500,
+            "reversedFrom": "6aedcfe8bcb3c1762c7d3f40"
+          }
+        ],
+        "invoice": {
+          "paidAmount": 0,
+          "paymentStatus": "unpaid",
+          "status": "issued"
+        }
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "A2d",
+      "name": "manager-delete+acct-reverse+suspend-retest",
+      "at": "2026-11-06T13:04:53.231Z",
+      "action": "manager2 DELETE a real throwaway car; accountant2 reverse probe on the reversed payment (permission signal = not 403); mechanic2 control (active: bookings list), admin suspends mechanic2, raw API sign-in + validate + bookings list re-probe",
+      "observed": {
+        "managerDeleteRealCar": {
+          "status": 403,
+          "getAfter": 200
+        },
+        "accountantReverseProbe": {
+          "status": 400,
+          "body": "\"Only a posted credit can be reversed\""
+        },
+        "mechanicControlBookings": 200,
+        "suspend": 200,
+        "mechanicAfterSuspend": {
+          "signinStatus": 200,
+          "signinBodyHead": "{\"_id\":\"6aedd062bcb3c1762c7d3f48\",\"email\":\"gaq12b3.mechanic2@test.bookcars.ma\",\"fullName\":\"GAQ12B3 m",
+          "validateStatus": 403,
+          "bookingsStatus": null
+        }
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A2e",
+      "name": "frontend-suppliers-shape",
+      "at": "2026-11-06T13:04:53.241Z",
+      "action": "POST /api/frontend-suppliers (walk window/location); record response shape",
+      "observed": {
+        "status": 400,
+        "isArray": false,
+        "keys": null,
+        "head": "\"Internal Error: MongoServerError: $in needs an array\""
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A2f",
+      "name": "supplier-creds-identity",
+      "at": "2026-11-06T13:04:53.253Z",
+      "action": "resolve the SETUP.md Supplier row to a user record (admin users search); compare to the Apex supplier id. Credential values never logged.",
+      "observed": {
+        "rowFound": true,
+        "userFound": true,
+        "type": "supplier",
+        "isApex": true,
+        "fullName": "Apex Car Rentals"
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A3a",
+      "name": "prefix-staff-id-routes",
+      "at": "2026-11-06T13:07:22.247Z",
+      "action": "manager3 (Manager, holds ManageFleet+ManageLocations): PUT update-car C3 (control, body carries supplier), GET check-car/:id, PUT update-location/:id, DELETE delete-location/:id, DELETE delete-car/:id; read-backs as admin",
+      "observed": {
+        "controlUpdateCar": 200,
+        "checkCar": 403,
+        "updateLocation": 403,
+        "deleteLocation": 403,
+        "deleteCar": 403,
+        "carStillExists": 200,
+        "locationStillExists": 200,
+        "locationNameAfter": "GAQ12B3 MgrLoc"
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A3b",
+      "name": "owner-row",
+      "at": "2026-11-06T13:07:28.738Z",
+      "action": "UI sign-in as the Apex supplier (AgencyRole Owner); reports, memberships list/current, DELETE own throwaway car + location (supplier branch of the same routes that 403 for staff)",
+      "observed": {
+        "signInOk": true,
+        "reports": 200,
+        "membershipsList": 200,
+        "current": 200,
+        "currentRole": null,
+        "deleteOwnCar": 200,
+        "deleteOwnLocation": 200,
+        "ownerCarGetAfter": 204
+      },
+      "verdict": "OBSERVED"
+    },
+    {
+      "n": "A3c",
+      "name": "suspended-direct-probes",
+      "at": "2026-11-06T13:07:40.637Z",
+      "action": "mechanic3 active control (bookings list); admin suspends membership; raw API sign-in on the same page context; validate-access-token; bookings + reports probes on the suspended session",
+      "observed": {
+        "controlBookings": 200,
+        "suspend": 200,
+        "signinStatus": 200,
+        "validateStatus": 403,
+        "bookingsAfterSuspend": 403,
+        "reportsAfterSuspend": 403
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "A3d",
+      "name": "frontend-suppliers-full-payload",
+      "at": "2026-11-06T13:07:40.647Z",
+      "action": "POST /api/frontend-suppliers with the full GetCarsPayload (same shape the storefront sends)",
+      "observed": {
+        "status": 200,
+        "count": 1,
+        "hasApex": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "A4",
+      "name": "postfix-reprobes-D1",
+      "at": "2026-11-06T13:10:43.263Z",
+      "action": "fresh manager4/counter4/mechanic4; re-run the D1 routes + deny-side regressions + admin regression sweep",
+      "observed": {
+        "checks": {
+          "manager check-car 403 -> 200": true,
+          "manager update-location 403 -> 200": true,
+          "manager delete-car 403 -> 200 (target gone)": false,
+          "manager delete-location 403 -> 200": true,
+          "counter check-car now 200 (ReadFleet)": true,
+          "counter delete-car still 403 (no ManageFleet)": true,
+          "mechanic check-car now 200 (ReadFleet)": true,
+          "mechanic delete-car still 403": true,
+          "mechanic update-location still 403 (no ManageLocations)": true,
+          "fixture car untouched by deny probes": true,
+          "fixture location untouched by deny probes": true,
+          "admin regressions ok": true
+        },
+        "statuses": {
+          "mCheck": 200,
+          "mUpdLoc": 200,
+          "mDelCar": -1,
+          "mDelLoc": 200,
+          "cCheck": 200,
+          "cDelCar": 403,
+          "mechCheck": 200,
+          "mechDelCar": 403,
+          "mechUpdLoc": 403
+        }
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "A4b",
+      "name": "manager-delete-car-retest",
+      "at": "2026-11-06T13:12:16.971Z",
+      "action": "fresh manager5; DELETE the surviving pre-fix MgrCar target; admin read-back",
+      "observed": {
+        "mgrCarFound": false,
+        "mgrCarId": null,
+        "mgrCarName": null,
+        "deleteStatus": 400,
+        "deleteError": null,
+        "deleteBody": "\"Internal Error: CastError: Cast to ObjectId failed for value \\\"undefined\\\" (type string) at path \\\"_id\\\" for model \\\"Car\\\"\"",
+        "getAfter": 400
+      },
+      "verdict": "CHECK"
+    },
+    {
+      "n": "A4c",
+      "name": "manager-delete-car-by-id",
+      "at": "2026-11-06T13:13:54.016Z",
+      "action": "fresh manager6; DELETE the amend3 throwaway car by its exact state ID; admin read-back",
+      "observed": {
+        "targetId": "6aedd102bcb3c1762c7d3f51",
+        "beforeStatus": 200,
+        "beforeName": "GAQ12B3 Test Hatch GT",
+        "deleteStatus": 200,
+        "getAfter": 204
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "CLEANUP",
+      "name": "cleanup-by-exact-id",
+      "at": "2026-11-06T13:15:08.731Z",
+      "action": "void invoice; delete bookings/cars/locations/users by exact ID; cash offset + close walk-opened sessions; suspend memberships; read-backs",
+      "observed": {
+        "at": "2026-11-06T13:15:07.977Z",
+        "actions": [
+          {
+            "name": "payment-already-neutral",
+            "status": "reversed"
+          },
+          {
+            "name": "void-invoice",
+            "status": 200,
+            "invoiceStatus": "voided"
+          },
+          {
+            "name": "delete-booking-6aedcfc3bcb3c1762c7d3f35",
+            "status": 200
+          },
+          {
+            "name": "delete-booking-6aedcfc6bcb3c1762c7d3f3a",
+            "status": 200
+          },
+          {
+            "name": "delete-booking-6aedcfcabcb3c1762c7d3f3e",
+            "status": 200
+          },
+          {
+            "name": "delete-booking-6aedcfcdbcb3c1762c7d3f3f",
+            "status": 200
+          },
+          {
+            "name": "delete-car-6aedceebbcb3c1762c7d3f1f",
+            "status": 200
+          },
+          {
+            "name": "delete-car-6aedcfc6bcb3c1762c7d3f39",
+            "status": 200
+          },
+          {
+            "name": "delete-car-6aedcfcabcb3c1762c7d3f3d",
+            "status": 200
+          },
+          {
+            "name": "delete-car-6aedd062bcb3c1762c7d3f42",
+            "status": 200
+          },
+          {
+            "name": "delete-car-6aedd102bcb3c1762c7d3f51",
+            "status": 204
+          },
+          {
+            "name": "delete-car-6aedd102bcb3c1762c7d3f52",
+            "status": 204
+          },
+          {
+            "name": "delete-location-6aedceebbcb3c1762c7d3f1e",
+            "status": 200
+          },
+          {
+            "name": "delete-location-6aedceebbcb3c1762c7d3f21",
+            "status": 204
+          },
+          {
+            "name": "offset-fixture-session-movement",
+            "status": 201,
+            "movementId": "6aedd2dcdc6e9fa38dee002c"
+          },
+          {
+            "name": "close-session-6aedcfc3bcb3c1762c7d3f38",
+            "status": 200,
+            "discrepancy": 0
+          },
+          {
+            "name": "suspend-membership_manager",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_counter",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_accountant",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_mechanic",
+            "status": 404
+          },
+          {
+            "name": "suspend-membership_readonly",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager2",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_accountant2",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_mechanic2",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager3",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_mechanic3",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager4",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_counter4",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_mechanic4",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager5",
+            "status": 200
+          },
+          {
+            "name": "suspend-membership_manager6",
+            "status": 200
+          },
+          {
+            "name": "suspend-throwaway-admin",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_counter",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_accountant",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_mechanic",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_readonly",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_accountant2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_mechanic2",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager3",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_mechanic3",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager4",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_counter4",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_mechanic4",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager5",
+            "status": 200
+          },
+          {
+            "name": "delete-user-staff_manager6",
+            "status": 200
+          },
+          {
+            "name": "delete-throwaway-admin",
+            "status": 200
+          },
+          {
+            "name": "delete-user-renter",
+            "status": 200
+          }
+        ],
+        "readBack": {
+          "car-6aedceebbcb3c1762c7d3f1f": 204,
+          "car-6aedcfc6bcb3c1762c7d3f39": 204,
+          "car-6aedcfcabcb3c1762c7d3f3d": 204,
+          "car-6aedd062bcb3c1762c7d3f42": 204,
+          "car-6aedd102bcb3c1762c7d3f51": 204,
+          "car-6aedd102bcb3c1762c7d3f52": 204,
+          "location-6aedceebbcb3c1762c7d3f1e": 204,
+          "location-6aedceebbcb3c1762c7d3f21": 204,
+          "usersKeywordCount": 0,
+          "usersEmailKeywordCount": 0,
+          "carsKeywordCount": 0,
+          "locationsKeywordCount": 0,
+          "paymentPair": [
+            {
+              "id": "6aedcfe8bcb3c1762c7d3f40",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aedd062bcb3c1762c7d3f43",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            }
+          ]
+        },
+        "residue": [
+          {
+            "type": "RentalPayment (matrix payment, reversed)",
+            "id": "6aedcfe8bcb3c1762c7d3f40",
+            "why": "no delete route for rental payments; annulled pair nets to zero in Posted-only aggregates"
+          },
+          {
+            "type": "RentalPayment (reversal debit, Reversed)",
+            "id": "6aedd062bcb3c1762c7d3f43",
+            "why": "no delete route; post-fix annulment record (status Reversed)"
+          },
+          {
+            "type": "Invoice (voided)",
+            "id": "6aedcfc3bcb3c1762c7d3f36",
+            "why": "no delete route for invoices; voided so it is excluded from report invoiced totals"
+          },
+          {
+            "type": "Approval (approved, decided)",
+            "id": "6aedcfc3bcb3c1762c7d3f37",
+            "why": "no delete route for approvals; decided queue record remains as the audit source of truth"
+          },
+          {
+            "type": "CashMovement (counter matrix movement, confirmed)",
+            "id": "6aedcff5bcb3c1762c7d3f41",
+            "why": "no delete/reverse route for cash movements; offset by the cleanup adjustment movement below"
+          },
+          {
+            "type": "CashMovement (cleanup offset)",
+            "id": "6aedd2dcdc6e9fa38dee002c",
+            "why": "no delete route; nets the matrix movement to zero on the fixture session"
+          },
+          {
+            "type": "CashSession (opened by walk/probes, closed at cleanup)",
+            "id": "6aedcfc3bcb3c1762c7d3f38",
+            "why": "no delete route for cash sessions; closed at cleanup"
+          },
+          {
+            "type": "AgencyMembership (membership_manager, suspended)",
+            "id": "6aedcfa7bcb3c1762c7d3f25",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_counter, suspended)",
+            "id": "6aedcfa7bcb3c1762c7d3f27",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_accountant, suspended)",
+            "id": "6aedcfa7bcb3c1762c7d3f29",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_mechanic, suspended)",
+            "id": "6aedcfa7bcb3c1762c7d3f2b",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_readonly, suspended)",
+            "id": "6aedcfa7bcb3c1762c7d3f2d",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_manager2, suspended)",
+            "id": "6aedd062bcb3c1762c7d3f45",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_accountant2, suspended)",
+            "id": "6aedd062bcb3c1762c7d3f47",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_mechanic2, suspended)",
+            "id": "6aedd062bcb3c1762c7d3f49",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_manager3, suspended)",
+            "id": "6aedd103bcb3c1762c7d3f54",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_mechanic3, suspended)",
+            "id": "6aedd103bcb3c1762c7d3f56",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_manager4, suspended)",
+            "id": "6aedd1c5dc6e9fa38dee001e",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_counter4, suspended)",
+            "id": "6aedd1c5dc6e9fa38dee0020",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_mechanic4, suspended)",
+            "id": "6aedd1c5dc6e9fa38dee0022",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_manager5, suspended)",
+            "id": "6aedd229dc6e9fa38dee0027",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (membership_manager6, suspended)",
+            "id": "6aedd28adc6e9fa38dee002a",
+            "why": "no delete route for memberships; suspended and the staff user deleted"
+          },
+          {
+            "type": "AgencyMembership (probe throwaway by admin, suspended)",
+            "id": "6aedcfc6bcb3c1762c7d3f3c",
+            "why": "no delete route for memberships; suspended and the user deleted"
+          },
+          {
+            "type": "Invoice number counter",
+            "id": "GA-2026 sequence incremented by the matrix invoice",
+            "why": "system Counter document is a sequence, not a fixture record"
+          }
+        ]
+      },
+      "verdict": "DONE"
+    }
+  ],
+  "matrix": [
+    {
+      "actor": "platformAdmin(=Owner ctx)",
+      "rows": {
+        "reports": {
+          "status": 200,
+          "allow": true
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 200,
+          "uploadStatus": 200,
+          "allow": true
+        },
+        "editCar": {
+          "status": 200,
+          "allow": true
+        },
+        "deleteCar(fakeId)": {
+          "status": 204,
+          "allow": true
+        },
+        "createBooking": {
+          "status": 200,
+          "allow": true
+        },
+        "invoicesList": {
+          "status": 200,
+          "allow": true
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 404,
+          "allow": true
+        },
+        "paymentsList": {
+          "status": 200,
+          "allow": true
+        },
+        "approvalsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashSessionsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashOpen": {
+          "status": 409,
+          "allow": true
+        },
+        "membershipsList": {
+          "status": 200,
+          "allow": true
+        },
+        "membershipCreate": {
+          "status": 201,
+          "allow": true
+        },
+        "usersList": {
+          "status": 200,
+          "allow": true
+        },
+        "settingsUpdate": {
+          "status": 200,
+          "allow": true
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 204,
+          "allow": true
+        }
+      }
+    },
+    {
+      "actor": "manager",
+      "rows": {
+        "reports": {
+          "status": 200,
+          "allow": true
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 200,
+          "uploadStatus": 200,
+          "allow": true
+        },
+        "editCar": {
+          "status": 200,
+          "allow": true
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 200,
+          "allow": true
+        },
+        "invoicesList": {
+          "status": 200,
+          "allow": true
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 403,
+          "allow": false
+        },
+        "paymentsList": {
+          "status": 200,
+          "allow": true
+        },
+        "approvalsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashSessionsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashOpen": {
+          "status": 409,
+          "allow": true
+        },
+        "membershipsList": {
+          "status": 200,
+          "allow": true
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 200,
+          "allow": true
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "counterAgent",
+      "rows": {
+        "reports": {
+          "status": 403,
+          "allow": false
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 403,
+          "uploadStatus": 403,
+          "allow": false
+        },
+        "editCar": {
+          "status": 403,
+          "allow": false
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 200,
+          "allow": true
+        },
+        "invoicesList": {
+          "status": 403,
+          "allow": false
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 404,
+          "allow": true
+        },
+        "paymentsList": {
+          "status": 403,
+          "allow": false
+        },
+        "approvalsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashSessionsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashOpen": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipsList": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 200,
+          "allow": true
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "accountant",
+      "rows": {
+        "reports": {
+          "status": 200,
+          "allow": true
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 403,
+          "uploadStatus": 403,
+          "allow": false
+        },
+        "editCar": {
+          "status": 403,
+          "allow": false
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 403,
+          "allow": false
+        },
+        "invoicesList": {
+          "status": 200,
+          "allow": true
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 404,
+          "allow": true
+        },
+        "paymentsList": {
+          "status": 200,
+          "allow": true
+        },
+        "approvalsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashSessionsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashOpen": {
+          "status": 409,
+          "allow": true
+        },
+        "membershipsList": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 200,
+          "allow": true
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "mechanic",
+      "rows": {
+        "reports": {
+          "status": 403,
+          "allow": false
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 403,
+          "uploadStatus": 403,
+          "allow": false
+        },
+        "editCar": {
+          "status": 403,
+          "allow": false
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 403,
+          "allow": false
+        },
+        "invoicesList": {
+          "status": 403,
+          "allow": false
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 403,
+          "allow": false
+        },
+        "paymentsList": {
+          "status": 403,
+          "allow": false
+        },
+        "approvalsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashSessionsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashOpen": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipsList": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 403,
+          "allow": false
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "readOnly",
+      "rows": {
+        "reports": {
+          "status": 200,
+          "allow": true
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 200,
+          "allow": true
+        },
+        "createCar": {
+          "status": 403,
+          "uploadStatus": 403,
+          "allow": false
+        },
+        "editCar": {
+          "status": 403,
+          "allow": false
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 403,
+          "allow": false
+        },
+        "invoicesList": {
+          "status": 200,
+          "allow": true
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 403,
+          "allow": false
+        },
+        "paymentsList": {
+          "status": 200,
+          "allow": true
+        },
+        "approvalsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashSessionsList": {
+          "status": 200,
+          "allow": true
+        },
+        "cashOpen": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipsList": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 200,
+          "allow": true
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "renter(customer)",
+      "rows": {
+        "reports": {
+          "status": 403,
+          "allow": false
+        },
+        "bookingsList": {
+          "status": 200,
+          "allow": true
+        },
+        "carsList": {
+          "status": 403,
+          "allow": false
+        },
+        "createCar": {
+          "status": 403,
+          "uploadStatus": 403,
+          "allow": false
+        },
+        "editCar": {
+          "status": 403,
+          "allow": false
+        },
+        "deleteCar(fakeId)": {
+          "status": 403,
+          "allow": false
+        },
+        "createBooking": {
+          "status": 403,
+          "allow": false
+        },
+        "invoicesList": {
+          "status": 403,
+          "allow": false
+        },
+        "recordPayment(fakeBooking)": {
+          "status": 403,
+          "allow": false
+        },
+        "paymentsList": {
+          "status": 403,
+          "allow": false
+        },
+        "approvalsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashSessionsList": {
+          "status": 403,
+          "allow": false
+        },
+        "cashOpen": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipsList": {
+          "status": 403,
+          "allow": false
+        },
+        "membershipCreate": {
+          "status": 403,
+          "allow": false
+        },
+        "usersList": {
+          "status": 403,
+          "allow": false
+        },
+        "settingsUpdate": {
+          "status": 403,
+          "allow": false
+        },
+        "supplierUpdate(fakeId)": {
+          "status": 403,
+          "allow": false
+        }
+      }
+    },
+    {
+      "actor": "owner(supplier user, A3b)",
+      "rows": {
+        "reports": {
+          "status": 200,
+          "allow": true
+        },
+        "membershipsList": {
+          "status": 200,
+          "allow": true
+        },
+        "deleteCar(real)": {
+          "status": 200,
+          "allow": true
+        },
+        "deleteLocation(real)": {
+          "status": 200,
+          "allow": true
+        }
+      }
+    }
+  ],
+  "defects": [
+    {
+      "id": "GAQ12B3-D1",
+      "status": "FIXED+REPROVEN (A4)",
+      "title": "Staff locked out of car/location :id agency routes (agency selector poisoned by resource id)",
+      "rootCause": "agencyAuthorization.requestedSupplierId treats req.params.id as a supplier candidate. On routes whose :id is a car/location id (delete-car, check-car, validate-car-license-plate, update/delete-car-image, update/delete-location, check-location, update/delete-location-image), a staff request resolves its agency context against the resource id, finds no membership, and 403s at requireAgencyPermission - regardless of the role capabilities in rolePermissions (Manager holds ManageFleet/ManageLocations; every staff role with ReadFleet/ReadLocations was equally blocked). Admin (bypass) and the supplier Owner (requested selector ignored) were unaffected, proven live in A3a/A3b. The approval decide route already carried a documented pinAgencySelector workaround for this exact trap; car/location routes had none.",
+      "fix": "Added the same pinAgencySelector middleware (copied from approvalRoutes) after authJwt.verifyToken on the :id routes of backend/src/routes/carRoutes.ts (checkCar, validateCarLicensePlate, delete, updateImage, deleteImage) and backend/src/routes/locationRoutes.ts (update, delete, checkLocation, updateImage, deleteImage). Backend build exit 0 (185 files); compiled carRoutes.js + locationRoutes.js layered via docker cp + container restart; health 200."
+    }
+  ],
+  "observations": [
+    {
+      "id": "GAQ12B3-O1",
+      "topic": "location delete has no in-use guard",
+      "detail": "DELETE of a location still referenced by a car returned 200; car read-back after delete: {\"locations\":[\"6aedceebbcb3c1762c7d3f1e\"],\"status\":200}. Behaviour recorded per task instruction; no policy decision exists for delete guards, so no behaviour change made."
+    },
+    {
+      "id": "GAQ12B3-O1b",
+      "topic": "in-use location delete detail",
+      "detail": "{\"annexCreate\":200,\"annexId\":\"6aedcf66bcb3c1762c7d3f23\",\"attachStatus\":200,\"locationsBeforeDelete\":[\"6aedceebbcb3c1762c7d3f1e\",\"6aedcf66bcb3c1762c7d3f23\"],\"deleteStatus\":200,\"getCarLocationsAfter\":[\"6aedceebbcb3c1762c7d3f1e\"],\"adminListLocationsAfter\":[\"6aedceebbcb3c1762c7d3f1e\",\"6aedcf66bcb3c1762c7d3f23\"],\"frontendSearchAtDeletedLocation\":{\"status\":200,\"count\":0}}"
+    },
+    {
+      "id": "GAQ12B3-O2",
+      "topic": "no create-supplier route",
+      "detail": "supplierRoutes.config exposes validate/update/delete/get only; a new agency (supplier) cannot be created through the API surface used by the admin app flows exercised here. Supplier assignment coherence was therefore walked via car.supplier (create + reassignment read-backs, step F4) and the Apex profile no-op update (step M5)."
+    },
+    {
+      "id": "GAQ12B3-O3",
+      "topic": "Manager cannot record payments",
+      "detail": "Live matrix: manager recordPayment = 403 while counterAgent and accountant pass the permission layer (404 on a fake booking). This matches rolePermissions in agencyAuthorization.ts (Manager has ReadPayments + DecideInvoices but not RecordPayments). No decided rule covers manager payment recording (decision 1.5 decided counter-agent record-pending only), so current behaviour is recorded, not changed."
+    },
+    {
+      "id": "GAQ12B3-O4",
+      "topic": "ReadOnly reads finance data in full",
+      "detail": "Live matrix: readOnly reports 200, paymentsList 200, invoicesList 200, cashSessionsList 200 - full read access with no redaction. Read-only export redaction is an owner-open item (decision-pack role matrix items 2-5 carried no default), so current behaviour is recorded, not changed."
+    },
+    {
+      "id": "GAQ12B3-O5",
+      "topic": "CounterAgent finance split",
+      "detail": "CounterAgent: reports 403 and paymentsList 403 (no ReadPayments) while recordPayment and cash movement creation pass and land as pending until an accountant-or-above confirms (M3/M4) - exactly the decided 1.5 pattern. Recorded as coherent."
+    },
+    {
+      "id": "GAQ12B3-O6",
+      "topic": "Membership self-read restricted to Owner/Manager",
+      "detail": "GET /api/agency-memberships/current returned 200 for manager and 403 for counterAgent/accountant/mechanic/readOnly (requireAgencyMemberRead allows Owner/Manager only, per GESTIONAUTO-MAP team page: manager/owner read). Staff below manager cannot read even their own membership record through this route. Recorded as current behaviour; no decision covers it."
+    },
+    {
+      "id": "GAQ12B3-O7",
+      "topic": "Storefront search payload contract",
+      "detail": "POST /api/frontend-cars and /api/frontend-suppliers return 400 for minimal payloads; both require the full GetCarsPayload filter set (carType/gearbox/mileage/fuelPolicy/deposit/ranges/... plus suppliers + pickupLocation + from/to), which the storefront always sends. With the full payload both return 200 and the fixture car/supplier (A3d, F2b). API-contract observation, not a defect."
+    },
+    {
+      "id": "GAQ12B3-O8",
+      "topic": "Car delete guard for booking history (by design)",
+      "detail": "carController.deleteCar refuses (409) when the car has any bookings: \"Vehicles with booking history are retired, not deleted.\" Cleanup therefore deletes bookings before cars, as in B1/B2. Location delete has no equivalent guard (O1/F5b): the raw locations array on cars keeps the deleted id while populated views and storefront search cope (0 results). No decision covers location delete guards; recorded, not changed."
+    },
+    {
+      "id": "GAQ12B3-O9",
+      "topic": "Platform-admin support access (current behaviour)",
+      "detail": "The platform admin session operated across the Apex agency for every action in this walk (agencyAuth maps Admin to an Owner context for any requested supplier). Platform-admin support-access terms are an owner-open item (decision-pack role matrix items 2-5); current behaviour recorded, not changed."
+    },
+    {
+      "id": "GAQ12B3-O10",
+      "topic": "User deletion cascades memberships",
+      "detail": "Deleting a staff user removes its AgencyMembership rows (verified: after cleanup the Apex membership list is empty, including memberships that were suspended first). Note for the coordinator: B2 disclosed suspended memberships as residue; if B2 cleanup deleted its staff users through the same route, that residue may likewise already be gone - worth a one-line verification against the B2 artifact."
+    }
+  ],
+  "notes": [
+    "F2/F3 initial FAIL was a harness payload defect (frontend-cars requires the full filter payload; minimal body -> 400). Re-proven as F2b with the B1-proven payload shape: car visible on the customer frontend at the updated name/price. Not an app defect.",
+    "P2 verdict basis corrected: validate-access-token body shape is recorded in A2a; per-role sign-in success is independently proven by the role-correct matrix behaviour in M1 (each actor session produced exactly the permission outcomes of its role) and memberships/current (manager 200, all other staff 403 per requireAgencyMemberRead Owner/Manager-only).",
+    "M3 reversal 400s were a harness payload defect: rentalPaymentController.reverse requires an idempotencyKey (8-200 chars). A2c completes the reversal with the proper payload.",
+    "A4 delete-car check was a harness artifact: A3a's control update-car sent the fixture payload (name \"GAQ12B3 Test Hatch GT\") against the MgrCar id, renaming the target, so A4's name-based lookup found nothing and its delete probe threw before dispatch. A4c re-proves manager delete-car by exact ID: 200, target gone (GET 204). All other A4 checks passed as recorded.",
+    "P3 verdict basis completed by A3c: after suspension, the sign-in endpoint still returns 200 with the user record, but validate-access-token returns 403 and agency calls (bookings, reports) return 403 on that session - access is revoked at the session/agency layer. The mechanic fixture was then deleted by exact ID (users keyword count 0, GET user 204).",
+    "P2 verdict basis: every staff role signed in through the real UI form and produced exactly its role-permission outcomes in the M1 matrix; memberships/current was 200 for manager and 403 for the other staff roles per requireAgencyMemberRead. validate-access-token returns a string body in this build (A2a), so the harness could not read type/_id from it - a harness parsing limit, not an auth failure."
+  ],
+  "cleanup": {
+    "at": "2026-11-06T13:15:07.977Z",
+    "actions": [
+      {
+        "name": "payment-already-neutral",
+        "status": "reversed"
+      },
+      {
+        "name": "void-invoice",
+        "status": 200,
+        "invoiceStatus": "voided"
+      },
+      {
+        "name": "delete-booking-6aedcfc3bcb3c1762c7d3f35",
+        "status": 200
+      },
+      {
+        "name": "delete-booking-6aedcfc6bcb3c1762c7d3f3a",
+        "status": 200
+      },
+      {
+        "name": "delete-booking-6aedcfcabcb3c1762c7d3f3e",
+        "status": 200
+      },
+      {
+        "name": "delete-booking-6aedcfcdbcb3c1762c7d3f3f",
+        "status": 200
+      },
+      {
+        "name": "delete-car-6aedceebbcb3c1762c7d3f1f",
+        "status": 200
+      },
+      {
+        "name": "delete-car-6aedcfc6bcb3c1762c7d3f39",
+        "status": 200
+      },
+      {
+        "name": "delete-car-6aedcfcabcb3c1762c7d3f3d",
+        "status": 200
+      },
+      {
+        "name": "delete-car-6aedd062bcb3c1762c7d3f42",
+        "status": 200
+      },
+      {
+        "name": "delete-car-6aedd102bcb3c1762c7d3f51",
+        "status": 204
+      },
+      {
+        "name": "delete-car-6aedd102bcb3c1762c7d3f52",
+        "status": 204
+      },
+      {
+        "name": "delete-location-6aedceebbcb3c1762c7d3f1e",
+        "status": 200
+      },
+      {
+        "name": "delete-location-6aedceebbcb3c1762c7d3f21",
+        "status": 204
+      },
+      {
+        "name": "offset-fixture-session-movement",
+        "status": 201,
+        "movementId": "6aedd2dcdc6e9fa38dee002c"
+      },
+      {
+        "name": "close-session-6aedcfc3bcb3c1762c7d3f38",
+        "status": 200,
+        "discrepancy": 0
+      },
+      {
+        "name": "suspend-membership_manager",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_counter",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_accountant",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_mechanic",
+        "status": 404
+      },
+      {
+        "name": "suspend-membership_readonly",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager2",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_accountant2",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_mechanic2",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager3",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_mechanic3",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager4",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_counter4",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_mechanic4",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager5",
+        "status": 200
+      },
+      {
+        "name": "suspend-membership_manager6",
+        "status": 200
+      },
+      {
+        "name": "suspend-throwaway-admin",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_counter",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_accountant",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_mechanic",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_readonly",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_accountant2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_mechanic2",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager3",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_mechanic3",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager4",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_counter4",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_mechanic4",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager5",
+        "status": 200
+      },
+      {
+        "name": "delete-user-staff_manager6",
+        "status": 200
+      },
+      {
+        "name": "delete-throwaway-admin",
+        "status": 200
+      },
+      {
+        "name": "delete-user-renter",
+        "status": 200
+      }
+    ],
+    "readBack": {
+      "car-6aedceebbcb3c1762c7d3f1f": 204,
+      "car-6aedcfc6bcb3c1762c7d3f39": 204,
+      "car-6aedcfcabcb3c1762c7d3f3d": 204,
+      "car-6aedd062bcb3c1762c7d3f42": 204,
+      "car-6aedd102bcb3c1762c7d3f51": 204,
+      "car-6aedd102bcb3c1762c7d3f52": 204,
+      "location-6aedceebbcb3c1762c7d3f1e": 204,
+      "location-6aedceebbcb3c1762c7d3f21": 204,
+      "usersKeywordCount": 0,
+      "usersEmailKeywordCount": 0,
+      "carsKeywordCount": 0,
+      "locationsKeywordCount": 0,
+      "paymentPair": [
+        {
+          "id": "6aedcfe8bcb3c1762c7d3f40",
+          "status": "reversed",
+          "direction": "credit",
+          "amount": 500
+        },
+        {
+          "id": "6aedd062bcb3c1762c7d3f43",
+          "status": "reversed",
+          "direction": "debit",
+          "amount": 500
+        }
+      ],
+      "membershipsRemainingForApex": 0
+    },
+    "residue": [
+      {
+        "type": "RentalPayment (matrix payment, reversed)",
+        "id": "6aedcfe8bcb3c1762c7d3f40",
+        "why": "no delete route for rental payments; annulled pair nets to zero in Posted-only aggregates"
+      },
+      {
+        "type": "RentalPayment (reversal debit, Reversed)",
+        "id": "6aedd062bcb3c1762c7d3f43",
+        "why": "no delete route; post-fix annulment record (status Reversed)"
+      },
+      {
+        "type": "Invoice (voided)",
+        "id": "6aedcfc3bcb3c1762c7d3f36",
+        "why": "no delete route for invoices; voided so it is excluded from report invoiced totals"
+      },
+      {
+        "type": "Approval (approved, decided)",
+        "id": "6aedcfc3bcb3c1762c7d3f37",
+        "why": "no delete route for approvals; decided queue record remains as the audit source of truth"
+      },
+      {
+        "type": "CashMovement (counter matrix movement, confirmed)",
+        "id": "6aedcff5bcb3c1762c7d3f41",
+        "why": "no delete/reverse route for cash movements; offset by the cleanup adjustment movement below"
+      },
+      {
+        "type": "CashMovement (cleanup offset)",
+        "id": "6aedd2dcdc6e9fa38dee002c",
+        "why": "no delete route; nets the matrix movement to zero on the fixture session"
+      },
+      {
+        "type": "CashSession (opened by walk/probes, closed at cleanup)",
+        "id": "6aedcfc3bcb3c1762c7d3f38",
+        "why": "no delete route for cash sessions; closed at cleanup"
+      },
+      {
+        "type": "Invoice number counter",
+        "id": "GA-2026 sequence incremented by the matrix invoice",
+        "why": "system Counter document is a sequence, not a fixture record"
+      },
+      {
+        "type": "AgencyMemberships (all 17 walk/probe memberships)",
+        "id": "none remaining",
+        "why": "VERIFIED POST-CLEANUP: GET /api/agency-memberships/:apex returns 0 rows - deleting a staff user cascade-deletes its memberships, so no suspended-membership residue remains (this corrects the generic residue text written during cleanup; the original mechanic membership was already cascade-deleted in P3, hence its cleanup suspend returned 404)"
+      }
+    ]
+  },
+  "finishedAt": "2026-11-06T13:15:08.731Z"
+}

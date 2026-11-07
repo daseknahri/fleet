@@ -34,7 +34,10 @@ const agencyLocationMatch = (req: Request): mongoose.QueryFilter<env.Location> =
     return {}
   }
   const agencyId = agencySupplierId(req) || '000000000000000000000000'
-  return { $or: [{ supplier: agencyId }, { supplier: null }, { supplier: { $exists: false } }] }
+  // Aggregations do not cast string ids: match the supplier as an ObjectId,
+  // otherwise the agency branch never matches and duplicate-name validation
+  // silently passes for agency users.
+  return { $or: [{ supplier: new mongoose.Types.ObjectId(agencyId) }, { supplier: null }, { supplier: { $exists: false } }] }
 }
 
 /**
@@ -90,7 +93,7 @@ export const validate = async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error(`[location.validate]  ${i18n.t('ERROR')} ${name}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -143,6 +146,37 @@ export const create = async (req: Request, res: Response) => {
     if (!supplier || !mongoose.isValidObjectId(supplier)) {
       res.status(400).send('Invalid location agency')
       return
+    }
+
+    if (!Array.isArray(names) || !names.some((name) => typeof name?.name === 'string' && name.name.trim().length > 0)) {
+      res.status(400).send('A location needs at least one name')
+      return
+    }
+
+    if (image) {
+      // Validate the image reference BEFORE persisting anything: the
+      // post-save checks below used to reject only after the location and
+      // its values were already stored, leaving orphaned locations behind.
+      const safeImagePreCheck = path.basename(image)
+      if (safeImagePreCheck !== image) {
+        logger.warn(`[location.create] Directory traversal attempt (image): ${image}`)
+        res.status(400).send('Invalid image filename')
+        return
+      }
+      const tempDirPreCheck = path.resolve(env.CDN_TEMP_LOCATIONS)
+      const sourcePathPreCheck = path.resolve(tempDirPreCheck, safeImagePreCheck)
+      if (!sourcePathPreCheck.startsWith(tempDirPreCheck + path.sep)) {
+        logger.warn(`[location.create] Image source path escape attempt: ${sourcePathPreCheck}`)
+        res.status(400).send('Invalid image path')
+        return
+      }
+      if (await helper.pathExists(sourcePathPreCheck)) {
+        const extPreCheck = path.extname(safeImagePreCheck).toLowerCase()
+        if (!env.allowedImageExtensions.includes(extPreCheck)) {
+          res.status(400).send('Invalid image type')
+          return
+        }
+      }
     }
 
     if (image) {
@@ -242,7 +276,7 @@ export const create = async (req: Request, res: Response) => {
     res.send(location)
   } catch (err) {
     logger.error(`[location.create] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -382,7 +416,7 @@ export const update = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.update] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -438,7 +472,7 @@ export const deleteLocation = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[location.delete] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -515,7 +549,7 @@ export const getLocation = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.getLocation] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -639,7 +673,7 @@ export const getLocations = async (req: Request, res: Response) => {
     res.json(locations)
   } catch (err) {
     logger.error(`[location.getLocations] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -703,7 +737,7 @@ export const getLocationsWithPosition = async (req: Request, res: Response) => {
     res.json(locations)
   } catch (err) {
     logger.error(`[location.getLocationsWithPosition] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -740,7 +774,7 @@ export const checkLocation = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.checkLocation] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -768,7 +802,7 @@ export const getLocationId = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.getLocationId] ${i18n.t('ERROR')} ${name}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -806,7 +840,7 @@ export const createImage = async (req: Request, res: Response) => {
     res.json(filename)
   } catch (err) {
     logger.error(`[location.createImage] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -873,7 +907,7 @@ export const updateImage = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.updateImage] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -917,7 +951,7 @@ export const deleteImage = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.deleteImage] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -963,6 +997,6 @@ export const deleteTempImage = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[location.deleteTempImage] ${i18n.t('ERROR')} ${image}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }

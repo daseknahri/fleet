@@ -70,9 +70,9 @@ const Layout = ({
   return (
     <>
       {((!user && !loading) || (user && user.verified) || !strict) && !unauthorized ? (
-        <div className="content" style={style || {}}>
+        <main className="content" style={style || {}}>
           {userLoaded && children}
-        </div>
+        </main>
       ) : (
         !loading && !unauthorized && (
           <div className="validate-email">

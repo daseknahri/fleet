@@ -4,7 +4,7 @@ import routeNames from '../config/userRoutes.config'
 import authJwt from '../middlewares/authJwt'
 import agencyAuth from '../middlewares/agencyAuth'
 import * as userController from '../controllers/userController'
-import rateLimiter from '../middlewares/rateLimiter'
+import rateLimiter, { mailRateLimiter } from '../middlewares/rateLimiter'
 const routes = express.Router()
 
 routes.route(routeNames.signup).post(rateLimiter, userController.signup)
@@ -29,19 +29,22 @@ routes.route(routeNames.update).post(authJwt.verifyToken, userController.update)
 routes.route(routeNames.updateEmailNotifications).post(authJwt.verifyToken, userController.updateEmailNotifications)
 routes.route(routeNames.updateLanguage).post(authJwt.verifyToken, userController.updateLanguage)
 routes.route(routeNames.getUser).get(authJwt.verifyToken, userController.getUser)
-routes.route(routeNames.createAvatar).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage() }).single('image')], userController.createAvatar)
-routes.route(routeNames.updateAvatar).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage() }).single('image')], userController.updateAvatar)
+routes.route(routeNames.createAvatar).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], userController.createAvatar)
+routes.route(routeNames.updateAvatar).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], userController.updateAvatar)
 routes.route(routeNames.deleteAvatar).post(authJwt.verifyToken, userController.deleteAvatar)
 routes.route(routeNames.deleteTempAvatar).post(authJwt.verifyToken, userController.deleteTempAvatar)
 routes.route(routeNames.changePassword).post(authJwt.verifyToken, rateLimiter, userController.changePassword)
+// H-005: the GET variant (password in the URL path) is DEPRECATED — kept only
+// for unauditable legacy clients; all in-repo callers use the POST variant.
 routes.route(routeNames.checkPassword).get(authJwt.verifyToken, userController.checkPassword)
+routes.route(routeNames.checkPasswordPost).post(authJwt.verifyToken, userController.checkPassword)
 routes.route(routeNames.getUsers).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getUsers)
 routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.deleteUsers)
 routes.route(routeNames.verifyRecaptcha).post(userController.verifyRecaptcha)
-routes.route(routeNames.sendEmail).post(userController.sendEmail)
+routes.route(routeNames.sendEmail).post(mailRateLimiter, userController.sendEmail)
 routes.route(routeNames.hasPassword).get(authJwt.verifyToken, userController.hasPassword)
-routes.route(routeNames.createLicense).post([multer({ storage: multer.memoryStorage() }).single('file')], userController.createLicense)
-routes.route(routeNames.updateLicense).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage() }).single('file')], userController.updateLicense)
+routes.route(routeNames.createLicense).post([multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.createLicense)
+routes.route(routeNames.updateLicense).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.updateLicense)
 routes.route(routeNames.deleteLicense).post(authJwt.verifyToken, userController.deleteLicense)
 routes.route(routeNames.deleteTempLicense).post(userController.deleteTempLicense)
 

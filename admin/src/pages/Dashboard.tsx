@@ -131,7 +131,7 @@ const Dashboard = () => {
 
   return (
     <Layout strict onLoad={onLoad}>
-      <main className="agency-dashboard">
+      <div className="agency-dashboard">
         <Box className="agency-dashboard__heading">
           <div>
             <Typography component="p" className="agency-dashboard__eyebrow">{strings.EYEBROW}</Typography>
@@ -253,7 +253,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         </Box>
-      </main>
+      </div>
     </Layout>
   )
 }

@@ -11,6 +11,13 @@ const schema = new Schema<env.CashMovement>({
   direction: { type: String, required: true, enum: Object.values(bookcarsTypes.CashMovementDirection) },
   amount: { type: Number, required: true, min: 0.01 },
   source: { type: String, required: true, enum: Object.values(bookcarsTypes.CashMovementSource), default: bookcarsTypes.CashMovementSource.Manual },
+  // Counter-agent entries are recorded as 'pending' and only count toward
+  // session balances once an accountant or above confirms them (owner
+  // decision 1.5, GA-P10-DECISIONS-01). Movements written before this field
+  // existed carry no status and are treated as confirmed.
+  status: { type: String, required: true, enum: ['pending', 'confirmed'], default: 'confirmed' },
+  confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  confirmedAt: Date,
   idempotencyKey: { type: String, maxlength: 200, trim: true },
   transferId: { type: Schema.Types.ObjectId, ref: 'CashMovement', index: true },
   reference: { type: String, maxlength: 160, trim: true },

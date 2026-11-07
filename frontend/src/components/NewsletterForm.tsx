@@ -64,7 +64,7 @@ const NewsletterForm = () => {
   }
 
   return (
-    <form className="newsletter-form" onSubmit={handleSubmit(onSubmit)}>
+    <form className="newsletter-form" onSubmit={handleSubmit(onSubmit)} noValidate>
       <h1>{strings.TITLE}</h1>
       <p>{strings.SUB_TITLE}</p>
 

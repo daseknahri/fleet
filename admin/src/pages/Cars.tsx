@@ -158,10 +158,15 @@ const Cars = () => {
       //   seats,
       // }
       // const _allSuppliers = await SupplierService.getAdminSuppliers(payload)
-      const _allSuppliers = await SupplierService.getAllSuppliers()
-      const _suppliers = bookcarsHelper.flattenSuppliers(_allSuppliers)
-      setAllSuppliers(_allSuppliers)
-      setSuppliers(_suppliers)
+      try {
+        const _allSuppliers = await SupplierService.getAllSuppliers()
+        const _suppliers = bookcarsHelper.flattenSuppliers(_allSuppliers)
+        setAllSuppliers(_allSuppliers)
+        setSuppliers(_suppliers)
+      } catch (err) {
+        helper.error(err)
+        setSuppliers([])
+      }
     } else {
       const supplierId = (_user && _user._id) as string
       setSuppliers([supplierId])
@@ -175,6 +180,7 @@ const Cars = () => {
     <Layout onLoad={onLoad} strict>
       {user && (
         <div className="cars">
+          <h1 className="sr-only">{commonStrings.CARS}</h1>
           <div className="col-1">
             <div className="col-1-container">
               <Search onSubmit={handleSearch} className="search" />

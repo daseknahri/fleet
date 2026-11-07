@@ -13,6 +13,12 @@ const jwtAlg = 'HS256'
 
 export type SessionData = {
   id: string
+  // H-007: per-session id — sign-out revokes exactly this session (sid denylist).
+  sid?: string
+  // H-007: the user's tokenVersion at issuance — a password change bumps the
+  // version and thereby revokes every token issued before it.
+  tv?: number
+  exp?: number
 }
 
 /**

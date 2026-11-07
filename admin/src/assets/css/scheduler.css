@@ -102,3 +102,11 @@ div.scheduler {
     margin-left: 5px;
   }
 }
+
+/* GA hardening Wave 5: WCAG AA contrast for the scheduler toolbar — the
+   vendored scheduler renders its info button at #0288d1 (3.85:1) on white.
+   (Out-of-month day numbers were fixed at the source in MonthTable.tsx:
+   #ccc -> #595959; today's white-on-#1a1a1a number is untouched.) */
+div.scheduler .MuiButton-textInfo {
+  color: #01579b;
+}

@@ -14,11 +14,13 @@ import * as env from '../config/env.config'
 import User from '../models/User'
 import Booking from '../models/Booking'
 import Token from '../models/Token'
+import RevokedSession from '../models/RevokedSession'
 import PushToken from '../models/PushToken'
 import * as helper from '../utils/helper'
 import * as authHelper from '../utils/authHelper'
 import * as mailHelper from '../utils/mailHelper'
 import Notification from '../models/Notification'
+import AgencyMembership from '../models/AgencyMembership'
 import NotificationCounter from '../models/NotificationCounter'
 import Car from '../models/Car'
 import AdditionalDriver from '../models/AdditionalDriver'
@@ -64,6 +66,7 @@ const _signup = async (req: Request, res: Response, userType: bookcarsTypes.User
     body.verified = false
     body.blacklisted = false
     body.type = userType
+    ;(body as { signupOrigin?: string }).signupOrigin = 'self'
 
     const { password } = body
     const passwordHash = await authHelper.hashPassword(password)
@@ -149,7 +152,16 @@ const _signup = async (req: Request, res: Response, userType: bookcarsTypes.User
     // Send email
     i18n.locale = user.language
 
-    const activationLink = `http${env.HTTPS ? 's' : ''}://${req.headers.host}/api/confirm-email/${user.email}/${token.token}`
+    // H-006: the emailed link is built from the configured API base URL
+    // (BC_API_HOST) only — never from the request Host header, which is
+    // attacker-controlled (Host-header injection). If BC_API_HOST is not
+    // configured, fail safe: no link is generated and the signup follows
+    // the existing mail-failure path below.
+    if (!env.API_HOST) {
+      throw new Error('BC_API_HOST is not configured')
+    }
+
+    const activationLink = `${helper.joinURL(env.API_HOST, 'api/confirm-email')}/${user.email}/${token.token}`
 
     const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
@@ -275,6 +287,7 @@ export const create = async (req: Request, res: Response) => {
 
     body.verified = false
     body.blacklisted = false
+    ;(body as { signupOrigin?: string }).signupOrigin = 'admin'
 
     if (body.password) {
       const { password } = body
@@ -509,7 +522,7 @@ export const create = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.create] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -561,7 +574,7 @@ export const checkToken = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.checkToken] ${i18n.t('ERROR')} ${JSON.stringify(req.params)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -608,7 +621,7 @@ export const deleteTokens = async (req: Request, res: Response) => {
     res.sendStatus(400)
   } catch (err) {
     logger.error(`[user.deleteTokens] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -705,6 +718,9 @@ export const activate = async (req: Request, res: Response) => {
         const { password } = body
         const passwordHash = await authHelper.hashPassword(password)
         user.password = passwordHash
+        // H-007: setting a password (activation / email reset) revokes any
+        // session issued before it.
+        user.tokenVersion = (user.tokenVersion ?? 0) + 1
 
         user.active = true
         user.verified = true
@@ -719,7 +735,7 @@ export const activate = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.activate] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -763,6 +779,16 @@ export const signin = async (req: Request, res: Response) => {
     }
     const passwordMatch = await bcrypt.compare(password, user.password)
 
+    // Owner decision F-SEC-7 (GA-P10-DECISIONS-01): self-signup accounts
+    // must verify their email before signing in; admin-created accounts
+    // (and legacy rows without the 'self' marker) stay exempt, keeping
+    // the admin-onboarding flow intact. The denial is the same 204 as
+    // every other sign-in failure, so nothing about the account leaks.
+    if (passwordMatch && user.verified === false && (user as { signupOrigin?: string }).signupOrigin === 'self') {
+      res.sendStatus(204)
+      return
+    }
+
     if (passwordMatch) {
       //
       // On production, authentication cookies are httpOnly, signed, secure and strict sameSite.
@@ -786,7 +812,7 @@ export const signin = async (req: Request, res: Response) => {
         cookieOptions.maxAge = env.JWT_EXPIRE_AT * 1000
       }
 
-      const payload: authHelper.SessionData = { id: user._id.toString() }
+      const payload: authHelper.SessionData = { id: user._id.toString(), sid: nanoid(), tv: user.tokenVersion ?? 0 }
       const token = await authHelper.encryptJWT(payload, stayConnected)
 
       const loggedUser: bookcarsTypes.User = {
@@ -829,7 +855,7 @@ export const signin = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.signin] ${i18n.t('ERROR')} ${emailFromBody}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -914,7 +940,7 @@ export const socialSignin = async (req: Request, res: Response) => {
       cookieOptions.maxAge = env.JWT_EXPIRE_AT * 1000
     }
 
-    const payload: authHelper.SessionData = { id: user._id.toString() }
+    const payload: authHelper.SessionData = { id: user._id.toString(), sid: nanoid(), tv: user.tokenVersion ?? 0 }
     const token = await authHelper.encryptJWT(payload, stayConnected)
 
     const loggedUser: bookcarsTypes.User = {
@@ -953,7 +979,7 @@ export const socialSignin = async (req: Request, res: Response) => {
       .send(loggedUser)
   } catch (err) {
     logger.error(`[user.socialSignin] ${i18n.t('ERROR')} ${emailFromBody}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -968,6 +994,38 @@ export const socialSignin = async (req: Request, res: Response) => {
  */
 export const signout = async (req: Request, res: Response) => {
   const cookieName = authHelper.getAuthCookieName(req)
+
+  // H-007: revoke the presented session server-side — the current session
+  // only; the user's other sessions stay valid. The token is resolved
+  // exactly as in authJwt.verifyToken (signed admin/frontend cookie, or the
+  // x-access-token header). An absent or invalid token keeps sign-out a
+  // cookie-clearing no-op, as before.
+  try {
+    let sessionToken: string | undefined
+    if (authHelper.isAdmin(req)) {
+      sessionToken = req.signedCookies[env.ADMIN_AUTH_COOKIE_NAME]
+    } else if (authHelper.isFrontend(req)) {
+      sessionToken = req.signedCookies[env.FRONTEND_AUTH_COOKIE_NAME]
+    } else {
+      sessionToken = req.headers[env.X_ACCESS_TOKEN] as string | undefined
+    }
+
+    if (sessionToken) {
+      const sessionData = await authHelper.decryptJWT(sessionToken)
+      if (sessionData?.sid && helper.isValidObjectId(sessionData.id)) {
+        const expireAt = sessionData.exp
+          ? new Date(sessionData.exp * 1000)
+          : new Date(Date.now() + 400 * 24 * 60 * 60 * 1000) // stay-connected tokens carry no exp; the cookie cap is 400 days
+        await RevokedSession.updateOne(
+          { sid: sessionData.sid },
+          { $setOnInsert: { sid: sessionData.sid, user: sessionData.id, expireAt } },
+          { upsert: true },
+        )
+      }
+    }
+  } catch (err) {
+    logger.info('[user.signout] Session revocation skipped', err)
+  }
 
   res
     .clearCookie(cookieName)
@@ -1006,7 +1064,7 @@ export const getPushToken = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.pushToken] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1048,7 +1106,7 @@ export const createPushToken = async (req: Request, res: Response) => {
     res.status(400).send('Push Token already exists.')
   } catch (err) {
     logger.error(`[user.createPushToken] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1079,7 +1137,7 @@ export const deletePushToken = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.deletePushToken] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1170,7 +1228,7 @@ export const confirmEmail = async (req: Request, res: Response) => {
     res.status(200).send(getStatusMessage(user.language, i18n.t('ACCOUNT_ACTIVATION_SUCCESS')))
   } catch (err) {
     logger.error(`[user.confirmEmail] ${i18n.t('ERROR')} ${JSON.stringify(req.params)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1206,6 +1264,12 @@ export const resendLink = async (req: Request, res: Response) => {
       res.status(200).send(getStatusMessage(user.language, i18n.t('ACCOUNT_ACTIVATION_ACCOUNT_VERIFIED')))
     }
 
+    // H-006: fail safe when no configured API base URL exists — no token is
+    // created and no link is built from the untrusted request Host header.
+    if (!env.API_HOST) {
+      throw new Error('BC_API_HOST is not configured')
+    }
+
     // send verification link
     // generate token and save
     const token = new Token({ user: user._id, token: helper.generateToken() })
@@ -1214,7 +1278,7 @@ export const resendLink = async (req: Request, res: Response) => {
     // Send email
     i18n.locale = user.language
 
-    const activateLink = `http${env.HTTPS ? 's' : ''}://${req.headers.host}/api/confirm-email/${user.email}/${token.token}`
+    const activateLink = `${helper.joinURL(env.API_HOST, 'api/confirm-email')}/${user.email}/${token.token}`
 
     const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,
@@ -1237,7 +1301,7 @@ export const resendLink = async (req: Request, res: Response) => {
       .send(getStatusMessage(user.language, i18n.t('ACCOUNT_ACTIVATION_EMAIL_SENT_PART_1') + user.email + i18n.t('ACCOUNT_ACTIVATION_EMAIL_SENT_PART_2')))
   } catch (err) {
     logger.error(`[user.resendLink] ${i18n.t('ERROR')} ${email}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1321,18 +1385,29 @@ export const update = async (req: Request, res: Response) => {
     user.location = location
     user.bio = bio
     user.birthDate = birthDate ? new Date(birthDate) : undefined
-    user.minimumRentalDays = minimumRentalDays
-    user.priceChangeRate = priceChangeRate
-    user.supplierCarLimit = supplierCarLimit
-    user.notifyAdminOnNewCar = notifyAdminOnNewCar
     if (typeof enableEmailNotifications !== 'undefined') {
       user.enableEmailNotifications = enableEmailNotifications
     }
-    if (typeof payLater !== 'undefined') {
-      user.payLater = payLater
-    }
-    if (typeof licenseRequired !== 'undefined') {
-      user.licenseRequired = licenseRequired
+    // H-008 (hardening Wave 2): the supplier-commercial fields below only
+    // have meaning on a supplier's own record - checkout and pricing read
+    // them from the supplier, never from a customer (verified Wave 1).
+    // They are applied only when the target account is a supplier and the
+    // actor is the platform admin or that supplier themself; on any other
+    // target they are ignored, so they can no longer be written onto (or
+    // wiped from) customer records through this endpoint.
+    const canEditSupplierCommercial = user.type === bookcarsTypes.UserType.Supplier
+      && (sessionUser.type === bookcarsTypes.UserType.Admin || isSelf)
+    if (canEditSupplierCommercial) {
+      user.minimumRentalDays = minimumRentalDays
+      user.priceChangeRate = priceChangeRate
+      user.supplierCarLimit = supplierCarLimit
+      user.notifyAdminOnNewCar = notifyAdminOnNewCar
+      if (typeof payLater !== 'undefined') {
+        user.payLater = payLater
+      }
+      if (typeof licenseRequired !== 'undefined') {
+        user.licenseRequired = licenseRequired
+      }
     }
     if (sessionUser.type === bookcarsTypes.UserType.Admin || isAuthorizedSupplierUser) {
       if (typeof blacklisted !== 'undefined') {
@@ -1353,7 +1428,7 @@ export const update = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.update] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1408,7 +1483,7 @@ export const updateEmailNotifications = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.updateEmailNotifications] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1469,7 +1544,7 @@ export const updateLanguage = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.updateLanguage] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1528,13 +1603,29 @@ export const getUser = async (req: Request, res: Response) => {
       && agencySupplierId(req) === user.supplier.toString()
       && hasAgencyPermission(req.agency, AgencyPermission.ReadClients)
 
+    // GA hardening Wave 5: an agency owner must be able to resolve staff who
+    // hold an active membership in their agency (e.g. Approbations requester
+    // names), and staff must be able to resolve their own agency owner. Both
+    // stay inside the agency boundary; the projection above is unchanged.
+    let isSupplierAgencyStaff = false
+    if (sessionUserType === bookcarsTypes.UserType.Supplier && !isSelf && user?.type === bookcarsTypes.UserType.Staff) {
+      isSupplierAgencyStaff = !!(await AgencyMembership.exists({
+        supplier: sessionUserId,
+        user: id,
+        status: bookcarsTypes.AgencyMembershipStatus.Active,
+      }))
+    }
+    const isStaffAgencyOwner = sessionUserType === bookcarsTypes.UserType.Staff
+      && user?.type === bookcarsTypes.UserType.Supplier
+      && agencySupplierId(req) === id
+
     if (user && isStaffAgencyCustomer && !hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)) {
       user.license = undefined
     }
 
     if (
       (sessionUserType === bookcarsTypes.UserType.User && !isSelf)
-      || (sessionUserType === bookcarsTypes.UserType.Staff && !isStaffSelf && !isStaffAgencyCustomer)
+      || (sessionUserType === bookcarsTypes.UserType.Staff && !isStaffSelf && !isStaffAgencyCustomer && !isStaffAgencyOwner)
     ) {
       logger.error(`[user.getUser] Forbidden: user ${sessionUserId} tried to read user ${id}`)
       res.status(403).send('Forbidden')
@@ -1542,7 +1633,7 @@ export const getUser = async (req: Request, res: Response) => {
     }
 
     if (
-      sessionUserType === bookcarsTypes.UserType.Supplier && !isSelf && !isSupplierUser
+      sessionUserType === bookcarsTypes.UserType.Supplier && !isSelf && !isSupplierUser && !isSupplierAgencyStaff
     ) {
       logger.error(`[user.getUser] Forbidden: supplier ${sessionUserId} tried to read user ${id}`)
       res.status(403).send('Forbidden')
@@ -1559,7 +1650,7 @@ export const getUser = async (req: Request, res: Response) => {
     res.json(user)
   } catch (err) {
     logger.error(`[user.getUser] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1597,7 +1688,7 @@ export const createAvatar = async (req: Request, res: Response) => {
     res.json(filename)
   } catch (err) {
     logger.error(`[user.createAvatar] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1671,7 +1762,7 @@ export const updateAvatar = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.updateAvatar] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1721,7 +1812,7 @@ export const deleteAvatar = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.deleteAvatar] ${i18n.t('ERROR')} ${userId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1769,7 +1860,7 @@ export const deleteTempAvatar = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.deleteTempAvatar] ${i18n.t('ERROR')} ${avatar}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1836,6 +1927,8 @@ export const changePassword = async (req: Request, res: Response) => {
       const password = newPassword
       const passwordHash = await authHelper.hashPassword(password)
       user.password = passwordHash
+      // H-007: a password change revokes every session issued so far.
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1
       await user.save()
       res.sendStatus(200)
     }
@@ -1854,7 +1947,7 @@ export const changePassword = async (req: Request, res: Response) => {
     return await _changePassword()
   } catch (err) {
     logger.error(`[user.changePassword] ${i18n.t('ERROR')} ${_id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1868,11 +1961,19 @@ export const changePassword = async (req: Request, res: Response) => {
  * @returns {unknown}
  */
 export const checkPassword = async (req: Request, res: Response) => {
-  const { id, password } = req.params
+  const { id } = req.params
+  // H-005: on the POST variant the password travels in the JSON body, never
+  // in the URL. The legacy GET variant (deprecated) still reads it from the
+  // path, so both variants share identical authorization/status semantics.
+  const password = (req.body as { password?: unknown } | undefined)?.password ?? req.params.password
 
   try {
     if (!helper.isValidObjectId(id)) {
       throw new Error('User id is not valid')
+    }
+
+    if (typeof password !== 'string' || !password) {
+      throw new Error('Password is not valid')
     }
 
     const user = await User.findById(id)
@@ -1909,7 +2010,7 @@ export const checkPassword = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.checkPassword] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1962,7 +2063,9 @@ export const getUsers = async (req: Request, res: Response) => {
         res.status(403).send('Agency membership is required')
         return
       }
-      $match.$and!.push({ supplier: agencyId, type: bookcarsTypes.UserType.User })
+      // Aggregations do not cast string ids: without the ObjectId cast this
+      // filter never matches and agency users see an empty client list.
+      $match.$and!.push({ supplier: new mongoose.Types.ObjectId(agencyId), type: bookcarsTypes.UserType.User })
     }
 
     if (userId) {
@@ -2009,7 +2112,7 @@ export const getUsers = async (req: Request, res: Response) => {
     res.json(users)
   } catch (err) {
     logger.error(`[user.getUsers] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2030,6 +2133,22 @@ export const deleteUsers = async (req: Request, res: Response) => {
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
 
+    // H-025 (hardening Wave 4): validate every target BEFORE deleting any.
+    // The previous single pass deleted each authorized user as it went and
+    // only reported 403 at the end, so a mixed [own, foreign] request removed
+    // the caller's own users while telling the caller the request had failed.
+    // The per-user check below stays as defence in depth.
+    for (const id of ids) {
+      const target = await User.findById(id)
+      if (target
+        && (!sessionUser
+          || sessionUser.type === bookcarsTypes.UserType.User
+          || ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType) && agencySupplierId(req) !== target.supplier?.toString()))) {
+        logger.error(`[user.delete] Unauthorized attempt to delete user ${id} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot delete some of the users')
+        return
+      }
+    }
     let unauthorizedAttemptLogged = false
     for (const id of ids) {
       const user = await User.findById(id)
@@ -2045,6 +2164,11 @@ export const deleteUsers = async (req: Request, res: Response) => {
 
 
         await User.deleteOne({ _id: id })
+
+        // Owner decision F-SEC-5 (GA-P10-DECISIONS-01): agency memberships
+        // cascade with the user - both the rows where they are a staff
+        // member and, for an agency owner, the rows of their agency.
+        await AgencyMembership.deleteMany({ $or: [{ user: id }, { supplier: id }] })
 
         if (user.avatar) {
           const avatar = path.join(env.CDN_USERS, user.avatar)
@@ -2110,7 +2234,7 @@ export const deleteUsers = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.delete] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2135,7 +2259,7 @@ export const verifyRecaptcha = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.delete] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2177,7 +2301,7 @@ export const sendEmail = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.sendEmail] ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2218,7 +2342,7 @@ export const hasPassword = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.hasPassword] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2258,7 +2382,7 @@ export const createLicense = async (req: Request, res: Response) => {
     res.json(filename)
   } catch (err) {
     logger.error(`[user.createLicense] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2336,7 +2460,7 @@ export const updateLicense = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.updateLicense] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2388,7 +2512,7 @@ export const deleteLicense = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[user.deleteLicense] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -2433,7 +2557,7 @@ export const deleteTempLicense = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.deleteTempLicense] ${i18n.t('ERROR')} ${file}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 

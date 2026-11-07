@@ -17,6 +17,7 @@ export const useCellAttributes = ({ start, end, resourceKey, resourceVal }: Prop
     currentDragged,
     setCurrentDragged,
     editable,
+    draggable,
     timeZone,
   } = useStore()
   const theme = useTheme()
@@ -24,6 +25,9 @@ export const useCellAttributes = ({ start, end, resourceKey, resourceVal }: Prop
   return {
     tabIndex: editable ? 0 : -1,
     disableRipple: !editable,
+    // A cell with no editor, no click handler and no drop target is inert:
+    // render it disabled instead of as a button that silently does nothing.
+    disabled: !editable && !draggable && !onCellClick,
     onClick: () => {
       if (editable) {
         triggerDialog(true, {

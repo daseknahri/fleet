@@ -119,7 +119,7 @@ const SignUp = () => {
         {visible && !success && (
           <Paper className="signup-form" elevation={10}>
             <h1 className="signup-form-title">{strings.SIGN_UP_HEADING}</h1>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
               <div>
                 <FormControl fullWidth margin="dense" error={!!errors.fullName}>
                   <InputLabel className="required" htmlFor="signup-fullName">{commonStrings.FULL_NAME}</InputLabel>
@@ -130,6 +130,7 @@ const SignUp = () => {
                     autoComplete="off"
                     required
                   />
+                  <FormHelperText error={!!errors.fullName}>{errors.fullName?.message || ''}</FormHelperText>
                 </FormControl>
                 <FormControl fullWidth margin="dense" error={!!errors.email}>
                   <InputLabel className="required" htmlFor="signup-email">{commonStrings.EMAIL}</InputLabel>
@@ -240,7 +241,7 @@ const SignUp = () => {
                           />
                         </td>
                         <td>
-                          <Link href="/tos" target="_blank" rel="noreferrer">
+                          <Link href="/tos" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} sx={{ display: 'block' }}>
                             {commonStrings.TOS}
                           </Link>
                         </td>

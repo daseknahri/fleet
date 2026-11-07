@@ -40,7 +40,7 @@ export const getSettings = async (req: Request, res: Response) => {
     res.json(settings)
   } catch (err) {
     logger.error(`[setting.getSettings] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -63,10 +63,28 @@ export const updateSettings = async (req: Request, res: Response) => {
     const settings = await Setting.findOne({})
 
     if (settings) {
-      settings.minPickupHours = minPickupHours
-      settings.minRentalHours = minRentalHours
-      settings.minPickupDropoffHour = minPickupDropoffHour
-      settings.maxPickupDropoffHour = maxPickupDropoffHour
+      // H-026 (hardening Wave 4): assign only the fields the caller actually
+      // sent. The previous unconditional assignments turned a partial payload
+      // into a silent reset of every omitted setting to its model default,
+      // and nothing stopped an inverted pickup/dropoff hour window from
+      // being persisted.
+      if (typeof minPickupHours !== 'undefined') {
+        settings.minPickupHours = minPickupHours
+      }
+      if (typeof minRentalHours !== 'undefined') {
+        settings.minRentalHours = minRentalHours
+      }
+      if (typeof minPickupDropoffHour !== 'undefined') {
+        settings.minPickupDropoffHour = minPickupDropoffHour
+      }
+      if (typeof maxPickupDropoffHour !== 'undefined') {
+        settings.maxPickupDropoffHour = maxPickupDropoffHour
+      }
+
+      if (settings.minPickupDropoffHour > settings.maxPickupDropoffHour) {
+        res.status(400).send(i18n.t('ERROR'))
+        return
+      }
 
       await settings.save()
 
@@ -77,6 +95,6 @@ export const updateSettings = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[setting.updateSettings] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }

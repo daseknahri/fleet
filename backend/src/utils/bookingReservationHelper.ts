@@ -144,6 +144,11 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
           { status: { $in: BOOKING_RESERVATION_STATUSES } },
           { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
         ],
+        // A contract that already ran its course (or was cancelled at the
+        // lifecycle level) no longer reserves the car, whatever its payment
+        // status still says (GAQ12B1: completed lifecycle + reserved status
+        // blocked the car for its window indefinitely).
+        lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
       }).select('_id').lean()
 
       if (session) {

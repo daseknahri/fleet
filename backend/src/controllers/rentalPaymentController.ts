@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import RentalPayment from '../models/RentalPayment'
-import { LedgerError, postRentalPayment, reverseRentalPayment } from '../utils/ledger'
+import { LedgerError, confirmRentalPayment, postRentalPayment, reverseRentalPayment } from '../utils/ledger'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
@@ -50,6 +50,10 @@ export const create = async (req: Request, res: Response) => {
     }
 
     const supplierId = agencySupplierId(req)
+    // Owner decision 1.5 (GA-P10-DECISIONS-01): entries recorded by a
+    // counter agent stay pending until an accountant or above confirms
+    // them; every other recorder posts immediately, as before.
+    const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent
     const payment = await postRentalPayment({
       bookingId: payload.booking,
       supplierId: user.type === bookcarsTypes.UserType.Admin ? undefined : supplierId,
@@ -57,6 +61,7 @@ export const create = async (req: Request, res: Response) => {
       amount,
       currency: payload.currency,
       method: payload.method,
+      status: pendingEntry ? bookcarsTypes.RentalPaymentStatus.Pending : undefined,
       purpose: payload.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
       idempotencyKey,
       providerReference,
@@ -75,6 +80,41 @@ export const create = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[rentalPayment.create] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+export const confirm = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    if (!user || !mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid payment confirmation')
+      return
+    }
+    // Counter agents record pending entries; they never confirm them
+    // (owner decision 1.5: confirmation is accountant-or-above work).
+    if (req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent) {
+      res.status(403).send('Counter agents cannot confirm payment entries')
+      return
+    }
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) }).select('_id status')
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
+      res.status(409).send('Only a pending payment entry can be confirmed')
+      return
+    }
+    const confirmed = await confirmRentalPayment({ paymentId: payment._id, actorId: user._id })
+    await confirmed.populate(populatedPaths)
+    res.json(confirmed)
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      res.status(err.code === 'BOOKING_NOT_FOUND' ? 404 : 409).send(err.message)
+      return
+    }
+    logger.error(`[rentalPayment.confirm] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

@@ -68,23 +68,23 @@ const BankDetailsForm = ({ bankDetails, onSubmit: onFormSubmit }: BankDetailsFor
         <h1 className="settings-form-title">{strings.BANK_DETAILS}</h1>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.ACCOUNT_HOLDER}</InputLabel>
-          <Input {...register('accountHolder')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="bank-accountHolder">{strings.ACCOUNT_HOLDER}</InputLabel>
+          <Input id="bank-accountHolder" {...register('accountHolder')} type="text" required autoComplete="off" />
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.BANK_NAME}</InputLabel>
-          <Input {...register('bankName')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="bank-bankName">{strings.BANK_NAME}</InputLabel>
+          <Input id="bank-bankName" {...register('bankName')} type="text" required autoComplete="off" />
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.IBAN}</InputLabel>
-          <Input {...register('iban')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="bank-iban">{strings.IBAN}</InputLabel>
+          <Input id="bank-iban" {...register('iban')} type="text" required autoComplete="off" />
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.SWIFT_BIC}</InputLabel>
-          <Input {...register('swiftBic')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="bank-swiftBic">{strings.SWIFT_BIC}</InputLabel>
+          <Input id="bank-swiftBic" {...register('swiftBic')} type="text" required autoComplete="off" />
         </FormControl>
 
         <FormControl component="fieldset">

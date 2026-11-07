@@ -13,9 +13,9 @@
   margin-bottom: 25px;
 }
 
-.agency-maintenance__eyebrow { margin-bottom: 8px; color: #738181; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.agency-maintenance__eyebrow { margin-bottom: 8px; color: #657171; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
 .agency-maintenance__title { margin: 0; color: #162627; font-size: clamp(28px, 3.1vw, 38px); font-weight: 750; letter-spacing: -.04em; }
-.agency-maintenance__subtitle { margin-top: 9px; color: #738181; font-size: 14px; }
+.agency-maintenance__subtitle { margin-top: 9px; color: #657171; font-size: 14px; }
 .agency-maintenance__action.MuiButton-root { min-height: 44px; padding: 0 18px; border-radius: 10px; background: #146c5a !important; font-weight: 700; text-transform: none; box-shadow: 0 5px 14px rgb(20 108 90 / 16%); }
 .agency-maintenance__summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .agency-maintenance__summary .MuiCard-root, .agency-maintenance__panel { border: 1px solid #e7eceb; border-radius: 15px; background: #fff; box-shadow: 0 3px 14px rgb(25 49 47 / 3%); }
@@ -24,14 +24,14 @@
 .agency-maintenance__summary-icon { display: flex; width: 38px; height: 38px; grid-row: 1 / span 2; align-items: center; justify-content: center; border-radius: 11px; background: #e5f4ee; color: #18735d; }
 .agency-maintenance__summary-icon--blue { background: #e9f0fb; color: #3d68a9; }
 .agency-maintenance__summary-icon svg { font-size: 20px; }
-.agency-maintenance__summary small { color: #758280; font-size: 11px; font-weight: 650; }
+.agency-maintenance__summary small { color: #6B7775; font-size: 11px; font-weight: 650; }
 .agency-maintenance__summary strong { color: #1d2a2b; font-size: 21px; font-weight: 750; }
 .agency-maintenance__toolbar { display: flex; justify-content: flex-end; gap: 10px; padding: 16px; }
 .agency-maintenance__toolbar .MuiTextField-root:first-child { width: min(380px, 100%); }
 .agency-maintenance__toolbar .MuiTextField-root:last-child { min-width: 170px; }
 .agency-maintenance__toolbar .MuiInputBase-root { border-radius: 9px; background: #fff; font-size: 12px; }
 .agency-maintenance__table-head, .agency-maintenance__row { display: grid; grid-template-columns: 105px 105px minmax(150px, 1.2fr) 100px 95px minmax(120px, 1fr) 88px; align-items: center; gap: 12px; padding: 12px 16px; }
-.agency-maintenance__table-head { border-top: 1px solid #edf1ef; border-bottom: 1px solid #edf1ef; background: #fafcfb; color: #879391; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
+.agency-maintenance__table-head { border-top: 1px solid #edf1ef; border-bottom: 1px solid #edf1ef; background: #fafcfb; color: #697472; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
 .agency-maintenance__row { min-height: 57px; border-bottom: 1px solid #eff2f1; color: #586563; font-size: 12px; }
 .agency-maintenance__row:last-child { border-bottom: 0; }
 .agency-maintenance__row strong { overflow: hidden; color: #35413f; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -41,7 +41,7 @@
 .agency-maintenance__actions { display: flex; justify-content: flex-end; }
 .agency-maintenance__actions .MuiButton-root { min-width: 32px; padding: 5px; color: #687976; }
 .agency-maintenance__actions .MuiSvgIcon-root { font-size: 18px; }
-.agency-maintenance__empty { display: flex; min-height: 180px; align-items: center; justify-content: center; flex-direction: column; color: #82908e; text-align: center; }
+.agency-maintenance__empty { display: flex; min-height: 180px; align-items: center; justify-content: center; flex-direction: column; color: #697674; text-align: center; }
 .agency-maintenance__empty svg { color: #6d9a8c; }
 .agency-maintenance__empty p { margin: 9px 12px 0; font-size: 13px; }
 .agency-maintenance__alert { margin-bottom: 18px; }
@@ -78,7 +78,7 @@
 .agency-maintenance__schedule-row span { white-space: nowrap; }
 .agency-maintenance__status { display: inline-flex; width: fit-content; padding: 5px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
 .agency-maintenance__status--upcoming { background: #edf4fb; color: #416b99; }
-.agency-maintenance__status--due { background: #fff5df; color: #986c1c; }
+.agency-maintenance__status--due { background: #fff5df; color: #8F661A; }
 .agency-maintenance__status--overdue { background: #fcebea; color: #a33b35; }
 .agency-maintenance__status--completed { background: #e5f4ee; color: #18735d; }
 .agency-maintenance__report-row { display: grid; grid-template-columns: minmax(140px, 1fr) 170px 120px; align-items: center; gap: 12px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid #eff2f1; color: #586563; font-size: 12px; }

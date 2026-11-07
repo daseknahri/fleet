@@ -5,24 +5,28 @@ import * as langHelper from '@/utils/langHelper'
 const strings = new LocalizedStrings({
   fr: {
     CREATE_SUPPLIER_HEADING: 'Nouveau fournisseur',
+    UPDATE_SUPPLIER_HEADING: 'Modifier le fournisseur',
     INVALID_SUPPLIER_NAME: 'Ce fournisseur existe déjà.',
     SUPPLIER_IMAGE_SIZE_ERROR: `L'image doit être au format ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
     RECOMMENDED_IMAGE_SIZE: `Taille d'image recommandée : ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
   },
   en: {
     CREATE_SUPPLIER_HEADING: 'New supplier',
+    UPDATE_SUPPLIER_HEADING: 'Update supplier',
     INVALID_SUPPLIER_NAME: 'This supplier already exists.',
     SUPPLIER_IMAGE_SIZE_ERROR: `The image must be in the format ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
     RECOMMENDED_IMAGE_SIZE: `Recommended image size: ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
   },
   ar: {
     CREATE_SUPPLIER_HEADING: 'مورد جديد',
+    UPDATE_SUPPLIER_HEADING: 'تعديل المورد',
     INVALID_SUPPLIER_NAME: 'هذا المورد موجود بالفعل.',
     SUPPLIER_IMAGE_SIZE_ERROR: `يجب أن تكون الصورة بالتنسيق ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
     RECOMMENDED_IMAGE_SIZE: `حجم الصورة الموصى به: ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
   },
   es: {
     CREATE_SUPPLIER_HEADING: 'Nuevo proveedor',
+    UPDATE_SUPPLIER_HEADING: 'Actualizar proveedor',
     INVALID_SUPPLIER_NAME: 'Este proveedor ya existe.',
     SUPPLIER_IMAGE_SIZE_ERROR: `La imagen debe tener el formato ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,
     RECOMMENDED_IMAGE_SIZE: `Tamaño de imagen recomendado: ${env.SUPPLIER_IMAGE_WIDTH}x${env.SUPPLIER_IMAGE_HEIGHT}`,

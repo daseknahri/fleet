@@ -17,6 +17,8 @@ const rentalPaymentSchema = new Schema<env.RentalPayment>(
     idempotencyKey: { type: String, maxlength: 200, trim: true },
     providerReference: { type: String, maxlength: 200, trim: true },
     actor: { type: Schema.Types.ObjectId, ref: 'User' },
+    confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    confirmedAt: { type: Date },
     reversedFrom: { type: Schema.Types.ObjectId, ref: 'RentalPayment' },
     settledAt: { type: Date },
     reference: { type: String, maxlength: 160, trim: true },

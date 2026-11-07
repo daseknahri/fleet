@@ -8,7 +8,7 @@ import Invoice from '../models/Invoice'
 import { recomputeInvoicePayment } from './invoicePayment'
 
 export class LedgerError extends Error {
-  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE', message: string) {
+  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION', message: string) {
     super(message)
     this.name = 'LedgerError'
   }
@@ -184,6 +184,59 @@ return mongoose.connection.transaction((session) => postWithinSession(input, ses
   })
 }
 
+/**
+ * Confirm a pending payment entry (owner decision 1.5, GA-P10-DECISIONS-01:
+ * counter-agent payment entries stay pending until an accountant or above
+ * confirms them). Pending entries never counted toward recorded totals, so
+ * confirmation re-validates the purpose allowance before posting.
+ */
+export const confirmRentalPayment = async (input: {
+  paymentId: mongoose.Types.ObjectId | string
+  actorId?: mongoose.Types.ObjectId | string
+}) => {
+  const initial = await RentalPayment.findById(input.paymentId).select('booking')
+  if (!initial) {
+    throw new LedgerError('INVALID_CONFIRMATION', 'Payment not found')
+  }
+  return withBookingLock(initial.booking.toString(), async () => {
+    const payment = await RentalPayment.findById(input.paymentId)
+    if (!payment || payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
+      throw new LedgerError('INVALID_CONFIRMATION', 'Only a pending payment entry can be confirmed')
+    }
+    const booking = await Booking.findById(payment.booking).select('_id price financialSnapshot')
+    if (!booking) {
+      throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
+    }
+    const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
+    const currency = (payment.currency || env.BASE_CURRENCY).toUpperCase()
+    const recorded = normalizeLedgerAmount(await getRecordedPurposeTotal(payment.booking, purpose), currency)
+    const snapshotRentalTotal = Number(booking.financialSnapshot?.rentalTotal || 0)
+    const snapshotDepositAmount = Number(booking.financialSnapshot?.depositAmount || 0)
+    const hasFinancialSnapshot = snapshotRentalTotal > 0 || snapshotDepositAmount > 0
+    const purposeTotal = purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+      ? (hasFinancialSnapshot ? snapshotDepositAmount : 0)
+      : (hasFinancialSnapshot ? snapshotRentalTotal : Number(booking.price))
+    const remaining = remainingLedgerBalance(purposeTotal, recorded, currency)
+    if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(remaining, currency)) {
+      throw new LedgerError('OVERPAYMENT', 'Confirming this entry would exceed the remaining balance')
+    }
+    payment.status = bookcarsTypes.RentalPaymentStatus.Posted
+    payment.settledAt = payment.date
+    payment.confirmedBy = input.actorId ? new mongoose.Types.ObjectId(input.actorId) : undefined
+    payment.confirmedAt = new Date()
+    await payment.save()
+    // Keep linked invoices in step with the ledger (GAQ12B2-D2): the
+    // reversal path already recomputes them; confirmation must too, or
+    // an invoice linked while the payment was pending keeps a stale
+    // paidAmount after the payment posts.
+    const linkedInvoices = await Invoice.find({ payments: payment._id }).select('_id')
+    for (const invoice of linkedInvoices) {
+      await recomputeInvoicePayment(invoice._id)
+    }
+    return payment
+  })
+}
+
 export const postProviderPayment = (input: Omit<PostRentalPaymentInput, 'method' | 'source'> & { provider: 'stripe' | 'paypal' }) =>
   postRentalPayment({
     ...input,
@@ -228,7 +281,15 @@ return existing
       purpose: original.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
       direction: bookcarsTypes.RentalPaymentDirection.Debit,
       source: bookcarsTypes.RentalPaymentSource.Adjustment,
-      status: bookcarsTypes.RentalPaymentStatus.Posted,
+      // Annulment semantics (GAQ12B2-D1): the original is flipped to
+      // Reversed below, which already removes its credit from every
+      // Posted-only signed sum (reports, contract receivable, recorded
+      // totals). The compensating debit must therefore not itself be
+      // Posted, or the pair would net to -amount instead of zero. Both
+      // records of the annulled pair carry Reversed; the debit stays
+      // fully visible in payment lists with its direction and
+      // reversedFrom audit fields.
+      status: bookcarsTypes.RentalPaymentStatus.Reversed,
       idempotencyKey: input.idempotencyKey,
       actor: input.actorId,
       reversedFrom: original._id,

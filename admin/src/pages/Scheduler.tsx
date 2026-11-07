@@ -46,11 +46,17 @@ const Scheduler = () => {
       setAdmin(_admin)
       setLeftPanel(!_admin)
 
-      const _allSuppliers = await SupplierService.getAllSuppliers()
-      const _suppliers = _admin ? bookcarsHelper.flattenSuppliers(_allSuppliers) : [_user._id ?? '']
-      setAllSuppliers(_allSuppliers)
-      setSuppliers(_suppliers)
-      setLeftPanel(true)
+      try {
+        const _allSuppliers = await SupplierService.getAllSuppliers()
+        const _suppliers = _admin ? bookcarsHelper.flattenSuppliers(_allSuppliers) : [_user._id ?? '']
+        setAllSuppliers(_allSuppliers)
+        setSuppliers(_suppliers)
+      } catch (err) {
+        helper.error(err)
+        setSuppliers(_admin ? [] : [_user._id ?? ''])
+      } finally {
+        setLeftPanel(true)
+      }
     }
   }
 

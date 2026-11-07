@@ -32,6 +32,7 @@ import approvalRoutes from './routes/approvalRoutes'
 import contractOperationRoutes from './routes/contractOperationRoutes'
 import reportRoutes from './routes/reportRoutes'
 import * as helper from './utils/helper'
+import * as logger from './utils/logger'
 
 const app = express()
 
@@ -68,6 +69,16 @@ app.use('/cdn/bookcars/users', express.static(env.CDN_USERS))
 app.use('/cdn/bookcars/cars', express.static(env.CDN_CARS))
 app.use('/cdn/bookcars/locations', express.static(env.CDN_LOCATIONS))
 
+// A CDN miss must not fall through to the HTML error page: with
+// X-Content-Type-Options: nosniff, browsers block HTML responses loaded as
+// images (ERR_BLOCKED_BY_ORB), so answer media misses with a plain-text 404.
+app.use('/cdn', (req, res) => {
+  // The fixed body cannot be sniffed into another type, and keeping the
+  // global nosniff header here would still make browsers ORB-block the 404.
+  res.removeHeader('X-Content-Type-Options')
+  res.status(404).type('text/plain').send('Not found')
+})
+
 app.use('/', supplierRoutes)
 app.use('/', bookingRoutes)
 app.use('/', locationRoutes)
@@ -95,6 +106,29 @@ app.use('/', reportRoutes)
 if (env.ENABLE_SENTRY) {
   Sentry.setupExpressErrorHandler(app)
 }
+
+// Unmatched API routes answer JSON instead of the Express HTML error page.
+app.use('/api', (req, res) => {
+  res.status(404).send({ message: 'Not found' })
+})
+
+// Final error handler: upload (multer) and body-parser failures are client
+// errors (400); anything else is a generic 500. Internals are logged
+// server-side and never sent to clients.
+app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err)
+    return
+  }
+  logger.error(`[app] Unhandled error on ${req.method} ${req.originalUrl}`, err)
+  const name = (err as { name?: string } | null)?.name
+  const type = (err as { type?: string } | null)?.type
+  if (name === 'MulterError' || type === 'entity.parse.failed' || type === 'entity.too.large') {
+    res.status(400).send(i18n.t('ERROR'))
+    return
+  }
+  res.status(500).send(i18n.t('ERROR'))
+})
 
 i18n.locale = env.DEFAULT_LANGUAGE
 

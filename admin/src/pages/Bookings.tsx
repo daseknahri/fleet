@@ -57,19 +57,25 @@ const Bookings = () => {
       setLeftPanel(!_admin)
       setLoadingSuppliers(_admin)
 
-      const _allSuppliers = await SupplierService.getAllSuppliers()
-      const _suppliers = _admin ? bookcarsHelper.flattenSuppliers(_allSuppliers) : [_user._id ?? '']
-      setAllSuppliers(_allSuppliers)
-      setSuppliers(_suppliers)
-      setLeftPanel(true)
-      setLoadingSuppliers(false)
+      try {
+        const _allSuppliers = await SupplierService.getAllSuppliers()
+        const _suppliers = _admin ? bookcarsHelper.flattenSuppliers(_allSuppliers) : [_user._id ?? '']
+        setAllSuppliers(_allSuppliers)
+        setSuppliers(_suppliers)
+      } catch (err) {
+        helper.error(err)
+        setSuppliers(_admin ? [] : [_user._id ?? ''])
+      } finally {
+        setLeftPanel(true)
+        setLoadingSuppliers(false)
+      }
     }
   }
 
   return (
     <Layout onLoad={onLoad} strict>
       {user && (
-        <div className="bookings" role="main">
+        <div className="bookings">
           <div className="col-1">
             {leftPanel && (
               <>

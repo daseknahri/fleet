@@ -58,7 +58,31 @@ const baseSchema = z.object({
     additionalDriverBirthDate: z.date().optional(),
 })
 
-export const createSchema = (car?: bookcarsTypes.Car) => {
+export const createSchema = (car?: bookcarsTypes.Car, requireDriver = false) => {
+    if (requireDriver) {
+        // Guest checkout creates an account from the driver details, so they
+        // are required and validated in-app instead of relying on native
+        // browser bubbles. Signed-in users keep the optional schema because
+        // the driver section is not rendered for them.
+        return baseSchema.merge(
+            z.object({
+                fullName: z.string({ message: commonStrings.REQUIRED_FIELD }).trim().min(1, { message: commonStrings.REQUIRED_FIELD }),
+                email: z.string({ message: commonStrings.REQUIRED_FIELD }).trim().min(1, { message: commonStrings.REQUIRED_FIELD }).refine((value) => isEmail(value), {
+                    message: commonStrings.EMAIL_NOT_VALID,
+                }),
+                phone: z.string({ message: commonStrings.REQUIRED_FIELD }).trim().min(1, { message: commonStrings.REQUIRED_FIELD }).refine((value) => isMobilePhone(value), {
+                    message: commonStrings.PHONE_NOT_VALID,
+                }),
+                birthDate: z.date({ message: commonStrings.REQUIRED_FIELD }).refine(
+                    (date) => !car || validateBirthDate(car, date),
+                    {
+                        message: car?.minimumAge ? helper.getBirthDateError(car.minimumAge) : '',
+                    }
+                ),
+            })
+        )
+    }
+
     if (car) {
         return baseSchema.merge(
             z.object({

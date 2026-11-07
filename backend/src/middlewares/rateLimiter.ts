@@ -38,13 +38,13 @@ const TOKEN_BUCKET_LUA = `
 
 const isTest = env.CI
 
-export const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
+const createRateLimiter = (scope: string) => async (req: Request, res: Response, next: NextFunction) => {
   if (isTest && !req.headers['x-test-rate-limit']) {
     return next()
   }
 
   const ip = req.ip || req.socket.remoteAddress || '127.0.0.1'
-  const redisKey = `ratelimit:auth:${ip}`
+  const redisKey = `ratelimit:${scope}:${ip}`
   const now = Date.now()
 
   try {
@@ -74,5 +74,13 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
     return next()
   }
 }
+
+// Default scope guards the authentication endpoints; its Redis key layout
+// (ratelimit:auth:<ip>) and behaviour are unchanged.
+export const rateLimiter = createRateLimiter('auth')
+
+// Separate bucket for the public contact-form mail endpoint, so mail abuse
+// cannot drain the sign-in bucket of the same IP (and vice versa).
+export const mailRateLimiter = createRateLimiter('mail')
 
 export default rateLimiter

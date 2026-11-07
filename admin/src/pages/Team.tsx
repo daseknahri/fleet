@@ -73,7 +73,7 @@ const Team = () => {
     }
     try {
       const rows = await SupplierService.getAllSuppliers()
-      setAgencies(rows.filter((row) => row.type === bookcarsTypes.RecordType.Supplier))
+      setAgencies(rows)
     } catch (error) {
       const status = (error as { response?: { status?: number } })?.response?.status
       setLoadError(true)
@@ -122,14 +122,22 @@ const Team = () => {
     }
   }, [isAdmin, isAgencyOwner, user?._id, agencies, selectedAgencyId])
 
+  const userKnown = !!user
+
   useEffect(() => {
     document.documentElement.dir = isRtl ? 'rtl' : 'ltr'
+    if (!userKnown) {
+      // Identity is not known yet (Layout onLoad is async). Loading now would
+      // fire a spurious /current request that the backend rejects with 400
+      // for admin and supplier sessions, which have no implicit current agency.
+      return
+    }
     if ((isAdmin || isAgencyOwner) && selectedAgencyId) {
       void loadMemberships(selectedAgencyId)
     } else if (!isAdmin && !isAgencyOwner) {
       void loadMemberships('')
     }
-  }, [selectedAgencyId, isAdmin, isAgencyOwner, isRtl, loadMemberships])
+  }, [selectedAgencyId, isAdmin, isAgencyOwner, isRtl, loadMemberships, userKnown])
 
   const handleCreate = async () => {
     if (!form.email || !form.fullName || !form.password || !form.role) {
@@ -192,7 +200,7 @@ const Team = () => {
   return (
     <Layout strict onLoad={setUser} style={{ direction: isRtl ? 'rtl' : 'ltr' }}>
       {user && (
-        <main className="agency-team">
+        <div className="agency-team">
           <div className="agency-team__heading">
             <div>
               <Typography component="p" className="agency-team__eyebrow">{strings.EYEBROW}</Typography>
@@ -258,6 +266,7 @@ const Team = () => {
                       {isOwner ? strings.OWNER : (
                         <Select
                           displayEmpty
+                          inputProps={{ 'aria-label': strings.ROLE }}
                           value={membership.role}
                           onChange={(event) => handleUpdate(membership, 'role', event.target.value)}
                           disabled={!canManage || isOwner || saving}
@@ -276,6 +285,7 @@ const Team = () => {
                     <span>
                       <Select
                         displayEmpty
+                        inputProps={{ 'aria-label': strings.STATUS }}
                         value={membership.status}
                         onChange={(event) => handleUpdate(membership, 'status', event.target.value)}
                         disabled={!canManage || isOwner || saving}
@@ -346,7 +356,7 @@ const Team = () => {
               </Button>
             </DialogActions>
           </Dialog>
-        </main>
+        </div>
       )}
     </Layout>
   )

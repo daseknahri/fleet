@@ -90,7 +90,7 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
   return (
     <Paper className={`${className ? `${className} ` : ''}contact-form`} elevation={10}>
       <h1 className="contact-form-title">{strings.CONTACT_HEADING}</h1>
-      <form onSubmit={handleSubmit(onSubmit)}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         {!isAuthenticated && (
           <FormControl fullWidth margin="dense" error={!!errors.email}>
             <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
@@ -110,12 +110,24 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
           </FormControl>
         )}
 
-        <FormControl fullWidth margin="dense">
+        <FormControl fullWidth margin="dense" error={!!errors.subject}>
           <InputLabel className="required">{strings.SUBJECT}</InputLabel>
-          <OutlinedInput type="text" {...register('subject')} label={strings.SUBJECT} required autoComplete="off" />
+          <OutlinedInput
+            type="text"
+            {...register('subject')}
+            label={strings.SUBJECT}
+            required
+            autoComplete="off"
+            onChange={() => {
+              if (errors.subject) {
+                clearErrors('subject')
+              }
+            }}
+          />
+          <FormHelperText error={!!errors.subject}>{errors.subject?.message || ''}</FormHelperText>
         </FormControl>
 
-        <FormControl fullWidth margin="dense">
+        <FormControl fullWidth margin="dense" error={!!errors.message}>
           <InputLabel className="required">{strings.MESSAGE}</InputLabel>
           <OutlinedInput
             type="text"
@@ -126,7 +138,13 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
             multiline
             minRows={7}
             maxRows={7}
+            onChange={() => {
+              if (errors.message) {
+                clearErrors('message')
+              }
+            }}
           />
+          <FormHelperText error={!!errors.message}>{errors.message?.message || ''}</FormHelperText>
         </FormControl>
 
         <div className="buttons">

@@ -11,6 +11,7 @@ import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { recomputeInvoicePayment } from '../utils/invoicePayment'
+import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName' }]
@@ -74,6 +75,24 @@ export const issue = async (req: Request, res: Response) => {
     invoice.issuedAt = new Date()
     invoice.issuedBy = req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined
     await invoice.save()
+    // Approvals producer (decisions 1.1/1.2, GA-P10-DECISIONS-01): issuing
+    // at or above the threshold opens a queue request. A producer failure
+    // must not un-issue the invoice, so it is logged, not thrown.
+    if (approvalRequiredFor(invoice.total)) {
+      try {
+        await produceApprovalRequest({
+          supplier: invoice.supplier,
+          subjectType: 'invoice',
+          subject: invoice._id.toString(),
+          amount: invoice.total,
+          currency: invoice.currency,
+          requestedBy: invoice.issuedBy,
+          reason: `Invoice ${invoice.number} issued`,
+        })
+      } catch (producerErr) {
+        logger.error('[invoice.issue] approval producer failed', producerErr)
+      }
+    }
     await invoice.populate(populate)
     res.json(invoice)
   } catch (err) {
@@ -104,6 +123,16 @@ export const recordPayment = async (req: Request, res: Response) => {
     const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
     if (!invoice || invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
  res.status(404).send('Issued invoice not found'); return 
+}
+    // Blocking effect (decision 1.5): an invoice at or above the approval
+    // threshold cannot take payments while its request is pending, and a
+    // rejected request stops it.
+    const gate = await findLatestApproval(invoice.supplier, 'invoice', invoice._id.toString())
+    if (gate && gate.status === bookcarsTypes.ApprovalDecision.Pending) {
+ res.status(409).send('Invoice approval is pending'); return 
+}
+    if (gate && gate.status === bookcarsTypes.ApprovalDecision.Rejected) {
+ res.status(409).send('Invoice approval was rejected'); return 
 }
     const paymentId = req.body?.payment
     if (!mongoose.isValidObjectId(paymentId)) {

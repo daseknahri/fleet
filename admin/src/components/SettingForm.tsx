@@ -63,32 +63,32 @@ const SettingForm = ({ settings, onSubmit: onFormSubmit }: SettingFormProps) => 
         <h1 className="settings-form-title">{strings.SETTINGS}</h1>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.MIN_PICKUP_HOURS}</InputLabel>
-          <Input {...register('minPickupHours')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="setting-minPickupHours">{strings.MIN_PICKUP_HOURS}</InputLabel>
+          <Input id="setting-minPickupHours" {...register('minPickupHours')} type="text" required autoComplete="off" />
           {errors.minPickupHours && (
             <FormHelperText error>{errors.minPickupHours.message}</FormHelperText>
           )}
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.MIN_RENTAL_HOURS}</InputLabel>
-          <Input {...register('minRentalHours')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="setting-minRentalHours">{strings.MIN_RENTAL_HOURS}</InputLabel>
+          <Input id="setting-minRentalHours" {...register('minRentalHours')} type="text" required autoComplete="off" />
           {errors.minRentalHours && (
             <FormHelperText error>{errors.minRentalHours.message}</FormHelperText>
           )}
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.MIN_PICKUP_DROPOFF_HOUR}</InputLabel>
-          <Input {...register('minPickupDropoffHour')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="setting-minPickupDropoffHour">{strings.MIN_PICKUP_DROPOFF_HOUR}</InputLabel>
+          <Input id="setting-minPickupDropoffHour" {...register('minPickupDropoffHour')} type="text" required autoComplete="off" />
           {errors.minPickupDropoffHour && (
             <FormHelperText error>{errors.minPickupDropoffHour.message}</FormHelperText>
           )}
         </FormControl>
 
         <FormControl fullWidth margin="dense">
-          <InputLabel className="required">{strings.MAX_PICKUP_DROPOFF_HOUR}</InputLabel>
-          <Input {...register('maxPickupDropoffHour')} type="text" required autoComplete="off" />
+          <InputLabel className="required" htmlFor="setting-maxPickupDropoffHour">{strings.MAX_PICKUP_DROPOFF_HOUR}</InputLabel>
+          <Input id="setting-maxPickupDropoffHour" {...register('maxPickupDropoffHour')} type="text" required autoComplete="off" />
           {errors.maxPickupDropoffHour && (
             <FormHelperText error>{errors.maxPickupDropoffHour.message}</FormHelperText>
           )}

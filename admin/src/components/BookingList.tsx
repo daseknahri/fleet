@@ -16,6 +16,9 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Card,
+  CardContent,
+  Typography,
 } from '@mui/material'
 import { Edit as EditIcon, Delete as DeleteIcon, Check as CheckIcon } from '@mui/icons-material'
 import { format } from 'date-fns'
@@ -255,7 +258,7 @@ const BookingList = ({
       },
       {
         field: 'action',
-        headerName: '',
+        headerName: commonStrings.ACTIONS,
         sortable: false,
         disableColumnMenu: true,
         renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.Booking>) => {
@@ -302,7 +305,7 @@ const BookingList = ({
             </Tooltip>
           </div>
         ) : (
-          <></>
+          <span className="sr-only">{commonStrings.ACTIONS}</span>
         )),
       },
     ]
@@ -488,6 +491,13 @@ const BookingList = ({
       {loggedUser
         && (env.isMobile ? (
           <>
+            {!loading && rows.length === 0 && (
+              <Card variant="outlined" className="empty-list">
+                <CardContent>
+                  <Typography color="textSecondary">{strings.EMPTY_LIST}</Typography>
+                </CardContent>
+              </Card>
+            )}
             {rows.map((booking, index) => {
               const from = new Date(booking.from)
               const to = new Date(booking.to)
@@ -645,6 +655,7 @@ const BookingList = ({
               setSelectedIds(Array.from(new Set(_selectedIds.ids)).map((id) => id.toString()))
             }}
             disableRowSelectionOnClick
+            localeText={{ noRowsLabel: strings.EMPTY_LIST }}
             className="booking-grid"
           />
         ))}

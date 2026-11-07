@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
+import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
-import { AgencyPermission, canManageMemberships, getAgencyContext, hasAgencyPermission, requireAgencyPermission } from '../utils/agencyAuthorization'
+import { AgencyPermission, canManageMemberships, getAgencyContext, hasAgencyPermission, requireAgencyPermission, requireAnyAgencyPermission } from '../utils/agencyAuthorization'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
 
@@ -78,7 +79,12 @@ export const requireInvoiceAgencyPermission = (permission: AgencyPermission) => 
     res.status(401).send({ message: 'Unauthorized!' })
     return
   }
-  const invoice = await Invoice.findById(req.params.id).select('supplier').lean()
+  // H-011 (hardening Wave 2): a malformed id is a client error, not a
+  // server fault - treat it as not found instead of letting findById
+  // throw a CastError that surfaced as HTTP 500.
+  const invoice = mongoose.isValidObjectId(req.params.id)
+    ? await Invoice.findById(req.params.id).select('supplier').lean()
+    : null
   if (!invoice) {
     res.sendStatus(404)
     return
@@ -107,7 +113,9 @@ export const requirePaymentAgencyPermission = (permission: AgencyPermission) => 
     res.status(401).send({ message: 'Unauthorized!' })
     return
   }
-  const payment = await RentalPayment.findById(req.params.id).select('supplier').lean()
+  const payment = mongoose.isValidObjectId(req.params.id)
+    ? await RentalPayment.findById(req.params.id).select('supplier').lean()
+    : null
   if (!payment) {
     res.sendStatus(404)
     return
@@ -126,5 +134,5 @@ export const requirePaymentAgencyPermission = (permission: AgencyPermission) => 
   req.agency = context
   next()
 }
-export default { requireAgencyOwner, requireAgencyMemberRead, requireAgencyPermission, requirePaymentAgencyPermission, requireInvoiceAgencyPermission, AgencyPermission }
-export { AgencyPermission, requireAgencyPermission }
+export default { requireAgencyOwner, requireAgencyMemberRead, requireAgencyPermission, requireAnyAgencyPermission, requirePaymentAgencyPermission, requireInvoiceAgencyPermission, AgencyPermission }
+export { AgencyPermission, requireAgencyPermission, requireAnyAgencyPermission }

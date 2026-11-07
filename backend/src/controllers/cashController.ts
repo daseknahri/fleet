@@ -127,9 +127,14 @@ const supportsTransactions = () => {
   return !!topologyType && topologyType !== 'Single' && topologyType !== 'Unknown'
 }
 
+// Only confirmed movements count toward balances: counter-agent entries
+// stay pending until confirmed (owner decision 1.5, GA-P10-DECISIONS-01);
+// movements written before the status field existed count as confirmed.
+const confirmedMovementMatch = { $or: [{ status: 'confirmed' }, { status: { $exists: false } }] }
+
 const sessionBalance = async (sessionId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) => {
   const aggregate = CashMovement.aggregate([
-    { $match: { session: sessionId } },
+    { $match: { session: sessionId, ...confirmedMovementMatch } },
     { $group: { _id: null, balance: { $sum: { $cond: [
       { $eq: ['$direction', bookcarsTypes.CashMovementDirection.In] }, '$amount', { $multiply: ['$amount', -1] },
     ] } } } },
@@ -299,6 +304,9 @@ export const createMovement = async (req: Request, res: Response) => {
  res.status(200).json(existing); return 
 }
     }
+    // Owner decision 1.5: counter-agent entries are recorded pending and
+    // do not count toward the session balance until confirmed.
+    const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent
     const movement = await CashMovement.create({
       supplier: supplierId,
       session: session._id,
@@ -308,6 +316,7 @@ export const createMovement = async (req: Request, res: Response) => {
       direction,
       amount,
       source,
+      status: pendingEntry ? 'pending' : 'confirmed',
       idempotencyKey,
       reference,
       note,
@@ -316,6 +325,30 @@ export const createMovement = async (req: Request, res: Response) => {
     res.status(201).json(movement)
   } catch (err) {
  logger.error('[cash.createMovement]', err); res.status(400).send(i18n.t('ERROR')) 
+}
+}
+
+export const confirmMovement = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const supplierId = effectiveSupplierId(req)
+    if (!user || !supplierId || !mongoose.isValidObjectId(req.params.sessionId) || !mongoose.isValidObjectId(req.params.movementId)) {
+ res.status(400).send('Invalid cash movement confirmation'); return 
+}
+    const movement = await CashMovement.findOne({ _id: req.params.movementId, session: req.params.sessionId, supplier: supplierId })
+    if (!movement) {
+ res.sendStatus(404); return 
+}
+    if (movement.status !== 'pending') {
+ res.status(409).send('Only a pending cash entry can be confirmed'); return 
+}
+    movement.status = 'confirmed'
+    movement.confirmedBy = new mongoose.Types.ObjectId(user._id)
+    movement.confirmedAt = new Date()
+    await movement.save()
+    res.json(movement)
+  } catch (err) {
+ logger.error('[cash.confirmMovement]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }
 
@@ -335,7 +368,7 @@ export const close = async (req: Request, res: Response) => {
  res.status(400).send('Invalid counted balance'); return 
 }
     const movements = await CashMovement.find({ session: session._id }).lean()
-    const expected = movements.reduce((sum, movement) => {
+    const expected = movements.filter((movement) => !movement.status || movement.status === 'confirmed').reduce((sum, movement) => {
       const value = movement.amount
       return movement.direction === bookcarsTypes.CashMovementDirection.In ? sum + value : sum - value
     }, session.openingBalance)

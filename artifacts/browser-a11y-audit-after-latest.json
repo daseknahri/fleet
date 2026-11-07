@@ -1,28 +1,13 @@
 {
   "slice": "GA-P2-A11Y-01",
   "mode": "after",
-  "at": "2026-11-05T01:38:13.272Z",
+  "at": "2026-11-05T20:32:47.162Z",
   "axeVersion": "4.10.2",
   "surfaces": {
     "dashboard": {
       "url": "http://localhost:3002/",
       "axe": {
-        "violations": [
-          {
-            "id": "color-contrast",
-            "impact": "serious",
-            "help": "Elements must meet minimum color contrast ratio thresholds",
-            "nodes": 24,
-            "targets": [
-              ".agency-dashboard__eyebrow",
-              ".agency-dashboard__subtitle",
-              ".agency-dashboard__metric--mint > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
-              ".agency-dashboard__metric--blue > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail",
-              ".agency-dashboard__metric--amber > .MuiCardContent-root.css-15q2cw4 > .agency-dashboard__metric-detail"
-            ],
-            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ],
+        "violations": [],
         "incompleteContrast": 0,
         "incompleteOther": [
           {
@@ -143,22 +128,7 @@
     "bookings": {
       "url": "http://localhost:3002/bookings",
       "axe": {
-        "violations": [
-          {
-            "id": "color-contrast",
-            "impact": "serious",
-            "help": "Elements must meet minimum color contrast ratio thresholds",
-            "nodes": 63,
-            "targets": [
-              ".booking-details:nth-child(1) > .bs-reserved.bs > span",
-              ".booking-details:nth-child(1) > .booking-detail:nth-child(4) > .booking-detail-value",
-              ".booking-details:nth-child(1) > .booking-detail:nth-child(5) > .booking-detail-value",
-              ".booking-details:nth-child(1) > .booking-detail:nth-child(6) > .booking-detail-value",
-              "button[data-id=\"6aeb943421ad66aa3cc4fdb0\"]"
-            ],
-            "firstFailure": "  Element has insufficient color contrast of 2.92 (foreground color: #1e88e5, background color: #d9e7f4, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ],
+        "violations": [],
         "incompleteContrast": 0,
         "incompleteOther": [
           {
@@ -279,29 +249,7 @@
     "contractWorkspace": {
       "url": "http://localhost:3002/update-booking/?b=6aeb943421ad66aa3cc4fdb0",
       "axe": {
-        "violations": [
-          {
-            "id": "color-contrast",
-            "impact": "serious",
-            "help": "Elements must meet minimum color contrast ratio thresholds",
-            "nodes": 2,
-            "targets": [
-              ".info > span",
-              ".btn-secondary"
-            ],
-            "firstFailure": "  Element has insufficient color contrast of 2.35 (foreground color: #a8a8a8, background color: #fefefe, font size: 10.8pt (14.4px), font weight: normal). Expected contrast ratio of 4.5:1"
-          },
-          {
-            "id": "page-has-heading-one",
-            "impact": "moderate",
-            "help": "Page should contain a level-one heading",
-            "nodes": 1,
-            "targets": [
-              "html"
-            ],
-            "firstFailure": "  Page must have a level-one heading"
-          }
-        ],
+        "violations": [],
         "incompleteContrast": 19,
         "incompleteOther": [
           {
@@ -358,19 +306,7 @@
     "cashJournal": {
       "url": "http://localhost:3002/caisse",
       "axe": {
-        "violations": [
-          {
-            "id": "color-contrast",
-            "impact": "serious",
-            "help": "Elements must meet minimum color contrast ratio thresholds",
-            "nodes": 2,
-            "targets": [
-              ".agency-cash__row:nth-child(3) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out",
-              ".agency-cash__row:nth-child(4) > span:nth-child(2) > .agency-cash__kind.agency-cash__kind--out"
-            ],
-            "firstFailure": "  Element has insufficient color contrast of 4.47 (foreground color: #b55235, background color: #fff0eb, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ],
+        "violations": [],
         "incompleteContrast": 6,
         "incompleteOther": [
           {
@@ -506,22 +442,7 @@
     "maintenance": {
       "url": "http://localhost:3002/maintenance",
       "axe": {
-        "violations": [
-          {
-            "id": "color-contrast",
-            "impact": "serious",
-            "help": "Elements must meet minimum color contrast ratio thresholds",
-            "nodes": 6,
-            "targets": [
-              ".agency-maintenance__eyebrow",
-              ".agency-maintenance__subtitle",
-              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(1) > .MuiCardContent-root.css-15q2cw4 > small",
-              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(2) > .MuiCardContent-root.css-15q2cw4 > small",
-              ".MuiPaper-elevation1.MuiCard-root.css-q8lpi9:nth-child(3) > .MuiCardContent-root.css-15q2cw4 > small"
-            ],
-            "firstFailure": "  Element has insufficient color contrast of 3.87 (foreground color: #738181, background color: #fafafa, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ],
+        "violations": [],
         "incompleteContrast": 1,
         "incompleteOther": [
           {
@@ -564,45 +485,36 @@
   },
   "summary": {
     "dashboard": {
-      "violationRules": 1,
-      "violationNodes": 24,
-      "byImpact": {
-        "serious": 24
-      },
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
       "interactiveNoName": 0,
       "controlsNoLabel": 0,
       "positiveTabindex": 0,
       "incompleteContrast": 0
     },
     "bookings": {
-      "violationRules": 1,
-      "violationNodes": 63,
-      "byImpact": {
-        "serious": 63
-      },
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
       "interactiveNoName": 0,
       "controlsNoLabel": 0,
       "positiveTabindex": 0,
       "incompleteContrast": 0
     },
     "contractWorkspace": {
-      "violationRules": 2,
-      "violationNodes": 3,
-      "byImpact": {
-        "serious": 2,
-        "moderate": 1
-      },
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
       "interactiveNoName": 0,
       "controlsNoLabel": 3,
       "positiveTabindex": 0,
       "incompleteContrast": 19
     },
     "cashJournal": {
-      "violationRules": 1,
-      "violationNodes": 2,
-      "byImpact": {
-        "serious": 2
-      },
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
       "interactiveNoName": 0,
       "controlsNoLabel": 1,
       "positiveTabindex": 0,
@@ -627,11 +539,9 @@
       "incompleteContrast": 5
     },
     "maintenance": {
-      "violationRules": 1,
-      "violationNodes": 6,
-      "byImpact": {
-        "serious": 6
-      },
+      "violationRules": 0,
+      "violationNodes": 0,
+      "byImpact": {},
       "interactiveNoName": 0,
       "controlsNoLabel": 1,
       "positiveTabindex": 0,

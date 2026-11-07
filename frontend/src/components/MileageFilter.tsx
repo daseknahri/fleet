@@ -137,7 +137,7 @@ const MileageFilter = ({
     <Accordion title={strings.MILEAGE} collapse={collapse} className={`${className ? `${className} ` : ''}mileage-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={limitedRef} type="checkbox" className="mileage-checkbox" onChange={handleLimitedMileageChange} />
+          <input ref={limitedRef} type="checkbox" className="mileage-checkbox" onChange={handleLimitedMileageChange} aria-label={strings.LIMITED} />
           <span
             onClick={handleLimitedMileageClick}
             role="button"
@@ -147,7 +147,7 @@ const MileageFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={unlimitedRef} type="checkbox" className="mileage-checkbox" onChange={handleUnlimitedMileageChange} />
+          <input ref={unlimitedRef} type="checkbox" className="mileage-checkbox" onChange={handleUnlimitedMileageChange} aria-label={strings.UNLIMITED} />
           <span
             onClick={handleUnlimitedMileageClick}
             role="button"

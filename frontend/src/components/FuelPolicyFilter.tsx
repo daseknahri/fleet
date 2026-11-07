@@ -215,7 +215,7 @@ const FuelPolicyFilter = ({
     <Accordion title={strings.FUEL_POLICY} collapse={collapse} className={`${className ? `${className} ` : ''}fuel-policy-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={freeTankRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFreeTankChange} />
+          <input ref={freeTankRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFreeTankChange} aria-label={strings.FUEL_POLICY_FREE_TANK} />
           <span
             onClick={handleFreeTankClick}
             role="button"
@@ -225,7 +225,7 @@ const FuelPolicyFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={likeForLikeRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckLikeForLikeChange} />
+          <input ref={likeForLikeRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckLikeForLikeChange} aria-label={strings.FUEL_POLICY_LIKE_FOR_LIKE} />
           <span
             onClick={handleLikeForLikeClick}
             role="button"
@@ -235,7 +235,7 @@ const FuelPolicyFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={fullToFullRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFullToFullChange} />
+          <input ref={fullToFullRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFullToFullChange} aria-label={strings.FUEL_POLICY_FULL_TO_FULL} />
           <span
             onClick={handleFullToFullClick}
             role="button"
@@ -245,7 +245,7 @@ const FuelPolicyFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={fullToEmptyRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFullToEmptyChange} />
+          <input ref={fullToEmptyRef} type="checkbox" className="fuel-policy-checkbox" onChange={handleCheckFullToEmptyChange} aria-label={strings.FUEL_POLICY_FULL_TO_EMPTY} />
           <span
             onClick={handleFullToEmptyClick}
             role="button"

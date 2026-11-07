@@ -138,6 +138,7 @@ const Supplier = () => {
     <Layout onLoad={onLoad} strict>
       {visible && supplier && suppliers && (
         <div className="supplier">
+          <h1 className="sr-only">{supplier.fullName}</h1>
           <div className="col-1">
             <section className="supplier-avatar-sec">
               {edit ? (

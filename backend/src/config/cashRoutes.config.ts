@@ -3,6 +3,7 @@ const routes = {
   current: '/api/cash/sessions/current',
   open: '/api/cash/sessions',
   movements: '/api/cash/sessions/:sessionId/movements',
+  confirmMovement: '/api/cash/sessions/:sessionId/movements/:movementId/confirm',
   close: '/api/cash/sessions/:sessionId/close',
   transfer: '/api/cash/transfers',
 }

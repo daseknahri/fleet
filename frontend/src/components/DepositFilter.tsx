@@ -146,7 +146,7 @@ const DepositFilter = ({
     <Accordion title={strings.DEPOSIT} collapse={collapse} className={`${className ? `${className} ` : ''}deposit-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={depositValue1Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue1Change} />
+          <input ref={depositValue1Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue1Change} aria-label={strings.LESS_THAN_VALUE_1} />
           <span
             onClick={handleDepositLessThanValue1Click}
             role="button"
@@ -156,7 +156,7 @@ const DepositFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={depositValue2Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue2Change} />
+          <input ref={depositValue2Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue2Change} aria-label={strings.LESS_THAN_VALUE_2} />
           <span
             onClick={handleDepositLessThanValue2Click}
             role="button"
@@ -166,7 +166,7 @@ const DepositFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={depositValue3Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue3Change} />
+          <input ref={depositValue3Ref} type="radio" className="deposit-radio" onChange={handleDepositLessThanValue3Change} aria-label={strings.LESS_THAN_VALUE_3} />
           <span
             onClick={handleDepositLessThanValue3Click}
             role="button"
@@ -176,7 +176,7 @@ const DepositFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={depositAllRef} type="radio" className="deposit-radio" onChange={handleAllDepositChange} />
+          <input ref={depositAllRef} type="radio" className="deposit-radio" onChange={handleAllDepositChange} aria-label={commonStrings.ALL} />
           <span
             onClick={handleAllDepositClick}
             role="button"

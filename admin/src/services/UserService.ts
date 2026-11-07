@@ -440,8 +440,9 @@ export const deleteTempAvatar = (avatar: string): Promise<number> => (
  */
 export const checkPassword = (id: string, pass: string): Promise<number> =>
   axiosInstance
-    .get(
-      `/api/check-password/${encodeURIComponent(id)}/${encodeURIComponent(pass)}`,
+    .post(
+      `/api/check-password/${encodeURIComponent(id)}`,
+      { password: pass },
       { withCredentials: true }
     )
     .then((res) => res.status)

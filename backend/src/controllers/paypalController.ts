@@ -59,7 +59,7 @@ export const createPayPalOrder = async (req: Request, res: Response) => {
     res.json(orderId)
   } catch (err) {
     logger.error(`[paypal.createPayPalOrder] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -228,6 +228,6 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[paypal.checkPayPalOrder] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }

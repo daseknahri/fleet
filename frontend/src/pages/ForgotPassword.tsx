@@ -59,7 +59,7 @@ const ForgotPassword = () => {
           <h1 className="forgot-password-title">{strings.RESET_PASSWORD_HEADING}</h1>
 
           <div className={sent ? 'hidden' : ''}>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
               <FormControl fullWidth margin="dense">
                 <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
                 <Input

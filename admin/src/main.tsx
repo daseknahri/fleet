@@ -74,7 +74,12 @@ const coreLocale = isFr
   ? (await import('@mui/material/locale')).frFR
   : isEs
     ? (await import('@mui/material/locale')).esES
-    : (await import('@mui/material/locale')).enUS
+    : isAr
+      ? (await import('@mui/material/locale')).arSD
+      : (await import('@mui/material/locale')).enUS
+// NOTE (GA hardening Wave 5): this @mui/x-date-pickers version ships no Arabic
+// locale at all, so ar falls back to enUS for picker chrome only; the app's own
+// date rendering uses Intl ar-MA and is fully Arabic.
 const pickerLocale = isFr
   ? (await import('@mui/x-date-pickers/locales')).frFR
   : isEs
@@ -84,7 +89,9 @@ const dataGridLocale = isFr
   ? (await import('@mui/x-data-grid/locales')).frFR
   : isEs
     ? (await import('@mui/x-data-grid/locales')).esES
-    : (await import('@mui/x-data-grid/locales')).enUS
+    : isAr
+      ? (await import('@mui/x-data-grid/locales')).arSD
+      : (await import('@mui/x-data-grid/locales')).enUS
 
 const theme = createTheme(
   {

@@ -466,7 +466,7 @@ export const getBookingStatuses = (): bookcarsTypes.StatusFilterItem[] => [
  * @returns {string}
  */
 export const getDays = (days: number) =>
-  `${strings.PRICE_DAYS_PART_1} ${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
+  `${strings.PRICE_DAYS_PART_1} ${days} ${days > 1 ? strings.PRICE_DAYS_PART_2_PLURAL : strings.PRICE_DAYS_PART_2}`
 
 /**
  * Get short days label.
@@ -474,7 +474,7 @@ export const getDays = (days: number) =>
  * @param {number} days
  * @returns {string}
  */
-export const getDaysShort = (days: number) => `${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
+export const getDaysShort = (days: number) => `${days} ${days > 1 ? strings.PRICE_DAYS_PART_2_PLURAL : strings.PRICE_DAYS_PART_2}`
 
 /**
  * Get cancellation option label.

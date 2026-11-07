@@ -86,6 +86,7 @@ const DriverLicense = ({
     <div className={`driver-license ${className || ''}`}>
       {variant === 'standard' ? (
         <Input
+          inputProps={{ 'aria-label': commonStrings.DRIVER_LICENSE }}
           value={license || commonStrings.UPLOAD_FILE}
           readOnly
           onClick={handleClick}
@@ -93,6 +94,7 @@ const DriverLicense = ({
         />
       ) : (
         <OutlinedInput
+          inputProps={{ 'aria-label': commonStrings.DRIVER_LICENSE }}
           value={license || commonStrings.UPLOAD_FILE}
           readOnly
           onClick={handleClick}
@@ -102,6 +104,7 @@ const DriverLicense = ({
       <div className="actions">
         <IconButton
           onClick={handleClick}
+          aria-label={commonStrings.UPLOAD_FILE}
         >
           <UploadIcon className="icon" />
         </IconButton>
@@ -114,6 +117,7 @@ const DriverLicense = ({
                   const url = `${bookcarsHelper.trimEnd(env.API_HOST, '/')}/api/user-license/${user._id}/${encodeURIComponent(license)}`
                   helper.downloadURI(url)
                 }}
+                aria-label={commonStrings.VIEW}
               >
                 <ViewIcon className="icon" />
               </IconButton>
@@ -142,6 +146,7 @@ const DriverLicense = ({
                     helper.error(err)
                   }
                 }}
+                aria-label={commonStrings.DELETE}
               >
                 <DeleteIcon className="icon" />
               </IconButton>

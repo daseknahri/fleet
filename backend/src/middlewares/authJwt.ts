@@ -7,6 +7,7 @@ import * as logger from '../utils/logger'
 import { AgencyContext, hasUniqueActiveMembershipCount } from '../utils/agencyAuthorization'
 import User from '../models/User'
 import AgencyMembership from '../models/AgencyMembership'
+import RevokedSession from '../models/RevokedSession'
 
 // Extend Express Request interface to include user property
 declare module 'express-serve-static-core' {
@@ -55,6 +56,21 @@ const verifyToken = async (req: Request, res: Response, next: NextFunction) => {
     const user = await User.findById(sessionData.id)
 
     if (!user || user.blacklisted) {
+      res.status(401).send({ message: 'Unauthorized!' })
+      return
+    }
+
+    // H-007: server-side revocation. The token's version claim must match
+    // the user's current tokenVersion (a password change bumps it, which
+    // revokes every token issued before the change), and the token's
+    // session id must not be on the sign-out denylist. Tokens issued before
+    // H-007 carry neither claim and read as version 0 with no session id.
+    if ((sessionData.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      res.status(401).send({ message: 'Unauthorized!' })
+      return
+    }
+
+    if (sessionData.sid && await RevokedSession.exists({ sid: sessionData.sid })) {
       res.status(401).send({ message: 'Unauthorized!' })
       return
     }
@@ -119,7 +135,12 @@ const verifyTokenOptional = async (req: Request, res: Response, next: NextFuncti
     const sessionData = await authHelper.decryptJWT(token)
     if (sessionData && helper.isValidObjectId(sessionData.id)) {
       const user = await User.findById(sessionData.id)
-      if (user && !user.blacklisted) {
+      if (
+        user
+        && !user.blacklisted
+        && (sessionData.tv ?? 0) === (user.tokenVersion ?? 0)
+        && !(sessionData.sid && await RevokedSession.exists({ sid: sessionData.sid }))
+      ) {
         req.user = { _id: user._id.toString(), type: user.type as bookcarsTypes.UserType }
       }
     }

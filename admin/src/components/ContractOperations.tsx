@@ -3,6 +3,7 @@ import { Alert, Button, Card, CardContent, Divider, FormControl, InputLabel, Men
 import * as bookcarsTypes from ':bookcars-types'
 import strings from '@/lang/contract-operations'
 import * as ContractOperationService from '@/services/ContractOperationService'
+import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 
 interface Props {
@@ -11,6 +12,13 @@ interface Props {
   lifecycle?: bookcarsTypes.ContractLifecycle
   onCompleted: () => void
 }
+
+const uiLocale = () => {
+  const language = UserService.getLanguage()
+  return language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
+}
+
+const formatDateTime = (date: Date | string) => new Intl.DateTimeFormat(uiLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(date))
 
 const chargeTypeLabel = (type: bookcarsTypes.ContractChargeType) => (
   type === bookcarsTypes.ContractChargeType.Fee ? strings.CHARGE_FEE : strings.CHARGE_DAMAGE
@@ -188,16 +196,16 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
   return (
     <Card className="contract-operations" data-testid="contract-operations">
       <CardContent>
-        <Typography variant="h6">{strings.TITLE}</Typography>
+        <Typography variant="h6" component="h2">{strings.TITLE}</Typography>
         {error && <Alert severity="error">{error}</Alert>}
         {loading ? <Typography>{strings.LOADING}</Typography> : (
           <>
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1">{strings.INSPECTIONS}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.INSPECTIONS}</Typography>
             {!inspections.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {inspections.map((x) => (
               <div key={x._id} style={{ marginBottom: 4 }}>
-                <Typography variant="body2">{`${x.type} | ${new Date(x.occurredAt).toLocaleString()} | ${x.odometer ?? '-'} | ${x.fuelLevel ?? '-'}% | ${x.damageNote || x.condition || ''}`}</Typography>
+                <Typography variant="body2">{`${x.type} | ${formatDateTime(x.occurredAt)} | ${x.odometer ?? '-'} | ${x.fuelLevel ?? '-'}% | ${x.damageNote || x.condition || ''}`}</Typography>
                 {(x.photoFiles?.length || x.signatureFile) && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {(x.photoFiles || []).map((file) => (
@@ -234,7 +242,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
               <Button disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.Active} variant="contained" onClick={() => inspection('return')}>{strings.RETURN}</Button>
             </div>
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1">{strings.CHARGES}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.CHARGES}</Typography>
             {!charges.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {charges.map((x) => (
               <div key={x._id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

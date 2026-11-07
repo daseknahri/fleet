@@ -207,7 +207,7 @@ const formatDate = (date: Date) => {
 }
 
 
-const formatAmount = (amount: number) => `${new Intl.NumberFormat('fr-MA', { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
+const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
 
 const Maintenance = () => {
@@ -610,7 +610,7 @@ return
 
     <Layout strict onLoad={onLoad}>
 
-      <main className="agency-maintenance">
+      <div className="agency-maintenance">
 
         <div className="agency-maintenance__heading">
 
@@ -729,7 +729,7 @@ return
 
         </section>
 
-      </main>
+      </div>
 
 
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">

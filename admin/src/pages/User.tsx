@@ -23,6 +23,7 @@ import Layout from '@/components/Layout'
 import Backdrop from '@/components/SimpleBackdrop'
 import Avatar from '@/components/Avatar'
 import BookingList from '@/components/BookingList'
+import Error from './Error'
 import NoMatch from './NoMatch'
 import * as SupplierService from '@/services/SupplierService'
 
@@ -36,6 +37,7 @@ const User = () => {
   const [loggedUser, setLoggedUser] = useState<bookcarsTypes.User>()
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [visible, setVisible] = useState(false)
+  const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [noMatch, setNoMatch] = useState(false)
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
@@ -123,6 +125,7 @@ const User = () => {
           } catch (err) {
             helper.error(err)
             setLoading(false)
+            setError(true)
             setVisible(false)
           }
         } else {
@@ -246,6 +249,7 @@ const User = () => {
         </DialogActions>
       </Dialog>
       {loading && <Backdrop text={commonStrings.LOADING} />}
+      {error && <Error />}
       {noMatch && <NoMatch hideHeader />}
     </Layout>
   )

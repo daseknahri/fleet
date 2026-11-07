@@ -47,13 +47,14 @@ const methodName = (method: bookcarsTypes.RentalPaymentMethod) => {
   }
 }
 
-const formatAmount = (amount: number) => `${new Intl.NumberFormat('fr-MA', { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
-
-const formatDate = (date: Date) => {
+const uiLocale = () => {
   const language = UserService.getLanguage()
-  const locale = language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
-  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
+  return language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
 }
+
+const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
+
+const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
 
 const accountName = (account: bookcarsTypes.CashAccountType) => (account === bookcarsTypes.CashAccountType.Bank ? strings.BANK_ACCOUNT : strings.CASH)
 
@@ -234,7 +235,10 @@ const CashJournal = () => {
   }
 
   const saveTransfer = async () => {
-    if (!transferFrom || !transferTo || !transferAmount) {
+    if (!transferFrom || !transferTo || !(Number(transferAmount) > 0)) {
+      setSessionError(true)
+      setSessionErrorMessage(strings.TRANSFER_ERROR)
+      helper.error(null, strings.TRANSFER_ERROR)
       return
     }
     try {
@@ -326,7 +330,7 @@ const CashJournal = () => {
 
   return (
     <Layout strict onLoad={onLoad}>
-      <main className="agency-cash">
+      <div className="agency-cash">
         <div className="agency-cash__heading">
           <Typography component="p" className="agency-cash__eyebrow">{strings.EYEBROW}</Typography>
           <Typography component="h1" className="agency-cash__title">{strings.TITLE}</Typography>
@@ -392,7 +396,7 @@ const CashJournal = () => {
           </DialogContent>
           <DialogActions><Button onClick={() => setTransferDialog(false)}>{strings.CANCEL}</Button><Button variant="contained" onClick={saveTransfer}>{strings.SAVE}</Button></DialogActions>
         </Dialog>
-      </main>
+      </div>
     </Layout>
   )
 }

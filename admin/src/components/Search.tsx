@@ -47,6 +47,7 @@ const Search = ({
                 <InputAdornment position="end">
                   <IconButton
                     size="small"
+                    aria-label={commonStrings.CLEAR}
                     onClick={() => {
                       setValue('keyword', '')
                       inputRef.current?.focus()
@@ -61,7 +62,7 @@ const Search = ({
           className="sc-search"
           id="search"
         />
-        <IconButton type="submit">
+        <IconButton type="submit" aria-label={commonStrings.SEARCH}>
           <SearchIcon />
         </IconButton>
       </form>

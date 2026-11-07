@@ -184,35 +184,35 @@ const CarRatingFilter = ({
     <Accordion title={strings.RATING} collapse={collapse} className={`${className ? `${className} ` : ''}rating-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={rating1Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating1Change} />
+          <input ref={rating1Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating1Change} aria-label={strings.RATING_1} />
           <span onClick={handleRating1Click} role="presentation" className="ratings">
             <Rating value={1} className="rating" readOnly />
           </span>
           <span className="rating-text">{strings.RATING_1}</span>
         </div>
         <div className="filter-element">
-          <input ref={rating2Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating2Change} />
+          <input ref={rating2Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating2Change} aria-label={strings.RATING_2} />
           <span onClick={handleRating2Click} role="presentation" className="ratings">
             <Rating value={2} className="rating" readOnly />
           </span>
           <span className="rating-text">{strings.RATING_2}</span>
         </div>
         <div className="filter-element" role="presentation">
-          <input ref={rating3Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating3Change} />
+          <input ref={rating3Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating3Change} aria-label={strings.RATING_3} />
           <span onClick={handleRating3Click} role="presentation" className="ratings">
             <Rating value={3} className="rating" readOnly />
           </span>
           <span className="rating-text">{strings.RATING_3}</span>
         </div>
         <div className="filter-element" role="presentation">
-          <input ref={rating4Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating4Change} />
+          <input ref={rating4Ref} type="radio" className="rating-checkbox" onChange={handleCheckRating4Change} aria-label={strings.RATING_4} />
           <span onClick={handleRating4Click} role="presentation" className="ratings">
             <Rating value={4} className="rating" readOnly />
           </span>
           <span className="rating-text">{strings.RATING_4}</span>
         </div>
         <div className="filter-element" role="presentation">
-          <input ref={ratingAnyRef} type="radio" className="rating-checkbox" onChange={handleCheckRatingAnyChange} />
+          <input ref={ratingAnyRef} type="radio" className="rating-checkbox" onChange={handleCheckRatingAnyChange} aria-label={commonStrings.ANY} />
           <span onClick={handleRatingAnyClick} role="presentation" className="ratings">
             {commonStrings.ANY}
           </span>

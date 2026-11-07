@@ -25,7 +25,10 @@ const agencyCountryMatch = (req: Request): mongoose.QueryFilter<env.Country> => 
     return {}
   }
   const agencyId = agencySupplierId(req) || '000000000000000000000000'
-  return { $or: [{ supplier: agencyId }, { supplier: null }, { supplier: { $exists: false } }] }
+  // Aggregations do not cast string ids: match the supplier as an ObjectId,
+  // otherwise the agency branch never matches and duplicate-name validation
+  // silently passes for agency users.
+  return { $or: [{ supplier: new mongoose.Types.ObjectId(agencyId) }, { supplier: null }, { supplier: { $exists: false } }] }
 }
 
 
@@ -82,7 +85,7 @@ export const validate = async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error(`[country.validate]  ${i18n.t('ERROR')} ${name}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -106,6 +109,11 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    if (!Array.isArray(names) || !names.some((name) => typeof name?.name === 'string' && name.name.trim().length > 0)) {
+      res.status(400).send('A country needs at least one name')
+      return
+    }
+
     const values: string[] = []
     for (const name of names) {
       const countryValue = new LocationValue({
@@ -121,7 +129,7 @@ export const create = async (req: Request, res: Response) => {
     res.send(country)
   } catch (err) {
     logger.error(`[country.create] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -176,7 +184,7 @@ export const update = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[country.update] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -215,7 +223,7 @@ export const deleteCountry = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[country.delete] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -252,7 +260,7 @@ export const getCountry = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[country.getCountry] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -336,7 +344,7 @@ export const getCountries = async (req: Request, res: Response) => {
     res.json(countries)
   } catch (err) {
     logger.error(`[country.getCountries] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -443,7 +451,7 @@ export const getCountriesWithLocations = async (req: Request, res: Response) => 
     res.json(countries)
   } catch (err) {
     logger.error(`[country.getCountries] ${i18n.t('ERROR')} ${req.query.s}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -475,7 +483,7 @@ export const checkCountry = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[country.checkCountry] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -503,6 +511,6 @@ export const getCountryId = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[country.getCountryId] ${i18n.t('ERROR')} ${name}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }

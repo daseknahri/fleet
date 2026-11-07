@@ -42,6 +42,13 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
     try {
       session = await stripeAPI.checkout.sessions.retrieve(sessionId)
     } catch (err) {
+      const stripeError = err as { code?: string, statusCode?: number }
+      if (stripeError?.code === 'resource_missing' || stripeError?.statusCode === 404) {
+        const msg = `Session ${sessionId} not found`
+        logger.info(`[stripe.checkCheckoutSession] ${msg}`)
+        res.status(404).send(msg)
+        return
+      }
       logger.error(`[stripe.checkCheckoutSession] retrieve session error: ${sessionId}`, err)
       res.status(503).send('Payment provider unavailable; support review is required')
       return
@@ -164,7 +171,7 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[stripe.checkCheckoutSession] ${i18n.t('ERROR')}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 

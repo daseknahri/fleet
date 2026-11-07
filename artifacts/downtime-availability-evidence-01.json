@@ -36,7 +36,7 @@
     {
       "step": "create-work-order-scheduled",
       "status": 201,
-      "workOrder": "6aec8afb97fc63e031a1405f",
+      "workOrder": "6aed3552d15c355848f38d1b",
       "window": {
         "from": "2027-03-10T00:00:00.000Z",
         "to": "2027-03-12T00:00:00.000Z"
@@ -56,14 +56,14 @@
     {
       "step": "a-note-pending-not-reserving",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14061",
+      "booking": "6aed3552d15c355848f38d1d",
       "bookingStatus": "pending",
       "note": "Pending is not a reserving status, so the guard does not engage at create; the same guard re-runs when a booking transitions into a reserving status (finalize/update/updateStatus), so the block cannot be bypassed through this path."
     },
     {
       "step": "b-non-overlap-after-allowed",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14062",
+      "booking": "6aed3552d15c355848f38d1e",
       "window": {
         "from": "2027-03-13T10:00:00.000Z",
         "to": "2027-03-15T10:00:00.000Z"
@@ -72,7 +72,7 @@
     {
       "step": "b-boundary-end-at-downtime-start-allowed",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14063",
+      "booking": "6aed3553d15c355848f38d1f",
       "window": {
         "from": "2027-03-08T10:00:00.000Z",
         "to": "2027-03-10T00:00:00.000Z"
@@ -86,7 +86,7 @@
     {
       "step": "c-overlap-allowed-after-completion",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14064",
+      "booking": "6aed3553d15c355848f38d20",
       "window": {
         "from": "2027-03-10T12:00:00.000Z",
         "to": "2027-03-11T12:00:00.000Z"
@@ -100,7 +100,7 @@
     {
       "step": "c-overlap-allowed-when-cancelled",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14065",
+      "booking": "6aed3553d15c355848f38d21",
       "window": {
         "from": "2027-03-11T13:00:00.000Z",
         "to": "2027-03-11T23:00:00.000Z"
@@ -109,7 +109,7 @@
     {
       "step": "c-create-work-order-inprogress",
       "status": 201,
-      "workOrder": "6aec8afb97fc63e031a14066",
+      "workOrder": "6aed3553d15c355848f38d22",
       "window": {
         "from": "2027-04-10T00:00:00.000Z",
         "to": "2027-04-12T00:00:00.000Z"
@@ -132,7 +132,7 @@
     {
       "step": "c-overlap-allowed-after-removal",
       "status": 200,
-      "booking": "6aec8afb97fc63e031a14068",
+      "booking": "6aed3553d15c355848f38d24",
       "window": {
         "from": "2027-04-10T12:00:00.000Z",
         "to": "2027-04-11T12:00:00.000Z"
@@ -146,12 +146,12 @@
     }
   ],
   "fixtures": {
-    "supplier": "6aec8afb97fc63e031a14059",
-    "driver": "6aec8afb97fc63e031a1405a",
-    "car": "6aec8afb97fc63e031a1405e",
-    "location": "6aec8afb97fc63e031a1405d",
-    "workOrder1": "6aec8afb97fc63e031a1405f",
-    "workOrder2": "6aec8afb97fc63e031a14066"
+    "supplier": "6aed3552d15c355848f38d15",
+    "driver": "6aed3552d15c355848f38d16",
+    "car": "6aed3552d15c355848f38d1a",
+    "location": "6aed3552d15c355848f38d19",
+    "workOrder1": "6aed3552d15c355848f38d1b",
+    "workOrder2": "6aed3553d15c355848f38d22"
   },
   "cleanup": {
     "deleted": {

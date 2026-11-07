@@ -1,4 +1,4 @@
-import React, { ReactNode, useMemo, useRef } from 'react'
+import React, { ReactNode, useEffect, useMemo, useRef } from 'react'
 import ReactSlick from 'react-slick'
 import { Button } from '@mui/material'
 import {
@@ -27,6 +27,44 @@ const LocationCarrousel = ({
   onSelect,
 }: LocationCarrouselProps) => {
   const slider = useRef<ReactSlick>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Owner decision 3.3 (GA-P10-DECISIONS-01): non-active slick slides are
+  // aria-hidden but contain focusable controls, so keyboard focus could
+  // land on invisible content. Manage focus: focusables inside
+  // aria-hidden slides get tabindex=-1 (restored when the slide becomes
+  // active). Original tabindex values are kept in a data attribute.
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) {
+      return undefined
+    }
+    const syncTabIndexes = () => {
+      root.querySelectorAll('.slick-slide').forEach((slide) => {
+        const hidden = slide.getAttribute('aria-hidden') === 'true'
+        slide.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]').forEach((el) => {
+          if (hidden) {
+            if (!el.dataset.gaPrevTabindex) {
+              el.dataset.gaPrevTabindex = el.getAttribute('tabindex') ?? ''
+            }
+            el.setAttribute('tabindex', '-1')
+          } else if (el.dataset.gaPrevTabindex !== undefined) {
+            const prev = el.dataset.gaPrevTabindex
+            if (prev) {
+              el.setAttribute('tabindex', prev)
+            } else {
+              el.removeAttribute('tabindex')
+            }
+            delete el.dataset.gaPrevTabindex
+          }
+        })
+      })
+    }
+    syncTabIndexes()
+    const observer = new MutationObserver(syncTabIndexes)
+    observer.observe(root, { attributes: true, attributeFilter: ['aria-hidden'], subtree: true })
+    return () => observer.disconnect()
+  }, [locations])
 
   const sliderSettings = useMemo(() => ({
     arrows: false,
@@ -58,7 +96,7 @@ const LocationCarrousel = ({
   }), [])
 
   return (
-    <div className="location-caroussel">
+    <div className="location-caroussel" ref={rootRef}>
       <Slick ref={slider} {...sliderSettings}>
         {locations.map((location) => (
           <div key={location._id} className="box">

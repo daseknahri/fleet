@@ -8,14 +8,16 @@ import * as authHelper from '../src/utils/authHelper'
 import * as env from '../src/config/env.config'
 import User from '../src/models/User'
 
-// GA-P1-APPROVALS-PRODUCER-01 regression proof for the approval path that
-// exists today: manual creation through POST /api/approvals (the only
-// producer the docs have decided), listing in the agency scope consumed by
-// the /approbations queue, and approve/reject decisions. Domain-flow
-// producers (invoice/contract triggers) are NOT wired: the authorization
-// matrix leaves the trigger, approver, second-approver and self-approval
-// decisions open. The approvals API has no delete route, so the decided
-// records created here remain as labeled synthetic residue, following the
+// GA-P1-APPROVALS-PRODUCER-01 regression proof for the manual approval
+// path: creation through POST /api/approvals, listing in the agency scope
+// consumed by the /approbations queue, and approve/reject decisions.
+// Updated by GA-P1-APPROVALS-PRODUCER-02 (2026-11-05): the owner decided
+// the producer policy in GA-P10-DECISIONS-01 — domain-flow producers are
+// now wired (covered by approvalsProducer.integration.test.ts), and
+// decision 1.4 forbids deciding your own request, so the admin who
+// creates these records no longer decides them; the agency owner does.
+// The approvals API has no delete route, so the decided records created
+// here remain as labeled synthetic residue, following the
 // GA-P1-APPROVALS-UI-01/02 precedent.
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const userIds: mongoose.Types.ObjectId[] = []
@@ -66,7 +68,13 @@ describe('Approvals end-to-end (manual producer, agency scoped)', () => {
       .send({ decision: 'approved', reason: 'foreign attempt' })
     expect(foreignDecide.status).toBe(404)
 
-    const approved = await request(app).post(`/api/approvals/${id1}/decide`).set(env.X_ACCESS_TOKEN, adminToken)
+    // Decision 1.4 (GA-P10-DECISIONS-01): the requester (admin) cannot
+    // decide their own request.
+    const selfDecide = await request(app).post(`/api/approvals/${id1}/decide`).set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ decision: 'approved', reason: 'self attempt' })
+    expect(selfDecide.status).toBe(403)
+
+    const approved = await request(app).post(`/api/approvals/${id1}/decide`).set(env.X_ACCESS_TOKEN, tokenA)
       .send({ decision: 'approved', reason: 'producer-01 e2e approve' })
     expect(approved.status).toBe(200)
     expect(approved.body.status).toBe(bookcarsTypes.ApprovalDecision.Approved)
@@ -77,7 +85,7 @@ describe('Approvals end-to-end (manual producer, agency scoped)', () => {
     const created2 = await request(app).post('/api/approvals').set(env.X_ACCESS_TOKEN, adminToken)
       .send({ supplier: supplierA._id.toString(), subject: subject2, subjectType: 'contract', amount: 300, currency: 'MAD', reason: 'producer-01 e2e proof' })
     expect(created2.status).toBe(201)
-    const rejected = await request(app).post(`/api/approvals/${created2.body._id}/decide`).set(env.X_ACCESS_TOKEN, adminToken)
+    const rejected = await request(app).post(`/api/approvals/${created2.body._id}/decide`).set(env.X_ACCESS_TOKEN, tokenA)
       .send({ decision: 'rejected', reason: 'producer-01 e2e reject' })
     expect(rejected.status).toBe(200)
     expect(rejected.body.status).toBe(bookcarsTypes.ApprovalDecision.Rejected)

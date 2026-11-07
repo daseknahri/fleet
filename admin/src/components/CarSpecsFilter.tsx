@@ -173,7 +173,7 @@ const CarSpecsFilter = ({
     <Accordion title={strings.CAR_SPECS} collapse={collapse} className={`${className ? `${className} ` : ''}car-specs-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={airconRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckAirconChange} />
+          <input ref={airconRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckAirconChange} aria-label={strings.AIRCON} />
           <span
             onClick={handleAirconClick}
             role="button"
@@ -183,7 +183,7 @@ const CarSpecsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={moreThanFourDoorsRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckMoreThanFourDoorsChange} />
+          <input ref={moreThanFourDoorsRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckMoreThanFourDoorsChange} aria-label={strings.MORE_THAN_FOOR_DOORS} />
           <span
             onClick={handleMoreThanFourDoorsClick}
             role="button"
@@ -193,7 +193,7 @@ const CarSpecsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={moreThanFiveSeatsRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckMoreThanFiveSeatsChange} />
+          <input ref={moreThanFiveSeatsRef} type="checkbox" className="car-specs-checkbox" onChange={handleCheckMoreThanFiveSeatsChange} aria-label={strings.MORE_THAN_FIVE_SEATS} />
           <span
             onClick={handleMoreThanFiveSeatsClick}
             role="button"

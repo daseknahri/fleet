@@ -17,6 +17,7 @@ import { getContractReceivable } from '../utils/contractReceivable'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
 import { contentMatchesExtension } from '../utils/fileContent'
+import { approvalRequiredFor, mirrorApprovalDecision, produceApprovalRequest } from '../utils/approvalProducer'
 
 const idFrom = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
@@ -209,6 +210,25 @@ export const createCharge = async (req: Request, res: Response) => {
     }
     const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
     const charge = await ContractCharge.create({ supplier: booking.supplier, booking: booking._id, inspection: req.body?.inspection, type: type as bookcarsTypes.ContractChargeType, reason, amount, currency, status: bookcarsTypes.ApprovalDecision.Pending, requestedBy: actor })
+    // Approvals producer (decisions 1.1/1.2, GA-P10-DECISIONS-01): a charge
+    // at or above the threshold also opens a queue request in /approbations.
+    // The charge's own decision workflow stays the domain record; decisions
+    // are mirrored both ways so the two never diverge.
+    if (approvalRequiredFor(amount)) {
+      try {
+        await produceApprovalRequest({
+          supplier: booking.supplier,
+          subjectType: 'contract-charge',
+          subject: charge._id.toString(),
+          amount,
+          currency,
+          requestedBy: actor,
+          reason: `Contract charge ${type} on booking ${booking._id}: ${reason}`,
+        })
+      } catch (producerErr) {
+        logger.error('[contractOperations.createCharge] approval producer failed', producerErr)
+      }
+    }
     res.status(201).json(charge)
   } catch (err) {
  logger.error('[contractOperations.createCharge]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -232,7 +252,22 @@ export const decideCharge = async (req: Request, res: Response) => {
  res.sendStatus(404); return 
 }
     charge.status = decision as bookcarsTypes.ApprovalDecision; charge.decidedBy = actor; charge.decidedAt = new Date(); charge.decisionNote = note || undefined
-    await charge.save(); res.json(charge)
+    await charge.save()
+    // Mirror the decision onto the queue record (decision 1.6: the
+    // Approval record is the single source of truth for the queue).
+    try {
+      await mirrorApprovalDecision({
+        supplier: booking.supplier,
+        subjectType: 'contract-charge',
+        subject: charge._id.toString(),
+        status: charge.status,
+        decidedBy: actor,
+        reason: note || undefined,
+      })
+    } catch (mirrorErr) {
+      logger.error('[contractOperations.decideCharge] approval mirror failed', mirrorErr)
+    }
+    res.json(charge)
   } catch (err) {
  logger.error('[contractOperations.decideCharge]', err); res.status(400).send(i18n.t('ERROR')) 
 }

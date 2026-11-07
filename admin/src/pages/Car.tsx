@@ -137,6 +137,9 @@ const Car = () => {
                 setLoading(false)
               } catch (err) {
                 helper.error(err)
+                setLoading(false)
+                setError(true)
+                setVisible(false)
               }
             } else if (_car.supplier._id === _user._id) {
               setSuppliers([_user._id as string])

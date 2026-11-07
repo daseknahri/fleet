@@ -19,7 +19,7 @@ const Clients = () => {
   return (
     <Layout strict onLoad={setUser}>
       {user && (
-        <main className="agency-clients">
+        <div className="agency-clients">
           <div className="agency-clients__heading">
             <div>
               <Typography component="p" className="agency-clients__eyebrow">{strings.EYEBROW}</Typography>
@@ -49,7 +49,7 @@ const Clients = () => {
               hideDesktopColumns={env.isMobile}
             />
           </section>
-        </main>
+        </div>
       )}
     </Layout>
   )

@@ -51,13 +51,14 @@ const customerName = (booking?: bookcarsTypes.Booking) => (
   booking?.driver && typeof booking.driver !== 'string' ? booking.driver.fullName || booking.driver.email || '—' : '—'
 )
 
-const formatDate = (date: Date) => {
+const uiLocale = () => {
   const language = UserService.getLanguage()
-  const locale = language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
-  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
+  return language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
 }
 
-const formatAmount = (amount: number) => `${new Intl.NumberFormat('fr-MA', { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
+const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
+
+const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
 const Payments = () => {
   const [bookings, setBookings] = useState<bookcarsTypes.Booking[]>([])
@@ -104,7 +105,14 @@ const Payments = () => {
   const onLoad = reload
 
   const paymentTotals = useMemo(() => payments.reduce<Record<string, { rent: number, deposit: number }>>((totals, payment) => {
-    const bookingId = typeof payment.booking === 'string' ? payment.booking : payment.booking._id
+    // Only posted (or legacy status-less) payments are money received:
+    // pending counter entries never count toward the amount due, and an
+    // annulled reversal pair counts as zero - the same rule the backend
+    // posted sums apply (GAQ12B2-D3).
+    if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+      return totals
+    }
+    const bookingId = typeof payment.booking === 'string' ? payment.booking : payment.booking?._id
     if (bookingId) {
       const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
       const signedAmount = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount
@@ -140,7 +148,7 @@ const Payments = () => {
 
   const overdueTotal = overdueRows.reduce((sum, row) => sum + row.outstanding, 0)
   const postedNetTotal = payments.reduce((sum, payment) => {
-    if (payment.status === bookcarsTypes.RentalPaymentStatus.Reversed) {
+    if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
       return sum
     }
     return sum + (payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount)
@@ -246,14 +254,14 @@ const Payments = () => {
   }
 
   const purposeLabel = (purpose: bookcarsTypes.RentalPaymentPurpose) => purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? strings.DEPOSIT : strings.RENT
-  const statusLabel = (status?: bookcarsTypes.RentalPaymentStatus) => status === bookcarsTypes.RentalPaymentStatus.Reversed ? strings.REVERSED : strings.POSTED
+  const statusLabel = (status?: bookcarsTypes.RentalPaymentStatus) => status === bookcarsTypes.RentalPaymentStatus.Reversed ? strings.REVERSED : status === bookcarsTypes.RentalPaymentStatus.Pending ? strings.PENDING : strings.POSTED
   const setField = (key: keyof PaymentForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm((current) => ({ ...current, [key]: event.target.value }))
   }
 
   return (
     <Layout strict onLoad={onLoad}>
-      <main className="agency-payments">
+      <div className="agency-payments">
         <div className="agency-payments__heading">
           <div>
             <Typography component="p" className="agency-payments__eyebrow">{strings.EYEBROW}</Typography>
@@ -323,7 +331,7 @@ const Payments = () => {
             </div>
           })}
         </section>
-      </main>
+      </div>
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{strings.NEW}</DialogTitle>
         <DialogContent className="agency-payments__form">

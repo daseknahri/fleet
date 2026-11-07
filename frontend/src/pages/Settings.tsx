@@ -128,7 +128,7 @@ const Settings = () => {
           <div className="settings">
 
             <Paper className="settings-form settings-form-wrapper" elevation={10}>
-              <form onSubmit={handleSubmit(onSubmit)}>
+              <form onSubmit={handleSubmit(onSubmit)} noValidate>
                 <Avatar
                   loggedUser={user}
                   user={user}
@@ -139,17 +139,19 @@ const Settings = () => {
                   color="disabled"
                   className="avatar-ctn"
                 />
-                <FormControl fullWidth margin="dense">
-                  <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
-                  <Input {...register('fullName')} type="text" required autoComplete="off" />
+                <FormControl fullWidth margin="dense" error={!!errors.fullName}>
+                  <InputLabel className="required" htmlFor="settings-fullName">{commonStrings.FULL_NAME}</InputLabel>
+                  <Input id="settings-fullName" {...register('fullName')} type="text" required autoComplete="off" />
+                  <FormHelperText>{errors.fullName?.message || ''}</FormHelperText>
                 </FormControl>
                 <FormControl fullWidth margin="dense">
-                  <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
-                  <Input {...register('email')} type="text" disabled />
+                  <InputLabel className="required" htmlFor="settings-email">{commonStrings.EMAIL}</InputLabel>
+                  <Input id="settings-email" {...register('email')} type="text" disabled />
                 </FormControl>
                 <FormControl fullWidth margin="dense" error={!!errors.phone}>
-                  <InputLabel className="required">{commonStrings.PHONE}</InputLabel>
+                  <InputLabel className="required" htmlFor="settings-phone">{commonStrings.PHONE}</InputLabel>
                   <Input
+                    id="settings-phone"
                     {...register('phone')}
                     type="text"
                     required
@@ -181,12 +183,12 @@ const Settings = () => {
                   <FormHelperText>{errors.birthDate?.message || ''}</FormHelperText>
                 </FormControl>
                 <FormControl fullWidth margin="dense">
-                  <InputLabel>{commonStrings.LOCATION}</InputLabel>
-                  <Input {...register('location')} type="text" autoComplete="off" />
+                  <InputLabel htmlFor="settings-location">{commonStrings.LOCATION}</InputLabel>
+                  <Input id="settings-location" {...register('location')} type="text" autoComplete="off" />
                 </FormControl>
                 <FormControl fullWidth margin="dense">
-                  <InputLabel>{commonStrings.BIO}</InputLabel>
-                  <Input {...register('bio')} type="text" autoComplete="off" />
+                  <InputLabel htmlFor="settings-bio">{commonStrings.BIO}</InputLabel>
+                  <Input id="settings-bio" {...register('bio')} type="text" autoComplete="off" />
                 </FormControl>
                 <div className="buttons">
                   <Button

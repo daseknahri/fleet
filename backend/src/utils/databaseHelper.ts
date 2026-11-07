@@ -9,6 +9,7 @@ import Notification from '../models/Notification'
 import NotificationCounter from '../models/NotificationCounter'
 import PushToken from '../models/PushToken'
 import Token, { TOKEN_EXPIRE_AT_INDEX_NAME } from '../models/Token'
+import RevokedSession from '../models/RevokedSession'
 import User, { USER_EXPIRE_AT_INDEX_NAME } from '../models/User'
 import Country from '../models/Country'
 import ParkingSpot from '../models/ParkingSpot'
@@ -247,6 +248,7 @@ export const models = defineModels([
   ParkingSpot,
   PushToken,
   Token,
+  RevokedSession,
   User,
   ContractInspection,
   ContractCharge,

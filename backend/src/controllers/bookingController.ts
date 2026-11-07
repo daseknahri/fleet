@@ -128,7 +128,7 @@ export const create = async (req: Request, res: Response) => {
     res.json(booking)
   } catch (err) {
     logger.error(`[booking.create] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -538,6 +538,29 @@ export const checkout = async (req: Request, res: Response) => {
       if (existingUser) {
         user = existingUser
       } else {
+        // New guest account: the driver details become the account, so they
+        // must be complete and the driver must meet the car's minimum age.
+        // (The client schema marks these fields optional; without this the
+        // API accepted phoneless, birthdate-less and underage drivers.)
+        const guestFullName = typeof driver.fullName === 'string' ? driver.fullName.trim() : ''
+        const guestPhone = typeof driver.phone === 'string' ? driver.phone.trim() : ''
+        const guestBirthDate = driver.birthDate ? new Date(driver.birthDate) : null
+        if (!guestFullName || !guestPhone || !guestBirthDate || Number.isNaN(guestBirthDate.getTime())) {
+          res.status(400).send('Invalid driver information')
+          return
+        }
+        if (carObj.minimumAge) {
+          const nowDate = new Date()
+          let driverAge = nowDate.getFullYear() - guestBirthDate.getFullYear()
+          const monthDelta = nowDate.getMonth() - guestBirthDate.getMonth()
+          if (monthDelta < 0 || (monthDelta === 0 && nowDate.getDate() < guestBirthDate.getDate())) {
+            driverAge--
+          }
+          if (driverAge < carObj.minimumAge) {
+            res.status(400).send('Driver does not meet the minimum age requirement')
+            return
+          }
+        }
         user = new User({
           fullName: driver.fullName,
           email: driver.email,
@@ -808,7 +831,7 @@ export const checkout = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[booking.checkout] ${i18n.t('ERROR')}`, err instanceof Error ? err.message : 'Unknown error')
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1002,14 +1025,19 @@ export const update = async (req: Request, res: Response) => {
 
       const previousStatus = booking.status
 
-      const snapshotTermsChanged = booking.financialSnapshot && (
+      // Mongoose hydrates a missing financialSnapshot as {} (truthy), so the
+      // lock must only apply when a real snapshot with a rental total exists;
+      // otherwise every snapshot-less booking (admin-created, legacy) is
+      // permanently uneditable with a misleading 409.
+      const hasRealSnapshot = !!booking.financialSnapshot && typeof booking.financialSnapshot.rentalTotal === 'number'
+      const snapshotTermsChanged = hasRealSnapshot && (
         bookingId(body.booking.supplier as string | { _id?: string }) !== booking.supplier.toString()
         || bookingId(body.booking.car as string | { _id?: string }) !== booking.car.toString()
         || bookingId(body.booking.pickupLocation as string | { _id?: string }) !== booking.pickupLocation.toString()
         || bookingId(body.booking.dropOffLocation as string | { _id?: string }) !== booking.dropOffLocation.toString()
         || new Date(body.booking.from).getTime() !== booking.from.getTime()
         || new Date(body.booking.to).getTime() !== booking.to.getTime()
-        || Number(body.booking.price) !== booking.financialSnapshot.rentalTotal
+        || Number(body.booking.price) !== booking.financialSnapshot!.rentalTotal
         || !!body.booking.cancellation !== !!booking.cancellation
         || !!body.booking.amendments !== !!booking.amendments
         || !!body.booking.theftProtection !== !!booking.theftProtection
@@ -1113,7 +1141,7 @@ export const update = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[booking.update] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1189,7 +1217,7 @@ export const updateStatus = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[booking.updateStatus] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1238,7 +1266,7 @@ export const deleteBookings = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[booking.deleteBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1263,7 +1291,7 @@ export const deleteTempBooking = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[booking.deleteTempBooking] ${i18n.t('ERROR')} ${JSON.stringify({ bookingId, sessionId })}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1361,7 +1389,7 @@ export const getBooking = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[booking.getBooking] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1388,7 +1416,7 @@ export const getBookingId = async (req: Request, res: Response) => {
     res.json(booking?._id.toString())
   } catch (err) {
     logger.error(`[booking.getBookingId] (sessionId) ${i18n.t('ERROR')} ${sessionId}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1633,7 +1661,7 @@ export const getBookings = async (req: Request, res: Response) => {
     res.json(data)
   } catch (err) {
     logger.error(`[booking.getBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 
@@ -1675,7 +1703,7 @@ export const hasBookings = async (req: Request, res: Response) => {
     res.sendStatus(count === 1 ? 200 : 204)
   } catch (err) {
     logger.error(`[booking.hasBookings] ${i18n.t('ERROR')} ${driver}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 /**
@@ -1744,7 +1772,7 @@ export const cancelBooking = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[booking.cancelBooking] ${i18n.t('ERROR')} ${id}`, err)
-    res.status(400).send(i18n.t('ERROR') + err)
+    res.status(400).send(i18n.t('ERROR'))
   }
 }
 

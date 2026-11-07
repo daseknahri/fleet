@@ -110,7 +110,7 @@ const ResetPassword = () => {
         <div className="reset-password">
           <Paper className="reset-password-form" elevation={10}>
             <h1>{rpStrings.RESET_PASSWORD_HEADING}</h1>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
 
               <PasswordInput
                 label={commonStrings.PASSWORD}

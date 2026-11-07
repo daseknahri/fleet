@@ -287,7 +287,7 @@ const CarType = ({
     <Accordion title={strings.ENGINE} collapse={collapse} className={`${className ? `${className} ` : ''}car-type-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={dieselRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckDieselChange} />
+          <input ref={dieselRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckDieselChange} aria-label={strings.DIESEL} />
           <span
             onClick={handleDieselClick}
             role="button"
@@ -297,7 +297,7 @@ const CarType = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={gasolineRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckGasolineChange} />
+          <input ref={gasolineRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckGasolineChange} aria-label={strings.GASOLINE} />
           <span
             onClick={handleGasolineClick}
             role="button"
@@ -308,7 +308,7 @@ const CarType = ({
         </div>
 
         <div className="filter-element">
-          <input ref={electricRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckElectricChange} />
+          <input ref={electricRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckElectricChange} aria-label={strings.ELECTRIC} />
           <span
             onClick={handleElectricClick}
             role="button"
@@ -318,7 +318,7 @@ const CarType = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={hybridRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckHybridChange} />
+          <input ref={hybridRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckHybridChange} aria-label={strings.HYBRID} />
           <span
             onClick={handleHybridClick}
             role="button"
@@ -328,7 +328,7 @@ const CarType = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={plugInHybridRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckPlugInHybridChange} />
+          <input ref={plugInHybridRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckPlugInHybridChange} aria-label={strings.PLUG_IN_HYBRID} />
           <span
             onClick={handlePlugInHybridClick}
             role="button"
@@ -338,7 +338,7 @@ const CarType = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={unknownRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckUnknownChange} />
+          <input ref={unknownRef} type="checkbox" className="car-type-checkbox" onChange={handleCheckUnknownChange} aria-label={strings.UNKNOWN} />
           <span
             onClick={handleUnknownClick}
             role="button"

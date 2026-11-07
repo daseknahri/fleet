@@ -245,6 +245,9 @@ const SearchForm = ({
     if (_pickupLocationId) {
       const location = await LocationService.getLocation(_pickupLocationId) as LocationField
       setValue('pickupLocation', location)
+      if (errors.pickupLocation) {
+        clearErrors('pickupLocation')
+      }
       if (sameLocation) {
         setValue('dropOffLocation', location)
       }
@@ -275,8 +278,20 @@ const SearchForm = ({
     if (_dropOffLocationId) {
       const location = await LocationService.getLocation(_dropOffLocationId) as LocationField
       setValue('dropOffLocation', location)
+      if (errors.dropOffLocation) {
+        clearErrors('dropOffLocation')
+      }
     } else {
       setValue('dropOffLocation', null)
+    }
+  }
+
+  const onInvalid = (formErrors: typeof errors) => {
+    if (formErrors.pickupLocation) {
+      setError('pickupLocation', { message: strings.PICK_UP_LOCATION_REQUIRED })
+    }
+    if (formErrors.dropOffLocation) {
+      setError('dropOffLocation', { message: strings.DROP_OFF_LOCATION_REQUIRED })
     }
   }
 
@@ -292,6 +307,12 @@ const SearchForm = ({
       || !data.from
       || !data.to
     ) {
+      if (!data.pickupLocation) {
+        setError('pickupLocation', { message: strings.PICK_UP_LOCATION_REQUIRED })
+      }
+      if (!data.dropOffLocation) {
+        setError('dropOffLocation', { message: strings.DROP_OFF_LOCATION_REQUIRED })
+      }
       return
     }
 
@@ -307,7 +328,7 @@ const SearchForm = ({
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="home-search-form">
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="home-search-form" noValidate>
       <FormControl className="pickup-location">
         <LocationSelectList
           {...register('pickupLocation')}
@@ -321,6 +342,7 @@ const SearchForm = ({
           value={pickupLocation as bookcarsTypes.Location}
           onChange={handlePickupLocationChange}
         />
+        <FormHelperText error={!!errors.pickupLocation}>{errors.pickupLocation?.message || (errors.pickupLocation ? strings.PICK_UP_LOCATION_REQUIRED : '')}</FormHelperText>
       </FormControl>
       <FormControl fullWidth className="from">
         <Controller
@@ -395,6 +417,7 @@ const SearchForm = ({
             variant="outlined"
             onChange={handleDropOffLocationChange}
           />
+          <FormHelperText error={!!errors.dropOffLocation}>{errors.dropOffLocation?.message || (errors.dropOffLocation ? strings.DROP_OFF_LOCATION_REQUIRED : '')}</FormHelperText>
         </FormControl>
       )}
       <FormControl className="chk-same-location">

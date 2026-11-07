@@ -1,0 +1,605 @@
+{
+  "slice": "B4-regression-close",
+  "startedAt": "2026-11-06T13:32:56.139Z",
+  "fixture": {},
+  "steps": [
+    {
+      "n": "G1",
+      "name": "p0-gate-full-official",
+      "reconstructed": true,
+      "action": "powershell -File __scripts/run-p0-tests.ps1 WITHOUT -SkipBuild (script untouched, connection line untouched)",
+      "observed": {
+        "backendBuild": "Successfully compiled 185 files with Babel",
+        "testSuites": "8 passed, 8 total",
+        "tests": "41 passed, 41 total",
+        "log": "C:\\Users\\Yassi\\ga-q12-work-b4\\p0-full.log"
+      },
+      "verdict": "PASS (P0_EXIT=0)"
+    },
+    {
+      "n": "G2",
+      "name": "local-ci-gate",
+      "reconstructed": true,
+      "action": "powershell -File __scripts/run-local-ci.ps1 (per its own definition)",
+      "observed": {
+        "stages": [
+          {
+            "step": "Frontend lint",
+            "verdict": "PASS exit=0 (6.4s)"
+          },
+          {
+            "step": "Frontend build",
+            "verdict": "PASS exit=0 (23.3s)"
+          },
+          {
+            "step": "Admin lint",
+            "verdict": "PASS exit=0 (5.8s)"
+          },
+          {
+            "step": "Admin build",
+            "verdict": "PASS exit=0 (19.8s)"
+          },
+          {
+            "step": "Backend build + P0 suites (run-p0-tests.ps1)",
+            "verdict": "PASS exit=0 (40.2s)"
+          },
+          {
+            "step": "Dependency audit (backend)",
+            "verdict": "PASS exit=0 - found 0 vulnerabilities"
+          },
+          {
+            "step": "Dependency audit (admin)",
+            "verdict": "PASS exit=0 - found 0 vulnerabilities"
+          },
+          {
+            "step": "Dependency audit (frontend)",
+            "verdict": "PASS exit=0 - found 0 vulnerabilities"
+          }
+        ],
+        "totalWallTime": "99.1s",
+        "log": "C:\\Users\\Yassi\\ga-q12-work-b4\\local-ci.log"
+      },
+      "verdict": "PASS (LOCAL CI: PASS, exit 0)"
+    },
+    {
+      "n": "D3-S0",
+      "name": "d3-auth+discovery+sweep",
+      "reconstructed": true,
+      "action": "UI sign-in as platform admin; Apex discovery; GAQ12B4 orphan sweep; seed country discovery",
+      "observed": {
+        "apexId": "6ae166dda73203de8dd5bdbb"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-S1",
+      "name": "d3-fixtures",
+      "reconstructed": true,
+      "action": "create location + car (1000 MAD/day) + renter + counterAgent membership + booking 2026-10-20..22 price 2000 MAD (past window = overdue)",
+      "observed": {
+        "locationId": "6aedd5c4dc6e9fa38dee002e",
+        "carId": "6aedd5c4dc6e9fa38dee002f",
+        "renterId": "6aedd5c4dc6e9fa38dee0030",
+        "counterId": "6aedd5c4dc6e9fa38dee0031",
+        "membershipId": "6aedd5c4dc6e9fa38dee0032",
+        "bookingId": "6aedd5c4dc6e9fa38dee0033",
+        "bookingPrice": 2000
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-S2",
+      "name": "d3-counter-pending-payment",
+      "reconstructed": true,
+      "action": "sign in as GAQ12B4 counterAgent; POST /api/rental-payments 500 MAD rent (lands pending per decision 1.5); read back as admin",
+      "observed": {
+        "paymentId": "6aedd5c7dc6e9fa38dee0035",
+        "paymentStatusAtReadback": "pending",
+        "backendOutstanding": 2000,
+        "corroboration": "probe-nullbooking.mjs after the crash read the same payment as status pending; D3-S3 DOM scrape shows the row present with totals excluding it"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D1",
+      "name": "defect-GAQ12B4-D1-fix-applied",
+      "at": "2026-11-06T13:32:56.140Z",
+      "action": "Payments.tsx line 115: payment.booking._id -> payment.booking?._id (single null guard, no other change)",
+      "observed": {
+        "file": "admin/src/pages/Payments.tsx"
+      },
+      "verdict": "APPLIED (build/layer/verify follow)"
+    },
+    {
+      "n": "D3-DIAG",
+      "name": "d3-payments-render-diagnostic",
+      "at": "2026-11-06T13:36:12.129Z",
+      "action": "navigate to /payments up to 3 times, capture root/body/spinner/failed-resource state",
+      "observed": {
+        "url": "http://localhost:3002/payments",
+        "title": "FleetRent Admin Panel",
+        "rootChildren": 2,
+        "bodyLen": 1450,
+        "sample": "FINANCE Paiements Enregistrez et consultez les paiements reçus pour les contrats. ENREGISTRER UN PAIEMENT Paiements enregistrés -4.120 MAD T Transactions 11 Créances en retard 2.949 MAD Créances 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026 8DD5BDF8 Alex Morg",
+        "spinner": 0,
+        "failedResources": []
+      },
+      "verdict": "RENDERED"
+    },
+    {
+      "n": "D3-S3",
+      "name": "d3-dom-pending",
+      "at": "2026-11-06T13:36:18.683Z",
+      "action": "open REAL admin /payments page in automation Chrome; scrape rendered DOM (rows mentioning the fixture + full text)",
+      "observed": {
+        "backend": {
+          "rentalTotal": null,
+          "postedRent": -4120,
+          "backendOutstanding": null,
+          "naiveOutstandingIfPendingCounted": null,
+          "postedNetAllPayments": -4120,
+          "payments": [
+            {
+              "id": "6aed58d32a25a97a3caeb984",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aedcfe8bcb3c1762c7d3f40",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58b92a25a97a3caeb980",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed318d257b892b04a8b048",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 120
+            },
+            {
+              "id": "6aedd062bcb3c1762c7d3f43",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d32a25a97a3caeb985",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d22a25a97a3caeb982",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed58063ded07b5f333f93f",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120
+            }
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Comptabilisé GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+        ],
+        "idEls": []
+      },
+      "verdict": "CHECK"
+    },
+    {
+      "n": "D3-S4",
+      "name": "d3-dom-after-confirm",
+      "at": "2026-11-06T13:36:25.236Z",
+      "action": "POST /api/rental-payments/:id/confirm as admin; backend read-back; /payments DOM re-scrape",
+      "api": {
+        "confirm": 500
+      },
+      "observed": {
+        "backend": {
+          "rentalTotal": null,
+          "postedRent": -4120,
+          "backendOutstanding": null,
+          "naiveOutstandingIfPendingCounted": null,
+          "postedNetAllPayments": -4120,
+          "payments": [
+            {
+              "id": "6aed58d32a25a97a3caeb984",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aedcfe8bcb3c1762c7d3f40",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58b92a25a97a3caeb980",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed318d257b892b04a8b048",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 120
+            },
+            {
+              "id": "6aedd062bcb3c1762c7d3f43",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d32a25a97a3caeb985",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d22a25a97a3caeb982",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed58063ded07b5f333f93f",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120
+            }
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Comptabilisé GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+        ]
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "D3-S5",
+      "name": "d3-dom-after-reversal",
+      "at": "2026-11-06T13:36:31.780Z",
+      "action": "POST /api/rental-payments/:id/reverse as admin (idempotencyKey gaq12b4-rev-0001); backend read-back; /payments DOM re-scrape",
+      "api": {
+        "reverse": 500
+      },
+      "observed": {
+        "backend": {
+          "rentalTotal": null,
+          "postedRent": -4120,
+          "backendOutstanding": null,
+          "naiveOutstandingIfPendingCounted": null,
+          "postedNetAllPayments": -4120,
+          "payments": [
+            {
+              "id": "6aed58d32a25a97a3caeb984",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aedcfe8bcb3c1762c7d3f40",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58b92a25a97a3caeb980",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed57ce3ded07b5f333f939",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed318d257b892b04a8b048",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 120
+            },
+            {
+              "id": "6aedd062bcb3c1762c7d3f43",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d32a25a97a3caeb985",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500
+            },
+            {
+              "id": "6aed58d22a25a97a3caeb982",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed58063ded07b5f333f93f",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 4000
+            },
+            {
+              "id": "6aed35d33ded07b5f333f92a",
+              "status": "posted",
+              "direction": "debit",
+              "amount": 120
+            }
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Comptabilisé GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+        ]
+      },
+      "verdict": "FAIL"
+    },
+    {
+      "n": "D2",
+      "name": "defect-GAQ12B4-D2-fix-applied",
+      "at": "2026-11-06T13:39:07.700Z",
+      "action": "Payments.tsx statusLabel ternary + payments.ts PENDING strings x4 locales",
+      "observed": {
+        "files": [
+          "admin/src/pages/Payments.tsx",
+          "admin/src/lang/payments.ts"
+        ]
+      },
+      "verdict": "APPLIED (build/layer/verify follow)"
+    },
+    {
+      "n": "D3-S3b",
+      "name": "d3-dom-pending-after-D1-D2-fixes",
+      "at": "2026-11-06T13:42:14.720Z",
+      "action": "backend read-back + REAL /payments DOM scrape with payment pending (D1+D2 fixes layered)",
+      "observed": {
+        "backend": {
+          "rentalTotal": 2000,
+          "postedRent": 0,
+          "backendOutstanding": 2000,
+          "naiveOutstandingIfPendingCounted": 1500,
+          "postedNetAllPayments": -4120,
+          "payments": [
+            {
+              "id": "6aedd5c7dc6e9fa38dee0035",
+              "status": "pending",
+              "direction": "credit",
+              "amount": 500,
+              "reversedFrom": null
+            }
+          ]
+        },
+        "domParsed": {
+          "postedNetCard": "-4.120 MAD",
+          "transactionsCard": "11",
+          "overdueTotalCard": "2.949 MAD",
+          "fixtureOverdueRow": "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "fixturePaymentRows": [
+            "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD En attente GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD En attente GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-S4b",
+      "name": "d3-dom-after-confirm",
+      "at": "2026-11-06T13:42:19.784Z",
+      "action": "POST /api/rental-payments/:id/confirm as admin; backend read-back; /payments DOM re-scrape",
+      "api": {
+        "confirm": 200
+      },
+      "observed": {
+        "backend": {
+          "rentalTotal": 2000,
+          "postedRent": 500,
+          "backendOutstanding": 1500,
+          "naiveOutstandingIfPendingCounted": 1500,
+          "postedNetAllPayments": -3620,
+          "payments": [
+            {
+              "id": "6aedd5c7dc6e9fa38dee0035",
+              "status": "posted",
+              "direction": "credit",
+              "amount": 500,
+              "reversedFrom": null
+            }
+          ]
+        },
+        "domParsed": {
+          "postedNetCard": "-3.620 MAD",
+          "transactionsCard": "11",
+          "overdueTotalCard": "2.449 MAD",
+          "fixtureOverdueRow": "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 1.500 MAD 0 MAD 22 oct. 2026",
+          "fixturePaymentRows": [
+            "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Comptabilisé GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 1.500 MAD 0 MAD 22 oct. 2026",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Comptabilisé GAQ12B4-PAY-1 ANNULER LE PAIEMENT"
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-S5b",
+      "name": "d3-dom-after-reversal",
+      "at": "2026-11-06T13:42:24.843Z",
+      "action": "POST /api/rental-payments/:id/reverse as admin (idempotencyKey gaq12b4-rev-0001); backend read-back; /payments DOM re-scrape",
+      "api": {
+        "reverse": 201
+      },
+      "observed": {
+        "reversalId": "6aedd93bdc6e9fa38dee0039",
+        "backend": {
+          "rentalTotal": 2000,
+          "postedRent": 0,
+          "backendOutstanding": 2000,
+          "naiveOutstandingIfPendingCounted": 2000,
+          "postedNetAllPayments": -4120,
+          "payments": [
+            {
+              "id": "6aedd93bdc6e9fa38dee0039",
+              "status": "reversed",
+              "direction": "debit",
+              "amount": 500,
+              "reversedFrom": "6aedd5c7dc6e9fa38dee0035"
+            },
+            {
+              "id": "6aedd5c7dc6e9fa38dee0035",
+              "status": "reversed",
+              "direction": "credit",
+              "amount": 500,
+              "reversedFrom": null
+            }
+          ]
+        },
+        "domParsed": {
+          "postedNetCard": "-4.120 MAD",
+          "transactionsCard": "12",
+          "overdueTotalCard": "2.949 MAD",
+          "fixtureOverdueRow": "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "fixturePaymentRows": [
+            "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Annulé GAQ12B4-PAY-1"
+          ]
+        },
+        "fixtureRows": [
+          "8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 2.000 MAD 0 MAD 22 oct. 2026",
+          "6 nov. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Annulé Reversal of 6aedd5c7dc6e9fa38dee0035",
+          "21 oct. 2026 8DEE0033 GAQ12B4 D3 Renter GAQ12B4 D3 Hatch ·· GAQ12B4-D3 Espèces Solde de location 500 MAD Annulé GAQ12B4-PAY-1"
+        ]
+      },
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-CLEANUP",
+      "name": "d3-cleanup",
+      "at": "2026-11-06T13:44:04.408Z",
+      "action": "reverse payment if live; suspend membership; delete booking/car/location/users by exact ID; read-backs + keyword counts",
+      "observed": {
+        "paymentsFound": [
+          {
+            "id": "6aedd93bdc6e9fa38dee0039",
+            "status": "reversed",
+            "direction": "debit",
+            "amount": 500,
+            "reversedFrom": "6aedd5c7dc6e9fa38dee0035"
+          },
+          {
+            "id": "6aedd5c7dc6e9fa38dee0035",
+            "status": "reversed",
+            "direction": "credit",
+            "amount": 500,
+            "reversedFrom": null
+          }
+        ],
+        "suspendMembership": 200,
+        "deleteBooking": 200,
+        "deleteCar": 200,
+        "deleteLocation": 200,
+        "deleteUsers": 200,
+        "bookingGet": 404,
+        "carGet": 204,
+        "userKeywordRows": 0,
+        "carKeywordRows": 0,
+        "locationKeywordRows": 0,
+        "fixtureMemberships": 0,
+        "paymentsAfterCleanup": []
+      },
+      "residue": [],
+      "verdict": "PASS"
+    },
+    {
+      "n": "D3-AXE",
+      "name": "defect-GAQ12B4-D3-fix-applied",
+      "at": "2026-11-06T13:49:35.296Z",
+      "action": "Header.tsx: both notification IconButtons get aria-label={strings.NOTIFICATIONS}; header.ts: NOTIFICATIONS x4 locales",
+      "observed": {
+        "files": [
+          "admin/src/components/Header.tsx",
+          "admin/src/lang/header.ts"
+        ]
+      },
+      "verdict": "APPLIED (build/layer/axe re-run follow)"
+    }
+  ],
+  "matrix": [],
+  "defects": [
+    {
+      "id": "GAQ12B4-D1",
+      "title": "Admin Payments page crashes (error boundary) whenever any rental payment belongs to a deleted booking",
+      "evidence": "TypeError: Cannot read properties of null (reading _id) at Payments chunk, in the paymentTotals useMemo reduce (Array.reduce). Live data: 10 of 11 payments have booking === null (the annulled B1/B2/B3 residue pairs whose bookings were deleted by exact ID in those slices' cleanups; payments have no delete route). The only live-booking payment is the GAQ12B4 fixture. /bookings renders fine; /payments renders \"Something went wrong.\" deterministically.",
+      "rootCause": "admin/src/pages/Payments.tsx line 115: typeof payment.booking === 'string' ? payment.booking : payment.booking._id - a null (deleted, populate-null) booking takes the object branch and derefs null. The reduce is the one B2 rewrote for D3 (Posted-only guard added at lines 112-114); the deref itself is older, but the crash only became reachable once queue #12 cleanups orphaned payments.",
+      "fix": "One-token null guard: payment.booking?._id (bookingId becomes undefined and the row is skipped by the existing if (bookingId) check, mirroring bookingIdOf/getBooking null handling elsewhere in the same file).",
+      "status": "fixed-in-source; build+layer+re-verify in this slice"
+    },
+    {
+      "id": "GAQ12B4-D2",
+      "title": "Admin Payments table labels PENDING payments as Posted (\"Comptabilisé\")",
+      "evidence": "Payments.tsx statusLabel (line 257) returns strings.POSTED for every status except Reversed. The GAQ12B4 pending payment (API status pending) rendered in the table as \"Comptabilisé\" in all three B4 DOM scrapes, while the totals on the same page correctly excluded it. The pending status exists since the queue #10 confirmation workflow (decision 1.5); the label helper and the lang module only ever carried REVERSED/POSTED.",
+      "rootCause": "Two-state label helper predating the pending workflow; no PENDING string existed in admin/src/lang/payments.ts.",
+      "fix": "statusLabel now maps Pending -> strings.PENDING; PENDING added in en/fr/es/ar (Pending / En attente / Pendiente / قيد الانتظار). Display-only; totals logic untouched.",
+      "status": "fixed-in-source; build+layer+re-verify in this slice"
+    },
+    {
+      "id": "GAQ12B4-D3",
+      "title": "Header notifications IconButton has no accessible name (axe button-name, critical) on every admin surface",
+      "evidence": "B4 axe sweep (queue #10 method, axe-core 4.10.2): fr and ar both report exactly 1 critical button-name node per admin surface (7/7), target .header-mobile > .MuiIconButton-root:nth-child(1); manual probe interactiveNoName=1 per surface. Desktop variant carries aria-label=\"\" (empty), mobile variant carries no aria-label; the button contains only a Badge + SVG icon.",
+      "rootCause": "Pre-existing upstream BookCars header code - git shows Header.tsx identical to HEAD for these lines; no queue #10/#12 change introduced or touched them. The queue #10 sweep ran at a desktop viewport where .header-mobile is display:none, so the node was never visible to axe; the B4 sweep tab renders the mobile header, and B4 also adds the first ar admin pass. NOT a queue #12 regression.",
+      "fix": "aria-label={strings.NOTIFICATIONS} on both notification IconButtons; NOTIFICATIONS added to admin/src/lang/header.ts in fr/ar/en/es (Notifications / الإشعارات / Notifications / Notificaciones).",
+      "status": "fixed-in-source; build+layer+axe re-run in this slice"
+    }
+  ],
+  "observations": [],
+  "notes": []
+}

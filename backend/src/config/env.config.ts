@@ -385,6 +385,16 @@ export const ADMIN_HOST = __env__('BC_ADMIN_HOST', true)
 export const FRONTEND_HOST = __env__('BC_FRONTEND_HOST', true)
 
 /**
+ * Public base URL of this API, used to build links emailed to users
+ * (e.g. the confirm-email link). Optional on purpose (H-006): when it is
+ * not configured, no emailed API link is generated at all — the code fails
+ * safe instead of building the link from the untrusted request Host header.
+ *
+ * @type {string}
+ */
+export const API_HOST = __env__('BC_API_HOST', false, '')
+
+/**
  * Default language. Default is en. Available options: en, fr, es.
  *
  * @type {string}
@@ -588,6 +598,8 @@ export interface User extends Document {
   birthDate?: Date
   verified?: boolean
   verifiedAt?: Date
+  signupOrigin?: 'self' | 'admin'
+  tokenVersion?: number
   active?: boolean
   language: string
   enableEmailNotifications?: boolean
@@ -813,6 +825,9 @@ export interface CashMovement extends Document {
   direction: bookcarsTypes.CashMovementDirection
   amount: number
   source: bookcarsTypes.CashMovementSource
+  status: 'pending' | 'confirmed'
+  confirmedBy?: Types.ObjectId
+  confirmedAt?: Date
   idempotencyKey?: string
   transferId?: Types.ObjectId
   reference?: string
@@ -880,6 +895,8 @@ export interface RentalPayment extends Document {
   idempotencyKey?: string
   providerReference?: string
   actor?: Types.ObjectId
+  confirmedBy?: Types.ObjectId
+  confirmedAt?: Date
   reversedFrom?: Types.ObjectId
   settledAt?: Date
   reference?: string
@@ -1162,6 +1179,20 @@ export interface Token extends Document {
   user: Types.ObjectId
   token: string
   expireAt?: Date
+}
+
+/**
+ * RevokedSession Document (H-007 sign-out denylist entry).
+ *
+ * @export
+ * @interface RevokedSession
+ * @typedef {RevokedSession}
+ * @extends {Document}
+ */
+export interface RevokedSession extends Document {
+  sid: string
+  user: Types.ObjectId
+  expireAt: Date
 }
 
 /**

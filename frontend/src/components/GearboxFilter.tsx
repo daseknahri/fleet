@@ -137,7 +137,7 @@ const GearboxFilter = ({
     <Accordion title={strings.GEARBOX} collapse={collapse} className={`${className ? `${className} ` : ''}gearbox-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={automaticRef} type="checkbox" className="gearbox-checkbox" onChange={handleCheckAutomaticChange} />
+          <input ref={automaticRef} type="checkbox" className="gearbox-checkbox" onChange={handleCheckAutomaticChange} aria-label={strings.GEARBOX_AUTOMATIC} />
           <span
             onClick={handleAutomaticClick}
             role="button"
@@ -147,7 +147,7 @@ const GearboxFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={manualRef} type="checkbox" className="gearbox-checkbox" onChange={handleCheckManualChange} />
+          <input ref={manualRef} type="checkbox" className="gearbox-checkbox" onChange={handleCheckManualChange} aria-label={strings.GEARBOX_MANUAL} />
           <span
             onClick={handleManualClick}
             role="button"

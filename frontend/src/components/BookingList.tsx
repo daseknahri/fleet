@@ -23,7 +23,7 @@ import {
   Cancel as CancelIcon
 } from '@mui/icons-material'
 import { format } from 'date-fns'
-import { fr as dfnsFR, enUS as dfnsENUS, es as dfnsES } from 'date-fns/locale'
+import { fr as dfnsFR, enUS as dfnsENUS, es as dfnsES, arMA as dfnsARMA } from 'date-fns/locale'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import SafeImage from '@/components/SafeImage'
@@ -241,9 +241,10 @@ const BookingList = ({
       },
       {
         field: 'action',
-        headerName: '',
+        headerName: commonStrings.ACTIONS,
         sortable: false,
         disableColumnMenu: true,
+        renderHeader: () => <span className="sr-only">{commonStrings.ACTIONS}</span>,
         renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.Booking>) => {
           const cancelBooking = (e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation() // don't select this row after clicking
@@ -382,7 +383,8 @@ const BookingList = ({
 
   const _fr = language === 'fr'
   const _es = language === 'es'
-  const _locale = _fr ? dfnsFR : _es ? dfnsES : dfnsENUS
+  const _ar = language === 'ar'
+  const _locale = _fr ? dfnsFR : _es ? dfnsES : _ar ? dfnsARMA : dfnsENUS
   const _format = _fr ? 'eee d LLL yyyy kk:mm' : 'eee, d LLL yyyy, p'
   const bookingDetailHeight = env.SUPPLIER_IMAGE_HEIGHT + 10
 

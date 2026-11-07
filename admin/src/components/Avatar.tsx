@@ -570,6 +570,14 @@ const Avatar = ({
                       borderRadius: '50%',
                     }}
                     className="avatar-action-box"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleDeleteAvatar(e as unknown as React.MouseEvent<HTMLElement>)
+                      }
+                    }}
                     onClick={handleDeleteAvatar}
                   >
                     <DeleteIcon className="avatar-action-icon" />
@@ -592,6 +600,14 @@ const Avatar = ({
                       borderRadius: '50%',
                     }}
                     className="avatar-action-box"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleUpload()
+                      }
+                    }}
                     onClick={handleUpload}
                   >
                     <PhotoCameraIcon className="avatar-action-icon" />
@@ -674,6 +690,14 @@ const Avatar = ({
                       borderRadius: '50%',
                     }}
                     className="avatar-action-box"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleUpload()
+                      }
+                    }}
                     onClick={handleUpload}
                   >
                     <PhotoCameraIcon className="avatar-action-icon" />

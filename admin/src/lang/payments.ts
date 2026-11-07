@@ -13,7 +13,7 @@ const strings = new LocalizedStrings({
     REMAINING: 'Remaining for selected purpose', PURPOSE_FIELD: 'Payment purpose', RENT: 'Rental balance', DEPOSIT: 'Refundable deposit', REFUNDABLE: 'refundable',
     RECEIVABLES: 'Receivables', OVERDUE: 'Overdue receivables', OUTSTANDING: 'Outstanding', NO_OVERDUE: 'No overdue receivables.',
     REVERSE: 'Reverse payment', REVERSE_DEPOSIT: 'Refund deposit', REVERSE_CONFIRM: 'This creates an auditable debit reversal. Continue?',
-    REVERSED: 'Reversed', POSTED: 'Posted',
+    REVERSED: 'Reversed', POSTED: 'Posted', PENDING: 'Pending',
   },
   fr: {
     EYEBROW: 'FINANCE', TITLE: 'Paiements', SUBTITLE: 'Enregistrez et consultez les paiements reçus pour les contrats.',
@@ -26,7 +26,7 @@ const strings = new LocalizedStrings({
     REMAINING: 'Reste pour le motif sélectionné', PURPOSE_FIELD: 'Motif du paiement', RENT: 'Solde de location', DEPOSIT: 'Dépôt de garantie remboursable', REFUNDABLE: 'remboursable',
     RECEIVABLES: 'Créances', OVERDUE: 'Créances en retard', OUTSTANDING: 'Solde dû', NO_OVERDUE: 'Aucune créance en retard.',
     REVERSE: 'Annuler le paiement', REVERSE_DEPOSIT: 'Rembourser le dépôt', REVERSE_CONFIRM: 'Cette action crée une écriture de débit auditable. Continuer ?',
-    REVERSED: 'Annulé', POSTED: 'Comptabilisé',
+    REVERSED: 'Annulé', POSTED: 'Comptabilisé', PENDING: 'En attente',
   },
   es: {
     EYEBROW: 'FINANZAS', TITLE: 'Pagos', SUBTITLE: 'Registra y consulta los pagos recibidos por contrato.',
@@ -39,7 +39,7 @@ const strings = new LocalizedStrings({
     REMAINING: 'Pendiente del concepto seleccionado', PURPOSE_FIELD: 'Concepto del pago', RENT: 'Saldo del alquiler', DEPOSIT: 'Depósito reembolsable', REFUNDABLE: 'reembolsable',
     RECEIVABLES: 'Cuentas por cobrar', OVERDUE: 'Cuentas vencidas', OUTSTANDING: 'Pendiente', NO_OVERDUE: 'No hay cuentas vencidas.',
     REVERSE: 'Revertir pago', REVERSE_DEPOSIT: 'Reembolsar depósito', REVERSE_CONFIRM: 'Esto crea una reversión de débito auditable. ¿Continuar?',
-    REVERSED: 'Revertido', POSTED: 'Contabilizado',
+    REVERSED: 'Revertido', POSTED: 'Contabilizado', PENDING: 'Pendiente',
   },
   ar: {
     EYEBROW: 'المالية', TITLE: 'المدفوعات', SUBTITLE: 'سجل وراجع المدفوعات المستلمة مقابل عقود التأجير.',
@@ -52,7 +52,7 @@ const strings = new LocalizedStrings({
     REMAINING: 'المتبقي للغرض المحدد', PURPOSE_FIELD: 'غرض الدفع', RENT: 'رصيد التأجير', DEPOSIT: 'وديعة قابلة للاسترداد', REFUNDABLE: 'قابل للاسترداد',
     RECEIVABLES: 'الذمم المدينة', OVERDUE: 'الذمم المتأخرة', OUTSTANDING: 'المبلغ المستحق', NO_OVERDUE: 'لا توجد ذمم متأخرة.',
     REVERSE: 'عكس الدفعة', REVERSE_DEPOSIT: 'استرداد الوديعة', REVERSE_CONFIRM: 'سيؤدي ذلك إلى إنشاء قيد عكسي قابل للتدقيق. هل تريد المتابعة؟',
-    REVERSED: 'معكوسة', POSTED: 'مرحّلة',
+    REVERSED: 'معكوسة', POSTED: 'مرحّلة', PENDING: 'قيد الانتظار',
   },
 })
 

@@ -6,10 +6,10 @@ import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
 
 export const schema = z.object({
-  fullName: z.string(),
-  email: z.string().refine((value) => !value || isEmail(value), { message: commonStrings.EMAIL_NOT_VALID }),
-  phone: z.string().refine((value) => !value || isMobilePhone(value), { message: commonStrings.PHONE_NOT_VALID }),
-  birthDate: z.date().refine((value) => {
+  fullName: z.string().min(1, { message: commonStrings.REQUIRED_FIELD }),
+  email: z.string().refine((value) => isEmail(value), { message: commonStrings.EMAIL_NOT_VALID }),
+  phone: z.string().refine((value) => isMobilePhone(value), { message: commonStrings.PHONE_NOT_VALID }),
+  birthDate: z.date({ message: commonStrings.REQUIRED_FIELD }).refine((value) => {
     const sub = intervalToDuration({ start: value, end: new Date() }).years ?? 0
     return sub >= env.MINIMUM_AGE
   }, { message: commonStrings.BIRTH_DATE_NOT_VALID }),

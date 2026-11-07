@@ -187,7 +187,7 @@ const CarSeatsFilter = ({
     <Accordion title={strings.SEATS} collapse={collapse} className={`${className ? `${className} ` : ''}seats-filter`}>
       <div className="filter-elements">
         <div className="filter-element">
-          <input ref={twoRef} type="radio" className="seats-checkbox" onChange={handleCheckTwoChange} />
+          <input ref={twoRef} type="radio" className="seats-checkbox" onChange={handleCheckTwoChange} aria-label={strings.TWO} />
           <span
             onClick={handleTwoClick}
             role="button"
@@ -197,7 +197,7 @@ const CarSeatsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={fourRef} type="radio" className="seats-checkbox" onChange={handleCheckFourChange} />
+          <input ref={fourRef} type="radio" className="seats-checkbox" onChange={handleCheckFourChange} aria-label={strings.FOUR} />
           <span
             onClick={handleFourClick}
             role="button"
@@ -207,7 +207,7 @@ const CarSeatsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={fiveRef} type="radio" className="seats-checkbox" onChange={handleCheckFiveChange} />
+          <input ref={fiveRef} type="radio" className="seats-checkbox" onChange={handleCheckFiveChange} aria-label={strings.FIVE} />
           <span
             onClick={handleFiveClick}
             role="button"
@@ -217,7 +217,7 @@ const CarSeatsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={fivePlusRef} type="radio" className="seats-checkbox" onChange={handleCheckFivePlusChange} />
+          <input ref={fivePlusRef} type="radio" className="seats-checkbox" onChange={handleCheckFivePlusChange} aria-label={strings.FIVE_PLUS} />
           <span
             onClick={handleFivePlusClick}
             role="button"
@@ -227,7 +227,7 @@ const CarSeatsFilter = ({
           </span>
         </div>
         <div className="filter-element">
-          <input ref={anyRef} type="radio" className="seats-checkbox" onChange={handleAnyChange} />
+          <input ref={anyRef} type="radio" className="seats-checkbox" onChange={handleAnyChange} aria-label={commonStrings.ANY} />
           <span
             onClick={handleAnyClick}
             role="button"

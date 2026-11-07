@@ -5,6 +5,7 @@ import Approval from '../models/Approval'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
+import ContractCharge from '../models/ContractCharge'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 export const list = async (req: Request, res: Response) => {
@@ -43,9 +44,24 @@ export const decide = async (req: Request, res: Response) => {
     if (!approval) {
  res.sendStatus(404); return 
 }
+    // Owner decision 1.4 (GA-P10-DECISIONS-01): a single decider, and the
+    // requester can never decide their own request.
+    if (approval.requestedBy && approval.requestedBy.toString() === user._id.toString()) {
+ res.status(403).send('The requester cannot decide their own approval request'); return 
+}
     approval.status = decision === 'approved' ? bookcarsTypes.ApprovalDecision.Approved : bookcarsTypes.ApprovalDecision.Rejected
     approval.decidedBy = new mongoose.Types.ObjectId(user._id); approval.decidedAt = new Date(); approval.reason = String(reason || '').trim()
-    await approval.save(); res.json(approval)
+    await approval.save()
+    // Contract charges decided here also settle their domain record, so
+    // the queue decision and the charge workflow never diverge.
+    if (approval.subjectType === 'contract-charge' && mongoose.isValidObjectId(approval.subject)) {
+      const charge = await ContractCharge.findOne({ _id: approval.subject, supplier: approval.supplier, status: bookcarsTypes.ApprovalDecision.Pending })
+      if (charge) {
+        charge.status = approval.status; charge.decidedBy = approval.decidedBy; charge.decidedAt = approval.decidedAt; charge.decisionNote = approval.reason || undefined
+        await charge.save()
+      }
+    }
+    res.json(approval)
   } catch (err) {
  logger.error('[approval.decide]', err); res.status(400).send(i18n.t('ERROR')) 
 }

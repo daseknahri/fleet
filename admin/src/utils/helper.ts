@@ -466,7 +466,7 @@ export const getBookingStatusBackgroundColor = (status?: bookcarsTypes.BookingSt
       return '#D1F9D1'
 
     case bookcarsTypes.BookingStatus.PaidInFull:
-      return '#77BC23'
+      return '#518018'
 
     case bookcarsTypes.BookingStatus.Reserved:
       return '#D9E7F4'
@@ -488,22 +488,25 @@ export const getBookingStatusBackgroundColor = (status?: bookcarsTypes.BookingSt
 export const getBookingStatusTextColor = (status?: bookcarsTypes.BookingStatus) => {
   switch (status) {
     case bookcarsTypes.BookingStatus.Void:
-      return '#6E7C86'
+      return '#555F67'
 
     case bookcarsTypes.BookingStatus.Pending:
-      return '#EF6C00'
+      return '#A24900'
 
     case bookcarsTypes.BookingStatus.Deposit:
-      return '#3CB371'
+      return '#267248'
 
     case bookcarsTypes.BookingStatus.Paid:
-      return '#77BC23'
+      return '#4B7716'
+
+    case bookcarsTypes.BookingStatus.PaidInFull:
+      return '#FFFFFF'
 
     case bookcarsTypes.BookingStatus.Reserved:
-      return '#1E88E5'
+      return '#1465AD'
 
     case bookcarsTypes.BookingStatus.Cancelled:
-      return '#E53935'
+      return '#C41D19'
 
     default:
       return ''

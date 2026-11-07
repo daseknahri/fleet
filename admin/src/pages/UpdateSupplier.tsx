@@ -19,6 +19,7 @@ import Layout from '@/components/Layout'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/create-supplier'
+import { visuallyHidden } from '@mui/utils'
 import * as SupplierService from '@/services/SupplierService'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
@@ -240,6 +241,7 @@ const UpdateSupplier = () => {
       {visible && (
         <div className="update-supplier">
           <Paper className="supplier-form-update" elevation={10}>
+            <h1 style={visuallyHidden}>{csStrings.UPDATE_SUPPLIER_HEADING}</h1>
             <form onSubmit={handleSubmit(onSubmit, onError)}>
               <Avatar
                 type={bookcarsTypes.RecordType.Supplier}
@@ -480,6 +482,7 @@ const UpdateSupplier = () => {
         </div>
       )}
       {loading && <Backdrop text={commonStrings.PLEASE_WAIT} />}
+      {submitError && !visible && <Error message={commonStrings.GENERIC_ERROR} />}
       {noMatch && <NoMatch hideHeader />}
     </Layout>
   )

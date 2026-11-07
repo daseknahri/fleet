@@ -6,10 +6,10 @@ import { strings as commonStrings } from '@/lang/common'
 
 
 export const schema = z.object({
-  fullName: z.string(),
+  fullName: z.string().min(1, { message: commonStrings.REQUIRED_FIELD }),
   email: z.string().email({ message: commonStrings.EMAIL_NOT_VALID }),
   phone: z.string().refine(isMobilePhone, { message: commonStrings.PHONE_NOT_VALID }),
-  birthDate: z.date().refine((value) => {
+  birthDate: z.date({ message: commonStrings.REQUIRED_FIELD }).refine((value) => {
     const sub = intervalToDuration({ start: value, end: new Date() }).years ?? 0
     return sub >= env.MINIMUM_AGE
   }, { message: commonStrings.BIRTH_DATE_NOT_VALID }),

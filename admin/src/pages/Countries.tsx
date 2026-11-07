@@ -35,6 +35,7 @@ const Countries = () => {
   return (
     <Layout onLoad={onLoad} strict>
       <div className="countries">
+        <h1 className="sr-only">{strings.COUNTRIES}</h1>
         <div className="col-1">
           <div className="col-1-container">
             <Search className="search" onSubmit={handleSearch} />

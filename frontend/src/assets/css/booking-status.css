@@ -26,63 +26,63 @@ div.booking-status span.bs {
 
 div.booking-status span.bs-void {
   background: #D9D9D9;
-  color: #6E7C86;
+  color: #525D64;
 }
 
 div.booking-status .bs-icon-void {
-  color: #6E7C86;
+  color: #525D64;
 }
 
 div.booking-status span.bs-pending {
   background: #FBDCC2;
-  color: #EF6C00;
+  color: #9B4600;
 }
 
 div.booking-status .bs-icon-pending {
-  color: #EF6C00;
+  color: #9B4600;
 }
 
 div.booking-status span.bs-deposit {
   background: #CDECDA;
-  color: #3CB371;
+  color: #246B44;
 }
 
 div.booking-status .bs-icon-deposit {
-  color: #3CB371;
+  color: #246B44;
 }
 
 div.booking-status span.bs-paid {
   background: #D1F9D1;
-  color: #77BC23;
+  color: #477115;
 }
 
 div.booking-status .bs-icon-paid {
-  color: #77BC23;
+  color: #477115;
 }
 
 div.booking-status span.bs-paidinfull {
-  background: #77BC23;
+  background: #4D7A17;
   color: #FFF;
 }
 
 div.booking-status .bs-icon-paidinfull {
-  color: #77BC23;
+  color: #4D7A17;
 }
 
 div.booking-status span.bs-reserved {
   background: #D9E7F4;
-  color: #1E88E5;
+  color: #1666AC;
 }
 
 div.booking-status .bs-icon-reserved {
-  color: #1E88E5;
+  color: #1666AC;
 }
 
 div.booking-status span.bs-cancelled {
   background: #FBDFDE;
-  color: #E53935;
+  color: #B72E2A;
 }
 
 div.booking-status .bs-icon-cancelled {
-  color: #E53935;
+  color: #B72E2A;
 }

@@ -5,6 +5,7 @@ import * as langHelper from '@/utils/langHelper'
 const strings = new LocalizedStrings({
   fr: {
     NEW_CAR_HEADING: 'Nouvelle voiture',
+    UPDATE_CAR_HEADING: 'Modifier la voiture',
     NAME: 'Nom',
     LICENSE_PLATE: 'Plaque d\'immatriculation',
     LICENSE_PLATE_ALREADY_EXISTS: 'Cette plaque d\'immatriculation existe déjà.',
@@ -42,6 +43,7 @@ const strings = new LocalizedStrings({
   },
   en: {
     NEW_CAR_HEADING: 'New car',
+    UPDATE_CAR_HEADING: 'Update car',
     NAME: 'Name',
     LICENSE_PLATE: 'License Plate',
     LICENSE_PLATE_ALREADY_EXISTS: 'This license plate already exists.',
@@ -79,6 +81,7 @@ const strings = new LocalizedStrings({
   },
   ar: {
     NEW_CAR_HEADING: 'سيارة جديدة',
+    UPDATE_CAR_HEADING: 'تعديل السيارة',
     NAME: 'الاسم',
     LICENSE_PLATE: 'لوحة الترخيص',
     LICENSE_PLATE_ALREADY_EXISTS: 'لوحة الترخيص هذه موجودة بالفعل.',
@@ -116,6 +119,7 @@ const strings = new LocalizedStrings({
   },
   es: {
     NEW_CAR_HEADING: 'Nuevo coche',
+    UPDATE_CAR_HEADING: 'Actualizar coche',
     NAME: 'Nombre',
     LICENSE_PLATE: 'Matrícula',
     LICENSE_PLATE_ALREADY_EXISTS: 'Esta matrícula ya existe.',

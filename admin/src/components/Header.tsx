@@ -212,8 +212,15 @@ const Header = ({
     const init = async () => {
       if (!hidden) {
         if (currentUser) {
-          const _bankDetails = await BankDetailsService.getBankDetails()
-          setBankDetails(_bankDetails)
+          // H-022 (hardening Wave 4): the backend serves bank details to
+          // admin and supplier accounts only (authSupplier). Staff sessions
+          // must not fire this request - it returned a 403 console error on
+          // every admin page. The menu entry stays hidden for them, exactly
+          // as the endpoint's gate intends.
+          if (currentUser.type === bookcarsTypes.UserType.Admin || currentUser.type === bookcarsTypes.UserType.Supplier) {
+            const _bankDetails = await BankDetailsService.getBankDetails()
+            setBankDetails(_bankDetails)
+          }
 
           setIsSignedIn(true)
           setIsLoaded(true)
@@ -496,7 +503,7 @@ const Header = ({
           <div style={classes.grow} />
           <div className="header-desktop">
             {isSignedIn && (
-              <IconButton aria-label="" color="inherit" onClick={handleNotificationsClick}>
+              <IconButton aria-label={strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                   <NotificationsIcon />
                 </Badge>
@@ -520,7 +527,7 @@ const Header = ({
               </Button>
             )}
             {isSignedIn && (
-              <IconButton color="inherit" onClick={handleNotificationsClick}>
+              <IconButton aria-label={strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                   <NotificationsIcon />
                 </Badge>
