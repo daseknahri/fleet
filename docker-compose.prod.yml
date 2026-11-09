@@ -52,6 +52,7 @@ services:
       BC_DB_URI: mongodb://admin:${SERVICE_PASSWORD_MONGO}@mongo:27017/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0
       BC_JWT_SECRET: ${SERVICE_BASE64_64_JWT}
       BC_COOKIE_SECRET: ${SERVICE_BASE64_64_COOKIE}
+      BC_AUTH_COOKIE_DOMAIN: ibnbatoutaweb.com
       BC_SMTP_HOST: mailpit
       BC_SMTP_PORT: "1025"
       BC_SMTP_USER: mailpit
