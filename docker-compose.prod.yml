@@ -16,12 +16,12 @@ services:
     restart: always
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_PASSWORD: ${SERVICE_PASSWORD_MONGO}
     volumes:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --username admin --password ${MONGO_ROOT_PASSWORD} --authenticationDatabase admin --eval \"try { rs.status().ok } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\" | grep -q 1"]
+      test: ["CMD-SHELL", "mongosh --quiet --username admin --password ${SERVICE_PASSWORD_MONGO} --authenticationDatabase admin --eval \"try { rs.status().ok } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -47,9 +47,9 @@ services:
       BC_API_HOST: https://api.gestionauto.ibnbatoutaweb.com
       BC_ADMIN_HOST: https://admin.gestionauto.ibnbatoutaweb.com
       BC_FRONTEND_HOST: https://gestionauto.ibnbatoutaweb.com
-      BC_DB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD}@mongo:27017/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0
-      BC_JWT_SECRET: ${BC_JWT_SECRET}
-      BC_COOKIE_SECRET: ${BC_COOKIE_SECRET}
+      BC_DB_URI: mongodb://admin:${SERVICE_PASSWORD_MONGO}@mongo:27017/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0
+      BC_JWT_SECRET: ${SERVICE_BASE64_64_JWT}
+      BC_COOKIE_SECRET: ${SERVICE_BASE64_64_COOKIE}
       BC_SMTP_HOST: mailpit
       BC_SMTP_PORT: "1025"
       BC_SMTP_USER: ""
