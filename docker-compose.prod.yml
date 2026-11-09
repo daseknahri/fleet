@@ -54,8 +54,8 @@ services:
       BC_COOKIE_SECRET: ${SERVICE_BASE64_64_COOKIE}
       BC_SMTP_HOST: mailpit
       BC_SMTP_PORT: "1025"
-      BC_SMTP_USER: ""
-      BC_SMTP_PASS: ""
+      BC_SMTP_USER: mailpit
+      BC_SMTP_PASS: mailpit
     restart: always
     depends_on:
       mongo:
