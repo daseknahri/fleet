@@ -18,6 +18,7 @@ import {
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import env from '@/config/env.config'
+import { strings as commonStrings } from '@/lang/common'
 
 import '@/assets/css/multiple-select.css'
 
@@ -79,6 +80,7 @@ const MultipleSelect = ({
 }: MultipleSelectProps) => {
   const [values, setValues] = useState<any[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [showRequiredError, setShowRequiredError] = useState(false)
 
   if (!options) {
     options = []
@@ -87,6 +89,9 @@ const MultipleSelect = ({
   useEffect(() => {
     if (selectedOptions) {
       setValues(selectedOptions)
+    }
+    if (selectedOptions && selectedOptions.length > 0) {
+      setShowRequiredError(false)
     }
     if (selectedOptions && selectedOptions.length === 0) {
       setInputValue('')
@@ -106,6 +111,9 @@ const MultipleSelect = ({
             return
           }
           key = key || ''
+          if (newValue && (multiple ? newValue.length > 0 : true)) {
+            setShowRequiredError(false)
+          }
           if (multiple) {
             setValues(newValue)
             if (callbackFromMultipleSelect) {
@@ -140,6 +148,12 @@ const MultipleSelect = ({
         renderInput={(params) => {
           const { inputProps } = params
           inputProps.autoComplete = 'off'
+          inputProps.onInvalid = (e) => {
+            e.preventDefault()
+            if (required) {
+              setShowRequiredError(true)
+            }
+          }
 
           if (type === bookcarsTypes.RecordType.User && !multiple && values.length === 1 && values[0]) {
             const option = values[0]
@@ -285,6 +299,8 @@ const MultipleSelect = ({
               label={label}
               variant={variant || 'outlined'}
               required={required && values && values.length === 0}
+              error={!!(required && showRequiredError && values.length === 0)}
+              helperText={required && showRequiredError && values.length === 0 ? commonStrings.REQUIRED : undefined}
             />
           )
         }}

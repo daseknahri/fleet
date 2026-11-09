@@ -16,6 +16,8 @@ import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/cars'
@@ -45,6 +47,8 @@ import '@/assets/css/create-car.css'
 
 const UpdateCar = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageFleet)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [isSupplier, setIsSupplier] = useState(false)
@@ -348,6 +352,15 @@ const UpdateCar = () => {
         setNoMatch(true)
       }
     }
+  }
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
   }
 
   return (

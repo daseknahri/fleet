@@ -3,6 +3,8 @@ import { Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent,
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import * as MaintenanceExpenseService from '@/services/MaintenanceExpenseService'
 import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as CashService from '@/services/CashService'
@@ -59,6 +61,10 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: '
 const accountName = (account: bookcarsTypes.CashAccountType) => (account === bookcarsTypes.CashAccountType.Bank ? strings.BANK_ACCOUNT : strings.CASH)
 
 const CashJournal = () => {
+  const agencyPermissions = useAgencyPermissions()
+  const cashDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadCash)
+  const canManageCash = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageCash)
+  const canRecordCash = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.RecordCash)
   const [user, setUser] = useState<bookcarsTypes.User | null>(null)
   const [agencies, setAgencies] = useState<bookcarsTypes.User[]>([])
   const [agencyId, setAgencyId] = useState('')
@@ -94,6 +100,8 @@ const CashJournal = () => {
   const isAdmin = user?.type === bookcarsTypes.RecordType.Admin
   const supplierScope = isAdmin ? (agencyId || undefined) : undefined
   const canMutate = !isAdmin || !!supplierScope
+  const canMutateCash = canMutate && canManageCash
+  const canAddMovement = canMutate && (canManageCash || canRecordCash)
 
   const onLoad = useCallback(async (currentUser?: bookcarsTypes.User) => {
     if (!currentUser) {
@@ -330,6 +338,7 @@ const CashJournal = () => {
 
   return (
     <Layout strict onLoad={onLoad}>
+      {cashDenied ? <AccessDenied /> : (
       <div className="agency-cash">
         <div className="agency-cash__heading">
           <Typography component="p" className="agency-cash__eyebrow">{strings.EYEBROW}</Typography>
@@ -343,7 +352,7 @@ const CashJournal = () => {
             {otherCurrent ? <span>{`${accountName(otherAccount)} · ${strings.SESSION_OPEN}`}</span> : null}
             <span>{session ? `${accountName(session.account)} · ${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
             {session && <span className="agency-cash__session-balances">{strings.OPENING_BALANCE}: {formatAmount(session.openingBalance)} · {strings.EXPECTED}: {session.expectedClosingBalance === undefined ? '—' : formatAmount(session.expectedClosingBalance)} · {strings.COUNTED_BALANCE}: {session.countedClosingBalance === undefined ? '—' : formatAmount(session.countedClosingBalance)} · {strings.DISCREPANCY}: {session.discrepancy === undefined ? '—' : formatAmount(session.discrepancy)}</span>}
-            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canMutate} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutate} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutate} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <Button disabled={!canMutate} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button>}
+            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button>}
           </div>
         </div>
         {loadError && <Alert severity="error" className="agency-cash__alert">{strings.LOAD_ERROR}</Alert>}
@@ -397,6 +406,7 @@ const CashJournal = () => {
           <DialogActions><Button onClick={() => setTransferDialog(false)}>{strings.CANCEL}</Button><Button variant="contained" onClick={saveTransfer}>{strings.SAVE}</Button></DialogActions>
         </Dialog>
       </div>
+      )}
     </Layout>
   )
 }

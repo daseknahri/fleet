@@ -9,6 +9,7 @@ import { strings } from '@/lang/cars'
 import { strings as commonStrings } from '@/lang/common'
 import * as SupplierService from '@/services/SupplierService'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import Search from '@/components/Search'
 import InfoBox from '@/components/InfoBox'
 import SupplierFilter from '@/components/SupplierFilter'
@@ -30,6 +31,8 @@ import '@/assets/css/cars.css'
 
 const Cars = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageFleet = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageFleet)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [admin, setAdmin] = useState(false)
@@ -185,9 +188,11 @@ const Cars = () => {
             <div className="col-1-container">
               <Search onSubmit={handleSearch} className="search" />
 
-              <Button type="submit" variant="contained" className="btn-primary new-car" size="small" onClick={() => navigate('/create-car')}>
-                {strings.NEW_CAR}
-              </Button>
+              {canManageFleet && (
+                <Button type="submit" variant="contained" className="btn-primary new-car" size="small" onClick={() => navigate('/create-car')}>
+                  {strings.NEW_CAR}
+                </Button>
+              )}
 
               {rowCount > 0 && <InfoBox value={`${bookcarsHelper.formatNumber(rowCount, language)} ${rowCount > 1 ? commonStrings.CARS : commonStrings.CAR}`} className="car-count" />}
 

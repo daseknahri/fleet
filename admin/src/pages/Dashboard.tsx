@@ -20,6 +20,7 @@ import KeyRoundedIcon from '@mui/icons-material/KeyRounded'
 import { Booking, BookingStatus, Car, User } from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import * as BookingService from '@/services/BookingService'
 import * as CarService from '@/services/CarService'
 import * as SupplierService from '@/services/SupplierService'
@@ -61,6 +62,8 @@ const formatDate = (value: Date) => new Intl.DateTimeFormat(
 }).format(new Date(value))
 
 const Dashboard = () => {
+  const agencyPermissions = useAgencyPermissions()
+  const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
   const navigate = useNavigate()
   const [data, setData] = useState<DashboardData>({ bookings: [], cars: [] })
   const [loading, setLoading] = useState(true)
@@ -140,14 +143,16 @@ const Dashboard = () => {
               {strings.SUBTITLE}
             </Typography>
           </div>
-          <Button
-            variant="contained"
-            startIcon={<AddRoundedIcon />}
-            onClick={() => navigate('/create-booking')}
-            className="agency-dashboard__primary-action"
-          >
-            {strings.NEW_BOOKING}
-          </Button>
+          {canManageBookings && (
+            <Button
+              variant="contained"
+              startIcon={<AddRoundedIcon />}
+              onClick={() => navigate('/create-booking')}
+              className="agency-dashboard__primary-action"
+            >
+              {strings.NEW_BOOKING}
+            </Button>
+          )}
         </Box>
 
         {loadError && (
@@ -206,7 +211,7 @@ const Dashboard = () => {
                 <div className="agency-dashboard__empty">
                   <EventAvailableRoundedIcon />
                   <Typography>{strings.EMPTY_BOOKINGS}</Typography>
-                  <Button onClick={() => navigate('/create-booking')}>{strings.CREATE_BOOKING}</Button>
+                  {canManageBookings && <Button onClick={() => navigate('/create-booking')}>{strings.CREATE_BOOKING}</Button>}
                 </div>
               ) : (
                 <div className="agency-dashboard__booking-list">

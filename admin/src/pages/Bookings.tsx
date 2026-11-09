@@ -4,6 +4,7 @@ import { Button } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import env from '@/config/env.config'
 import { strings } from '@/lang/bookings'
 import * as helper from '@/utils/helper'
@@ -17,6 +18,8 @@ import '@/assets/css/bookings.css'
 
 const Bookings = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [leftPanel, setLeftPanel] = useState(false)
@@ -79,9 +82,11 @@ const Bookings = () => {
           <div className="col-1">
             {leftPanel && (
               <>
-                <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
-                  {strings.NEW_BOOKING}
-                </Button>
+                {canManageBookings && (
+                  <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
+                    {strings.NEW_BOOKING}
+                  </Button>
+                )}
                 {admin
                   && (
                     <SupplierFilter

@@ -36,7 +36,7 @@ const strings = new LocalizedStrings({
     PAYMENT_FAILED: 'Paiement échoué.',
     CHECKING: 'Vérification en cours...',
     LICENSE_REQUIRED: 'Permis de conduire requis',
-    PRICE_FOR: 'Pix pour',
+    PRICE_FOR: 'Prix pour',
     DAY: 'jour',
     PICK_UP_CHECKLIST_TITLE: 'Tout sur votre prise en charge',
     PICK_UP_CHECKLIST_ARRIVE_ON_TIME_TITLE: "Arrivez à l'heure",

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import {
   DataGrid,
   GridColDef,
   GridRenderCellParams,
   GridRowId,
+  GridLocaleText,
 } from '@mui/x-data-grid'
 import {
   Tooltip,
@@ -19,6 +21,7 @@ import {
   Badge,
   Box
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -52,6 +55,17 @@ const UserList = ({
   onLoad
 }: UserListProps) => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageClients = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageClients)
+  const theme = useTheme()
+  // MUI X takes a localeText prop as a wholesale replacement of the theme's
+  // MuiDataGrid localeText (the per-language locale wired in main.tsx), so the
+  // theme locale is merged back in here and only the empty-list label is
+  // overridden with the app's own string. (GA queue #17)
+  const gridLocaleText: Partial<GridLocaleText> = {
+    ...((theme.components as any)?.MuiDataGrid?.defaultProps?.localeText as Partial<GridLocaleText> | undefined),
+    noRowsLabel: strings.EMPTY_LIST,
+  }
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [page, setPage] = useState(0)
@@ -274,7 +288,7 @@ const UserList = ({
             <></>
           )
         },
-        renderHeader: () => (selectedIds.length > 0 ? (
+        renderHeader: () => (canManageClients && selectedIds.length > 0 ? (
           <div>
             <div style={{ width: 40, display: 'inline-block' }} />
             <Tooltip title={strings.DELETE_SELECTION}>
@@ -378,7 +392,7 @@ const UserList = ({
             setSelectedIds(Array.from(new Set(_selectedIds.ids)).map((id) => id.toString()))
             setReloadColumns(true)
           }}
-          localeText={{ noRowsLabel: strings.EMPTY_LIST }}
+          localeText={gridLocaleText}
           getRowClassName={(params: any) => (params.row.blacklisted ? 'us-blacklisted' : '')}
           disableRowSelectionOnClick
         />

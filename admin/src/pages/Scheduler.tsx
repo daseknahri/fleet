@@ -13,11 +13,14 @@ import StatusFilter from '@/components/StatusFilter'
 import VehicleSchedulerFilter from '@/components/VehicleSchedulerFilter'
 
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 
 import '@/assets/css/scheduler.css'
 
 const Scheduler = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [leftPanel, setLeftPanel] = useState(false)
@@ -67,9 +70,11 @@ const Scheduler = () => {
           <div className="col-1">
             {leftPanel && (
               <>
-                <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
-                  {strings.NEW_BOOKING}
-                </Button>
+                {canManageBookings && (
+                  <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
+                    {strings.NEW_BOOKING}
+                  </Button>
+                )}
                 {admin
                   && (
                     <SupplierFilter

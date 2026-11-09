@@ -508,7 +508,7 @@ const Avatar = ({
     : ''
 
   const userAvatar = avatar
-    ? <MaterialAvatar src={userAvatarUrl} className={size ? `avatar-${size}` : 'avatar'} />
+    ? <MaterialAvatar src={userAvatarUrl} alt={(avatarRecord as bookcarsTypes.User)?.fullName || ''} className={size ? `avatar-${size}` : 'avatar'} />
     : <></>
 
   const emptyAvatar = <AccountCircle className={size ? `avatar-${size}` : 'avatar'} color={color || 'inherit'} />
@@ -628,7 +628,7 @@ const Avatar = ({
                   : type === bookcarsTypes.RecordType.Supplier ? (
                     <img style={supplierImageStyle} src={bookcarsHelper.joinURL(cdn(), avatar)} alt={avatarRecord && (avatarRecord as bookcarsTypes.User).fullName} />
                   ) : (
-                    <MaterialAvatar src={userAvatarUrl} className={size ? `avatar-${size}` : 'avatar'} />
+                    <MaterialAvatar src={userAvatarUrl} alt={(avatarRecord as bookcarsTypes.User)?.fullName || ''} className={size ? `avatar-${size}` : 'avatar'} />
                   )}
             </Badge>
           </Badge>

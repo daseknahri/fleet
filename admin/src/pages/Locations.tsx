@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import { strings } from '@/lang/locations'
 import Search from '@/components/Search'
 import LocationList from '@/components/LocationList'
@@ -12,6 +13,8 @@ import '@/assets/css/locations.css'
 
 const Locations = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageLocations = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageLocations)
 
   const [keyword, setKeyword] = useState('')
   const [rowCount, setRowCount] = useState(-1)
@@ -40,7 +43,7 @@ const Locations = () => {
           <div className="col-1-container">
             <Search className="search" onSubmit={handleSearch} />
 
-            {rowCount > -1 && (
+            {rowCount > -1 && canManageLocations && (
               <Button variant="contained" className="btn-primary new-location" size="small" onClick={() => navigate('/create-location')}>
                 {strings.NEW_LOCATION}
               </Button>

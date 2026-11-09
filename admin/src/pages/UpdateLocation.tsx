@@ -14,6 +14,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/update-location'
 import { strings as clStrings } from '@/lang/create-location'
@@ -37,6 +39,8 @@ import '@/assets/css/update-location.css'
 
 const UpdateLocation = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageLocations)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [visible, setVisible] = useState(false)
@@ -117,6 +121,11 @@ const UpdateLocation = () => {
         return
       }
 
+      if (!data.names.some((name) => name.name && name.name.trim().length > 0)) {
+        setError('names.0.name', { type: 'manual', message: commonStrings.REQUIRED })
+        setFocus('names.0.name')
+        return
+      }
       let isValid = true
       const validationPromises = data.names.map(async (name, index) => {
         if (name.name !== originalNames[index].name) {
@@ -233,6 +242,15 @@ const UpdateLocation = () => {
     }
   }
 
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
+  }
+
   return (
     <Layout onLoad={onLoad} strict>
       {!formError && !noMatch && location && location.values && (
@@ -291,7 +309,6 @@ const UpdateLocation = () => {
                   <Input
                     type="text"
                     error={!!errors.names?.[index]?.name}
-                    required
                     {...register(`names.${index}.name`)}
                     autoComplete="off"
                   />

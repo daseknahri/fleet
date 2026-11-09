@@ -39,10 +39,12 @@ const GearboxList = ({
     }
   }
 
+  const selectId = React.useId().replace(/:/g, '')
+
   return (
     <div>
-      <InputLabel className={required ? 'required' : ''}>{label}</InputLabel>
-      <Select label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
+      <InputLabel id={`${selectId}-label`} className={required ? 'required' : ''}>{label}</InputLabel>
+      <Select labelId={`${selectId}-label`} id={selectId} label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
         <MenuItem value={bookcarsTypes.GearboxType.Automatic}>{strings.GEARBOX_AUTOMATIC}</MenuItem>
         <MenuItem value={bookcarsTypes.GearboxType.Manual}>{strings.GEARBOX_MANUAL}</MenuItem>
       </Select>

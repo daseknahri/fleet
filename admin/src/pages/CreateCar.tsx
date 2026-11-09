@@ -16,6 +16,8 @@ import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/cars'
@@ -43,9 +45,13 @@ import '@/assets/css/create-car.css'
 
 const CreateCar = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageFleet)
   const { user } = useUserContext() as UserContextType
 
   const [isSupplier, setIsSupplier] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [supplierError, setSupplierError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [visible, setVisible] = useState(false)
   const [imageError, setImageError] = useState(false)
@@ -62,6 +68,7 @@ const CreateCar = () => {
     getValues,
     clearErrors,
     setFocus,
+    setError,
   } = useForm<FormFields>({
     resolver: zodResolver(schema),
     mode: 'onBlur',
@@ -155,6 +162,11 @@ const CreateCar = () => {
 
   const onSubmit = async (data: FormFields) => {
     try {
+      if (isAdmin && !data.supplier?._id) {
+        setError('supplier', { type: 'manual', message: commonStrings.REQUIRED })
+        setSupplierError(true)
+        return
+      }
       if (!image) {
         setImageError(true)
         setImageSizeError(false)
@@ -237,6 +249,10 @@ const CreateCar = () => {
     if (user && user.verified) {
       setVisible(true)
 
+      if (user.type === bookcarsTypes.RecordType.Admin) {
+        setIsAdmin(true)
+      }
+
       if (user.type === bookcarsTypes.RecordType.Supplier) {
         setValue('supplier', {
           _id: user._id,
@@ -253,6 +269,15 @@ const CreateCar = () => {
       await CarService.deleteTempImage(image)
     }
     navigate('/cars')
+  }
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
   }
 
   return (
@@ -280,8 +305,9 @@ const CreateCar = () => {
             </div>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel className="required">{strings.NAME}</InputLabel>
+              <InputLabel className="required" htmlFor="cc-name">{strings.NAME}</InputLabel>
               <Input
+                id="cc-name"
                 type="text"
                 {...register('name')}
                 required
@@ -290,28 +316,33 @@ const CreateCar = () => {
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel>{strings.LICENSE_PLATE}</InputLabel>
+              <InputLabel htmlFor="cc-license-plate">{strings.LICENSE_PLATE}</InputLabel>
               <Input
+                id="cc-license-plate"
                 type="text"
                 {...register('licensePlate')}
                 autoComplete="off"
               />
             </FormControl>
 
-            {!isSupplier && (
-              <FormControl fullWidth margin="dense">
+            {!isSupplier && isAdmin && (
+              <FormControl fullWidth margin="dense" error={supplierError}>
                 <SupplierSelectList
                   label={strings.SUPPLIER}
-                  required
                   variant="standard"
-                  onChange={(values) => setValue('supplier', values.length > 0 ? values[0] as Supplier : undefined)}
+                  onChange={(values) => {
+                    setSupplierError(false)
+                    setValue('supplier', values.length > 0 ? values[0] as Supplier : undefined)
+                  }}
                 />
+                {(errors.supplier || supplierError) && <FormHelperText error>{errors.supplier?.message || commonStrings.REQUIRED}</FormHelperText>}
               </FormControl>
             )}
 
             <FormControl fullWidth margin="dense">
-              <InputLabel className="required">{strings.MINIMUM_AGE}</InputLabel>
+              <InputLabel className="required" htmlFor="cc-minimum-age">{strings.MINIMUM_AGE}</InputLabel>
               <Input
+                id="cc-minimum-age"
                 type="text"
                 required
                 {...register('minimumAge')}

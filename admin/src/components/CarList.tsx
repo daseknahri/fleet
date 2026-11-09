@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import {
   IconButton,
   Button,
@@ -99,6 +100,8 @@ const CarList = ({
   onDelete
 }: CarListProps) => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageFleet = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageFleet)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [init, setInit] = useState(true)
@@ -624,16 +627,20 @@ const CarList = ({
                               <ViewIcon />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title={commonStrings.UPDATE}>
-                            <IconButton onClick={() => navigate(`/update-car?cr=${car._id}`)}>
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title={commonStrings.DELETE}>
-                            <IconButton data-id={car._id} data-index={index} onClick={handleDelete}>
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
+                          {canManageFleet && (
+                            <>
+                              <Tooltip title={commonStrings.UPDATE}>
+                                <IconButton onClick={() => navigate(`/update-car?cr=${car._id}`)}>
+                                  <EditIcon />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title={commonStrings.DELETE}>
+                                <IconButton data-id={car._id} data-index={index} onClick={handleDelete}>
+                                  <DeleteIcon />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
                         </>
                       )}
                     </div>

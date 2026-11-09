@@ -126,7 +126,7 @@ section.car-list article div.car .car-footer div.rating span.value {
 }
 
 section.car-list article div.car .car-footer div.rating span.trips {
-  color: #A2A2A2;
+  color: #717171;
   font-size: 11px;
 }
 
@@ -238,15 +238,15 @@ section.car-list article div.car-info ul.extras-list li {
 }
 
 section.car-list article div.car-info ul.extras-list li.car-available {
-  color: #1f9201;
+  color: #1b7a01;
 }
 
 section.car-list article div.car-info ul.extras-list li.car-coming-soon {
-  color: #1f9201;
+  color: #1b7a01;
 }
 
 section.car-list article div.car-info ul.extras-list li.car-unavailable {
-  color: #f44336;
+  color: #d32f2f;
 }
 
 section.car-list article div.car-info ul.extras-list span.car-info-list-text {

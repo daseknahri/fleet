@@ -262,8 +262,9 @@ const UpdateSupplier = () => {
               </div>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel className="required">{commonStrings.FULL_NAME}</InputLabel>
+                <InputLabel className="required" htmlFor="us-full-name">{commonStrings.FULL_NAME}</InputLabel>
                 <Input
+                  id="us-full-name"
                   {...register('fullName')}
                   type="text"
                   error={!!errors.fullName}
@@ -276,8 +277,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
+                <InputLabel className="required" htmlFor="us-email">{commonStrings.EMAIL}</InputLabel>
                 <Input
+                  id="us-email"
                   {...register('email')}
                   type="text"
                   autoComplete="off"
@@ -357,8 +359,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.SUPPLIER_CAR_LIMIT}</InputLabel>
+                <InputLabel htmlFor="us-supplier-car-limit">{commonStrings.SUPPLIER_CAR_LIMIT}</InputLabel>
                 <Input
+                  id="us-supplier-car-limit"
                   {...register('supplierCarLimit')}
                   type="text"
                   autoComplete="off"
@@ -375,8 +378,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.MIN_RENTAL_DAYS}</InputLabel>
+                <InputLabel htmlFor="us-minimum-rental-days">{commonStrings.MIN_RENTAL_DAYS}</InputLabel>
                 <Input
+                  id="us-minimum-rental-days"
                   {...register('minimumRentalDays')}
                   type="text"
                   autoComplete="off"
@@ -393,8 +397,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.PRICE_CHANGE_RATE}</InputLabel>
+                <InputLabel htmlFor="us-price-change-rate">{commonStrings.PRICE_CHANGE_RATE}</InputLabel>
                 <Input
+                  id="us-price-change-rate"
                   {...register('priceChangeRate')}
                   type="text"
                   autoComplete="off"
@@ -411,8 +416,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.PHONE}</InputLabel>
+                <InputLabel htmlFor="us-phone">{commonStrings.PHONE}</InputLabel>
                 <Input
+                  id="us-phone"
                   {...register('phone', {
                     onBlur: () => trigger('phone'),
                   })}
@@ -431,8 +437,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.LOCATION}</InputLabel>
+                <InputLabel htmlFor="us-location">{commonStrings.LOCATION}</InputLabel>
                 <Input
+                  id="us-location"
                   {...register('location')}
                   type="text"
                   autoComplete="off"
@@ -440,8 +447,9 @@ const UpdateSupplier = () => {
               </FormControl>
 
               <FormControl fullWidth margin="dense">
-                <InputLabel>{commonStrings.BIO}</InputLabel>
+                <InputLabel htmlFor="us-bio">{commonStrings.BIO}</InputLabel>
                 <Input
+                  id="us-bio"
                   {...register('bio')}
                   type="text"
                   autoComplete="off" />

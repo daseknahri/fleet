@@ -191,7 +191,6 @@ export const agencySupplierId = (req: Pick<Request, 'user' | 'agency'>) => (
 
 const requestedSupplierId = (req: Request) => (
   (typeof req.params.supplierId === 'string' && req.params.supplierId)
-  || (typeof req.params.id === 'string' && req.params.id)
   || (typeof req.body?.supplier === 'string' && req.body.supplier)
   || (typeof req.query.supplier === 'string' && req.query.supplier)
   || undefined

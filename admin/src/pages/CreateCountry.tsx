@@ -12,6 +12,8 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/create-country'
 import * as CountryService from '@/services/CountryService'
@@ -19,13 +21,18 @@ import * as helper from '@/utils/helper'
 import env from '@/config/env.config'
 import { UserContextType, useUserContext } from '@/context/UserContext'
 import { schema, FormFields } from '@/models/CountryForm'
+import SupplierSelectList from '@/components/SupplierSelectList'
+import { Supplier } from '@/models/common'
 
 import '@/assets/css/create-country.css'
 
 const CreateCountry = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageLocations)
   const { user } = useUserContext() as UserContextType
   const [visible, setVisible] = useState(false)
+  const [supplierError, setSupplierError] = useState(false)
 
   const defaultNames = env._LANGUAGES.map(language => ({
     language: language.code,
@@ -38,6 +45,7 @@ const CreateCountry = () => {
     handleSubmit,
     register,
     setError,
+    setValue,
     formState: { errors, isSubmitting },
     reset,
     setFocus,
@@ -46,6 +54,7 @@ const CreateCountry = () => {
     mode: 'onSubmit',
     defaultValues: {
       names: defaultNames,
+      supplier: undefined,
     },
   })
 
@@ -57,6 +66,16 @@ const CreateCountry = () => {
 
   const onSubmit = async (data: FormFields) => {
     try {
+      if (user?.type === bookcarsTypes.RecordType.Admin && !data.supplier?._id) {
+        setError('supplier', { type: 'manual', message: commonStrings.REQUIRED })
+        setSupplierError(true)
+        return
+      }
+      if (!data.names.some((name) => name.name && name.name.trim().length > 0)) {
+        setError('names.0.name', { type: 'manual', message: commonStrings.REQUIRED })
+        setFocus('names.0.name')
+        return
+      }
       let isValid = true
       const validationPromises = data.names.map((name, index) =>
         CountryService.validate(name).then((status) => {
@@ -77,7 +96,7 @@ const CreateCountry = () => {
       if (isValid) {
         const payload: bookcarsTypes.UpsertCountryPayload = {
           names: data.names,
-          supplier: helper.supplier(user) ? user?._id : undefined,
+          supplier: helper.supplier(user) ? user?._id : data.supplier?._id,
         }
         const status = await CountryService.create(payload)
 
@@ -98,19 +117,42 @@ const CreateCountry = () => {
     setVisible(true)
   }
 
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
+  }
+
   return (
     <Layout onLoad={onLoad} strict>
       <div className="create-country">
         <Paper className="country-form country-form-wrapper" elevation={10} style={visible ? {} : { display: 'none' }}>
           <h1 className="country-form-title">{strings.NEW_COUNTRY_HEADING}</h1>
           <form onSubmit={handleSubmit(onSubmit)}>
+            {user?.type === bookcarsTypes.RecordType.Admin && (
+              <FormControl fullWidth margin="dense" error={!!errors.supplier || supplierError}>
+                <SupplierSelectList
+                  label={commonStrings.SUPPLIER}
+                  variant="standard"
+                  onChange={(values: bookcarsTypes.Option[]) => {
+                    setSupplierError(false)
+                    setValue('supplier', values.length > 0 ? values[0] as unknown as Supplier : undefined)
+                  }}
+                />
+                {(errors.supplier || supplierError) && (
+                  <FormHelperText>{errors.supplier?.message || commonStrings.REQUIRED}</FormHelperText>
+                )}
+              </FormControl>
+            )}
             {fields.map((field, index) => (
               <FormControl key={field.id} fullWidth margin="dense">
                 <InputLabel className="required">{`${commonStrings.NAME} (${env._LANGUAGES[index].label})`}</InputLabel>
                 <Input
                   type="text"
                   error={!!errors.names?.[index]?.name}
-                  required
                   {...register(`names.${index}.name`)}
                   autoComplete="off"
                 />

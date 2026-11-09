@@ -20,6 +20,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as blStrings } from '@/lang/booking-list'
@@ -43,6 +45,8 @@ import '@/assets/css/create-booking.css'
 
 const CreateBooking = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [isSupplier, setIsSupplier] = useState(false)
   const [visible, setVisible] = useState(false)
@@ -172,6 +176,15 @@ const CreateBooking = () => {
     }
   }
 
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
+  }
+
   return (
     <Layout onLoad={onLoad} strict>
       <div className="create-booking">
@@ -283,6 +296,7 @@ const CreateBooking = () => {
                 }}
                 required
               />
+              {errors.status && <FormHelperText error>{commonStrings.REQUIRED}</FormHelperText>}
             </FormControl>
 
             <div className="info">

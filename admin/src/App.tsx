@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet, useLocation } from 'react-router-dom'
 import { NotificationProvider } from '@/context/NotificationContext'
 import { UserProvider } from '@/context/UserContext'
+import { AgencyPermissionProvider } from '@/context/AgencyPermissionContext'
 import { RecaptchaProvider } from '@/context/RecaptchaContext'
 import ScrollToTop from '@/components/ScrollToTop'
 import NProgressIndicator from '@/components/NProgressIndicator'
@@ -63,6 +64,7 @@ const AppLayout = () => {
   return (
     <ErrorBoundary>
       <UserProvider refreshKey={refreshKey}>
+        <AgencyPermissionProvider>
         <NotificationProvider refreshKey={refreshKey}>
           <RecaptchaProvider>
             <ScrollToTop />
@@ -74,6 +76,7 @@ const AppLayout = () => {
             </div>
           </RecaptchaProvider>
         </NotificationProvider>
+        </AgencyPermissionProvider>
       </UserProvider>
     </ErrorBoundary>
   )

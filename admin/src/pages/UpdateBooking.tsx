@@ -31,6 +31,8 @@ import { strings } from '@/lang/booking'
 import { visuallyHidden } from '@mui/utils'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import * as UserService from '@/services/UserService'
 import * as BookingService from '@/services/BookingService'
 import * as CarService from '@/services/CarService'
@@ -156,6 +158,8 @@ const AdditionalDriverForm = ({ control, register, errors, clearErrors, trigger,
 
 const UpdateBooking = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [loading, setLoading] = useState(false)
@@ -417,6 +421,15 @@ const UpdateBooking = () => {
   }
 
   const days = bookcarsHelper.days(from, to)
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
+  }
 
   return (
     <Layout onLoad={onLoad} strict>

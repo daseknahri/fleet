@@ -26,8 +26,8 @@ const strings = new LocalizedStrings({
     SEARCH: 'Buscar cliente, vehículo, contrato o motivo', FROM: 'Desde', TO: 'Hasta', DATE: 'Fecha', TYPE: 'Tipo',
     REASON: 'Motivo', CONTEXT: 'Contrato / vehículo', METHOD: 'Método', AMOUNT: 'Importe', PAYMENT: 'Pago de contrato',
     MAINTENANCE: 'Gasto del vehículo', CASH: 'Efectivo', BANK: 'Transferencia bancaria', CARD: 'Tarjeta', OTHER: 'Otro',
-    EMPTY: 'No hay asientos que coincidan con estos filtros.', LOAD_ERROR: 'No se pudo cargar el libro de caja.', TRANSFER_ERROR: 'Seleccione una sesión de destino e introduzca un importe mayor que cero.',
-    INCOMING: 'Ingreso', OUTGOING: 'Gasto', ACCOUNT: 'Cuenta', BANK_ACCOUNT: 'Banco',
+    EMPTY: 'No hay asientos que coincidan con estos filtros.', LOAD_ERROR: 'No se pudo cargar el libro de caja.',
+    INCOMING: 'Ingreso', OUTGOING: 'Gasto', OPEN_SESSION: 'Abrir sesión de caja', CLOSE_SESSION: 'Cerrar sesión', OPENING_BALANCE: 'Saldo inicial', COUNTED_BALANCE: 'Saldo contado', SESSION_OPEN: 'Sesión abierta', SESSION_CLOSED: 'Sesión cerrada', NO_SESSION: 'No hay sesión de caja abierta', SESSION_ERROR: 'No se pudo actualizar la sesión de caja.', SAVE: 'Guardar', CANCEL: 'Cancelar', CLOSE_NOTE: 'Nota de cierre', EXPECTED: 'Esperado', DISCREPANCY: 'Discrepancia', ADD_MOVEMENT: 'Añadir movimiento', DIRECTION: 'Dirección', REFERENCE: 'Referencia', NOTE: 'Nota', MANUAL_MOVEMENT: 'Movimiento manual', TRANSFER: 'Transferencia interna', ACCOUNT: 'Cuenta', BANK_ACCOUNT: 'Banco', AGENCY: 'Agencia', ALL_AGENCIES: 'Todas las agencias', AGENCY_REQUIRED: 'Seleccione una agencia antes de modificar la caja.', TRANSFER_ERROR: 'Seleccione una sesión de destino e introduzca un importe mayor que cero.',
   },
   ar: {
     EYEBROW: 'المالية', TITLE: 'دفتر الصندوق', SUBTITLE: 'راجع الحركات وافتح جلسات الصندوق وأغلقها مع توثيق الفروقات.',

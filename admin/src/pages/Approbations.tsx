@@ -82,18 +82,29 @@ const Approbations = () => {
           // Name resolution is cosmetic; the backend record stays authoritative.
         }
       }
-      // Resolve requester/decider display names best-effort; ids that cannot
-      // be resolved fall back to a short id rendering.
+      // Display names come from the payload first: the backend resolves
+      // requestedByName / decidedByName for every viewer, including names
+      // a staff viewer may not open directly (e.g. a platform admin
+      // requester). Any id the payload did not name is resolved best-effort
+      // per user; unresolvable ids fall back to a short id rendering.
+      const names: Record<string, string> = {}
+      list.forEach((approval) => {
+        if (approval.requestedBy && approval.requestedByName) {
+          names[approval.requestedBy] = approval.requestedByName
+        }
+        if (approval.decidedBy && approval.decidedByName) {
+          names[approval.decidedBy] = approval.decidedByName
+        }
+      })
       const ids = new Set<string>()
       list.forEach((approval) => {
-        if (approval.requestedBy) {
+        if (approval.requestedBy && !names[approval.requestedBy]) {
           ids.add(approval.requestedBy)
         }
-        if (approval.decidedBy) {
+        if (approval.decidedBy && !names[approval.decidedBy]) {
           ids.add(approval.decidedBy)
         }
       })
-      const names: Record<string, string> = {}
       await Promise.all(Array.from(ids).map(async (id) => {
         try {
           const resolved = await UserService.getUser(id)

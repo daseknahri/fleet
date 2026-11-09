@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import {
   DataGrid,
   GridPaginationModel,
   GridColDef,
   GridRowId,
   GridRenderCellParams,
+  GridLocaleText,
 } from '@mui/x-data-grid'
 import {
   Tooltip,
@@ -20,6 +22,7 @@ import {
   CardContent,
   Typography,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import { Edit as EditIcon, Delete as DeleteIcon, Check as CheckIcon } from '@mui/icons-material'
 import { format } from 'date-fns'
 import { ar as dfnsAR, fr as dfnsFR, enUS as dfnsENUS, es as dfnsES } from 'date-fns/locale'
@@ -72,6 +75,17 @@ const BookingList = ({
   onLoad,
 }: BookingListProps) => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
+  const theme = useTheme()
+  // MUI X takes a localeText prop as a wholesale replacement of the theme's
+  // MuiDataGrid localeText (the per-language locale wired in main.tsx), so the
+  // theme locale is merged back in here and only the empty-list label is
+  // overridden with the app's own string. (GA queue #17)
+  const gridLocaleText: Partial<GridLocaleText> = {
+    ...((theme.components as any)?.MuiDataGrid?.defaultProps?.localeText as Partial<GridLocaleText> | undefined),
+    noRowsLabel: strings.EMPTY_LIST,
+  }
   // Use the active session language so formatting stays aligned with the visible shell.
   const _language = langHelper.getLanguage() || language || env.DEFAULT_LANGUAGE
 
@@ -270,20 +284,24 @@ const BookingList = ({
 
           return (
             <div>
-              <Tooltip title={commonStrings.UPDATE}>
-                <IconButton onClick={() => navigate(`/update-booking?b=${row._id}`)}>
-                  <EditIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title={commonStrings.DELETE}>
-                <IconButton onClick={handleDelete}>
-                  <DeleteIcon />
-                </IconButton>
-              </Tooltip>
+              {canManageBookings && (
+                <>
+                  <Tooltip title={commonStrings.UPDATE}>
+                    <IconButton onClick={() => navigate(`/update-booking?b=${row._id}`)}>
+                      <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={commonStrings.DELETE}>
+                    <IconButton onClick={handleDelete}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
             </div>
           )
         },
-        renderHeader: () => (selectedIds.length > 0 ? (
+        renderHeader: () => (canManageBookings && selectedIds.length > 0 ? (
           <div>
             <Tooltip title={strings.UPDATE_SELECTION}>
               <IconButton
@@ -655,7 +673,7 @@ const BookingList = ({
               setSelectedIds(Array.from(new Set(_selectedIds.ids)).map((id) => id.toString()))
             }}
             disableRowSelectionOnClick
-            localeText={{ noRowsLabel: strings.EMPTY_LIST }}
+            localeText={gridLocaleText}
             className="booking-grid"
           />
         ))}

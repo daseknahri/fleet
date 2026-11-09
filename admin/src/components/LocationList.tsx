@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import {
   IconButton,
   Button,
@@ -46,6 +47,8 @@ const LocationList = ({
   onDelete
 }: LocationListProps) => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const canManageLocations = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageLocations)
 
   const { user } = useUserContext() as UserContextType
   const [keyword, setKeyword] = useState(locationKeyword)
@@ -221,7 +224,7 @@ const LocationList = ({
                 className="location-list-item"
                 key={location._id}
                 secondaryAction={
-                  (helper.admin(user) || location.supplier?._id === user._id) && (
+                  (helper.admin(user) || location.supplier?._id === user._id) && canManageLocations && (
                     <div>
                       <Tooltip title={commonStrings.UPDATE}>
                         <IconButton edge="end" onClick={() => navigate(`/update-location?loc=${location._id}`)}>

@@ -24,6 +24,15 @@ const chargeTypeLabel = (type: bookcarsTypes.ContractChargeType) => (
   type === bookcarsTypes.ContractChargeType.Fee ? strings.CHARGE_FEE : strings.CHARGE_DAMAGE
 )
 
+const chargeStatusLabel = (status: bookcarsTypes.ApprovalDecision) => (
+  status === bookcarsTypes.ApprovalDecision.Approved ? strings.APPROVED
+    : status === bookcarsTypes.ApprovalDecision.Rejected ? strings.REJECTED : strings.PENDING
+)
+
+const inspectionTypeLabel = (type: bookcarsTypes.InspectionType) => (
+  type === bookcarsTypes.InspectionType.Return ? strings.RETURN : strings.HANDOVER
+)
+
 const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: Props) => {
   const [inspections, setInspections] = useState<bookcarsTypes.ContractInspection[]>([])
   const [charges, setCharges] = useState<bookcarsTypes.ContractCharge[]>([])
@@ -205,7 +214,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
             {!inspections.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {inspections.map((x) => (
               <div key={x._id} style={{ marginBottom: 4 }}>
-                <Typography variant="body2">{`${x.type} | ${formatDateTime(x.occurredAt)} | ${x.odometer ?? '-'} | ${x.fuelLevel ?? '-'}% | ${x.damageNote || x.condition || ''}`}</Typography>
+                <Typography variant="body2">{`${inspectionTypeLabel(x.type)} | ${formatDateTime(x.occurredAt)} | ${x.odometer ?? '-'} | ${x.fuelLevel ?? '-'}% | ${x.damageNote || x.condition || ''}`}</Typography>
                 {(x.photoFiles?.length || x.signatureFile) && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {(x.photoFiles || []).map((file) => (
@@ -246,7 +255,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, onCompleted }: P
             {!charges.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {charges.map((x) => (
               <div key={x._id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography variant="body2">{`${chargeTypeLabel(x.type)} | ${x.amount} ${x.currency} | ${x.reason} | ${x.status}`}</Typography>
+                <Typography variant="body2">{`${chargeTypeLabel(x.type)} | ${x.amount} ${x.currency} | ${x.reason} | ${chargeStatusLabel(x.status)}`}</Typography>
                 {x.status === bookcarsTypes.ApprovalDecision.Pending && (
                   <>
                     <Button size="small" disabled={busy} onClick={() => decide(x, bookcarsTypes.ApprovalDecision.Approved)}>{strings.APPROVE}</Button>

@@ -11,6 +11,8 @@ import * as bookcarsTypes from ':bookcars-types'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/create-location'
 import * as LocationService from '@/services/LocationService'
@@ -24,13 +26,17 @@ import PositionInput from '@/components/PositionInput'
 import { UserContextType, useUserContext } from '@/context/UserContext'
 import { schema, ParkingSpot, FormFields } from '@/models/LocationForm'
 import LocationSelectList from '@/components/LocationSelectList'
-import { Option } from '@/models/common'
+import SupplierSelectList from '@/components/SupplierSelectList'
+import { Option, Supplier } from '@/models/common'
 
 import '@/assets/css/create-location.css'
 
 const CreateLocation = () => {
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageLocations)
   const { user } = useUserContext() as UserContextType
   const [visible, setVisible] = useState(false)
+  const [supplierError, setSupplierError] = useState(false)
   const [loading, setLoading] = useState(false)
 
   // Initialize form with React Hook Form and Zod validation
@@ -49,6 +55,7 @@ const CreateLocation = () => {
     mode: 'onSubmit',
     defaultValues: {
       country: undefined,
+      supplier: undefined,
       names: env._LANGUAGES.map(lang => ({ language: lang.code, name: '' })),
       latitude: '',
       longitude: '',
@@ -96,6 +103,16 @@ const CreateLocation = () => {
 
   const onSubmit = async (data: FormFields) => {
     try {
+      if (user?.type === bookcarsTypes.RecordType.Admin && !data.supplier?._id) {
+        setError('supplier', { type: 'manual', message: commonStrings.REQUIRED })
+        setSupplierError(true)
+        return
+      }
+      if (!data.names.some((name) => name.name && name.name.trim().length > 0)) {
+        setError('names.0.name', { type: 'manual', message: commonStrings.REQUIRED })
+        setFocus('names.0.name')
+        return
+      }
       let isValid = true
       const validationPromises = data.names.map((name, index) =>
         LocationService.validate({ language: name.language, name: name.name }).then((status) => {
@@ -121,7 +138,7 @@ const CreateLocation = () => {
           names: data.names,
           image: data.image,
           parkingSpots: data.parkingSpots as bookcarsTypes.ParkingSpot[] || [],
-          supplier: helper.supplier(user) ? user?._id : undefined,
+          supplier: helper.supplier(user) ? user?._id : data.supplier?._id,
           parentLocation: data.parentLocation?._id || undefined,
         }
 
@@ -130,6 +147,7 @@ const CreateLocation = () => {
         if (status === 200) {
           reset({
             country: undefined,
+            supplier: undefined,
             names: env._LANGUAGES.map(lang => ({ language: lang.code, name: '' })),
             latitude: '',
             longitude: '',
@@ -156,6 +174,15 @@ const CreateLocation = () => {
       await LocationService.deleteTempImage(watchImage)
     }
     window.location.href = '/locations'
+  }
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
   }
 
   return (
@@ -193,6 +220,22 @@ const CreateLocation = () => {
               )}
             </FormControl>
 
+            {user?.type === bookcarsTypes.RecordType.Admin && (
+              <FormControl fullWidth margin="dense" error={!!errors.supplier || supplierError}>
+                <SupplierSelectList
+                  label={commonStrings.SUPPLIER}
+                  variant="standard"
+                  onChange={(values: bookcarsTypes.Option[]) => {
+                    setSupplierError(false)
+                    setValue('supplier', values.length > 0 ? values[0] as unknown as Supplier : undefined)
+                  }}
+                />
+                {(errors.supplier || supplierError) && (
+                  <FormHelperText>{errors.supplier?.message || commonStrings.REQUIRED}</FormHelperText>
+                )}
+              </FormControl>
+            )}
+
             <LocationSelectList
               label={strings.PARENT_LOCATION}
               variant="standard"
@@ -214,7 +257,6 @@ const CreateLocation = () => {
                     }
                   }}
                   error={!!errors.names?.[index]?.name}
-                  required
                 />
 
                 <FormHelperText error={!!errors.names?.[index]?.name}>

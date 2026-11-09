@@ -37,10 +37,12 @@ const SeatsList = ({
     }
   }
 
+  const selectId = React.useId().replace(/:/g, '')
+
   return (
     <div>
-      <InputLabel className={required ? 'required' : ''}>{label}</InputLabel>
-      <Select label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
+      <InputLabel id={`${selectId}-label`} className={required ? 'required' : ''}>{label}</InputLabel>
+      <Select labelId={`${selectId}-label`} id={selectId} label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
         <MenuItem value={0}>0</MenuItem>
         <MenuItem value={1}>1</MenuItem>
         <MenuItem value={2}>2</MenuItem>

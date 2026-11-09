@@ -5,6 +5,7 @@ import { DateTimePicker as MuiDateTimePicker } from '@mui/x-date-pickers/DateTim
 import { fr, enUS, es } from 'date-fns/locale'
 import { TextFieldVariants } from '@mui/material'
 import { DateTimeValidationError, PickersActionBarAction } from '@mui/x-date-pickers'
+import { strings as commonStrings } from '@/lang/common'
 
 interface DateTimePickerProps {
   value?: Date
@@ -34,9 +35,13 @@ const DateTimePicker = ({
   onError
 }: DateTimePickerProps) => {
   const [value, setValue] = useState<Date | null>(null)
+  const [showRequiredError, setShowRequiredError] = useState(false)
 
   useEffect(() => {
     setValue(dateTimeValue || null)
+    if (dateTimeValue) {
+      setShowRequiredError(false)
+    }
   }, [dateTimeValue])
 
   const actions: PickersActionBarAction[] = ['accept', 'cancel']
@@ -78,6 +83,18 @@ const DateTimePicker = ({
           textField: {
             variant: variant || 'standard',
             required,
+            error: !!(required && showRequiredError && !value),
+            helperText: required && showRequiredError && !value ? commonStrings.REQUIRED : undefined,
+            slotProps: {
+              htmlInput: {
+                onInvalid: (e: React.InvalidEvent<HTMLInputElement>) => {
+                  e.preventDefault()
+                  if (required) {
+                    setShowRequiredError(true)
+                  }
+                },
+              },
+            },
           },
           actionBar: {
             actions,

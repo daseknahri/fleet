@@ -340,7 +340,7 @@ const Header = ({
           <Toolbar className="toolbar">
             {isLoaded && (
               <>
-                <IconButton edge="start" sx={classes.menuButton} aria-label="open drawer" onClick={handleSideMenuOpen}>
+                <IconButton edge="start" sx={classes.menuButton} aria-label={strings.OPEN_MENU} onClick={handleSideMenuOpen}>
                   <MenuIcon />
                 </IconButton>
 
@@ -512,14 +512,14 @@ const Header = ({
                 </Button>
               )}
               {isSignedIn && (
-                <IconButton aria-label={strings.NOTIFICATIONS} onClick={handleNotificationsClick} className="btn">
+                <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} onClick={handleNotificationsClick} className="btn">
                   <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                     <NotificationsIcon />
                   </Badge>
                 </IconButton>
               )}
               {isSignedIn && (
-                <IconButton edge="end" aria-label="account" aria-controls={menuId} aria-haspopup="true" onClick={handleAccountMenuOpen} className="btn">
+                <IconButton edge="end" aria-label={strings.ACCOUNT} aria-controls={menuId} aria-haspopup="true" onClick={handleAccountMenuOpen} className="btn">
                   <Avatar loggedUser={currentUser} user={currentUser} size="small" readonly />
                 </IconButton>
               )}
@@ -535,14 +535,14 @@ const Header = ({
                 </div>
               </Button>
               {isSignedIn && (
-                <IconButton aria-label={strings.NOTIFICATIONS} onClick={handleNotificationsClick} className="btn">
+                <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} onClick={handleNotificationsClick} className="btn">
                   <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                     <NotificationsIcon />
                   </Badge>
                 </IconButton>
               )}
               {isSignedIn && (
-                <IconButton aria-label="show more" aria-controls={mobileMenuId} aria-haspopup="true" onClick={handleMobileMenuOpen} className="btn">
+                <IconButton aria-label={strings.SHOW_MORE} aria-controls={mobileMenuId} aria-haspopup="true" onClick={handleMobileMenuOpen} className="btn">
                   <MoreIcon />
                 </IconButton>
               )}

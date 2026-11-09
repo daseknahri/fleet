@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { optionSchema } from '@/models/common'
+import { optionSchema, supplierSchema } from '@/models/common'
 
 const locationNameSchema = z.object({
   language: z.string(),
@@ -21,6 +21,7 @@ export type ParkingSpot = z.infer<typeof parkingSpotSchema>
 
 export const schema = z.object({
   country: optionSchema.optional(),
+  supplier: supplierSchema.optional(),
   names: z.array(locationNameSchema),
   latitude: z.string().optional(),
   longitude: z.string().optional(),

@@ -1,0 +1,100 @@
+# Gestion Auto — PRODUCTION compose (Coolify, VPS srv684658)
+# Derived from the shipped docker-compose.yml (Phase 1 plan §5 deltas):
+#  - NO host port bindings anywhere (3002/4002/8080 are taken on the VPS);
+#    Traefik routes over the docker network via SERVICE_FQDN_* (set in Coolify env).
+#  - mongo WiredTiger cache capped at 0.25 GB (RAM-tight host, Gate-1 report).
+#  - mongo-express DROPPED (attack surface).
+#  - Real secrets come from Coolify env interpolation (${...}); the committed
+#    .env.docker files carry placeholders only (compose environment: wins over env_file).
+services:
+  mongo:
+    image: mongo:7.0.12
+    command:
+      - bash
+      - -lc
+      - openssl rand -base64 756 > /tmp/mongodb-keyfile && chown mongodb:mongodb /tmp/mongodb-keyfile && chmod 400 /tmp/mongodb-keyfile && exec /usr/local/bin/docker-entrypoint.sh mongod --quiet --replSet rs0 --bind_ip_all --keyFile /tmp/mongodb-keyfile --wiredTigerCacheSizeGB 0.25
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username admin --password ${MONGO_ROOT_PASSWORD} --authenticationDatabase admin --eval \"try { rs.status().ok } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\" | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  bc-backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    env_file: ./backend/.env.docker
+    environment:
+      NODE_ENV: production
+      BC_API_HOST: https://api.gestionauto.ibnbatoutaweb.com
+      BC_ADMIN_HOST: https://admin.gestionauto.ibnbatoutaweb.com
+      BC_FRONTEND_HOST: https://gestionauto.ibnbatoutaweb.com
+      BC_DB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD}@mongo:27017/bookcars?authSource=admin&appName=bookcars&replicaSet=rs0
+      BC_JWT_SECRET: ${BC_JWT_SECRET}
+      BC_COOKIE_SECRET: ${BC_COOKIE_SECRET}
+      BC_SMTP_HOST: mailpit
+      BC_SMTP_PORT: "1025"
+      BC_SMTP_USER: ""
+      BC_SMTP_PASS: ""
+    restart: always
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - cdn:/var/www/cdn/bookcars
+      - backend_logs:/bookcars/backend/logs
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: always
+    volumes:
+      - mailpit_data:/data
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATA_FILE: /data/mailpit.db
+
+  bc-admin:
+    build:
+      context: .
+      dockerfile: ./admin/Dockerfile
+    restart: always
+    depends_on:
+      - bc-backend
+
+  bc-frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    restart: always
+    depends_on:
+      - bc-backend
+    volumes:
+      - cdn:/var/www/cdn/bookcars
+
+volumes:
+  cdn:
+  mongodb_data:
+  mongodb_config:
+  backend_logs:
+  redis_data:
+  mailpit_data:

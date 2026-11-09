@@ -6,6 +6,8 @@ import * as agencyMembershipController from '../controllers/agencyMembershipCont
 
 const routes = express.Router()
 
+routes.route(routeNames.me).get(authJwt.verifyToken, agencyMembershipController.me)
+
 routes.route(routeNames.current).get(authJwt.verifyToken, agencyAuth.requireAgencyMemberRead, agencyMembershipController.current)
 
 routes.route(routeNames.list).get(authJwt.verifyToken, agencyAuth.requireAgencyMemberRead, agencyMembershipController.list)

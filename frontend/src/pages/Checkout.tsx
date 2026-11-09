@@ -899,7 +899,6 @@ const Checkout = () => {
                             type="submit"
                             variant="contained"
                             className="btn-checkout btn-margin-bottom"
-                            aria-label="Checkout"
                             disabled={isSubmitting || (payPalLoaded && !payPalInit)}
                           >
                             {
@@ -913,7 +912,6 @@ const Checkout = () => {
                         variant="outlined"
                         color="primary"
                         className="btn-cancel btn-margin-bottom"
-                        aria-label="Cancel"
                         onClick={async () => {
                           try {
                             if (bookingId && sessionId) {

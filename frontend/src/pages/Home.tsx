@@ -374,7 +374,7 @@ const Home = () => {
                 <Button
                   variant="contained"
                   className="btn-primary btn-car-size"
-                  aria-label="Search for a car"
+                  aria-label={strings.SEARCH_FOR_CAR}
                   disabled={ranges.length === 0}
                   onClick={() => {
                     setRanges([bookcarsTypes.CarRange.Mini])
@@ -423,7 +423,7 @@ const Home = () => {
                 <Button
                   variant="contained"
                   className="btn-primary btn-car-size"
-                  aria-label="Search for a car"
+                  aria-label={strings.SEARCH_FOR_CAR}
                   disabled={ranges.length === 0}
                   onClick={() => {
                     setRanges([bookcarsTypes.CarRange.Midi])
@@ -471,7 +471,7 @@ const Home = () => {
                 <Button
                   variant="contained"
                   className="btn-primary btn-car-size"
-                  aria-label="Search for a car"
+                  aria-label={strings.SEARCH_FOR_CAR}
                   disabled={ranges.length === 0}
                   onClick={() => {
                     setRanges([bookcarsTypes.CarRange.Maxi])

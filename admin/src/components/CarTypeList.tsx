@@ -38,10 +38,12 @@ const CarTypeList = ({
     }
   }
 
+  const selectId = React.useId().replace(/:/g, '')
+
   return (
     <div>
-      <InputLabel className={required ? 'required' : ''}>{label}</InputLabel>
-      <Select label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
+      <InputLabel id={`${selectId}-label`} className={required ? 'required' : ''}>{label}</InputLabel>
+      <Select labelId={`${selectId}-label`} id={selectId} label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
         <MenuItem value={bookcarsTypes.CarType.Diesel}>{strings.DIESEL}</MenuItem>
         <MenuItem value={bookcarsTypes.CarType.Gasoline}>{strings.GASOLINE}</MenuItem>
         <MenuItem value={bookcarsTypes.CarType.Electric}>{strings.ELECTRIC}</MenuItem>

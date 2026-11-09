@@ -230,7 +230,7 @@ const Avatar = ({
                   </Box>
                 )}
               >
-                <MaterialAvatar src={avatarUrl} className="avatar" />
+                <MaterialAvatar src={avatarUrl} alt={user.fullName || ''} className="avatar" />
               </Badge>
             </Badge>
           ) : (
@@ -271,7 +271,7 @@ const Avatar = ({
         </div>
       ) : avatarUrl ? (
         <>
-          <MaterialAvatar src={avatarUrl} className={size ? `avatar-${size}` : 'avatar'} />
+          <MaterialAvatar src={avatarUrl} alt={user.fullName || ''} className={size ? `avatar-${size}` : 'avatar'} />
         </>
       ) : (
         <AccountCircle className={size ? `avatar-${size}` : 'avatar'} color={color || 'inherit'} />

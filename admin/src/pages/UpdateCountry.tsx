@@ -14,6 +14,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as clStrings } from '@/lang/create-country'
 import { strings as suppliersStrings } from '@/lang/suppliers'
@@ -31,6 +33,8 @@ import '@/assets/css/update-country.css'
 
 const UpdateCountry = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageLocations)
 
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [visible, setVisible] = useState(false)
@@ -197,6 +201,15 @@ const UpdateCountry = () => {
         setNoMatch(true)
       }
     }
+  }
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
   }
 
   return (

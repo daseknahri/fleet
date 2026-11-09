@@ -100,6 +100,7 @@ const ContractList: React.FC<ContractListProps> = ({ supplier, onUpload, onDelet
           <div className="actions">
             <IconButton
               size="small"
+              aria-label={`${strings.UPLOAD_CONTRACT} (${lang.label})`}
               onClick={async () => {
                 setLanguage(lang.code)
                 const upload = document.getElementById('upload-contract') as HTMLInputElement
@@ -115,6 +116,7 @@ const ContractList: React.FC<ContractListProps> = ({ supplier, onUpload, onDelet
             {lang.filename && (
               <IconButton
                 size="small"
+                aria-label={`${strings.DELETE_CONTRACT} (${lang.label})`}
                 onClick={async () => {
                   try {
                     let status = 0

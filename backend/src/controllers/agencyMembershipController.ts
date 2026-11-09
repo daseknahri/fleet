@@ -7,9 +7,61 @@ import User from '../models/User'
 import * as authHelper from '../utils/authHelper'
 import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
-import { isStaffRole, validateAgencyOwner } from '../utils/agencyAuthorization'
+import { AgencyPermission, isStaffRole, rolePermissions, validateAgencyOwner } from '../utils/agencyAuthorization'
 
 const publicUserFields = '_id fullName email phone type active verified language avatar'
+
+/**
+ * The caller's own agency context and effective permissions.
+ *
+ * H-038: the admin UI gates write actions on exactly the permissions the
+ * backend enforces, so the matrix stays single-sourced here — this endpoint
+ * returns the caller's role plus the permission list computed from
+ * `rolePermissions`. Platform admins and agency owners hold every
+ * permission, mirroring the bypass in the agency middleware. For staff,
+ * `verifyToken` has already resolved the single active membership onto
+ * `req.agency`.
+ */
+export const me = async (req: Request, res: Response) => {
+  if (!req.user) {
+    res.status(401).send({ message: 'Unauthorized!' })
+    return
+  }
+
+  if (req.user.type === bookcarsTypes.UserType.User) {
+    res.status(403).send({ message: 'Agency access required' })
+    return
+  }
+
+  if (req.user.type === bookcarsTypes.UserType.Admin) {
+    res.json({
+      supplier: null,
+      role: bookcarsTypes.AgencyRole.Owner,
+      permissions: Object.values(AgencyPermission),
+    })
+    return
+  }
+
+  if (req.user.type === bookcarsTypes.UserType.Supplier) {
+    res.json({
+      supplier: req.user._id,
+      role: bookcarsTypes.AgencyRole.Owner,
+      permissions: Object.values(AgencyPermission),
+    })
+    return
+  }
+
+  if (!req.agency) {
+    res.status(403).send({ message: 'Agency access required' })
+    return
+  }
+
+  res.json({
+    supplier: req.agency.supplierId,
+    role: req.agency.role,
+    permissions: [...(rolePermissions[req.agency.role] || [])],
+  })
+}
 
 const getSupplierId = (req: Request) => req.params.supplierId
 

@@ -10,7 +10,9 @@ export interface Approval {
   currency?: string
   status: bookcarsTypes.ApprovalDecision
   requestedBy?: string
+  requestedByName?: string
   decidedBy?: string
+  decidedByName?: string
   decidedAt?: string
   reason?: string
   createdAt?: string

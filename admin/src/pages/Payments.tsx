@@ -9,6 +9,8 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import * as BookingService from '@/services/BookingService'
 import * as SupplierService from '@/services/SupplierService'
 import * as RentalPaymentService from '@/services/RentalPaymentService'
@@ -61,6 +63,9 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: '
 const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
 const Payments = () => {
+  const agencyPermissions = useAgencyPermissions()
+  const paymentsDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadPayments)
+  const canRecordPayments = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.RecordPayments)
   const [bookings, setBookings] = useState<bookcarsTypes.Booking[]>([])
   const [payments, setPayments] = useState<bookcarsTypes.RentalPayment[]>([])
   const [loading, setLoading] = useState(true)
@@ -261,6 +266,7 @@ const Payments = () => {
 
   return (
     <Layout strict onLoad={onLoad}>
+      {paymentsDenied ? <AccessDenied /> : (
       <div className="agency-payments">
         <div className="agency-payments__heading">
           <div>
@@ -268,7 +274,7 @@ const Payments = () => {
             <Typography component="h1" className="agency-payments__title">{strings.TITLE}</Typography>
             <Typography className="agency-payments__subtitle">{strings.SUBTITLE}</Typography>
           </div>
-          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => openNew()} disabled={!eligibleBookings.length}>{strings.ADD}</Button>
+          {canRecordPayments && <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => openNew()} disabled={!eligibleBookings.length}>{strings.ADD}</Button>}
         </div>
         {loadError && <Alert severity="error">{strings.LOAD_ERROR}</Alert>}
         {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
@@ -305,6 +311,7 @@ const Payments = () => {
             const canReverse = !!payment._id
               && payment.status !== bookcarsTypes.RentalPaymentStatus.Reversed
               && payment.direction !== bookcarsTypes.RentalPaymentDirection.Debit
+              && canRecordPayments
             return <div className="agency-payments__row agency-payments__payments-row" key={payment._id}>
               <span data-label={strings.DATE}>{formatDate(payment.date)}</span>
               <strong>{booking?._id?.slice(-8).toUpperCase() || '—'}</strong>
@@ -332,6 +339,7 @@ const Payments = () => {
           })}
         </section>
       </div>
+      )}
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{strings.NEW}</DialogTitle>
         <DialogContent className="agency-payments__form">

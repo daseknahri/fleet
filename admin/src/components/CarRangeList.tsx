@@ -38,10 +38,12 @@ const CarRangeList = ({
     }
   }
 
+  const selectId = React.useId().replace(/:/g, '')
+
   return (
     <div>
-      <InputLabel className={required ? 'required' : ''}>{label}</InputLabel>
-      <Select label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
+      <InputLabel id={`${selectId}-label`} className={required ? 'required' : ''}>{label}</InputLabel>
+      <Select labelId={`${selectId}-label`} id={selectId} label={label} value={value} onChange={handleChange} variant={variant || 'standard'} required={required} fullWidth>
         <MenuItem value={bookcarsTypes.CarRange.Mini}>{helper.getCarRange(bookcarsTypes.CarRange.Mini)}</MenuItem>
         <MenuItem value={bookcarsTypes.CarRange.Midi}>{helper.getCarRange(bookcarsTypes.CarRange.Midi)}</MenuItem>
         <MenuItem value={bookcarsTypes.CarRange.Maxi}>{helper.getCarRange(bookcarsTypes.CarRange.Maxi)}</MenuItem>

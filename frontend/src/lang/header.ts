@@ -18,9 +18,12 @@ const strings = new LocalizedStrings({
     FAQ: 'FAQ',
     COOKIE_POLICY: 'Politique de cookies',
     NOTIFICATIONS: 'Notifications',
+    OPEN_MENU: 'Ouvrir le menu',
+    ACCOUNT: 'Compte',
+    SHOW_MORE: 'Afficher plus',
   },
   ar: {
-    SIGN_IN: 'تسجيل الدخول', HOME: 'الرئيسية', BOOKINGS: 'الحجوزات', ABOUT: 'من نحن', TOS: 'شروط الاستخدام', CONTACT: 'اتصل بنا', LANGUAGE: 'اللغة', SETTINGS: 'الإعدادات', SIGN_OUT: 'تسجيل الخروج', SUPPLIERS: 'الموردون', LOCATIONS: 'المواقع', PRIVACY_POLICY: 'سياسة الخصوصية', FAQ: 'الأسئلة الشائعة', COOKIE_POLICY: 'سياسة ملفات تعريف الارتباط', NOTIFICATIONS: 'الإشعارات'
+    SIGN_IN: 'تسجيل الدخول', HOME: 'الرئيسية', BOOKINGS: 'الحجوزات', ABOUT: 'من نحن', TOS: 'شروط الاستخدام', CONTACT: 'اتصل بنا', LANGUAGE: 'اللغة', SETTINGS: 'الإعدادات', SIGN_OUT: 'تسجيل الخروج', SUPPLIERS: 'الموردون', LOCATIONS: 'المواقع', PRIVACY_POLICY: 'سياسة الخصوصية', FAQ: 'الأسئلة الشائعة', COOKIE_POLICY: 'سياسة ملفات تعريف الارتباط', NOTIFICATIONS: 'الإشعارات', OPEN_MENU: 'فتح القائمة', ACCOUNT: 'الحساب', SHOW_MORE: 'عرض المزيد'
   },
   en: {
     SIGN_IN: 'Sign in',
@@ -38,6 +41,9 @@ const strings = new LocalizedStrings({
     FAQ: 'FAQ',
     COOKIE_POLICY: 'Cookie Policy',
     NOTIFICATIONS: 'Notifications',
+    OPEN_MENU: 'Open menu',
+    ACCOUNT: 'Account',
+    SHOW_MORE: 'Show more',
   },
   es: {
     SIGN_IN: 'Iniciar sesión',
@@ -55,6 +61,9 @@ const strings = new LocalizedStrings({
     FAQ: 'Preguntas frecuentes',
     COOKIE_POLICY: 'Política de Cookies',
     NOTIFICATIONS: 'Notificaciones',
+    OPEN_MENU: 'Abrir el menú',
+    ACCOUNT: 'Cuenta',
+    SHOW_MORE: 'Mostrar más',
   },
 })
 

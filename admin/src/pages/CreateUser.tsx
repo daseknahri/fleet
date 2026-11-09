@@ -17,6 +17,8 @@ import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/create-supplier'
@@ -35,6 +37,8 @@ import '@/assets/css/create-user.css'
 
 const CreateUser = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const accessDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ManageClients) && !agencyPermissions.can(AgencyPermission.ManageAgencyProfile)
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [admin, setAdmin] = useState(false)
   const [formError, setFormError] = useState(false)
@@ -186,6 +190,15 @@ const CreateUser = () => {
 
   const supplier = type === bookcarsTypes.UserType.Supplier
   const driver = type === bookcarsTypes.UserType.User
+
+
+  if (accessDenied) {
+    return (
+      <Layout onLoad={onLoad} strict>
+        <AccessDenied />
+      </Layout>
+    )
+  }
 
   return (
     <Layout onLoad={onLoad} strict>

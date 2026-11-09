@@ -40,6 +40,7 @@ import {
   AccountBalanceWallet as CashJournalIcon,
   FactCheck as ApprovalsIcon,
   Groups as TeamIcon,
+  Assessment as ReportsIcon,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import * as bookcarsTypes from ':bookcars-types'
@@ -308,7 +309,7 @@ const Header = ({
       <AppBar position="fixed" sx={{ bgcolor: '#121212' }}>
         <Toolbar className="toolbar">
           {isLoaded && isSignedIn && (
-            <IconButton edge="start" sx={classes.menuButton} color="inherit" aria-label="open drawer" onClick={handleSideMenuOpen}>
+            <IconButton edge="start" sx={classes.menuButton} color="inherit" aria-label={strings.OPEN_MENU} onClick={handleSideMenuOpen}>
               <MenuIcon />
             </IconButton>
           )}
@@ -359,6 +360,15 @@ const Header = ({
                 >
                   <ListItemIcon><CashJournalIcon /></ListItemIcon>
                   <ListItemText primary={strings.CASH_JOURNAL} />
+                </ListItem>
+                <ListItem
+                  onClick={() => {
+                    navigate('/reports')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><ReportsIcon /></ListItemIcon>
+                  <ListItemText primary={strings.REPORTS} />
                 </ListItem>
                 <ListItem
                   onClick={() => {
@@ -503,7 +513,7 @@ const Header = ({
           <div style={classes.grow} />
           <div className="header-desktop">
             {isSignedIn && (
-              <IconButton aria-label={strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
+              <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                   <NotificationsIcon />
                 </Badge>
@@ -515,7 +525,7 @@ const Header = ({
               </Button>
             )}
             {isSignedIn && user && (
-              <IconButton edge="end" aria-label="account" aria-controls={menuId} aria-haspopup="true" onClick={handleAccountMenuOpen} color="inherit">
+              <IconButton edge="end" aria-label={strings.ACCOUNT} aria-controls={menuId} aria-haspopup="true" onClick={handleAccountMenuOpen} color="inherit">
                 <Avatar record={user} type={user.type} size="small" readonly />
               </IconButton>
             )}
@@ -527,14 +537,14 @@ const Header = ({
               </Button>
             )}
             {isSignedIn && (
-              <IconButton aria-label={strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
+              <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                   <NotificationsIcon />
                 </Badge>
               </IconButton>
             )}
             {isSignedIn && (
-              <IconButton aria-label="show more" aria-controls={mobileMenuId} aria-haspopup="true" onClick={handleMobileMenuOpen} color="inherit">
+              <IconButton aria-label={strings.SHOW_MORE} aria-controls={mobileMenuId} aria-haspopup="true" onClick={handleMobileMenuOpen} color="inherit">
                 <MoreIcon />
               </IconButton>
             )}

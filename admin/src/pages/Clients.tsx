@@ -4,6 +4,8 @@ import { Button, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings } from '@/lang/clients'
 import Search from '@/components/Search'
@@ -13,12 +15,16 @@ import '@/assets/css/clients.css'
 
 const Clients = () => {
   const navigate = useNavigate()
+  const agencyPermissions = useAgencyPermissions()
+  const clientsDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadClients)
+  const canManageClients = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageClients)
   const [user, setUser] = useState<bookcarsTypes.User>()
   const [keyword, setKeyword] = useState('')
 
   return (
     <Layout strict onLoad={setUser}>
-      {user && (
+      {user && clientsDenied && <AccessDenied />}
+      {user && !clientsDenied && (
         <div className="agency-clients">
           <div className="agency-clients__heading">
             <div>
@@ -26,14 +32,16 @@ const Clients = () => {
               <Typography component="h1" className="agency-clients__title">{strings.TITLE}</Typography>
               <Typography className="agency-clients__subtitle">{strings.SUBTITLE}</Typography>
             </div>
-            <Button
-              variant="contained"
-              startIcon={<AddRoundedIcon />}
-              className="agency-clients__action"
-              onClick={() => navigate('/create-user?type=user&from=clients')}
-            >
-              {strings.ADD_CLIENT}
-            </Button>
+            {canManageClients && (
+              <Button
+                variant="contained"
+                startIcon={<AddRoundedIcon />}
+                className="agency-clients__action"
+                onClick={() => navigate('/create-user?type=user&from=clients')}
+              >
+                {strings.ADD_CLIENT}
+              </Button>
+            )}
           </div>
 
           <div className="agency-clients__toolbar">

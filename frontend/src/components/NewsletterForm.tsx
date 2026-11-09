@@ -90,7 +90,7 @@ const NewsletterForm = () => {
           <FormHelperText error={!!errors.email}>{errors.email?.message || ''}</FormHelperText>
         </FormControl>
 
-        <Button type="submit" variant="contained" className="btn-primary btn" aria-label="Subscribe" disabled={isSubmitting}>
+        <Button type="submit" variant="contained" className="btn-primary btn" disabled={isSubmitting}>
           {
             isSubmitting
               ? <CircularProgress color="inherit" size={24} />

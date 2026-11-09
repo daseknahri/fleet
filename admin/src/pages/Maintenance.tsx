@@ -6,6 +6,8 @@ import {
 
   Button,
 
+  Checkbox,
+
   Card,
 
   CardContent,
@@ -17,6 +19,8 @@ import {
   DialogContent,
 
   DialogTitle,
+
+  FormControlLabel,
 
   MenuItem,
 
@@ -39,6 +43,10 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 
 import Layout from '@/components/Layout'
+
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
+
+import AccessDenied from '@/components/AccessDenied'
 
 import * as CarService from '@/services/CarService'
 
@@ -210,7 +218,38 @@ const formatDate = (date: Date) => {
 const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
 
+// H-037: mirrors the backend's dueStatus derivation
+// (backend/src/controllers/maintenanceScheduleController.ts): Completed is
+// the only operator-set status; every other status is derived from the due
+// date (overdue < today <= due within 30 days <= upcoming).
+const derivedScheduleStatus = (status: bookcarsTypes.MaintenanceScheduleStatus, nextDueDate: string): bookcarsTypes.MaintenanceScheduleStatus => {
+  if (status === bookcarsTypes.MaintenanceScheduleStatus.Completed) {
+    return bookcarsTypes.MaintenanceScheduleStatus.Completed
+  }
+  const due = new Date(`${nextDueDate}T00:00:00`)
+  if (Number.isNaN(due.getTime())) {
+    return bookcarsTypes.MaintenanceScheduleStatus.Upcoming
+  }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dueSoon = new Date(today)
+  dueSoon.setDate(dueSoon.getDate() + 30)
+  if (due.getTime() < today.getTime()) {
+    return bookcarsTypes.MaintenanceScheduleStatus.Overdue
+  }
+  if (due.getTime() <= dueSoon.getTime()) {
+    return bookcarsTypes.MaintenanceScheduleStatus.Due
+  }
+  return bookcarsTypes.MaintenanceScheduleStatus.Upcoming
+}
+
+
 const Maintenance = () => {
+  const agencyPermissions = useAgencyPermissions()
+
+  const canManageExpenses = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageExpenses)
+
+  const maintenanceDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadExpenses)
   const [cars, setCars] = useState<bookcarsTypes.Car[]>([])
 
   const [expenses, setExpenses] = useState<bookcarsTypes.MaintenanceExpense[]>([])
@@ -246,6 +285,8 @@ const Maintenance = () => {
   const [selected, setSelected] = useState<bookcarsTypes.MaintenanceExpense | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<bookcarsTypes.MaintenanceExpense | null>(null)
+
+  const [scheduleDeleteTarget, setScheduleDeleteTarget] = useState<bookcarsTypes.MaintenanceSchedule | null>(null)
 
   const [saving, setSaving] = useState(false)
 
@@ -490,16 +531,50 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
     const nextDueMileage = scheduleForm.nextDueMileage.trim() ? Number(scheduleForm.nextDueMileage) : undefined
 
-    if (!scheduleForm.car || !scheduleForm.title.trim() || !scheduleForm.nextDueDate
-
-      || (intervalDays === undefined && intervalKm === undefined)
-
-      || (intervalDays !== undefined && (!Number.isInteger(intervalDays) || intervalDays < 1))
-
-      || (intervalKm !== undefined && (!Number.isInteger(intervalKm) || intervalKm < 1))
-
-      || (nextDueMileage !== undefined && (!Number.isFinite(nextDueMileage) || nextDueMileage < 0))) {
+    const failScheduleValidation = (message: string) => {
       setScheduleFormError(true)
+
+      setScheduleFormErrorMessage(message)
+    }
+
+    if (!scheduleForm.car) {
+      failScheduleValidation(`${strings.SCHEDULE_REQUIRED_FIELD}${strings.VEHICLE}`)
+
+      return
+    }
+
+    if (!scheduleForm.title.trim()) {
+      failScheduleValidation(`${strings.SCHEDULE_REQUIRED_FIELD}${strings.SCHEDULE_TITLE}`)
+
+      return
+    }
+
+    if (!scheduleForm.nextDueDate) {
+      failScheduleValidation(`${strings.SCHEDULE_REQUIRED_FIELD}${strings.NEXT_DUE}`)
+
+      return
+    }
+
+    if (intervalDays === undefined && intervalKm === undefined) {
+      failScheduleValidation(strings.SCHEDULE_INTERVAL_REQUIRED)
+
+      return
+    }
+
+    if (intervalDays !== undefined && (!Number.isInteger(intervalDays) || intervalDays < 1)) {
+      failScheduleValidation(`${strings.SCHEDULE_INVALID_FIELD}${strings.INTERVAL_DAYS}`)
+
+      return
+    }
+
+    if (intervalKm !== undefined && (!Number.isInteger(intervalKm) || intervalKm < 1)) {
+      failScheduleValidation(`${strings.SCHEDULE_INVALID_FIELD}${strings.INTERVAL_KM}`)
+
+      return
+    }
+
+    if (nextDueMileage !== undefined && (!Number.isFinite(nextDueMileage) || nextDueMileage < 0)) {
+      failScheduleValidation(`${strings.SCHEDULE_INVALID_FIELD}${strings.NEXT_MILEAGE}`)
 
       return
     }
@@ -556,15 +631,17 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
   }
 
 
-  const handleScheduleDelete = async (schedule: bookcarsTypes.MaintenanceSchedule) => {
-    if (!schedule._id || !window.confirm(strings.DELETE_SCHEDULE_CONFIRM)) {
+  const handleScheduleDelete = async () => {
+    if (!scheduleDeleteTarget?._id) {
 return
 }
 
     try {
-      await MaintenanceScheduleService.remove(schedule._id)
+      await MaintenanceScheduleService.remove(scheduleDeleteTarget._id)
 
-      setSchedules((rows) => rows.filter((row) => row._id !== schedule._id))
+      setSchedules((rows) => rows.filter((row) => row._id !== scheduleDeleteTarget._id))
+
+      setScheduleDeleteTarget(null)
     } catch (error) {
       helper.error(error)
     }
@@ -610,6 +687,8 @@ return
 
     <Layout strict onLoad={onLoad}>
 
+      {maintenanceDenied ? <AccessDenied /> : (
+
       <div className="agency-maintenance">
 
         <div className="agency-maintenance__heading">
@@ -624,7 +703,7 @@ return
 
           </div>
 
-          <Button variant="contained" startIcon={<AddRoundedIcon />} className="agency-maintenance__action" onClick={openNew} disabled={cars.length === 0}>
+          <Button variant="contained" startIcon={<AddRoundedIcon />} className="agency-maintenance__action" onClick={openNew} disabled={cars.length === 0 || !canManageExpenses}>
 
             {strings.ADD}
 
@@ -638,11 +717,11 @@ return
 
         <div className="agency-maintenance__summary">
 
-          <Card><CardContent><span className="agency-maintenance__summary-icon"><BuildRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading ? 'â€”' : formatAmount(total)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-maintenance__summary-icon"><BuildRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading ? '—' : formatAmount(total)}</strong></CardContent></Card>
 
-          <Card><CardContent><span className="agency-maintenance__summary-icon agency-maintenance__summary-icon--blue">{strings.TYPE.slice(0, 1)}</span><small>{strings.RECORDS}</small><strong>{loading ? 'â€”' : expenses.length}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-maintenance__summary-icon agency-maintenance__summary-icon--blue">{strings.TYPE.slice(0, 1)}</span><small>{strings.RECORDS}</small><strong>{loading ? '—' : expenses.length}</strong></CardContent></Card>
 
-          <Card><CardContent><span className="agency-maintenance__summary-icon">{strings.SCHEDULES.slice(0, 1)}</span><small>{strings.SCHEDULES}</small><strong>{loading ? 'â€”' : schedules.length}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-maintenance__summary-icon">{strings.SCHEDULES.slice(0, 1)}</span><small>{strings.SCHEDULES}</small><strong>{loading ? '—' : schedules.length}</strong></CardContent></Card>
 
         </div>
 
@@ -671,7 +750,7 @@ return
 
           {loading ? (
 
-            <div className="agency-maintenance__empty">â€¦</div>
+            <div className="agency-maintenance__empty">…</div>
 
           ) : filtered.length === 0 ? (
 
@@ -689,17 +768,17 @@ return
 
               <strong>{formatAmount(expense.amount)}</strong>
 
-              <span>{expense.mileage ? `${new Intl.NumberFormat(uiLocale()).format(expense.mileage)} km` : 'â€”'}</span>
+              <span>{expense.mileage ? `${new Intl.NumberFormat(uiLocale()).format(expense.mileage)} km` : '—'}</span>
 
-              <span>{expense.vendor || expense.note || 'â€”'}</span>
+              <span>{expense.vendor || expense.note || '—'}</span>
 
-              <span className="agency-maintenance__actions">
+              {canManageExpenses && <span className="agency-maintenance__actions">
 
                 <Button size="small" aria-label={strings.EDIT} onClick={() => openEdit(expense)}><EditRoundedIcon /></Button>
 
                 <Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setDeleteTarget(expense)}><DeleteOutlineRoundedIcon /></Button>
 
-              </span>
+              </span>}
 
             </div>
 
@@ -713,23 +792,25 @@ return
 
             <Typography component="h2">{strings.SCHEDULES}</Typography>
 
-            <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={openScheduleNew} disabled={cars.length === 0}>{strings.ADD_SCHEDULE}</Button>
+            <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={openScheduleNew} disabled={cars.length === 0 || !canManageExpenses}>{strings.ADD_SCHEDULE}</Button>
 
           </div>
 
-          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{formatDate(schedule.nextDueDate)}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span><span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => handleScheduleDelete(schedule)}><DeleteOutlineRoundedIcon /></Button></span></div>)}
+          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{formatDate(schedule.nextDueDate)}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setScheduleDeleteTarget(schedule)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
         <section className="agency-maintenance__panel" aria-label={strings.CATEGORY_REPORT}>
 
-          <div className="agency-maintenance__section-heading"><Typography component="h2">{strings.CATEGORY_REPORT}</Typography><strong>{report ? formatAmount(report.total) : 'â€”'}</strong></div>
+          <div className="agency-maintenance__section-heading"><Typography component="h2">{strings.CATEGORY_REPORT}</Typography><strong>{report ? formatAmount(report.total) : '—'}</strong></div>
 
-          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} Â· {row.receipts} {strings.RECEIPTS}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
+          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
 
         </section>
 
       </div>
+
+      )}
 
 
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
@@ -742,7 +823,7 @@ return
 
           <TextField select fullWidth required label={strings.VEHICLE} value={form.car} onChange={setField('car')}>
 
-            {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` Â· ${car.licensePlate}` : ''}</MenuItem>)}
+            {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` · ${car.licensePlate}` : ''}</MenuItem>)}
 
           </TextField>
 
@@ -791,7 +872,7 @@ return
 
           <TextField select fullWidth required label={strings.VEHICLE} value={scheduleForm.car} onChange={(event) => setScheduleForm((current) => ({ ...current, car: event.target.value }))}>
 
-            {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` Â· ${car.licensePlate}` : ''}</MenuItem>)}
+            {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` · ${car.licensePlate}` : ''}</MenuItem>)}
 
           </TextField>
 
@@ -809,7 +890,15 @@ return
 
             <TextField fullWidth type="number" label={strings.NEXT_MILEAGE} value={scheduleForm.nextDueMileage} onChange={(event) => setScheduleForm((current) => ({ ...current, nextDueMileage: event.target.value }))} inputProps={{ min: 0, step: 1 }} />
 
-            <TextField select fullWidth label={strings.STATUS} value={scheduleForm.status} onChange={(event) => setScheduleForm((current) => ({ ...current, status: event.target.value as bookcarsTypes.MaintenanceScheduleStatus }))}>{Object.values(bookcarsTypes.MaintenanceScheduleStatus).map((status) => <MenuItem value={status} key={status}>{scheduleStatusLabel(status)}</MenuItem>)}</TextField>
+            <div>
+
+              <Typography variant="body2">{`${strings.STATUS}: ${scheduleStatusLabel(derivedScheduleStatus(scheduleForm.status, scheduleForm.nextDueDate))}`}</Typography>
+
+              <Typography variant="caption" color="textSecondary">{strings.STATUS_DERIVED_HINT}</Typography>
+
+              <FormControlLabel control={<Checkbox checked={scheduleForm.status === bookcarsTypes.MaintenanceScheduleStatus.Completed} onChange={(event) => setScheduleForm((current) => ({ ...current, status: event.target.checked ? bookcarsTypes.MaintenanceScheduleStatus.Completed : bookcarsTypes.MaintenanceScheduleStatus.Upcoming }))} />} label={strings.COMPLETED} />
+
+            </div>
 
           </div>
 
@@ -833,6 +922,23 @@ return
           <Button onClick={() => setDeleteTarget(null)}>{strings.CANCEL}</Button>
 
           <Button color="error" variant="contained" onClick={handleDelete}>{strings.DELETE}</Button>
+
+        </DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={!!scheduleDeleteTarget} onClose={() => setScheduleDeleteTarget(null)} maxWidth="xs" fullWidth>
+
+        <DialogTitle>{strings.DELETE}</DialogTitle>
+
+        <DialogContent>{strings.DELETE_SCHEDULE_CONFIRM}</DialogContent>
+
+        <DialogActions>
+
+          <Button onClick={() => setScheduleDeleteTarget(null)}>{strings.CANCEL}</Button>
+
+          <Button color="error" variant="contained" onClick={handleScheduleDelete}>{strings.DELETE}</Button>
 
         </DialogActions>
 

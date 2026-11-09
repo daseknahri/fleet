@@ -6,11 +6,19 @@ const settingSchema = new Schema<env.Setting>({
     type: Number,
     default: 1,
     min: 1,
+    validate: {
+      validator: Number.isInteger,
+      message: '{VALUE} is not an integer',
+    },
   },
   minRentalHours: {
     type: Number,
     default: 1,
     min: 1,
+    validate: {
+      validator: Number.isInteger,
+      message: '{VALUE} is not an integer',
+    },
   },
   minPickupDropoffHour: {
     type: Number,
