@@ -1,6 +1,6 @@
 # Gestion Auto — PRODUCTION compose (Coolify, VPS srv684658)
-# STAGE 1 of serialized redeploy (post-incident): backend stack only.
-# bc-admin/bc-frontend return in stage 2/3 commits - never build 3 images at once on this host.
+# STAGE 2 of serialized redeploy: backend stack + bc-frontend.
+# bc-admin returns in the stage 3 commit - never build 2+ images at once on this host.
 # Derived from the shipped docker-compose.yml (Phase 1 plan §5 deltas):
 #  - NO host port bindings anywhere (3002/4002/8080 are taken on the VPS);
 #    Traefik routes over the docker network via SERVICE_FQDN_* (set in Coolify env).
@@ -74,6 +74,16 @@ services:
     environment:
       MP_MAX_MESSAGES: 5000
       MP_DATA_FILE: /data/mailpit.db
+
+  bc-frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    restart: always
+    depends_on:
+      - bc-backend
+    volumes:
+      - cdn:/var/www/cdn/bookcars
 
 volumes:
   cdn:
