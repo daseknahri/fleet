@@ -23,6 +23,7 @@ import Layout from '@/components/Layout'
 import Backdrop from '@/components/SimpleBackdrop'
 import Avatar from '@/components/Avatar'
 import BookingList from '@/components/BookingList'
+import ClientDocuments, { clientStatusLabel, clientTypeLabel } from '@/components/ClientDocuments'
 import Error from './Error'
 import NoMatch from './NoMatch'
 import * as SupplierService from '@/services/SupplierService'
@@ -42,6 +43,7 @@ const User = () => {
   const [noMatch, setNoMatch] = useState(false)
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
   const [suppliers, setSuppliers] = useState<string[]>([])
+  const [balance, setBalance] = useState<bookcarsTypes.ClientBalance>()
   const [offset, setOffset] = useState(0)
 
   useEffect(() => {
@@ -108,6 +110,10 @@ const User = () => {
                 setUser(_user)
                 setVisible(true)
                 setLoading(false)
+              }
+
+              if (_user.type === bookcarsTypes.UserType.User) {
+                UserService.getClientBalance(_user._id as string).then(setBalance).catch(() => setBalance(undefined))
               }
 
               const admin = helper.admin(_loggedUser)
@@ -199,6 +205,57 @@ const User = () => {
                 <Link href={`${bookcarsHelper.trimEnd(env.API_HOST, '/')}/api/user-license/${user._id}/${encodeURIComponent(user.license)}`} target="_blank" rel="noreferrer">
                   {user.license}
                 </Link>
+              </div>
+            )}
+            {user.type === bookcarsTypes.UserType.User && (
+              <div className="client-identity">
+                <Typography variant="h6" className="user-info">{commonStrings.IDENTITY}</Typography>
+                <Typography variant="body2" className="user-info">
+                  {`${commonStrings.CLIENT_TYPE}: ${clientTypeLabel(user.clientType)}`}
+                </Typography>
+                <Typography variant="body2" className="user-info">
+                  {`${commonStrings.CLIENT_STATUS}: ${clientStatusLabel(user.clientStatus)}`}
+                </Typography>
+                {user.clientStatus === bookcarsTypes.ClientStatus.Blocked && (
+                  <Typography variant="body2" className="user-info client-blocked">
+                    {commonStrings.CLIENT_BLOCKED_MESSAGE}
+                  </Typography>
+                )}
+                {user.cinNumber && (
+                  <Typography variant="body2" className="user-info">
+                    {`${commonStrings.CIN_NUMBER}: ${user.cinNumber}`}
+                    {user.cinExpiry && ` — ${commonStrings.EXPIRY_DATE}: ${new Date(user.cinExpiry).toLocaleDateString(loggedUser.language)}`}
+                    {user.cinExpiry && new Date(user.cinExpiry) < new Date() && ` (${commonStrings.EXPIRED})`}
+                  </Typography>
+                )}
+                {user.passportNumber && (
+                  <Typography variant="body2" className="user-info">
+                    {`${commonStrings.PASSPORT_NUMBER}: ${user.passportNumber}`}
+                    {user.passportExpiry && ` — ${commonStrings.EXPIRY_DATE}: ${new Date(user.passportExpiry).toLocaleDateString(loggedUser.language)}`}
+                    {user.passportExpiry && new Date(user.passportExpiry) < new Date() && ` (${commonStrings.EXPIRED})`}
+                  </Typography>
+                )}
+                {user.licenseNumber && (
+                  <Typography variant="body2" className="user-info">
+                    {`${commonStrings.LICENSE_NUMBER}: ${user.licenseNumber}`}
+                    {user.licenseExpiry && ` — ${commonStrings.EXPIRY_DATE}: ${new Date(user.licenseExpiry).toLocaleDateString(loggedUser.language)}`}
+                    {user.licenseExpiry && new Date(user.licenseExpiry) < new Date() && ` (${commonStrings.EXPIRED})`}
+                  </Typography>
+                )}
+                {balance && (
+                  <>
+                    <Typography variant="body2" className="user-info">
+                      {`${commonStrings.BALANCE_DUE}: ${bookcarsHelper.formatPrice(balance.outstanding, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
+                    </Typography>
+                    <Typography variant="body2" className="user-info">
+                      {`${commonStrings.OVERDUE_BALANCE}: ${bookcarsHelper.formatPrice(balance.overdue, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
+                    </Typography>
+                    <Typography variant="body2" className="user-info">
+                      {`${commonStrings.DEPOSIT_HELD}: ${bookcarsHelper.formatPrice(balance.depositHeld, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
+                    </Typography>
+                  </>
+                )}
+                <ClientDocuments user={user} />
               </div>
             )}
             <div className="user-actions">

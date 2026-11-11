@@ -8,5 +8,6 @@ const routes = express.Router()
 routes.route(routeNames.downloadContract).get(authJwt.verifyToken, documentController.downloadContract)
 routes.route(routeNames.downloadLicense).get(authJwt.verifyToken, documentController.downloadLicense)
 routes.route(routeNames.downloadMaintenanceReceipt).get(authJwt.verifyToken, documentController.downloadMaintenanceReceipt)
+routes.route(routeNames.downloadClientDocument).get(authJwt.verifyToken, documentController.downloadClientDocument)
 
 export default routes

@@ -8,6 +8,9 @@ const strings = new LocalizedStrings({
     DELETE_SELECTION: 'Supprimer les utilisateurs sélectionnés',
     BLACKLIST: 'Ajouter à la liste noire',
     EMPTY_LIST: 'Pas d’utilisateurs.',
+    BALANCE_DUE: 'Solde dû',
+    CLIENT_STATUS: 'Statut',
+    DOCUMENTS: 'Documents',
   },
   en: {
     DELETE_USER: 'Are you sure you want to delete this user and all his data?',
@@ -15,6 +18,9 @@ const strings = new LocalizedStrings({
     DELETE_SELECTION: 'Delete selectied users',
     BLACKLIST: 'Add to the blacklist',
     EMPTY_LIST: 'No users.',
+    BALANCE_DUE: 'Balance due',
+    CLIENT_STATUS: 'Status',
+    DOCUMENTS: 'Documents',
   },
   ar: {
     DELETE_USER: 'هل تريد حذف هذا المستخدم وجميع بياناته؟',
@@ -22,6 +28,9 @@ const strings = new LocalizedStrings({
     DELETE_SELECTION: 'حذف المستخدمين المحددين',
     BLACKLIST: 'إضافة إلى القائمة السوداء',
     EMPTY_LIST: 'لا يوجد مستخدمون.',
+    BALANCE_DUE: 'المبلغ المستحق',
+    CLIENT_STATUS: 'الحالة',
+    DOCUMENTS: 'المستندات',
   },
   es: {
     DELETE_USER: '¿Estás seguro de que quieres eliminar a este usuario y todos sus datos?',
@@ -29,6 +38,9 @@ const strings = new LocalizedStrings({
     DELETE_SELECTION: 'Eliminar los usuarios seleccionados',
     BLACKLIST: 'Añadir a la lista negra',
     EMPTY_LIST: 'No hay usuarios.',
+    BALANCE_DUE: 'Saldo adeudado',
+    CLIENT_STATUS: 'Estado',
+    DOCUMENTS: 'Documentos',
   },
 })
 

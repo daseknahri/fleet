@@ -1,0 +1,30 @@
+div.client-documents {
+  margin-top: 10px;
+}
+
+div.client-documents .client-documents-title {
+  color: #666;
+  margin-bottom: 4px;
+}
+
+div.client-documents .client-documents-empty {
+  color: #999;
+}
+
+div.client-documents .client-documents-item {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+div.client-documents .client-documents-upload {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+div.client-documents .client-documents-upload-label {
+  color: #666;
+  font-size: 0.85rem;
+}

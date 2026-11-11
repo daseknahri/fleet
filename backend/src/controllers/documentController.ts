@@ -206,3 +206,76 @@ res.status(500).send('Unable to download document')
 }
   }
 }
+
+/**
+ * GA-PAR-04: download one client identity document. Private store only —
+ * the caller must be the platform admin, the client themself, the owning
+ * supplier, or agency staff of the client's agency holding
+ * ReadPrivateDocuments. Agency scope is enforced against the client's
+ * supplier, so a cross-agency request is refused before any file access.
+ */
+export const downloadClientDocument = async (req: Request, res: Response) => {
+  const { userId, filename } = req.params
+
+  try {
+    if (!helper.isValidObjectId(userId) || !isSafeFilename(filename)) {
+      res.status(400).send('Invalid document reference')
+      return
+    }
+
+    const callerId = req.user?._id
+    if (!callerId) {
+      res.status(403).send('Authentication required')
+      return
+    }
+
+    const [caller, client] = await Promise.all([
+      User.findById(callerId).select('_id type'),
+      User.findOne({ _id: userId, type: bookcarsTypes.UserType.User }).select('_id supplier clientDocuments'),
+    ])
+
+    const document = client?.clientDocuments?.find((entry) => entry.file === filename)
+    if (!caller || !client || !document?.file) {
+      res.sendStatus(404)
+      return
+    }
+
+    const canReadStaffDocument = caller.type === bookcarsTypes.UserType.Staff
+      && !!client.supplier
+      && agencySupplierId(req) === client.supplier.toString()
+      && hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)
+
+    const canRead = caller.type === bookcarsTypes.UserType.Admin
+      || caller._id.toString() === client._id.toString()
+      || (caller.type === bookcarsTypes.UserType.Supplier && client.supplier?.toString() === caller._id.toString())
+      || canReadStaffDocument
+
+    if (!canRead) {
+      res.status(403).send('Forbidden')
+      return
+    }
+
+    const documentsDir = path.resolve(env.CDN_CLIENT_DOCUMENTS)
+    const filepath = path.resolve(documentsDir, document.file)
+    if (!filepath.startsWith(`${documentsDir}${path.sep}`)) {
+      logger.warn(`[document.downloadClientDocument] path escape attempt: ${filename}`)
+      res.status(403).send('Forbidden')
+      return
+    }
+
+    const extension = path.extname(filename).toLowerCase()
+    const contentType = extension === '.pdf'
+      ? 'application/pdf'
+      : extension === '.png'
+        ? 'image/png'
+        : extension === '.webp'
+          ? 'image/webp'
+          : 'image/jpeg'
+    await sendPrivateFile(res, filepath, contentType)
+  } catch (err) {
+    logger.error(`[document.downloadClientDocument] ${i18nSafeError(err)}`, err)
+    if (!res.headersSent) {
+      res.status(500).send('Unable to download document')
+    }
+  }
+}

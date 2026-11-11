@@ -90,3 +90,20 @@ div.user div.col-1 .user-actions {
     overflow: auto;
   }
 }
+
+/* GA-PAR-04: client identity pack on the client file */
+div.user div.col-1 div.client-identity {
+  padding: 5px;
+  margin-top: 10px;
+  border-top: #eee solid 1px;
+}
+
+div.user div.col-1 div.client-identity .user-info {
+  text-align: left;
+  margin-top: 6px;
+}
+
+div.user div.col-1 div.client-identity .client-blocked {
+  color: #B3261E;
+  font-weight: 600;
+}

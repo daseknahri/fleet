@@ -88,6 +88,17 @@ const userSchema = new Schema<env.User>(
       type: Boolean,
       default: true,
     },
+    // GA-PAR-13: per-category email toggles (scorecard #43). Nested paths
+    // (not a subdocument) so legacy rows read as undefined and every
+    // consumer treats undefined as true; new rows default all true.
+    emailNotificationCategories: {
+      returnsDue: { type: Boolean, default: true },
+      carDueDates: { type: Boolean, default: true },
+      signedContracts: { type: Boolean, default: true },
+      weeklyRecap: { type: Boolean, default: true },
+      tips: { type: Boolean, default: true },
+      news: { type: Boolean, default: true },
+    },
     avatar: {
       type: String,
     },
@@ -166,6 +177,120 @@ const userSchema = new Schema<env.User>(
       type: Boolean,
       default: false,
     },
+    // GA-PAR-01: agency fiscal identity (supplier records only). All fields
+    // are optional; records that never set them behave exactly as before.
+    // `location` above is a free-text display location and is NOT reused
+    // here: `fiscalAddress` is the address printed for fiscal purposes.
+    ice: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    registreCommerce: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    identifiantFiscal: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    patente: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    rib: {
+      type: String,
+      trim: true,
+      maxlength: 34,
+    },
+    fiscalAddress: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+    city: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    vatEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    vatRate: {
+      // Percent (e.g. 20 means 20%). Stored explicitly; invoice creation
+      // falls back to 20 when VAT is enabled and no rate was stored.
+      type: Number,
+      min: 0,
+      max: 100,
+    },
+    // GA-PAR-04: client identity pack (records with type=User only; the
+    // controller validates/strips these fields for every other type, so
+    // staff/supplier creation cannot regress). All optional. `license`
+    // above remains the licence FILE; `licenseNumber` is the number.
+    cinNumber: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    cinExpiry: {
+      type: Date,
+    },
+    passportNumber: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    passportExpiry: {
+      type: Date,
+    },
+    licenseNumber: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
+    licenseExpiry: {
+      type: Date,
+    },
+    clientType: {
+      type: String,
+      enum: [bookcarsTypes.ClientType.Individual, bookcarsTypes.ClientType.Company],
+    },
+    clientStatus: {
+      // NEW separate workflow status (coordinator decision N5): never
+      // writes or derives from `blacklisted` / `active`; auth unchanged.
+      type: String,
+      enum: [
+        bookcarsTypes.ClientStatus.Active,
+        bookcarsTypes.ClientStatus.UnderReview,
+        bookcarsTypes.ClientStatus.Blocked,
+      ],
+    },
+    clientDocuments: [{
+      kind: {
+        type: String,
+        required: [true, "can't be blank"],
+        trim: true,
+        maxlength: 30,
+      },
+      file: {
+        type: String,
+        required: [true, "can't be blank"],
+        trim: true,
+      },
+      originalName: {
+        type: String,
+        trim: true,
+        maxlength: 255,
+      },
+      uploadedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
   },
   {
     timestamps: true,

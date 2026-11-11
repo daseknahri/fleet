@@ -34,6 +34,7 @@ import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/user-list'
 import * as helper from '@/utils/helper'
 import * as UserService from '@/services/UserService'
+import { clientStatusLabel, clientTypeLabel } from '@/components/ClientDocuments'
 
 import '@/assets/css/user-list.css'
 
@@ -43,6 +44,10 @@ interface UserListProps {
   user?: bookcarsTypes.User
   hideDesktopColumns?: boolean
   checkboxSelection?: boolean
+  // GA-PAR-04: client-mode columns (balance due, status chip, client type,
+  // documents count). Default OFF so the staff list (pages/Users.tsx)
+  // keeps byte-identical behaviour.
+  clientMode?: boolean
   onLoad?: bookcarsTypes.DataEvent<bookcarsTypes.User>
 }
 
@@ -52,6 +57,7 @@ const UserList = ({
   user: userListUser,
   hideDesktopColumns,
   checkboxSelection,
+  clientMode,
   onLoad
 }: UserListProps) => {
   const navigate = useNavigate()
@@ -306,6 +312,51 @@ const UserList = ({
         )),
       },
     ]
+
+    if (clientMode) {
+      const clientColumns: GridColDef<bookcarsTypes.User>[] = [
+        {
+          field: 'clientType',
+          headerName: commonStrings.CLIENT_TYPE,
+          flex: 1,
+          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, string>) => <span>{clientTypeLabel(value)}</span>,
+          valueGetter: (value: string) => value,
+        },
+        {
+          field: 'clientStatus',
+          headerName: strings.CLIENT_STATUS,
+          flex: 1,
+          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, string>) => (
+            <span className={`bs us-client-status-${(value || bookcarsTypes.ClientStatus.Active).toLowerCase()}`}>
+              {clientStatusLabel(value)}
+            </span>
+          ),
+          valueGetter: (value: string) => value,
+        },
+        {
+          field: 'balanceDue',
+          headerName: strings.BALANCE_DUE,
+          flex: 1,
+          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, number>) => (
+            <span>{bookcarsHelper.formatPrice(value || 0, commonStrings.CURRENCY, UserService.getLanguage())}</span>
+          ),
+          valueGetter: (value: number) => value,
+        },
+        {
+          field: 'clientDocuments',
+          headerName: strings.DOCUMENTS,
+          flex: 1,
+          // GA-PAR-04-FIX: read the server-computed count (present for
+          // every caller); callers without ReadPrivateDocuments no longer
+          // receive the documents array. Fall back to the array length
+          // when the array is present.
+          renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.User>) => <span>{row.clientDocumentsCount ?? row.clientDocuments?.length ?? 0}</span>,
+          valueGetter: (value: bookcarsTypes.ClientDocument[] | undefined, row: bookcarsTypes.User) => row.clientDocumentsCount ?? row.clientDocuments?.length ?? value?.length ?? 0,
+        },
+      ]
+      // Insert before the action column (always last).
+      _columns.splice(_columns.length - 1, 0, ...clientColumns)
+    }
 
     if (hideDesktopColumns) {
       _columns.splice(1, 3)

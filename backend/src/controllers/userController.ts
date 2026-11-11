@@ -29,6 +29,9 @@ import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
+import { normalizeFiscalFields, applyFiscalFields, FISCAL_STRING_KEYS } from '../utils/fiscal'
+import { normalizeClientIdentityFields, applyClientIdentityFields, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
+import { getClientBalances } from '../utils/contractReceivable'
 
 /**
  * Get status message as HTML.
@@ -284,6 +287,53 @@ export const create = async (req: Request, res: Response) => {
     }
     body.type = targetType
     // end of security check
+
+    // GA-PAR-01: fiscal identity + VAT fields belong to supplier records
+    // only. On supplier creation they are validated (trimmed, length-capped,
+    // vatRate 0-100) and normalised; on any other target type they are
+    // stripped so they can never land on a customer record.
+    if (targetType === bookcarsTypes.UserType.Supplier) {
+      const fiscal = normalizeFiscalFields(body as unknown as Record<string, unknown>)
+      if (!fiscal.ok) {
+        res.status(400).send(fiscal.error)
+        return
+      }
+      const fiscalTarget: Record<string, any> = {}
+      applyFiscalFields(fiscalTarget, fiscal)
+      for (const key of fiscal.present) {
+        ;(body as unknown as Record<string, unknown>)[key] = fiscalTarget[key]
+      }
+      if (fiscal.present.has('vatEnabled') || fiscal.present.has('vatRate')) {
+        body.vatEnabled = !!fiscalTarget.vatEnabled
+        body.vatRate = fiscalTarget.vatRate
+      }
+    } else {
+      for (const key of [...FISCAL_STRING_KEYS, 'vatEnabled', 'vatRate']) {
+        delete (body as unknown as Record<string, unknown>)[key]
+      }
+    }
+
+    // GA-PAR-04: client identity pack belongs to customer records
+    // (type=User) only. For customers the fields are validated (malformed
+    // expiry date -> 400 naming the field) and normalised; for every other
+    // target type they are stripped, so staff/supplier creation cannot
+    // regress or silently gain identity validation.
+    if (targetType === bookcarsTypes.UserType.User) {
+      const identity = normalizeClientIdentityFields(body as unknown as Record<string, unknown>)
+      if (!identity.ok) {
+        res.status(400).send(identity.error)
+        return
+      }
+      const identityTarget: Record<string, any> = {}
+      applyClientIdentityFields(identityTarget, identity)
+      for (const key of identity.present) {
+        ;(body as unknown as Record<string, unknown>)[key] = identityTarget[key]
+      }
+    } else {
+      for (const key of CLIENT_IDENTITY_KEYS) {
+        delete (body as unknown as Record<string, unknown>)[key]
+      }
+    }
 
     body.verified = false
     body.blacklisted = false
@@ -821,6 +871,7 @@ export const signin = async (req: Request, res: Response) => {
         fullName: user.fullName,
         language: user.language,
         enableEmailNotifications: user.enableEmailNotifications,
+        emailNotificationCategories: user.emailNotificationCategories,
         blacklisted: user.blacklisted,
         avatar: user.avatar,
         type: user.type,
@@ -1398,6 +1449,14 @@ export const update = async (req: Request, res: Response) => {
     const canEditSupplierCommercial = user.type === bookcarsTypes.UserType.Supplier
       && (sessionUser.type === bookcarsTypes.UserType.Admin || isSelf)
     if (canEditSupplierCommercial) {
+      // GA-PAR-01: fiscal identity + VAT, same guard as the other
+      // supplier-commercial fields (supplier target, admin or self only).
+      const fiscal = normalizeFiscalFields(body as unknown as Record<string, unknown>)
+      if (!fiscal.ok) {
+        res.status(400).send(fiscal.error)
+        return
+      }
+      applyFiscalFields(user as unknown as Record<string, any>, fiscal)
       user.minimumRentalDays = minimumRentalDays
       user.priceChangeRate = priceChangeRate
       user.supplierCarLimit = supplierCarLimit
@@ -1413,6 +1472,20 @@ export const update = async (req: Request, res: Response) => {
       if (typeof blacklisted !== 'undefined') {
         user.blacklisted = blacklisted
       }
+    }
+    // GA-PAR-04: client identity pack — customer records only, edited by
+    // the platform admin or an agency caller already authorised for this
+    // client (ManageClients was enforced for staff above). Partial-PUT
+    // preservation (H-026): only keys present in the payload are applied.
+    // `clientStatus` never touches `blacklisted` / `active` (decision N5).
+    if (user.type === bookcarsTypes.UserType.User
+      && (sessionUser.type === bookcarsTypes.UserType.Admin || isAuthorizedSupplierUser)) {
+      const identity = normalizeClientIdentityFields(body as unknown as Record<string, unknown>)
+      if (!identity.ok) {
+        res.status(400).send(identity.error)
+        return
+      }
+      applyClientIdentityFields(user as unknown as Record<string, any>, identity)
     }
     // only admins can update user type
     if (sessionUser.type === bookcarsTypes.UserType.Admin) {
@@ -1476,8 +1549,36 @@ export const updateEmailNotifications = async (req: Request, res: Response) => {
       return
     }
 
-    const { enableEmailNotifications } = body
-    user.enableEmailNotifications = enableEmailNotifications
+    // GA-PAR-13 (#43): partial-PUT preservation (H-026 pattern) — an
+    // omitted field keeps its stored value. The master boolean's
+    // behaviour for callers that send it is exactly as before; the
+    // per-category object merges key-by-key over the stored values
+    // (defaults all true), accepting boolean values only.
+    const { enableEmailNotifications, emailNotificationCategories } = body
+    if (typeof enableEmailNotifications !== 'undefined') {
+      user.enableEmailNotifications = enableEmailNotifications
+    }
+    if (typeof emailNotificationCategories !== 'undefined') {
+      if (typeof emailNotificationCategories !== 'object' || emailNotificationCategories === null) {
+        res.status(400).send('Invalid email notification categories')
+        return
+      }
+      const keys: (keyof bookcarsTypes.EmailNotificationCategories)[] = [
+        'returnsDue', 'carDueDates', 'signedContracts', 'weeklyRecap', 'tips', 'news',
+      ]
+      const merged: bookcarsTypes.EmailNotificationCategories = { ...(user.emailNotificationCategories || {}) }
+      for (const key of keys) {
+        const val = (emailNotificationCategories as Record<string, unknown>)[key]
+        if (typeof val !== 'undefined') {
+          if (typeof val !== 'boolean') {
+            res.status(400).send('Invalid email notification categories')
+            return
+          }
+          merged[key] = val
+        }
+      }
+      user.emailNotificationCategories = merged
+    }
     await user.save()
 
     res.sendStatus(200)
@@ -1572,6 +1673,7 @@ export const getUser = async (req: Request, res: Response) => {
       verified: 1,
       language: 1,
       enableEmailNotifications: 1,
+      emailNotificationCategories: 1,
       avatar: 1,
       bio: 1,
       location: 1,
@@ -1582,6 +1684,15 @@ export const getUser = async (req: Request, res: Response) => {
       customerId: 1,
       licenseRequired: 1,
       license: 1,
+      cinNumber: 1,
+      cinExpiry: 1,
+      passportNumber: 1,
+      passportExpiry: 1,
+      licenseNumber: 1,
+      licenseExpiry: 1,
+      clientType: 1,
+      clientStatus: 1,
+      clientDocuments: 1,
       minimumRentalDays: 1,
       priceChangeRate: 1,
       supplierCarLimit: 1,
@@ -1621,6 +1732,12 @@ export const getUser = async (req: Request, res: Response) => {
 
     if (user && isStaffAgencyCustomer && !hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)) {
       user.license = undefined
+      // GA-PAR-04: identity numbers/documents get the same PII treatment
+      // as the licence file for staff without ReadPrivateDocuments.
+      user.cinNumber = undefined
+      user.passportNumber = undefined
+      user.licenseNumber = undefined
+      user.clientDocuments = undefined
     }
 
     if (
@@ -2086,6 +2203,7 @@ export const getUsers = async (req: Request, res: Response) => {
             verified: 1,
             language: 1,
             enableEmailNotifications: 1,
+            emailNotificationCategories: 1,
             avatar: 1,
             bio: 1,
             location: 1,
@@ -2093,6 +2211,9 @@ export const getUsers = async (req: Request, res: Response) => {
             blacklisted: 1,
             birthDate: 1,
             customerId: 1,
+            clientType: 1,
+            clientStatus: 1,
+            clientDocuments: 1,
           },
         },
         {
@@ -2108,6 +2229,38 @@ export const getUsers = async (req: Request, res: Response) => {
       ],
       { collation: { locale: env.DEFAULT_LANGUAGE, strength: 2 } },
     )
+
+    // GA-PAR-04: per-client balance due on customer rows, computed with
+    // the exact contractReceivable semantics (deposit never netted).
+    // GA-PAR-04-FIX (QA assertion 04-13): the list must not leak
+    // client-document metadata to callers without ReadPrivateDocuments
+    // (getUser already strips it for the same callers). Every row carries
+    // a server-computed clientDocumentsCount so the Clients-list documents
+    // column keeps working for everyone; the array itself is removed for
+    // callers without the permission.
+    const canReadPrivateDocuments = hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)
+    const resultData = users?.[0]?.resultData as env.User[] | undefined
+    if (Array.isArray(resultData) && resultData.length > 0) {
+      const rows = resultData as unknown as Record<string, unknown>[]
+      for (const row of rows) {
+        const documents = row.clientDocuments
+        row.clientDocumentsCount = Array.isArray(documents) ? documents.length : 0
+        if (!canReadPrivateDocuments) {
+          delete row.clientDocuments
+        }
+      }
+      const clientIds = resultData
+        .filter((row) => row.type === bookcarsTypes.UserType.User && row._id)
+        .map((row) => row._id!.toString())
+      if (clientIds.length > 0) {
+        const balances = await getClientBalances(clientIds)
+        for (const row of rows) {
+          if (row.type === bookcarsTypes.UserType.User && row._id) {
+            row.balanceDue = balances.get(String(row._id))?.outstanding ?? 0
+          }
+        }
+      }
+    }
 
     res.json(users)
   } catch (err) {
@@ -2562,3 +2715,193 @@ export const deleteTempLicense = async (req: Request, res: Response) => {
 }
 
 
+
+/**
+ * GA-PAR-04: shared agency-scope check for client-document writes.
+ * Mirrors the licence handlers: platform admin, the owning supplier, or
+ * agency staff of the client's agency with ManageClients.
+ */
+const canManageClientDocuments = async (req: Request, clientId: string) => {
+  const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+  const client = await User.findOne({ _id: clientId, type: bookcarsTypes.UserType.User })
+  const allowed = !!sessionUser && !!client && (
+    sessionUser.type === bookcarsTypes.UserType.Admin
+    || (sessionUser.type === bookcarsTypes.UserType.Supplier
+      && client.supplier?.toString() === sessionUser._id.toString())
+    || (sessionUser.type === bookcarsTypes.UserType.Staff
+      && client.supplier?.toString() === agencySupplierId(req)
+      && hasAgencyPermission(req.agency, AgencyPermission.ManageClients))
+  )
+  return { sessionUser, client, allowed }
+}
+
+/**
+ * GA-PAR-04: upload one client document into the private client-document
+ * store. Validation mirrors the licence/inspection uploads: extension
+ * allowlist (same list as licences) + content sniffing; anything else is
+ * a 400 and nothing is stored.
+ */
+export const uploadClientDocument = async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { file } = req
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('User Id not valid')
+      return
+    }
+
+    const { client, allowed } = await canManageClientDocuments(req, id)
+    if (!client) {
+      res.sendStatus(404)
+      return
+    }
+    if (!allowed) {
+      res.status(403).send('Forbidden: You cannot manage this client\'s documents')
+      return
+    }
+
+    if (!file) {
+      res.status(400).send('No file provided')
+      return
+    }
+    if (!file.originalname.includes('.')) {
+      res.status(400).send('Invalid client document file type')
+      return
+    }
+
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (!env.allowedLicenseExtensions.includes(ext)) {
+      res.status(400).send('Invalid client document file type')
+      return
+    }
+    if (!contentMatchesExtension(file.buffer, ext)) {
+      res.status(400).send('Invalid client document file type')
+      return
+    }
+
+    const rawKind = typeof req.body?.kind === 'string' ? req.body.kind.trim().toLowerCase() : ''
+    const kind = Object.values(bookcarsTypes.ClientDocumentKind).includes(rawKind as bookcarsTypes.ClientDocumentKind)
+      ? rawKind
+      : bookcarsTypes.ClientDocumentKind.Other
+
+    await asyncFs.mkdir(env.CDN_CLIENT_DOCUMENTS, { recursive: true })
+    const filename = `clientdoc_${client._id.toString()}_${nanoid(12)}${ext}`
+    const filepath = path.join(env.CDN_CLIENT_DOCUMENTS, filename)
+    await asyncFs.writeFile(filepath, file.buffer)
+
+    const document: bookcarsTypes.ClientDocument = {
+      kind,
+      file: filename,
+      originalName: path.basename(file.originalname).slice(0, 255),
+      uploadedAt: new Date(),
+    }
+    client.clientDocuments = [...(client.clientDocuments || []), document]
+    await client.save()
+    res.json(document)
+  } catch (err) {
+    logger.error(`[user.uploadClientDocument] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-04: delete exactly one client document (record + stored file);
+ * the client's other documents are untouched.
+ */
+export const deleteClientDocument = async (req: Request, res: Response) => {
+  const { id, file } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id) || file !== path.basename(file)) {
+      res.status(400).send('Invalid document reference')
+      return
+    }
+
+    const { client, allowed } = await canManageClientDocuments(req, id)
+    if (!client) {
+      res.sendStatus(404)
+      return
+    }
+    if (!allowed) {
+      res.status(403).send('Forbidden: You cannot manage this client\'s documents')
+      return
+    }
+
+    const documents = client.clientDocuments || []
+    const target = documents.find((doc) => doc.file === file)
+    if (!target) {
+      res.sendStatus(404)
+      return
+    }
+
+    client.clientDocuments = documents.filter((doc) => doc.file !== file)
+    await client.save()
+
+    const filepath = path.join(env.CDN_CLIENT_DOCUMENTS, target.file)
+    if (await helper.pathExists(filepath)) {
+      await asyncFs.unlink(filepath)
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[user.deleteClientDocument] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-04: per-client balance. Agency-scoped exactly like getUser:
+ * admin, the owning supplier, agency staff with ReadClients, or the
+ * client themself. Amounts come from getClientBalances, which applies
+ * the contractReceivable formula per booking (deposit never netted).
+ */
+export const getClientBalance = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('User id is not valid')
+      return
+    }
+
+    const client = await User.findOne({ _id: id, type: bookcarsTypes.UserType.User }).select('_id supplier').lean()
+    if (!client) {
+      res.sendStatus(404)
+      return
+    }
+
+    const sessionUserId = req.user?._id
+    const sessionUserType = req.user?.type
+    const isSelf = sessionUserId === id
+    const isSupplierUser = sessionUserType === bookcarsTypes.UserType.Supplier
+      && client.supplier?.toString() === sessionUserId
+    const isStaffAgencyCustomer = sessionUserType === bookcarsTypes.UserType.Staff
+      && !!client.supplier
+      && agencySupplierId(req) === client.supplier.toString()
+      && hasAgencyPermission(req.agency, AgencyPermission.ReadClients)
+
+    if (sessionUserType !== bookcarsTypes.UserType.Admin && !isSelf && !isSupplierUser && !isStaffAgencyCustomer) {
+      res.status(403).send('Forbidden')
+      return
+    }
+
+    const balances = await getClientBalances([id])
+    const balance = balances.get(id) || {
+      currency: env.BASE_CURRENCY.toUpperCase(),
+      outstanding: 0,
+      overdue: 0,
+      depositHeld: 0,
+      bookings: 0,
+    }
+    res.json({
+      currency: balance.currency,
+      outstanding: balance.outstanding,
+      overdue: balance.overdue,
+      depositHeld: balance.depositHeld,
+      bookings: balance.bookings,
+    })
+  } catch (err) {
+    logger.error(`[user.getClientBalance] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}

@@ -608,3 +608,60 @@ export const hasPassword = (id: string): Promise<number> => axiosInstance
     { withCredentials: true }
   )
   .then((res) => res.status)
+/**
+ * GA-PAR-04: upload one client document (private store).
+ *
+ * @param {string} userId
+ * @param {Blob} file
+ * @param {string} kind
+ * @returns {Promise<bookcarsTypes.Response<bookcarsTypes.ClientDocument>>}
+ */
+export const uploadClientDocument = (userId: string, file: Blob, kind: string): Promise<bookcarsTypes.Response<bookcarsTypes.ClientDocument>> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('kind', kind)
+
+  return axiosInstance
+    .post(
+      `/api/client-documents/${encodeURIComponent(userId)}`,
+      formData,
+      {
+        withCredentials: true,
+        headers: { 'Content-Type': 'multipart/form-data' }
+      },
+    )
+    .then((res) => ({ status: res.status, data: res.data }))
+}
+
+/**
+ * GA-PAR-04: delete exactly one client document.
+ *
+ * @param {string} userId
+ * @param {string} file
+ * @returns {Promise<number>}
+ */
+export const deleteClientDocument = (userId: string, file: string): Promise<number> => (
+  axiosInstance
+    .post(
+      `/api/delete-client-document/${encodeURIComponent(userId)}/${encodeURIComponent(file)}`,
+      null,
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+)
+
+/**
+ * GA-PAR-04: get a client's balance (contractReceivable semantics,
+ * deposit reported separately, never netted).
+ *
+ * @param {string} userId
+ * @returns {Promise<bookcarsTypes.ClientBalance>}
+ */
+export const getClientBalance = (userId: string): Promise<bookcarsTypes.ClientBalance> => (
+  axiosInstance
+    .get(
+      `/api/users/${encodeURIComponent(userId)}/balance`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+)

@@ -73,11 +73,21 @@ const CreateUser = () => {
       minimumRentalDays: '',
       priceChangeRate: '',
       supplierCarLimit: '',
-      notifyAdminOnNewCar: false
+      notifyAdminOnNewCar: false,
+      cinNumber: '',
+      passportNumber: '',
+      licenseNumber: '',
+      clientType: bookcarsTypes.ClientType.Individual,
+      clientStatus: bookcarsTypes.ClientStatus.Active
     },
   })
 
   const type = useWatch({ control, name: 'type' })
+  const cinExpiry = useWatch({ control, name: 'cinExpiry' })
+  const passportExpiry = useWatch({ control, name: 'passportExpiry' })
+  const licenseExpiry = useWatch({ control, name: 'licenseExpiry' })
+  const clientType = useWatch({ control, name: 'clientType' })
+  const clientStatus = useWatch({ control, name: 'clientStatus' })
   const payLater = useWatch({ control, name: 'payLater' })
   const licenseRequired = useWatch({ control, name: 'licenseRequired' })
   const notifyAdminOnNewCar = useWatch({ control, name: 'notifyAdminOnNewCar' })
@@ -174,6 +184,18 @@ const CreateUser = () => {
       if (type === bookcarsTypes.UserType.Supplier) {
         payload.payLater = data.payLater
         payload.licenseRequired = data.licenseRequired
+      }
+
+      if (type === bookcarsTypes.UserType.User) {
+        // GA-PAR-04: client identity pack (customers only).
+        payload.cinNumber = data.cinNumber || undefined
+        payload.cinExpiry = data.cinExpiry || undefined
+        payload.passportNumber = data.passportNumber || undefined
+        payload.passportExpiry = data.passportExpiry || undefined
+        payload.licenseNumber = data.licenseNumber || undefined
+        payload.licenseExpiry = data.licenseExpiry || undefined
+        payload.clientType = data.clientType || undefined
+        payload.clientStatus = data.clientStatus || undefined
       }
 
       const formStatus = await UserService.create(payload)
@@ -321,6 +343,85 @@ const CreateUser = () => {
                       setLicense(filename)
                     }}
                   />
+
+                  <div className="info">
+                    <InfoIcon />
+                    <span>{strings.IDENTITY_HEADING}</span>
+                  </div>
+
+                  <FormControl fullWidth margin="dense">
+                    <InputLabel>{commonStrings.CLIENT_TYPE}</InputLabel>
+                    <Select
+                      label={commonStrings.CLIENT_TYPE}
+                      value={clientType || bookcarsTypes.ClientType.Individual}
+                      onChange={(e) => setValue('clientType', e.target.value)}
+                      variant="standard"
+                      fullWidth
+                    >
+                      <MenuItem value={bookcarsTypes.ClientType.Individual}>{commonStrings.CLIENT_TYPE_INDIVIDUAL}</MenuItem>
+                      <MenuItem value={bookcarsTypes.ClientType.Company}>{commonStrings.CLIENT_TYPE_COMPANY}</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <InputLabel>{commonStrings.CLIENT_STATUS}</InputLabel>
+                    <Select
+                      label={commonStrings.CLIENT_STATUS}
+                      value={clientStatus || bookcarsTypes.ClientStatus.Active}
+                      onChange={(e) => setValue('clientStatus', e.target.value)}
+                      variant="standard"
+                      fullWidth
+                    >
+                      <MenuItem value={bookcarsTypes.ClientStatus.Active}>{commonStrings.CLIENT_STATUS_ACTIVE}</MenuItem>
+                      <MenuItem value={bookcarsTypes.ClientStatus.UnderReview}>{commonStrings.CLIENT_STATUS_UNDER_REVIEW}</MenuItem>
+                      <MenuItem value={bookcarsTypes.ClientStatus.Blocked}>{commonStrings.CLIENT_STATUS_BLOCKED}</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <InputLabel>{commonStrings.CIN_NUMBER}</InputLabel>
+                    <Input {...register('cinNumber')} type="text" autoComplete="off" />
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <DatePicker
+                      label={commonStrings.CIN_EXPIRY}
+                      value={cinExpiry || undefined}
+                      variant="standard"
+                      onChange={(date) => setValue('cinExpiry', date)}
+                      language={(user && user.language) || env.DEFAULT_LANGUAGE}
+                    />
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <InputLabel>{commonStrings.PASSPORT_NUMBER}</InputLabel>
+                    <Input {...register('passportNumber')} type="text" autoComplete="off" />
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <DatePicker
+                      label={commonStrings.PASSPORT_EXPIRY}
+                      value={passportExpiry || undefined}
+                      variant="standard"
+                      onChange={(date) => setValue('passportExpiry', date)}
+                      language={(user && user.language) || env.DEFAULT_LANGUAGE}
+                    />
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <InputLabel>{commonStrings.LICENSE_NUMBER}</InputLabel>
+                    <Input {...register('licenseNumber')} type="text" autoComplete="off" />
+                  </FormControl>
+
+                  <FormControl fullWidth margin="dense">
+                    <DatePicker
+                      label={commonStrings.LICENSE_EXPIRY}
+                      value={licenseExpiry || undefined}
+                      variant="standard"
+                      onChange={(date) => setValue('licenseExpiry', date)}
+                      language={(user && user.language) || env.DEFAULT_LANGUAGE}
+                    />
+                  </FormControl>
                 </>
               )}
 

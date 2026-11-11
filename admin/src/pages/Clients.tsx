@@ -55,6 +55,7 @@ const Clients = () => {
               keyword={keyword}
               checkboxSelection={!env.isMobile}
               hideDesktopColumns={env.isMobile}
+              clientMode
             />
           </section>
         </div>
