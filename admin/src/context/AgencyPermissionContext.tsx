@@ -32,6 +32,10 @@ export const AgencyPermission = {
   ReadInvoices: 'readInvoices',
   ManageInvoices: 'manageInvoices',
   DecideInvoices: 'decideInvoices',
+  ReadAgents: 'readAgents',
+  ManageAgents: 'manageAgents',
+  ReadReminders: 'readReminders',
+  ManageReminders: 'manageReminders',
 } as const
 
 export type AgencyPermissionName = (typeof AgencyPermission)[keyof typeof AgencyPermission]
