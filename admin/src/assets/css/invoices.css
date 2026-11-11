@@ -1,0 +1,27 @@
+.agency-invoices { width: min(1440px, calc(100% - 48px)); margin: 32px auto 64px; color: #182b30; }
+.agency-invoices__heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.agency-invoices__title { margin: 4px 0 !important; font-size: 30px !important; font-weight: 700 !important; }
+.agency-invoices__subtitle { color: #5a6d71; }
+.agency-invoices__toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.agency-invoices__panel { overflow: hidden; border: 1px solid #e4ebea; border-radius: 16px; background: #fff; }
+.agency-invoices__grid { display: grid; grid-template-columns: 1.2fr 1.1fr 1.2fr .8fr .8fr 1.3fr .9fr 1.1fr 1.6fr; gap: 12px; align-items: center; padding: 14px 16px; }
+.agency-invoices__head { color: #5a6d71; font-size: 12px; font-weight: 700; background: #f8faf9; }
+.agency-invoices__row { border-top: 1px solid #edf1f0; font-size: 14px; }
+.agency-invoices__row strong { font-weight: 650; }
+.agency-invoices__row small { color: #5a6d71; }
+.agency-invoices__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agency-invoices__form { display: grid; gap: 18px; padding-top: 12px !important; }
+@media (max-width: 1100px) {
+  .agency-invoices__head { display: none; }
+  .agency-invoices__row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .agency-invoices__row > * { min-width: 0; }
+  .agency-invoices__row > *::before { content: attr(data-label); display: block; margin-bottom: 3px; color: #5a6d71; font-size: 11px; font-weight: 700; }
+  .agency-invoices__actions::before { content: none !important; }
+}
+@media (max-width: 800px) {
+  .agency-invoices { width: calc(100% - 32px); margin-top: 24px; }
+  .agency-invoices__heading { align-items: flex-start; flex-direction: column; }
+  .agency-invoices__row span, .agency-invoices__row strong { min-width: 0; overflow-wrap: anywhere; }
+}
+.agency-invoices__tabs { margin-bottom: 16px; }
+.agency-invoices__grid--quotes { grid-template-columns: 1.1fr 1.2fr 1.2fr .8fr 1.3fr 1.7fr; }

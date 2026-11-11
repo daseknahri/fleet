@@ -52,6 +52,10 @@ const CashJournal = lazy(() => import('@/pages/CashJournal'))
 const Team = lazy(() => import('@/pages/Team'))
 const Reports = lazy(() => import('@/pages/Reports'))
 const Approbations = lazy(() => import('@/pages/Approbations'))
+const Invoices = lazy(() => import('@/pages/Invoices'))
+const Agents = lazy(() => import('@/pages/Agents'))
+const Reminders = lazy(() => import('@/pages/Reminders'))
+const Imports = lazy(() => import('@/pages/Imports'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -98,6 +102,10 @@ const router = createBrowserRouter([
       { path: 'team', element: <Team /> },
       { path: 'reports', element: <Reports /> },
       { path: 'approbations', element: <Approbations /> },
+      { path: 'invoices', element: <Invoices /> },
+      { path: 'agents', element: <Agents /> },
+      { path: 'reminders', element: <Reminders /> },
+      { path: 'imports', element: <Imports /> },
       { path: 'sign-in', element: <SignIn /> },
       { path: 'activate', element: <Activate /> },
       { path: 'forgot-password', element: <ForgotPassword /> },

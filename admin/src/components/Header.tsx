@@ -39,6 +39,9 @@ import {
   Payments as PaymentsIcon,
   AccountBalanceWallet as CashJournalIcon,
   FactCheck as ApprovalsIcon,
+  Receipt as InvoicesIcon,
+  SupportAgent as AgentsIcon,
+  NotificationsActive as RemindersIcon,
   Groups as TeamIcon,
   Assessment as ReportsIcon,
 } from '@mui/icons-material'
@@ -54,6 +57,7 @@ import * as langHelper from '@/utils/langHelper'
 import * as helper from '@/utils/helper'
 import { useNotificationContext, NotificationContextType } from '@/context/NotificationContext'
 import { useUserContext, UserContextType } from '@/context/UserContext'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 
 import '@/assets/css/header.css'
 
@@ -68,6 +72,11 @@ const Header = ({
 
   const { user } = useUserContext() as UserContextType
   const { notificationCount } = useNotificationContext() as NotificationContextType
+  const agencyPermissions = useAgencyPermissions()
+  const showInvoices = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadInvoices)
+  const showAgents = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadAgents)
+  const showReminders = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadReminders)
+  const showImports = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [currentUser, setCurrentUser] = useState<bookcarsTypes.User>()
   const [lang, setLang] = useState(helper.getLanguage(env.DEFAULT_LANGUAGE))
@@ -352,6 +361,50 @@ const Header = ({
                   <ListItemIcon><PaymentsIcon /></ListItemIcon>
                   <ListItemText primary={strings.PAYMENTS} />
                 </ListItem>
+                {showInvoices && (
+                <ListItem
+                  onClick={() => {
+                    navigate('/invoices')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><InvoicesIcon /></ListItemIcon>
+                  <ListItemText primary={strings.INVOICES} />
+                </ListItem>
+                )}
+                {showAgents && (
+                <ListItem
+                  onClick={() => {
+                    navigate('/agents')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><AgentsIcon /></ListItemIcon>
+                  <ListItemText primary={strings.AGENTS} />
+                </ListItem>
+                )}
+                {showReminders && (
+                <ListItem
+                  onClick={() => {
+                    navigate('/reminders')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><RemindersIcon /></ListItemIcon>
+                  <ListItemText primary={strings.REMINDERS} />
+                </ListItem>
+                )}
+                {showImports && (
+                <ListItem
+                  onClick={() => {
+                    navigate('/imports')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><RemindersIcon /></ListItemIcon>
+                  <ListItemText primary={strings.IMPORTS} />
+                </ListItem>
+                )}
                 <ListItem
                   onClick={() => {
                     navigate('/caisse')
