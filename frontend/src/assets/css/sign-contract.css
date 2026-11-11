@@ -1,0 +1,62 @@
+.sign-contract {
+  display: flex;
+  justify-content: center;
+  padding: 24px 12px;
+  box-sizing: border-box;
+}
+
+.sign-contract-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.sign-contract-summary {
+  margin: 16px 0;
+}
+
+.sign-contract-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.sign-contract-summary dt {
+  font-weight: 600;
+}
+
+.sign-contract-summary dd {
+  margin: 0;
+  text-align: end;
+}
+
+.sign-contract-label {
+  display: block;
+  margin: 16px 0 8px;
+  font-weight: 600;
+}
+
+.sign-contract-canvas {
+  display: block;
+  width: 100%;
+  height: 180px;
+  border: 1px solid #9e9e9e;
+  border-radius: 4px;
+  background: #ffffff;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.sign-contract-error {
+  color: #c62828;
+}
+
+.sign-contract-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}

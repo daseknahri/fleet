@@ -39,6 +39,7 @@ const Locations = lazy(() => import('@/pages/Locations'))
 const Suppliers = lazy(() => import('@/pages/Suppliers'))
 const Faq = lazy(() => import('@/pages/Faq'))
 const CookiePolicy = lazy(() => import('@/pages/CookiePolicy'))
+const SignContract = lazy(() => import('@/pages/SignContract'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -72,6 +73,10 @@ const AppLayout = () => {
 }
 
 const router = createBrowserRouter([
+  // GA-PAR-12: the public signing page stands alone, outside the app
+  // layout — no header/footer, no outbound links, no external
+  // resources — so the capability token in its URL cannot leak.
+  { path: '/sign/:token', element: <Suspense fallback={<NProgressIndicator />}><SignContract /></Suspense> },
   {
     path: '/',
     element: <AppLayout />,
