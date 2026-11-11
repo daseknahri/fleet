@@ -12,3 +12,10 @@ export const reverse = (paymentId: string, idempotencyKey: string, note?: string
     idempotencyKey,
     note,
   }, { withCredentials: true }).then((res) => res.data)
+
+// GA-PAR-17 — collections summary (dictionary v2026-11-11.2) + payments CSV export.
+export const collectionsSummary = (): Promise<bookcarsTypes.CollectionsSummary> =>
+  axiosInstance.get('/api/rental-payments/collections-summary', { withCredentials: true }).then((res) => res.data)
+
+export const exportCsv = () =>
+  axiosInstance.get('/api/rental-payments/export.csv', { responseType: 'blob', withCredentials: true }).then((res) => res.data as Blob)
