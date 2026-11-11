@@ -11,8 +11,9 @@ const maintenanceExpenseSchema = new Schema<env.MaintenanceExpense>(
       index: true,
     },
     car: {
+      // GA-PAR-16: optional — general expenses are tied to no car.
       type: Schema.Types.ObjectId,
-      required: [true, "can't be blank"],
+      required: false,
       ref: 'Car',
       index: true,
     },
@@ -30,6 +31,13 @@ const maintenanceExpenseSchema = new Schema<env.MaintenanceExpense>(
       type: Number,
       required: [true, "can't be blank"],
       min: 0.01,
+    },
+    // GA-PAR-16: amount already paid toward this expense (same minor
+    // units as amount). Absent/null = untracked/legacy; the derived
+    // payment status is computed in payloads, never stored.
+    paidAmount: {
+      type: Number,
+      min: 0,
     },
     mileage: {
       type: Number,

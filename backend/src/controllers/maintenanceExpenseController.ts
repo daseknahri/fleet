@@ -20,6 +20,35 @@ const getScope = (req: Request): Record<string, unknown> => {
   return { supplier: agencySupplierId(req) || '000000000000000000000000' }
 }
 
+/**
+ * GA-PAR-16 — derived payment status: computed in payloads, never
+ * stored. paid when paidAmount >= amount; partial when
+ * 0 < paidAmount < amount; unpaid when paidAmount is 0 or null
+ * (null = untracked/legacy).
+ */
+export const expensePaymentStatus = (amount: number, paidAmount?: number | null): bookcarsTypes.MaintenanceExpensePaymentStatus => {
+  if (paidAmount === undefined || paidAmount === null || paidAmount <= 0) {
+    return bookcarsTypes.MaintenanceExpensePaymentStatus.Unpaid
+  }
+  return paidAmount >= amount
+    ? bookcarsTypes.MaintenanceExpensePaymentStatus.Paid
+    : bookcarsTypes.MaintenanceExpensePaymentStatus.Partial
+}
+
+/** Serialize an expense document/populated object with the GA-PAR-16 derived fields. */
+export const withPaymentState = (expense: unknown): Record<string, unknown> => {
+  const obj = (typeof (expense as { toObject?: unknown })?.toObject === 'function'
+    ? (expense as { toObject: () => Record<string, unknown> }).toObject()
+    : { ...(expense as Record<string, unknown>) })
+  const paidAmount = obj.paidAmount === undefined || obj.paidAmount === null ? null : Number(obj.paidAmount)
+  return {
+    ...obj,
+    car: obj.car === undefined ? null : obj.car,
+    paidAmount,
+    paymentStatus: expensePaymentStatus(Number(obj.amount || 0), paidAmount),
+  }
+}
+
 const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload) => {
   const date = new Date(payload.date)
   const amount = Number(payload.amount)
@@ -27,12 +56,23 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
   const vendor = String(payload.vendor || '').trim()
   const note = String(payload.note || '').trim()
   const receipt = payload.receipt === null ? null : (payload.receipt === undefined ? undefined : String(payload.receipt).trim())
+  // GA-PAR-16: car is OPTIONAL (absent/null/'' = general expense).
+  const carRaw = payload.car === null || payload.car === undefined ? '' : String(payload.car).trim()
+  const car = carRaw === '' ? undefined : carRaw
+  // GA-PAR-16: paidAmount — undefined = not supplied, null = untracked,
+  // otherwise a number that must satisfy 0 <= paidAmount <= amount.
+  const paidAmount = payload.paidAmount === undefined
+    ? undefined
+    : payload.paidAmount === null
+      ? null
+      : Number(payload.paidAmount)
 
-  if (!mongoose.isValidObjectId(payload.car)
+  if ((car !== undefined && !mongoose.isValidObjectId(car))
     || Number.isNaN(date.getTime())
     || !Object.values(bookcarsTypes.MaintenanceExpenseType).includes(payload.type)
     || !Number.isFinite(amount)
     || amount <= 0
+    || (paidAmount !== undefined && paidAmount !== null && (!Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > amount))
     || (mileage !== undefined && (!Number.isFinite(mileage) || mileage < 0))
     || vendor.length > 160
     || note.length > 1000
@@ -40,7 +80,7 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
     return null
   }
 
-  return { car: payload.car, date, type: payload.type, amount, mileage, vendor, note, receipt }
+  return { car, date, type: payload.type, amount, paidAmount, mileage, vendor, note, receipt }
 }
 
 const isAllowedReceipt = (filename: string) => {
@@ -98,7 +138,7 @@ export const list = async (req: Request, res: Response) => {
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
 
-    res.json(expenses)
+    res.json(expenses.map((expense) => withPaymentState(expense)))
   } catch (err) {
     logger.error(`[maintenanceExpense.list] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -116,20 +156,41 @@ export const create = async (req: Request, res: Response) => {
     }
 
     const isAdmin = user.type === bookcarsTypes.UserType.Admin
-    const car = await getCarInScope(payload.car, supplierId, isAdmin)
-    if (!car) {
-      res.status(404).send('Vehicle not found')
-      return
+    // GA-PAR-16: with a car, the expense's supplier is the car's agency
+    // (unchanged); without a car (general expense) it is the caller's
+    // agency context — a platform Admin without an agency context
+    // cannot create a general expense (no agency to own it).
+    let car: Awaited<ReturnType<typeof getCarInScope>> = null
+    let expenseSupplier: string | undefined
+    if (payload.car) {
+      car = await getCarInScope(payload.car, supplierId, isAdmin)
+      if (!car) {
+        res.status(404).send('Vehicle not found')
+        return
+      }
+      expenseSupplier = car.supplier.toString()
+    } else {
+      expenseSupplier = supplierId || undefined
+      if (!expenseSupplier) {
+        res.status(400).send('Invalid maintenance expense')
+        return
+      }
     }
 
-    const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, car.supplier.toString())
-    const expense = new MaintenanceExpense({ ...payload, ...(receipt ? { receipt } : {}), supplier: car.supplier })
+    const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, expenseSupplier)
+    const expense = new MaintenanceExpense({
+      ...payload,
+      car: car ? car._id : undefined,
+      paidAmount: payload.paidAmount === undefined ? undefined : payload.paidAmount,
+      ...(receipt ? { receipt } : {}),
+      supplier: expenseSupplier,
+    })
     await expense.save()
     await expense.populate([
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
     ])
-    res.status(201).json(expense)
+    res.status(201).json(withPaymentState(expense))
   } catch (err) {
     logger.error(`[maintenanceExpense.create] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -151,18 +212,28 @@ export const update = async (req: Request, res: Response) => {
       return
     }
 
-    const car = await getCarInScope(payload.car, expense.supplier.toString(), user.type === bookcarsTypes.UserType.Admin)
-    if (!car || car.supplier.toString() !== expense.supplier.toString()) {
-      res.status(400).send('Vehicle must belong to the expense agency')
-      return
+    // GA-PAR-16: the car may be set, changed, or cleared (general).
+    let car: Awaited<ReturnType<typeof getCarInScope>> = null
+    if (payload.car) {
+      car = await getCarInScope(payload.car, expense.supplier.toString(), user.type === bookcarsTypes.UserType.Admin)
+      if (!car || car.supplier.toString() !== expense.supplier.toString()) {
+        res.status(400).send('Vehicle must belong to the expense agency')
+        return
+      }
     }
 
     const previousReceipt = expense.receipt
     const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, expense.supplier.toString())
-    expense.car = car._id
+    expense.car = car ? car._id : null as unknown as typeof expense.car
     expense.date = payload.date
     expense.type = payload.type
     expense.amount = payload.amount
+    // GA-PAR-16: paidAmount omitted = leave unchanged (so legacy
+    // clients that never send it cannot silently wipe the state);
+    // explicit null clears it back to untracked.
+    if (payload.paidAmount !== undefined) {
+      expense.paidAmount = payload.paidAmount
+    }
     expense.mileage = payload.mileage
     expense.vendor = payload.vendor
     expense.note = payload.note
@@ -177,7 +248,7 @@ await removePrivateReceipt(previousReceipt)
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
     ])
-    res.json(expense)
+    res.json(withPaymentState(expense))
   } catch (err) {
     logger.error(`[maintenanceExpense.update] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))

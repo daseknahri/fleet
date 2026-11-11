@@ -101,6 +101,8 @@ interface ExpenseForm {
 
   amount: string
 
+  paidAmount: string
+
   mileage: string
 
   vendor: string
@@ -166,6 +168,8 @@ const emptyForm = (): ExpenseForm => ({
 
   amount: '',
 
+  paidAmount: '',
+
   mileage: '',
 
   vendor: '',
@@ -178,23 +182,60 @@ const emptyForm = (): ExpenseForm => ({
 const typeLabel = (type: bookcarsTypes.MaintenanceExpenseType) => {
   switch (type) {
     case bookcarsTypes.MaintenanceExpenseType.Maintenance: return strings.MAINTENANCE
-
     case bookcarsTypes.MaintenanceExpenseType.Repair: return strings.REPAIR
-
     case bookcarsTypes.MaintenanceExpenseType.Cleaning: return strings.CLEANING
-
     case bookcarsTypes.MaintenanceExpenseType.Fuel: return strings.FUEL
-
     case bookcarsTypes.MaintenanceExpenseType.Insurance: return strings.INSURANCE
-
+    case bookcarsTypes.MaintenanceExpenseType.Oil: return strings.OIL
+    case bookcarsTypes.MaintenanceExpenseType.Tyres: return strings.TYRES
+    case bookcarsTypes.MaintenanceExpenseType.Battery: return strings.BATTERY
+    case bookcarsTypes.MaintenanceExpenseType.Vignette: return strings.VIGNETTE
+    case bookcarsTypes.MaintenanceExpenseType.VisiteTechnique: return strings.VISITE_TECHNIQUE
+    case bookcarsTypes.MaintenanceExpenseType.AdBlue: return strings.ADBLUE
+    case bookcarsTypes.MaintenanceExpenseType.Fines: return strings.FINES
+    case bookcarsTypes.MaintenanceExpenseType.LoanPayment: return strings.LOAN_PAYMENT
+    case bookcarsTypes.MaintenanceExpenseType.Rent: return strings.RENT
+    case bookcarsTypes.MaintenanceExpenseType.Salaries: return strings.SALARIES
+    case bookcarsTypes.MaintenanceExpenseType.Agents: return strings.AGENTS
+    case bookcarsTypes.MaintenanceExpenseType.Accounting: return strings.ACCOUNTING
+    case bookcarsTypes.MaintenanceExpenseType.BankFees: return strings.BANK_FEES
+    case bookcarsTypes.MaintenanceExpenseType.Bodywork: return strings.BODYWORK
+    case bookcarsTypes.MaintenanceExpenseType.Glass: return strings.GLASS
+    case bookcarsTypes.MaintenanceExpenseType.Electrical: return strings.ELECTRICAL
+    case bookcarsTypes.MaintenanceExpenseType.AirConditioning: return strings.AIR_CONDITIONING
+    case bookcarsTypes.MaintenanceExpenseType.Exhaust: return strings.EXHAUST
     default: return strings.OTHER
+  }
+}
+
+// GA-PAR-16: derived payment status — mirrors the backend rule
+// (paidAmount >= amount = paid; 0 < paidAmount < amount = partial;
+// 0 or untracked = unpaid). Prefer the server-computed status when present.
+const paymentStatusOf = (expense: bookcarsTypes.MaintenanceExpense): bookcarsTypes.MaintenanceExpensePaymentStatus => {
+  if (expense.paymentStatus) {
+    return expense.paymentStatus
+  }
+  const paid = expense.paidAmount
+  if (paid === undefined || paid === null || paid <= 0) {
+    return bookcarsTypes.MaintenanceExpensePaymentStatus.Unpaid
+  }
+  return paid >= expense.amount
+    ? bookcarsTypes.MaintenanceExpensePaymentStatus.Paid
+    : bookcarsTypes.MaintenanceExpensePaymentStatus.Partial
+}
+
+const paymentStatusLabel = (status: bookcarsTypes.MaintenanceExpensePaymentStatus) => {
+  switch (status) {
+    case bookcarsTypes.MaintenanceExpensePaymentStatus.Paid: return strings.PAID
+    case bookcarsTypes.MaintenanceExpensePaymentStatus.Partial: return strings.PARTIAL
+    default: return strings.UNPAID
   }
 }
 
 
 const carName = (expense: bookcarsTypes.MaintenanceExpense) => {
   if (!expense.car || typeof expense.car === 'string') {
-return '—'
+return strings.GENERAL_EXPENSE
 }
 
   return `${expense.car.name || '—'}${expense.car.licensePlate ? ` · ${expense.car.licensePlate}` : ''}`
@@ -364,7 +405,7 @@ const Maintenance = () => {
 
     setReceiptFile(null)
 
-    setForm({ ...emptyForm(), car: cars[0]?._id || '' })
+    setForm({ ...emptyForm(), car: '' })
 
     setFormError(false)
 
@@ -389,6 +430,8 @@ const Maintenance = () => {
 
       amount: String(expense.amount),
 
+      paidAmount: expense.paidAmount === undefined || expense.paidAmount === null ? '' : String(expense.paidAmount),
+
       mileage: expense.mileage === undefined ? '' : String(expense.mileage),
 
       vendor: expense.vendor || '',
@@ -410,7 +453,11 @@ const Maintenance = () => {
 
     const mileage = form.mileage.trim() ? Number(form.mileage) : undefined
 
-    if (!form.car || !form.date || !Number.isFinite(amount) || amount <= 0
+    const paidAmount = form.paidAmount.trim() ? Number(form.paidAmount) : null
+
+    if (!form.date || !Number.isFinite(amount) || amount <= 0
+
+      || (paidAmount !== null && (!Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > amount))
 
       || (mileage !== undefined && (!Number.isFinite(mileage) || mileage < 0))) {
       setFormError(true)
@@ -433,13 +480,15 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
       const payload: bookcarsTypes.UpsertMaintenanceExpensePayload = {
 
-        car: form.car,
+        car: form.car || undefined,
 
         date: new Date(`${form.date}T12:00:00`),
 
         type: form.type,
 
         amount,
+
+        paidAmount,
 
         mileage,
 
@@ -703,7 +752,7 @@ return
 
           </div>
 
-          <Button variant="contained" startIcon={<AddRoundedIcon />} className="agency-maintenance__action" onClick={openNew} disabled={cars.length === 0 || !canManageExpenses}>
+          <Button variant="contained" startIcon={<AddRoundedIcon />} className="agency-maintenance__action" onClick={openNew} disabled={!canManageExpenses}>
 
             {strings.ADD}
 
@@ -754,7 +803,7 @@ return
 
           ) : filtered.length === 0 ? (
 
-            <div className="agency-maintenance__empty"><BuildRoundedIcon /><p>{cars.length === 0 ? strings.EMPTY_CARS : strings.EMPTY}</p></div>
+            <div className="agency-maintenance__empty"><BuildRoundedIcon /><p>{strings.EMPTY}</p></div>
 
           ) : filtered.map((expense) => (
 
@@ -766,7 +815,7 @@ return
 
               <strong className="agency-maintenance__vehicle">{carName(expense)}</strong>
 
-              <strong>{formatAmount(expense.amount)}</strong>
+              <span><strong>{formatAmount(expense.amount)}</strong>{' '}<span className="agency-maintenance__type">{paymentStatusLabel(paymentStatusOf(expense))}</span></span>
 
               <span>{expense.mileage ? `${new Intl.NumberFormat(uiLocale()).format(expense.mileage)} km` : '—'}</span>
 
@@ -821,7 +870,9 @@ return
 
           {formError && <Alert severity="error">{formErrorMessage || strings.SAVE_ERROR}</Alert>}
 
-          <TextField select fullWidth required label={strings.VEHICLE} value={form.car} onChange={setField('car')}>
+          <TextField select fullWidth label={strings.VEHICLE} value={form.car} onChange={setField('car')}>
+
+            <MenuItem value="">{strings.GENERAL_EXPENSE}</MenuItem>
 
             {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` · ${car.licensePlate}` : ''}</MenuItem>)}
 
@@ -839,6 +890,10 @@ return
 
             <TextField fullWidth required type="number" label={strings.AMOUNT} value={form.amount} onChange={setField('amount')} inputProps={{ min: 0.01, step: 0.01 }} />
 
+            <TextField fullWidth type="number" label={strings.PAID_AMOUNT} value={form.paidAmount} onChange={setField('paidAmount')} inputProps={{ min: 0, step: 0.01 }} />
+
+            <Typography variant="body2">{strings.PAYMENT_STATUS}: {paymentStatusLabel(paymentStatusOf({ amount: Number(form.amount) || 0, paidAmount: form.paidAmount.trim() ? Number(form.paidAmount) : null } as bookcarsTypes.MaintenanceExpense))}</Typography>
+
             <TextField fullWidth type="number" label={strings.MILEAGE} value={form.mileage} onChange={setField('mileage')} inputProps={{ min: 0, step: 1 }} />
 
           </div>
@@ -855,7 +910,7 @@ return
 
           <Button onClick={() => setDialogOpen(false)} disabled={saving}>{strings.CANCEL}</Button>
 
-          <Button variant="contained" onClick={handleSave} disabled={saving || cars.length === 0}>{strings.SAVE}</Button>
+          <Button variant="contained" onClick={handleSave} disabled={saving}>{strings.SAVE}</Button>
 
         </DialogActions>
 
