@@ -13,9 +13,14 @@ export const BOOKING_RESERVATION_STATUSES = [
 ]
 
 export class BookingConflictError extends Error {
-  constructor() {
+  /** GA-PAR-10: the conflicting booking's id when the conflict is a
+   * booking-vs-booking overlap (never set for maintenance conflicts). */
+  conflictingBookingId?: string
+
+  constructor(conflictingBookingId?: string) {
     super('The car is no longer available for the selected rental dates')
     this.name = 'BookingConflictError'
+    this.conflictingBookingId = conflictingBookingId
   }
 }
 
@@ -23,6 +28,17 @@ export interface BookingSaveOptions {
   expectedStatus?: bookcarsTypes.BookingStatus
   requireExpireAt?: boolean
   session?: mongoose.ClientSession
+  /**
+   * GA-PAR-10: when true, booking-vs-booking conflicts are bypassed and
+   * reported through `onBookingConflict` instead of throwing; the caller
+   * is responsible for persisting the exception record on the booking.
+   * Maintenance work-order conflicts are NEVER bypassed - they throw
+   * BookingConflictError regardless of this flag (coordinator ruling N9).
+   */
+  allowOverlapException?: boolean
+  /** GA-PAR-10: receives the conflicting booking's id for a bypassed
+   * booking-vs-booking conflict. */
+  onBookingConflict?: (conflictingBookingId: string) => void
 }
 
 const reservesCar = (booking: env.Booking, now: Date) =>
@@ -130,6 +146,8 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
         downtimeQuery.session(session)
       }
       if (await downtimeQuery) {
+        // GA-PAR-10 / ruling N9: maintenance work-order conflicts are
+        // NEVER bypassed by an overlap exception - no flag overrides this.
         throw new BookingConflictError()
       }
       if (!blockingCars.has(carId)) {
@@ -157,7 +175,11 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       const conflict = await query
 
       if (conflict) {
-        throw new BookingConflictError()
+        if (options.allowOverlapException) {
+          options.onBookingConflict?.(conflict._id.toString())
+        } else {
+          throw new BookingConflictError(conflict._id.toString())
+        }
       }
     }
 
@@ -170,7 +192,14 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       for (let secondIndex = firstIndex + 1; secondIndex < reservingBookings.length; secondIndex += 1) {
         const second = reservingBookings[secondIndex]
         if (first.car.toString() === second.car.toString() && overlaps(first, second)) {
-          throw new BookingConflictError()
+          if (options.allowOverlapException) {
+            const otherId = (second._id || first._id)?.toString()
+            if (otherId) {
+              options.onBookingConflict?.(otherId)
+            }
+          } else {
+            throw new BookingConflictError((second._id || first._id)?.toString())
+          }
         }
       }
     }
