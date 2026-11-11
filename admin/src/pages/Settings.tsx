@@ -76,6 +76,60 @@ const Settings = () => {
     }
   }
 
+
+  // GA-PAR-13 (#43): per-category email toggles beside the master switch.
+  // Stored on the user via the same updateEmailNotifications endpoint;
+  // the master boolean gates all email, categories gate their own.
+  const [emailCategories, setEmailCategories] = useState<bookcarsTypes.EmailNotificationCategories>({
+    returnsDue: true, carDueDates: true, signedContracts: true, weeklyRecap: true, tips: true, news: true,
+  })
+
+  const emailCategoryRows: { key: keyof bookcarsTypes.EmailNotificationCategories, label: string }[] = [
+    { key: 'returnsDue', label: strings.SETTINGS_EMAIL_RETURNS_DUE },
+    { key: 'carDueDates', label: strings.SETTINGS_EMAIL_CAR_DUE_DATES },
+    { key: 'signedContracts', label: strings.SETTINGS_EMAIL_SIGNED_CONTRACTS },
+    { key: 'weeklyRecap', label: strings.SETTINGS_EMAIL_WEEKLY_RECAP },
+    { key: 'tips', label: strings.SETTINGS_EMAIL_TIPS },
+    { key: 'news', label: strings.SETTINGS_EMAIL_NEWS },
+  ]
+
+  const handleEmailCategoryChange = (key: keyof bookcarsTypes.EmailNotificationCategories) => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      if (user) {
+        const next = { ...emailCategories, [key]: e.target.checked }
+        setEmailCategories(next)
+        const _user = bookcarsHelper.clone(user) as bookcarsTypes.User
+        _user.emailNotificationCategories = next
+        const payload: bookcarsTypes.UpdateEmailNotificationsPayload = {
+          _id: user._id as string,
+          emailNotificationCategories: next,
+        }
+        const status = await UserService.updateEmailNotifications(payload)
+        if (status === 200) {
+          setUser(_user)
+          helper.info(strings.SETTINGS_UPDATED)
+        } else {
+          helper.error()
+        }
+      } else {
+        helper.error()
+      }
+    } catch (err) {
+      helper.error(err)
+    }
+  }
+
+  const loadEmailCategories = (_user: bookcarsTypes.User) => {
+    setEmailCategories({
+      returnsDue: _user.emailNotificationCategories?.returnsDue !== false,
+      carDueDates: _user.emailNotificationCategories?.carDueDates !== false,
+      signedContracts: _user.emailNotificationCategories?.signedContracts !== false,
+      weeklyRecap: _user.emailNotificationCategories?.weeklyRecap !== false,
+      tips: _user.emailNotificationCategories?.tips !== false,
+      news: _user.emailNotificationCategories?.news !== false,
+    })
+  }
+
   const onBeforeUpload = () => {
     setLoading(true)
   }
@@ -124,6 +178,7 @@ const Settings = () => {
       setValue('location', _user.location || '')
       setValue('bio', _user.bio || '')
       setEnableEmailNotifications(_user.enableEmailNotifications || false)
+      loadEmailCategories(_user)
 
       try {
         // H-022 (hardening Wave 4): only the platform admin uses the bank
@@ -226,6 +281,19 @@ const Settings = () => {
                 )}
                 label={strings.SETTINGS_EMAIL_NOTIFICATIONS}
               />
+
+              {emailCategoryRows.map((row) => (
+                <FormControlLabel
+                  key={row.key}
+                  control={(
+                    <Switch
+                      checked={emailCategories[row.key] !== false}
+                      onChange={handleEmailCategoryChange(row.key)}
+                    />
+                  )}
+                  label={row.label}
+                />
+              ))}
             </FormControl>
           </Paper>
 

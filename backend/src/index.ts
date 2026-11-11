@@ -6,6 +6,7 @@ import https, { ServerOptions } from 'node:https'
 import * as env from './config/env.config'
 import * as databaseHelper from './utils/databaseHelper'
 import app from './app'
+import { startReminderScheduler } from './utils/reminderScheduler'
 import * as logger from './utils/logger'
 
 /**
@@ -48,6 +49,12 @@ const start = async (): Promise<void> => {
       logger.error('Failed to connect or initialize the database')
       process.exit(1)
     }
+
+    // GA-PAR-13: the reminders scheduler starts ONLY here, in the
+    // server entrypoint, after the database is ready — never from
+    // app.ts (which the P0 suites import), so no tick can fire during
+    // tests. Kill-switch: BC_REMINDERS_SCHEDULER=off.
+    startReminderScheduler()
 
     const protocol = env.HTTPS ? 'HTTPS' : 'HTTP'
     const server = await createServer()

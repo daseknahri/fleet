@@ -1,0 +1,26 @@
+.agency-reminders { width: min(1440px, calc(100% - 48px)); margin: 32px auto 64px; color: #182b30; }
+.agency-reminders__heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.agency-reminders__title { margin: 4px 0 !important; font-size: 30px !important; font-weight: 700 !important; }
+.agency-reminders__subtitle { color: #5a6d71; }
+.agency-reminders__toolbar { display: flex; gap: 12px; flex-wrap: wrap; }
+.agency-reminders__panel { overflow: hidden; border: 1px solid #e4ebea; border-radius: 16px; background: #fff; }
+.agency-reminders__grid { display: grid; grid-template-columns: 1.5fr .8fr 1.1fr .9fr 1.1fr .6fr 1.5fr; gap: 12px; align-items: center; padding: 14px 16px; }
+.agency-reminders__head { color: #5a6d71; font-size: 12px; font-weight: 700; background: #f8faf9; }
+.agency-reminders__row { border-top: 1px solid #edf1f0; font-size: 14px; }
+.agency-reminders__row strong { font-weight: 650; }
+.agency-reminders__row small { color: #5a6d71; }
+.agency-reminders__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agency-reminders__form { display: grid; gap: 18px; padding-top: 12px !important; }
+.agency-reminders__settlements-row { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid #edf1f0; font-size: 13px; }
+@media (max-width: 1100px) {
+  .agency-reminders__head { display: none; }
+  .agency-reminders__row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .agency-reminders__row > * { min-width: 0; }
+  .agency-reminders__row > *::before { content: attr(data-label); display: block; margin-bottom: 3px; color: #5a6d71; font-size: 11px; font-weight: 700; }
+  .agency-reminders__actions::before { content: none !important; }
+}
+@media (max-width: 800px) {
+  .agency-reminders { width: calc(100% - 32px); margin-top: 24px; }
+  .agency-reminders__heading { align-items: flex-start; flex-direction: column; }
+  .agency-reminders__row span, .agency-reminders__row strong { min-width: 0; overflow-wrap: anywhere; }
+}

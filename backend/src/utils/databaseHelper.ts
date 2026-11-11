@@ -29,6 +29,9 @@ import Counter from '../models/Counter'
 import ContractInspection from '../models/ContractInspection'
 import ContractCharge from '../models/ContractCharge'
 import ContractSnapshot from '../models/ContractSnapshot'
+import Reminder from '../models/Reminder'
+import ReminderFiring from '../models/ReminderFiring'
+import ReportView from '../models/ReportView'
 import * as databaseTTLHelper from './databaseTTLHelper'
 import * as databaseLangHelper from './databaseLangHelper'
 import * as settingController from '../controllers/settingController'
@@ -253,6 +256,15 @@ export const models = defineModels([
   ContractInspection,
   ContractCharge,
   ContractSnapshot,
+  // GA-PAR-13: registered so initialize() calls createIndexes() for
+  // them at boot — load-bearing for ReminderFiring's UNIQUE claim
+  // index (reminder, occurrenceAt, offsetHours), the reminders
+  // engine's exactly-once mechanism. (Mongoose autoIndex does not run
+  // in this runtime; unregistered models get no indexes at all.)
+  Reminder,
+  ReminderFiring,
+  // GA-PAR-14: registered so initialize() creates its indexes at boot.
+  ReportView,
 ] as const)
 
 /**
