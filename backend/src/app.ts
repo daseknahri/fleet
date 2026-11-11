@@ -28,9 +28,15 @@ import documentRoutes from './routes/documentRoutes'
 import agencyMembershipRoutes from './routes/agencyMembershipRoutes'
 import cashRoutes from './routes/cashRoutes'
 import invoiceRoutes from './routes/invoiceRoutes'
+import quoteRoutes from './routes/quoteRoutes'
+import agentRoutes from './routes/agentRoutes'
+import reminderRoutes from './routes/reminderRoutes'
+import agencyReturnSettingsRoutes from './routes/agencyReturnSettingsRoutes'
 import approvalRoutes from './routes/approvalRoutes'
 import contractOperationRoutes from './routes/contractOperationRoutes'
+import signingRoutes from './routes/signingRoutes'
 import reportRoutes from './routes/reportRoutes'
+import importRoutes from './routes/importRoutes'
 import * as helper from './utils/helper'
 import * as logger from './utils/logger'
 
@@ -80,6 +86,10 @@ app.use('/cdn', (req, res) => {
 })
 
 app.use('/', supplierRoutes)
+// GA-PAR-12: signing routes register BEFORE bookingRoutes — its
+// POST /api/bookings/:page/:size/:language pattern would otherwise
+// swallow /api/bookings/:id/signing-link/revoke (3 segments).
+app.use('/', signingRoutes)
 app.use('/', bookingRoutes)
 app.use('/', locationRoutes)
 app.use('/', notificationRoutes)
@@ -99,9 +109,14 @@ app.use('/', documentRoutes)
 app.use('/', agencyMembershipRoutes)
 app.use('/', cashRoutes)
 app.use('/', invoiceRoutes)
+app.use('/', quoteRoutes)
+app.use('/', agentRoutes)
+app.use('/', reminderRoutes)
+app.use('/', agencyReturnSettingsRoutes)
 app.use('/', approvalRoutes)
 app.use('/', contractOperationRoutes)
 app.use('/', reportRoutes)
+app.use('/', importRoutes)
 
 if (env.ENABLE_SENTRY) {
   Sentry.setupExpressErrorHandler(app)

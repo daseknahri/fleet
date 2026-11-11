@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
+import Booking from '../models/Booking'
 import RentalPayment from '../models/RentalPayment'
 import ContractCharge from '../models/ContractCharge'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
@@ -86,4 +87,130 @@ export const getContractReceivable = async (
     dueAt,
     overdue: outstandingBalance > 0,
   }
+}
+
+/**
+ * GA-PAR-04: per-client balances for a set of drivers, computed with
+ * EXACTLY the per-booking semantics of getContractReceivable above:
+ * outstanding per booking = max(0, rentalTotal + approved charges
+ * (same currency only) - posted rent payments (debits negative));
+ * the refundable deposit is reported separately and NEVER netted.
+ * Void/Cancelled bookings and unexpired checkout placeholders
+ * (expireAt set) carry no receivable and are excluded.
+ */
+export interface ClientBalanceRow extends bookcarsTypes.ClientBalance {
+  driver: string
+}
+
+export const getClientBalances = async (driverIds: string[]): Promise<Map<string, ClientBalanceRow>> => {
+  const result = new Map<string, ClientBalanceRow>()
+  const ids = [...new Set(driverIds.filter(Boolean))]
+  if (ids.length === 0) {
+    return result
+  }
+
+  const bookings = await Booking.find({
+    driver: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
+    status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+    expireAt: null,
+  }).select('_id driver price financialSnapshot to lifecycle').lean()
+
+  const bookingIds = bookings.map((booking) => booking._id)
+
+  const paymentRows = bookingIds.length > 0 ? await RentalPayment.aggregate<{
+    _id: { booking: mongoose.Types.ObjectId, purpose: bookcarsTypes.RentalPaymentPurpose }
+    total: number
+  }>([
+    {
+      $match: {
+        booking: { $in: bookingIds },
+        status: bookcarsTypes.RentalPaymentStatus.Posted,
+      },
+    },
+    {
+      $group: {
+        _id: {
+          booking: '$booking',
+          purpose: { $ifNull: ['$purpose', bookcarsTypes.RentalPaymentPurpose.Rent] },
+        },
+        total: {
+          $sum: {
+            $cond: [
+              { $eq: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] },
+              { $multiply: ['$amount', -1] },
+              '$amount',
+            ],
+          },
+        },
+      },
+    },
+  ]) : []
+
+  const chargeRows = bookingIds.length > 0 ? await ContractCharge.aggregate<{
+    _id: { booking: mongoose.Types.ObjectId, currency: string }
+    total: number
+  }>([
+    { $match: { booking: { $in: bookingIds }, status: bookcarsTypes.ApprovalDecision.Approved } },
+    { $group: { _id: { booking: '$booking', currency: '$currency' }, total: { $sum: '$amount' } } },
+  ]) : []
+
+  const rentByBooking = new Map<string, number>()
+  const depositByBooking = new Map<string, number>()
+  for (const row of paymentRows) {
+    const key = row._id.booking.toString()
+    if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit) {
+      depositByBooking.set(key, Number(row.total || 0))
+    } else if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Rent) {
+      rentByBooking.set(key, Number(row.total || 0))
+    }
+  }
+  const chargesByBooking = new Map<string, { currency: string, total: number }[]>()
+  for (const row of chargeRows) {
+    const key = row._id.booking.toString()
+    const list = chargesByBooking.get(key) || []
+    list.push({ currency: row._id.currency, total: Number(row.total || 0) })
+    chargesByBooking.set(key, list)
+  }
+
+  const now = new Date()
+  for (const booking of bookings) {
+    const driverId = booking.driver.toString()
+    const currency = (booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
+    const exponent = currencyExponent(currency)
+    const rentalTotal = Number(booking.financialSnapshot?.rentalTotal || booking.price || 0)
+    const key = booking._id.toString()
+    const approvedCharges = Number(
+      (chargesByBooking.get(key) || [])
+        .filter((row) => row.currency === currency)
+        .reduce((sum, row) => sum + row.total, 0),
+    )
+    const postedPayments = Number(rentByBooking.get(key) || 0)
+    const depositPayments = Number(depositByBooking.get(key) || 0)
+    // Identical arithmetic to getContractReceivable (minor-unit clamp per booking).
+    const outstandingMinor = Math.max(
+      0,
+      toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency),
+    )
+    const outstanding = outstandingMinor / (10 ** exponent)
+    const isOverdue = outstanding > 0
+      && (booking.lifecycle === bookcarsTypes.ContractLifecycle.Completed || (!!booking.to && booking.to < now))
+
+    const row = result.get(driverId) || {
+      driver: driverId,
+      currency: env.BASE_CURRENCY.toUpperCase(),
+      outstanding: 0,
+      overdue: 0,
+      depositHeld: 0,
+      bookings: 0,
+    }
+    row.outstanding = Number((row.outstanding + outstanding).toFixed(exponent))
+    if (isOverdue) {
+      row.overdue = Number((row.overdue + outstanding).toFixed(exponent))
+    }
+    row.depositHeld = Number((row.depositHeld + depositPayments).toFixed(exponent))
+    row.bookings += 1
+    result.set(driverId, row)
+  }
+
+  return result
 }

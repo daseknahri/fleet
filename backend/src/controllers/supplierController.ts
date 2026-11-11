@@ -21,6 +21,7 @@ import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
+import { normalizeFiscalFields, applyFiscalFields } from '../utils/fiscal'
 import AgencyMembership from '../models/AgencyMembership'
 
 /**
@@ -85,6 +86,13 @@ export const update = async (req: Request, res: Response) => {
     const supplier = await User.findById(_id)
 
     if (supplier) {
+      // GA-PAR-01: fiscal identity + VAT (validated: trimmed, length-capped,
+      // vatRate within 0-100). Invalid fiscal input rejects the update.
+      const fiscal = normalizeFiscalFields(body as unknown as Record<string, unknown>)
+      if (!fiscal.ok) {
+        res.status(400).send(fiscal.error)
+        return
+      }
       const {
         fullName,
         phone,
@@ -109,6 +117,7 @@ export const update = async (req: Request, res: Response) => {
       supplier.supplierCarLimit = supplierCarLimit
       supplier.notifyAdminOnNewCar = notifyAdminOnNewCar
       supplier.blacklisted = !!blacklisted
+      applyFiscalFields(supplier as unknown as Record<string, any>, fiscal)
 
       await supplier.save()
       res.json({
@@ -126,6 +135,15 @@ export const update = async (req: Request, res: Response) => {
         supplierCarLimit: supplier.supplierCarLimit,
         notifyAdminOnNewCar: supplier.notifyAdminOnNewCar,
         blacklisted: supplier.blacklisted,
+        ice: supplier.ice,
+        registreCommerce: supplier.registreCommerce,
+        identifiantFiscal: supplier.identifiantFiscal,
+        patente: supplier.patente,
+        rib: supplier.rib,
+        fiscalAddress: supplier.fiscalAddress,
+        city: supplier.city,
+        vatEnabled: supplier.vatEnabled,
+        vatRate: supplier.vatRate,
       })
       return
     }
@@ -280,6 +298,15 @@ export const getSupplier = async (req: Request, res: Response) => {
       supplierCarLimit,
       notifyAdminOnNewCar,
       blacklisted,
+      ice,
+      registreCommerce,
+      identifiantFiscal,
+      patente,
+      rib,
+      fiscalAddress,
+      city,
+      vatEnabled,
+      vatRate,
     } = user
 
     res.json({
@@ -298,6 +325,15 @@ export const getSupplier = async (req: Request, res: Response) => {
       supplierCarLimit,
       notifyAdminOnNewCar,
       blacklisted,
+      ice,
+      registreCommerce,
+      identifiantFiscal,
+      patente,
+      rib,
+      fiscalAddress,
+      city,
+      vatEnabled,
+      vatRate,
     })
   } catch (err) {
     logger.error(`[supplier.getSupplier] ${i18n.t('ERROR')} ${id}`, err)

@@ -9,4 +9,5 @@ routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPerm
 routes.post(routeNames.issue, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.issue)
 routes.post(routeNames.void, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.voidInvoice)
 routes.post(routeNames.payments, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.recordPayment)
+routes.get(routeNames.pdf, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ReadInvoices), controller.getInvoicePdf)
 export default routes

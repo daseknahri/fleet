@@ -10,6 +10,7 @@ const schema = new Schema<env.Invoice>({
   currency: { type: String, required: true, uppercase: true, minlength: 3, maxlength: 3 },
   subtotal: { type: Number, required: true, min: 0 },
   taxAmount: { type: Number, required: true, min: 0 },
+  taxRate: { type: Number, min: 0, max: 100, default: null },
   total: { type: Number, required: true, min: 0 },
   paidAmount: { type: Number, required: true, min: 0, default: 0 },
   paymentStatus: { type: String, required: true, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid', index: true },
@@ -25,6 +26,12 @@ const schema = new Schema<env.Invoice>({
   voidReason: { type: String, maxlength: 1000, trim: true },
 }, { timestamps: true, strict: true, collection: 'Invoice' })
 
-schema.index({ supplier: 1, number: 1 }, { unique: true, sparse: true })
+// GA-PAR-05 step 0: the previous unique SPARSE index indexed every draft
+// (number absent/null) as (supplier, null), so a supplier could hold only
+// ONE draft invoice and a second draft create failed E11000. Following the
+// PAR-02 Booking-reference pattern, uniqueness is enforced only over
+// documents whose number is actually a string (issued invoices): drafts
+// coexist freely, issued numbers stay unique per supplier.
+schema.index({ supplier: 1, number: 1 }, { unique: true, partialFilterExpression: { number: { $type: 'string' } } })
 schema.index({ supplier: 1, createdAt: -1 })
 export default model<env.Invoice>('Invoice', schema)

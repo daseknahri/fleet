@@ -4,6 +4,7 @@ import {
   MenuItem, TextField, Typography,
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import * as bookcarsTypes from ':bookcars-types'
@@ -42,6 +43,10 @@ const getBooking = (payment: bookcarsTypes.RentalPayment): bookcarsTypes.Booking
 
 const bookingIdOf = (booking?: bookcarsTypes.Booking) => booking?._id || (booking ? '' : '')
 
+// Visible contract label: the human reference (GA-PAR-02) when the booking
+// has one, otherwise the shortened _id the page used before.
+const bookingLabel = (booking?: bookcarsTypes.Booking) => booking?.reference || (booking?._id || '').slice(-8).toUpperCase() || '—'
+
 const carName = (booking?: bookcarsTypes.Booking) => {
   if (!booking || typeof booking.car === 'string') {
     return '—'
@@ -68,6 +73,7 @@ const Payments = () => {
   const canRecordPayments = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.RecordPayments)
   const [bookings, setBookings] = useState<bookcarsTypes.Booking[]>([])
   const [payments, setPayments] = useState<bookcarsTypes.RentalPayment[]>([])
+  const [collections, setCollections] = useState<bookcarsTypes.CollectionsSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -99,6 +105,13 @@ const Payments = () => {
       ])
       setBookings(bookingResult?.[0]?.resultData || [])
       setPayments(paymentRows || [])
+      // GA-PAR-17 — collections KPI (dictionary v2026-11-11.2). A failure
+      // degrades this card only, never the page.
+      try {
+        setCollections(await RentalPaymentService.collectionsSummary())
+      } catch {
+        setCollections(null)
+      }
     } catch (error) {
       setLoadError(true)
       helper.error(error)
@@ -172,7 +185,7 @@ const Payments = () => {
     }
     return payments.filter((payment) => {
       const booking = getBooking(payment)
-      const contract = booking?._id || (typeof payment.booking === 'string' ? payment.booking : '')
+      const contract = booking?.reference || booking?._id || (typeof payment.booking === 'string' ? payment.booking : '')
       return `${contract} ${customerName(booking)} ${carName(booking)} ${payment.reference || ''} ${payment.note || ''}`.toLocaleLowerCase().includes(query)
     })
   }, [payments, keyword])
@@ -249,6 +262,20 @@ const Payments = () => {
     }
   }
 
+  const handleExportCsv = async () => {
+    try {
+      const blob = await RentalPaymentService.exportCsv()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'gestion-auto-payments.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      helper.error(error)
+    }
+  }
+
   const methodLabel = (method: bookcarsTypes.RentalPaymentMethod) => {
     switch (method) {
       case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK
@@ -282,6 +309,7 @@ const Payments = () => {
           <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading ? '—' : formatAmount(postedNetTotal)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-payments__summary-icon">T</span><small>{strings.ENTRIES}</small><strong>{loading ? '—' : payments.length}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-payments__summary-icon agency-payments__summary-icon--warning"><WarningAmberRoundedIcon /></span><small>{strings.OVERDUE}</small><strong>{loading ? '—' : formatAmount(overdueTotal)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.COLLECTIONS}</small><strong>{loading || !collections ? '—' : `${formatAmount(collections.collected)} / ${formatAmount(collections.contractAmount)}`}</strong>{collections && <small>{strings.COLLECTION_RATE}: {collections.collectionRatePct === null ? '—' : `${collections.collectionRatePct.toFixed(2)}%`}</small>}</CardContent></Card>
         </div>
         <section className="agency-payments__panel agency-payments__receivables">
           <div className="agency-payments__panel-title">{strings.RECEIVABLES}</div>
@@ -290,7 +318,7 @@ const Payments = () => {
             <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_OVERDUE}</p></div>
           ) : overdueRows.map((row) => (
             <div className="agency-payments__row agency-payments__receivables-row" key={row.booking._id}>
-              <strong data-label={strings.CONTRACT}>{(row.booking._id || '').slice(-8).toUpperCase()}</strong>
+              <strong data-label={strings.CONTRACT}>{bookingLabel(row.booking)}</strong>
               <span data-label={strings.CUSTOMER}>{customerName(row.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstanding)}</strong>
@@ -302,6 +330,7 @@ const Payments = () => {
         <section className="agency-payments__panel">
           <div className="agency-payments__toolbar">
             <TextField size="small" fullWidth placeholder={strings.SEARCH} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={handleExportCsv}>{strings.EXPORT_CSV}</Button>
           </div>
           <div className="agency-payments__table-head agency-payments__payments-head"><span>{strings.DATE}</span><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.METHOD}</span><span>{strings.PURPOSE}</span><span>{strings.AMOUNT}</span><span>{strings.STATUS}</span><span>{strings.REFERENCE}</span><span>{strings.ACTIONS}</span></div>
           {loading ? <div className="agency-payments__empty">…</div> : filtered.length === 0 ? (
@@ -314,7 +343,7 @@ const Payments = () => {
               && canRecordPayments
             return <div className="agency-payments__row agency-payments__payments-row" key={payment._id}>
               <span data-label={strings.DATE}>{formatDate(payment.date)}</span>
-              <strong>{booking?._id?.slice(-8).toUpperCase() || '—'}</strong>
+              <strong>{bookingLabel(booking)}</strong>
               <span data-label={strings.CUSTOMER}>{customerName(booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(booking)}</span>
               <span data-label={strings.METHOD}>{methodLabel(payment.method)}</span>
@@ -346,7 +375,7 @@ const Payments = () => {
           {formError && <Alert severity="error">{strings.SAVE_ERROR}</Alert>}
           <TextField select fullWidth required label={strings.BOOKING} value={form.booking} onChange={setField('booking')}>
             {eligibleBookings.map((booking) => <MenuItem key={booking._id} value={booking._id}>
-              {(booking._id || '').slice(-8).toUpperCase()} ·· {carName(booking)} ·· {customerName(booking)}
+              {bookingLabel(booking)} ·· {carName(booking)} ·· {customerName(booking)}
             </MenuItem>)}
           </TextField>
           <TextField select fullWidth required label={strings.PURPOSE_FIELD} value={form.purpose} onChange={setField('purpose')}>

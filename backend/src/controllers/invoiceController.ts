@@ -3,15 +3,17 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Booking from '../models/Booking'
+import User from '../models/User'
 import Invoice from '../models/Invoice'
 import RentalPayment from '../models/RentalPayment'
 import Counter from '../models/Counter'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
-import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { recomputeInvoicePayment } from '../utils/invoicePayment'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
+import { renderInvoicePdf } from '../utils/invoicePdf'
+import { createInvoiceForBooking, InvoiceCreationError } from '../utils/invoiceCreation'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName' }]
@@ -30,28 +32,42 @@ export const create = async (req: Request, res: Response) => {
     const supplierId = user?.type === bookcarsTypes.UserType.Admin ? req.body?.supplier : agencySupplierId(req)
     const bookingId = req.body?.booking
     if (!user || !mongoose.isValidObjectId(supplierId) || !mongoose.isValidObjectId(bookingId)) {
- res.status(400).send('Invalid invoice'); return 
+ res.status(400).send('Invalid invoice'); return
 }
     const booking = await Booking.findOne({ _id: bookingId, supplier: supplierId }).select('_id supplier price financialSnapshot status')
     if (!booking || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
- res.status(404).send('Contract not found'); return 
+ res.status(404).send('Contract not found'); return
 }
-    const existing = await Invoice.findOne({ booking: booking._id, supplier: supplierId, status: { $ne: bookcarsTypes.InvoiceStatus.Voided } })
-    if (existing) {
- res.status(409).send('An active invoice already exists for this contract'); return 
+    // GA-PAR-05: creation itself lives in the shared util
+    // (utils/invoiceCreation) so the manual endpoint, the booking
+    // auto-draft hook and quote conversion share ONE path — the PAR-01
+    // tax behaviour and the one-active guard exist exactly once. The
+    // explicit-tax detection below is the original controller semantics:
+    // an own-property taxAmount on the body is the manual override.
+    const hasExplicitTax = !!req.body
+      && Object.prototype.hasOwnProperty.call(req.body, 'taxAmount')
+      && req.body.taxAmount !== undefined
+      && req.body.taxAmount !== null
+      && req.body.taxAmount !== ''
+    let invoice
+    try {
+      invoice = await createInvoiceForBooking(
+        { _id: booking._id, supplier: booking.supplier, price: booking.price, financialSnapshot: booking.financialSnapshot, status: booking.status },
+        hasExplicitTax ? { taxAmount: req.body.taxAmount } : {},
+      )
+    } catch (creationErr) {
+      if (creationErr instanceof InvoiceCreationError && creationErr.code === 'ACTIVE_INVOICE_EXISTS') {
+ res.status(409).send('An active invoice already exists for this contract'); return
 }
-    const currency = (booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
-    const exponent = currencyExponent(currency)
-    const subtotal = Number(Number(booking.financialSnapshot?.rentalTotal || booking.price || 0).toFixed(exponent))
-    const taxAmount = Number(Number(req.body?.taxAmount || 0).toFixed(exponent))
-    if (!Number.isFinite(taxAmount) || taxAmount < 0) {
- res.status(400).send('Invalid tax amount'); return 
+      if (creationErr instanceof InvoiceCreationError && creationErr.code === 'INVALID_TAX') {
+ res.status(400).send('Invalid tax amount'); return
 }
-    const invoice = await Invoice.create({ supplier: supplierId, booking: booking._id, status: bookcarsTypes.InvoiceStatus.Draft, currency, subtotal, taxAmount, total: (toMinorUnits(subtotal, currency) + toMinorUnits(taxAmount, currency)) / (10 ** exponent) })
+      throw creationErr
+    }
     await invoice.populate(populate)
     res.status(201).json(invoice)
   } catch (err) {
- logger.error('[invoice.create]', err); res.status(400).send(i18n.t('ERROR')) 
+ logger.error('[invoice.create]', err); res.status(400).send(i18n.t('ERROR'))
 }
 }
 
@@ -169,3 +185,40 @@ export const recordPayment = async (req: Request, res: Response) => {
   }
 }
 
+
+export const getInvoicePdf = async (req: Request, res: Response) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
+    if (!invoice) {
+ res.sendStatus(404); return
+}
+    // GA-PAR-03 coordinator decision: the PDF is an issued fiscal document.
+    // Drafts have no number yet and voided invoices are cancelled, so both
+    // are refused with 409 rather than rendered.
+    if (invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
+ res.status(409).send('Invoice PDF is available only for issued invoices'); return
+}
+    const [supplier, booking] = await Promise.all([
+      User.findById(invoice.supplier)
+        .select('fullName email phone ice registreCommerce identifiantFiscal patente rib fiscalAddress city')
+        .lean(),
+      Booking.findById(invoice.booking)
+        .populate([
+          { path: 'driver', select: 'fullName email phone cinNumber' },
+          { path: 'car', select: 'name licensePlate' },
+        ])
+        .lean(),
+    ])
+    const buffer = await renderInvoicePdf({
+      invoice: invoice.toObject(),
+      supplier: supplier as never,
+      booking: booking as never,
+    })
+    res.type('application/pdf')
+      .set('Cache-Control', 'private, no-store')
+      .set('Content-Disposition', `attachment; filename="invoice-${invoice.number || invoice._id}.pdf"`)
+      .send(buffer)
+  } catch (err) {
+ logger.error('[invoice.getInvoicePdf]', err); res.status(400).send(i18n.t('ERROR'))
+}
+}

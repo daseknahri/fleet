@@ -66,13 +66,23 @@ const CreateSupplier = () => {
       minimumRentalDays: '',
       priceChangeRate: '',
       supplierCarLimit: '',
-      notifyAdminOnNewCar: false
+      notifyAdminOnNewCar: false,
+      ice: '',
+      registreCommerce: '',
+      identifiantFiscal: '',
+      patente: '',
+      rib: '',
+      fiscalAddress: '',
+      city: '',
+      vatEnabled: false,
+      vatRate: '',
     },
   })
 
   const payLater = useWatch({ control, name: 'payLater' })
   const licenseRequired = useWatch({ control, name: 'licenseRequired' })
   const notifyAdminOnNewCar = useWatch({ control, name: 'notifyAdminOnNewCar' })
+  const vatEnabled = useWatch({ control, name: 'vatEnabled' })
 
   const onBeforeUpload = () => {
     setLoading(true)
@@ -143,6 +153,15 @@ const CreateSupplier = () => {
         priceChangeRate: data.priceChangeRate ? Number(data.priceChangeRate) : undefined,
         supplierCarLimit: data.supplierCarLimit ? Number(data.supplierCarLimit) : undefined,
         notifyAdminOnNewCar: data.notifyAdminOnNewCar,
+        ice: data.ice?.trim() || undefined,
+        registreCommerce: data.registreCommerce?.trim() || undefined,
+        identifiantFiscal: data.identifiantFiscal?.trim() || undefined,
+        patente: data.patente?.trim() || undefined,
+        rib: data.rib?.trim() || undefined,
+        fiscalAddress: data.fiscalAddress?.trim() || undefined,
+        city: data.city?.trim() || undefined,
+        vatEnabled: data.vatEnabled,
+        vatRate: data.vatRate ? Number(data.vatRate) : undefined,
       }
 
       status = await UserService.create(payload)
@@ -359,6 +378,179 @@ const CreateSupplier = () => {
                 type="text"
                 autoComplete="off"
               />
+            </FormControl>
+
+            <div className="info">
+              <InfoIcon />
+              <span>{strings.FISCAL_HEADING}</span>
+            </div>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_ICE}</InputLabel>
+              <Input
+
+                {...register('ice')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.ice}
+                onChange={() => {
+                  if (errors.ice) {
+                    clearErrors('ice')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.ice}>
+                {errors.ice?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_RC}</InputLabel>
+              <Input
+
+                {...register('registreCommerce')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.registreCommerce}
+                onChange={() => {
+                  if (errors.registreCommerce) {
+                    clearErrors('registreCommerce')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.registreCommerce}>
+                {errors.registreCommerce?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_IF}</InputLabel>
+              <Input
+
+                {...register('identifiantFiscal')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.identifiantFiscal}
+                onChange={() => {
+                  if (errors.identifiantFiscal) {
+                    clearErrors('identifiantFiscal')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.identifiantFiscal}>
+                {errors.identifiantFiscal?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_PATENTE}</InputLabel>
+              <Input
+
+                {...register('patente')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.patente}
+                onChange={() => {
+                  if (errors.patente) {
+                    clearErrors('patente')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.patente}>
+                {errors.patente?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_RIB}</InputLabel>
+              <Input
+
+                {...register('rib')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.rib}
+                onChange={() => {
+                  if (errors.rib) {
+                    clearErrors('rib')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.rib}>
+                {errors.rib?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_ADDRESS}</InputLabel>
+              <Input
+
+                {...register('fiscalAddress')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.fiscalAddress}
+                onChange={() => {
+                  if (errors.fiscalAddress) {
+                    clearErrors('fiscalAddress')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.fiscalAddress}>
+                {errors.fiscalAddress?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_CITY}</InputLabel>
+              <Input
+
+                {...register('city')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.city}
+                onChange={() => {
+                  if (errors.city) {
+                    clearErrors('city')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.city}>
+                {errors.city?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <FormControlLabel
+                control={(
+                  <Switch
+                    {...register('vatEnabled')}
+                    checked={vatEnabled}
+                    onChange={(e) => {
+                      setValue('vatEnabled', e.target.checked)
+                    }}
+                    color="primary"
+                  />
+                )}
+                label={strings.FISCAL_VAT_ENABLED}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FISCAL_VAT_RATE}</InputLabel>
+              <Input
+
+                {...register('vatRate')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.vatRate}
+                onChange={() => {
+                  if (errors.vatRate) {
+                    clearErrors('vatRate')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.vatRate}>
+                {errors.vatRate?.message || ''}
+              </FormHelperText>
             </FormControl>
 
             <FormControl fullWidth margin="dense">

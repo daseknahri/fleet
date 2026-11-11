@@ -28,6 +28,7 @@ import Backdrop from '@/components/SimpleBackdrop'
 import NoMatch from './NoMatch'
 import Avatar from '@/components/Avatar'
 import ContractList from '@/components/ContractList'
+import ReturnSettingsForm from '@/components/ReturnSettingsForm'
 import { schema, FormFields } from '@/models/SupplierForm'
 
 import '@/assets/css/update-supplier.css'
@@ -69,7 +70,16 @@ const UpdateSupplier = () => {
       minimumRentalDays: '',
       priceChangeRate: '',
       supplierCarLimit: '',
-      notifyAdminOnNewCar: false
+      notifyAdminOnNewCar: false,
+      ice: '',
+      registreCommerce: '',
+      identifiantFiscal: '',
+      patente: '',
+      rib: '',
+      fiscalAddress: '',
+      city: '',
+      vatEnabled: false,
+      vatRate: '',
     },
   })
 
@@ -77,6 +87,7 @@ const UpdateSupplier = () => {
   const licenseRequired = useWatch({ control, name: 'licenseRequired' })
   const notifyAdminOnNewCar = useWatch({ control, name: 'notifyAdminOnNewCar' })
   const blacklisted = useWatch({ control, name: 'blacklisted' })
+  const vatEnabled = useWatch({ control, name: 'vatEnabled' })
 
   const onBeforeUpload = () => {
     setLoading(true)
@@ -153,6 +164,15 @@ const UpdateSupplier = () => {
               setValue('supplierCarLimit', _supplier.supplierCarLimit?.toString() || '')
               setValue('notifyAdminOnNewCar', !!_supplier.notifyAdminOnNewCar)
               setValue('blacklisted', !!_supplier.blacklisted)
+              setValue('ice', _supplier.ice || '')
+              setValue('registreCommerce', _supplier.registreCommerce || '')
+              setValue('identifiantFiscal', _supplier.identifiantFiscal || '')
+              setValue('patente', _supplier.patente || '')
+              setValue('rib', _supplier.rib || '')
+              setValue('fiscalAddress', _supplier.fiscalAddress || '')
+              setValue('city', _supplier.city || '')
+              setValue('vatEnabled', !!_supplier.vatEnabled)
+              setValue('vatRate', _supplier.vatRate?.toString() || '')
               setVisible(true)
               setLoading(false)
             } else {
@@ -212,6 +232,15 @@ const UpdateSupplier = () => {
         supplierCarLimit: data.supplierCarLimit ? Number(data.supplierCarLimit) : undefined,
         notifyAdminOnNewCar: data.notifyAdminOnNewCar,
         blacklisted: !!data.blacklisted,
+        ice: data.ice?.trim() || undefined,
+        registreCommerce: data.registreCommerce?.trim() || undefined,
+        identifiantFiscal: data.identifiantFiscal?.trim() || undefined,
+        patente: data.patente?.trim() || undefined,
+        rib: data.rib?.trim() || undefined,
+        fiscalAddress: data.fiscalAddress?.trim() || undefined,
+        city: data.city?.trim() || undefined,
+        vatEnabled: data.vatEnabled,
+        vatRate: data.vatRate ? Number(data.vatRate) : undefined,
       }
 
       const res = await SupplierService.update(payload)
@@ -455,6 +484,179 @@ const UpdateSupplier = () => {
                   autoComplete="off" />
               </FormControl>
 
+            <div className="info">
+              <InfoIcon />
+              <span>{csStrings.FISCAL_HEADING}</span>
+              </div>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-ice">{csStrings.FISCAL_ICE}</InputLabel>
+                <Input
+ id="us-ice"
+                {...register('ice')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.ice}
+                onChange={() => {
+                  if (errors.ice) {
+                    clearErrors('ice')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.ice}>
+                {errors.ice?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-registreCommerce">{csStrings.FISCAL_RC}</InputLabel>
+                <Input
+ id="us-registreCommerce"
+                {...register('registreCommerce')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.registreCommerce}
+                onChange={() => {
+                  if (errors.registreCommerce) {
+                    clearErrors('registreCommerce')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.registreCommerce}>
+                {errors.registreCommerce?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-identifiantFiscal">{csStrings.FISCAL_IF}</InputLabel>
+                <Input
+ id="us-identifiantFiscal"
+                {...register('identifiantFiscal')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.identifiantFiscal}
+                onChange={() => {
+                  if (errors.identifiantFiscal) {
+                    clearErrors('identifiantFiscal')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.identifiantFiscal}>
+                {errors.identifiantFiscal?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-patente">{csStrings.FISCAL_PATENTE}</InputLabel>
+                <Input
+ id="us-patente"
+                {...register('patente')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.patente}
+                onChange={() => {
+                  if (errors.patente) {
+                    clearErrors('patente')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.patente}>
+                {errors.patente?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-rib">{csStrings.FISCAL_RIB}</InputLabel>
+                <Input
+ id="us-rib"
+                {...register('rib')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.rib}
+                onChange={() => {
+                  if (errors.rib) {
+                    clearErrors('rib')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.rib}>
+                {errors.rib?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-fiscalAddress">{csStrings.FISCAL_ADDRESS}</InputLabel>
+                <Input
+ id="us-fiscalAddress"
+                {...register('fiscalAddress')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.fiscalAddress}
+                onChange={() => {
+                  if (errors.fiscalAddress) {
+                    clearErrors('fiscalAddress')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.fiscalAddress}>
+                {errors.fiscalAddress?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-city">{csStrings.FISCAL_CITY}</InputLabel>
+                <Input
+ id="us-city"
+                {...register('city')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.city}
+                onChange={() => {
+                  if (errors.city) {
+                    clearErrors('city')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.city}>
+                {errors.city?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+              <FormControlLabel
+                control={(
+                  <Switch
+                    {...register('vatEnabled')}
+                    checked={vatEnabled}
+                    onChange={(e) => {
+                      setValue('vatEnabled', e.target.checked)
+                    }}
+                    color="primary"
+                  />
+                )}
+                label={csStrings.FISCAL_VAT_ENABLED}
+              />
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-vat-rate">{csStrings.FISCAL_VAT_RATE}</InputLabel>
+                <Input
+ id="us-vat-rate"
+                {...register('vatRate')}
+                type="text"
+                autoComplete="off"
+                error={!!errors.vatRate}
+                onChange={() => {
+                  if (errors.vatRate) {
+                    clearErrors('vatRate')
+                  }
+                }}
+              />
+              <FormHelperText error={!!errors.vatRate}>
+                {errors.vatRate?.message || ''}
+              </FormHelperText>
+              </FormControl>
+
               <FormControl fullWidth margin="dense">
                 <ContractList supplier={supplier} />
               </FormControl>
@@ -487,6 +689,7 @@ const UpdateSupplier = () => {
               </div>
             </form>
           </Paper>
+          {supplier && <ReturnSettingsForm supplierId={supplier._id as string} />}
         </div>
       )}
       {loading && <Backdrop text={commonStrings.PLEASE_WAIT} />}

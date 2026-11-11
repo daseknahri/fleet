@@ -1,3 +1,4 @@
+import path from 'node:path'
 import process from 'node:process'
 import { Document, Types } from 'mongoose'
 import { CookieOptions } from 'express'
@@ -364,6 +365,17 @@ export const CDN_MAINTENANCE = __env__('BC_CDN_MAINTENANCE', true)
 export const CDN_TEMP_MAINTENANCE = __env__('BC_CDN_TEMP_MAINTENANCE', true)
 
 /**
+ * Client identity documents' cdn folder path (GA-PAR-04). Private store:
+ * like contracts/licenses/maintenance it is never served statically — files
+ * are only delivered through the authenticated, agency-scoped
+ * documentController download. Derived as a sibling of the licenses store
+ * so no new environment variable is required.
+ *
+ * @type {string}
+ */
+export const CDN_CLIENT_DOCUMENTS = path.join(path.dirname(CDN_LICENSES), 'client-documents')
+
+/**
  * Allowed maintenance receipt extensions.
  *
  * @type {string[]}
@@ -603,6 +615,7 @@ export interface User extends Document {
   active?: boolean
   language: string
   enableEmailNotifications?: boolean
+  emailNotificationCategories?: bookcarsTypes.EmailNotificationCategories
   avatar?: string
   bio?: string
   location?: string
@@ -619,6 +632,24 @@ export interface User extends Document {
   supplierCarLimit?: number
   notifyAdminOnNewCar?: boolean
   isSocial?: boolean
+  ice?: string
+  registreCommerce?: string
+  identifiantFiscal?: string
+  patente?: string
+  rib?: string
+  fiscalAddress?: string
+  city?: string
+  vatEnabled?: boolean
+  vatRate?: number
+  cinNumber?: string
+  cinExpiry?: Date
+  passportNumber?: string
+  passportExpiry?: Date
+  licenseNumber?: string
+  licenseExpiry?: Date
+  clientType?: bookcarsTypes.ClientType
+  clientStatus?: bookcarsTypes.ClientStatus
+  clientDocuments?: bookcarsTypes.ClientDocument[]
 }
 
 /**
@@ -641,6 +672,7 @@ export interface UserInfo {
   active?: boolean
   language?: string
   enableEmailNotifications?: boolean
+  emailNotificationCategories?: bookcarsTypes.EmailNotificationCategories
   avatar?: string
   bio?: string
   location?: string
@@ -652,6 +684,24 @@ export interface UserInfo {
   priceChangeRate?: number
   supplierCarLimit?: number
   notifyAdminOnNewCar?: boolean
+  ice?: string
+  registreCommerce?: string
+  identifiantFiscal?: string
+  patente?: string
+  rib?: string
+  fiscalAddress?: string
+  city?: string
+  vatEnabled?: boolean
+  vatRate?: number
+  cinNumber?: string
+  cinExpiry?: Date
+  passportNumber?: string
+  passportExpiry?: Date
+  licenseNumber?: string
+  licenseExpiry?: Date
+  clientType?: bookcarsTypes.ClientType
+  clientStatus?: bookcarsTypes.ClientStatus
+  clientDocuments?: bookcarsTypes.ClientDocument[]
 }
 
 /**
@@ -693,9 +743,21 @@ export interface ContractInspection extends Document {
   condition?: string
   damageNote?: string
   photoFiles?: string[]
+  checklist?: bookcarsTypes.InspectionChecklist
+  photos?: bookcarsTypes.InspectionPhoto[]
   signatureFile?: string
   acknowledgedBy?: Types.ObjectId
   actor?: Types.ObjectId
+}
+
+/** GA-PAR-06: per-agency return & settlement rates (new collection; the global Setting singleton is untouched). */
+export interface AgencyReturnSettings extends Document {
+  supplier: Types.ObjectId
+  includedKmPerDay?: number
+  extraKmPrice?: number
+  fuelPricePerLitre?: number
+  washFee?: number
+  defaultDeposit?: number
 }
 
 /**
@@ -708,6 +770,7 @@ export interface ContractInspection extends Document {
  */
 export interface Booking extends Document {
   _id: Types.ObjectId
+  reference?: string
   supplier: Types.ObjectId
   car: Types.ObjectId
   driver: Types.ObjectId
@@ -735,6 +798,138 @@ export interface Booking extends Document {
   ledgerVersion?: number
   paypalOrderId?: string
   financialSnapshot?: bookcarsTypes.BookingFinancialSnapshot
+  depositSettlement?: {
+    heldAmount: number
+    keptAmount: number
+    returnedAmount: number
+    method?: string
+    note?: string
+    recordedBy?: Types.ObjectId
+    recordedAt?: Date
+  }
+  /** GA-PAR-07: apporteur commission snapshot captured at booking time. */
+  agent?: {
+    agent: Types.ObjectId
+    mode: bookcarsTypes.CommissionMode
+    value: number
+    amount: number
+  }
+  /** GA-PAR-11: contract amendment history rows (append-only). */
+  amendmentHistory?: {
+    at: Date
+    by?: Types.ObjectId
+    reason: string
+    fromBefore: Date
+    toBefore: Date
+    fromAfter: Date
+    toAfter: Date
+    rentalTotalBefore: number
+    rentalTotalAfter: number
+    priceDelta: number
+    basisDailyRate?: number
+    basisDays?: number
+  }[]
+  /** GA-PAR-10: recorded overlap exception (server-stamped). */
+  overlapException?: {
+    reason: string
+    authorisedBy?: Types.ObjectId
+    authorisedAt?: Date
+    conflictingBooking?: Types.ObjectId
+  }
+  /** GA-PAR-12: recorded online client signature (private store). */
+  onlineSignature?: {
+    file: string
+    signedAt: Date
+    contentHash: string
+  }
+  /**
+   * GA-PAR-12: per-booking signing nonce (server-only, `select: false`
+   * in the Mongoose schema — never serialized into any API response).
+   */
+  signingNonce?: string
+}
+
+/** Apporteur (business referrer) document (GA-PAR-07). */
+export interface Agent extends Document {
+  supplier: Types.ObjectId
+  name: string
+  phone?: string
+  type: bookcarsTypes.AgentType
+  commissionMode: bookcarsTypes.CommissionMode
+  commissionValue: number
+  active: boolean
+  notes?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** Agent settlement payment document (GA-PAR-07). */
+export interface AgentSettlement extends Document {
+  supplier: Types.ObjectId
+  agent: Types.ObjectId
+  amount: number
+  method: bookcarsTypes.AgentSettlementMethod
+  confirmedBy?: Types.ObjectId
+  confirmedAt?: Date
+  note?: string
+  bookingRefs?: Types.ObjectId[]
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** Reminder document (GA-PAR-13, scorecard #30). */
+export interface Reminder extends Document {
+  supplier: Types.ObjectId
+  title: string
+  note?: string
+  category: bookcarsTypes.ReminderCategory
+  linkType: bookcarsTypes.ReminderLinkType
+  car?: Types.ObjectId
+  client?: Types.ObjectId
+  recurrence: bookcarsTypes.ReminderRecurrence
+  firstDueAt: Date
+  notifyAheadHours: number[]
+  channels: bookcarsTypes.ReminderChannels
+  active: boolean
+  nextDueAt?: Date
+  lastFiredAt?: Date
+  createdBy?: Types.ObjectId
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** Reminder firing claim document (GA-PAR-13) — the exactly-once record. */
+export interface ReminderFiring extends Document {
+  supplier: Types.ObjectId
+  reminder: Types.ObjectId
+  occurrenceAt: Date
+  offsetHours: number
+  firedAt: Date
+  inAppCount?: number
+  emailCount?: number
+  pushCount?: number
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** ReportView config document shape (GA-PAR-14, scorecard #40). */
+export interface ReportViewConfig {
+  from?: string
+  to?: string
+  periodPreset?: string
+  carId?: string
+  groupBy: bookcarsTypes.ReportGroupBy
+  compare: boolean
+}
+
+/** Saved reports-builder view document (GA-PAR-14). */
+export interface ReportView extends Document {
+  supplier: Types.ObjectId
+  user: Types.ObjectId
+  name: string
+  config: ReportViewConfig
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 /** Approval record. */
@@ -787,6 +982,7 @@ export interface Invoice extends Document {
   currency: string
   subtotal: number
   taxAmount: number
+  taxRate?: number | null
   total: number
   paidAmount: number
   paymentStatus: 'unpaid' | 'partial' | 'paid'
@@ -796,6 +992,34 @@ export interface Invoice extends Document {
   voidedAt?: Date
   voidedBy?: Types.ObjectId
   voidReason?: string
+}
+
+/** Quote document (GA-PAR-05, Option B — separate model). */
+export interface Quote extends Document {
+  supplier: Types.ObjectId
+  number?: string
+  status: bookcarsTypes.QuoteStatus
+  currency: string
+  subtotal: number
+  taxAmount: number
+  taxRate?: number | null
+  total: number
+  booking?: Types.ObjectId
+  client?: Types.ObjectId
+  clientSnapshot?: {
+    name?: string
+    phone?: string
+    cinNumber?: string
+  }
+  car?: Types.ObjectId
+  carLabel?: string
+  days?: number
+  dailyRate?: number
+  convertedInvoice?: Types.ObjectId
+  createdBy?: Types.ObjectId
+  issuedBy?: Types.ObjectId
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 /** Cash session document. */
@@ -838,10 +1062,14 @@ export interface CashMovement extends Document {
 /** Maintenance expense document. */
 export interface MaintenanceExpense extends Document {
   supplier: Types.ObjectId
-  car: Types.ObjectId
+  // GA-PAR-16: optional — a general expense is tied to no car.
+  car?: Types.ObjectId | null
   date: Date
   type: bookcarsTypes.MaintenanceExpenseType
   amount: number
+  // GA-PAR-16: null/absent = untracked/legacy. Payment status is
+  // derived in payloads, never stored on the document.
+  paidAmount?: number | null
   mileage?: number
   vendor?: string
   note?: string
@@ -901,6 +1129,24 @@ export interface RentalPayment extends Document {
   settledAt?: Date
   reference?: string
   note?: string
+}
+
+/**
+ * GA-PAR-08 — Car financing block (nested paths on the Car document).
+ * All fields optional; amounts carry schema `min: 0` only — no
+ * cross-field rules (remaining vs price is not enforced).
+ */
+export interface CarFinancing {
+  type?: bookcarsTypes.CarFinancingType
+  purchasePrice?: number
+  lender?: string
+  instalmentAmount?: number
+  downPayment?: number
+  durationMonths?: number
+  firstDueDate?: Date
+  nextDueDate?: Date
+  remainingAmount?: number
+  autoDebit?: boolean
 }
 
 /**
@@ -969,8 +1215,14 @@ export interface Car extends Document {
   rating?: number
   trips: number
   co2?: number
+  tankCapacityLitres?: number
   blockOnPay?: boolean
   bookingReservationVersion?: number
+  // GA-PAR-08: financing block + document expiry dates (all optional)
+  financing?: CarFinancing
+  insuranceExpiryDate?: Date
+  technicalInspectionExpiryDate?: Date
+  vignetteExpiryDate?: Date
 }
 
 /**
@@ -1014,6 +1266,7 @@ export interface CarInfo {
  */
 export interface BookingInfo {
   _id?: Types.ObjectId
+  reference?: string
   supplier: UserInfo
   car: Car
   driver: UserInfo
