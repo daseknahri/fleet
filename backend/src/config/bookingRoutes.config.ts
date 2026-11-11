@@ -11,6 +11,7 @@ const routes = {
   getBookings: '/api/bookings/:page/:size/:language',
   hasBookings: '/api/has-bookings/:driver',
   cancelBooking: '/api/cancel-booking/:id',
+  amend: '/api/bookings/:id/amend',
 }
 
 export default routes

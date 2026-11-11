@@ -92,3 +92,52 @@ export const getBookings = (payload: bookcarsTypes.GetBookingsPayload, page: num
       { withCredentials: true }
     )
     .then((res) => res.data)
+
+/**
+ * GA-PAR-11: Amend / extend a Booking (contract amendment workflow).
+ *
+ * @param {string} id
+ * @param {bookcarsTypes.AmendBookingPayload} data
+ * @returns {Promise<bookcarsTypes.Booking>}
+ */
+export const amend = (id: string, data: bookcarsTypes.AmendBookingPayload): Promise<bookcarsTypes.Booking> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/amend`,
+      data,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * GA-PAR-12: Issue a shareable online-signing link for a Booking.
+ * The response carries the only live copy of the capability token —
+ * it is never persisted in any booking payload.
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.SigningLinkResponse>}
+ */
+export const issueSigningLink = (id: string): Promise<bookcarsTypes.SigningLinkResponse> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/signing-link`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * GA-PAR-12: Revoke every outstanding signing link for a Booking
+ * (server-side nonce rotation).
+ *
+ * @param {string} id
+ * @returns {Promise<number>}
+ */
+export const revokeSigningLink = (id: string): Promise<number> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/signing-link/revoke`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
