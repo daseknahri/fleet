@@ -32,6 +32,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "escape-string-regexp": "^5.0.0",
+    "exceljs": "^4.4.0",
     "expo-server-sdk": "^6.1.0",
     "express": "^5.2.1",
     "google-auth-library": "^10.6.2",
@@ -44,10 +45,10 @@
     "nanoid": "^5.1.7",
     "nocache": "^4.0.0",
     "nodemailer": "^10.3.1",
+    "pdf-lib": "^1.17.1",
     "stripe": "^20.4.1",
     "validator": "^13.15.26",
-    "winston": "^3.19.0",
-    "pdf-lib": "^1.17.1"
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.6",
