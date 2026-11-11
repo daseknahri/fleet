@@ -351,3 +351,162 @@
     grid-row: 1 / span 2;
   }
 }
+
+/* GA-PAR-09: period bar, attention grid, lists, table, widget customisation */
+.agency-dashboard__period-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.agency-dashboard__period-label {
+  color: #687676;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agency-dashboard__period-buttons .MuiButton-root {
+  text-transform: none;
+  font-weight: 650;
+}
+
+.agency-dashboard__customize-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px dashed #c8ded6;
+  border-radius: 11px;
+  background: #f8fbf9;
+}
+
+.agency-dashboard__section-title {
+  margin: 6px 0 14px;
+  color: #223131;
+  font-size: 17px;
+  font-weight: 750;
+}
+
+.agency-dashboard__attention {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.agency-dashboard__lists {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.agency-dashboard__widget-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.agency-dashboard__widget-controls {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.agency-dashboard__widget-controls .MuiIconButton-root {
+  padding: 3px;
+  color: #52736a;
+}
+
+.agency-dashboard__partial-chip.MuiChip-root {
+  margin-top: 8px;
+  max-width: 100%;
+  height: auto;
+  min-height: 25px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: normal;
+}
+
+.agency-dashboard__partial-chip .MuiChip-label {
+  white-space: normal;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.agency-dashboard__source-chip.MuiChip-root {
+  margin-bottom: 10px;
+  background: #fbf1df;
+  color: #a8751e;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.agency-dashboard__inline-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: #b3261e;
+  font-size: 11px;
+}
+
+.agency-dashboard__attention-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(90px, auto)) auto;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 13px 0;
+  border-top: 1px solid #eff2f1;
+  color: inherit;
+  text-align: left;
+}
+
+.agency-dashboard__table-wrap {
+  overflow-x: auto;
+}
+
+.agency-dashboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: #344140;
+}
+
+.agency-dashboard__table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e7eceb;
+  color: #687676;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.agency-dashboard__table td {
+  padding: 10px;
+  border-bottom: 1px solid #eff2f1;
+  white-space: nowrap;
+}
+
+.agency-dashboard__table tbody tr {
+  cursor: pointer;
+}
+
+.agency-dashboard__table tbody tr:hover td {
+  background: #f8fbf9;
+}
+
+@media (max-width: 900px) {
+  .agency-dashboard__attention {
+    grid-template-columns: 1fr;
+  }
+
+  .agency-dashboard__attention-row {
+    grid-template-columns: minmax(100px, 1fr) minmax(90px, auto) auto;
+  }
+}
