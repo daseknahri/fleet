@@ -3,6 +3,7 @@ import * as langHelper from '@/utils/langHelper'
 
 const strings = new LocalizedStrings({
   fr: {
+    REFERENCE: 'Référence',
     CAR: 'Voiture',
     SUPPLIER: 'Fournisseur',
     DRIVER: 'Conducteur',
@@ -17,8 +18,11 @@ const strings = new LocalizedStrings({
     EMPTY_LIST: 'Pas de réservations.',
     DAYS: 'Jours',
     COST: 'Total',
+    OVERLAP_EXCEPTION: 'Exception de chevauchement',
+    SIGNED_ONLINE: 'Signé en ligne',
   },
   ar: {
+    REFERENCE: 'المرجع',
     CAR: 'المركبة',
     SUPPLIER: 'المورد',
     DRIVER: 'السائق',
@@ -33,8 +37,11 @@ const strings = new LocalizedStrings({
     EMPTY_LIST: 'لا توجد حجوزات.',
     DAYS: 'الأيام',
     COST: 'الإجمالي',
+    OVERLAP_EXCEPTION: 'استثناء التداخل',
+    SIGNED_ONLINE: 'وُقّع عبر الإنترنت',
   },
   en: {
+    REFERENCE: 'Reference',
     CAR: 'Car',
     SUPPLIER: 'Supplier',
     DRIVER: 'Driver',
@@ -49,8 +56,11 @@ const strings = new LocalizedStrings({
     EMPTY_LIST: 'No bookings.',
     DAYS: 'Days',
     COST: 'COST',
+    OVERLAP_EXCEPTION: 'Overlap exception',
+    SIGNED_ONLINE: 'Signed online',
   },
   es: {
+    REFERENCE: 'Referencia',
     CAR: 'Coche',
     SUPPLIER: 'Proveedor',
     DRIVER: 'Conductor',
@@ -65,6 +75,8 @@ const strings = new LocalizedStrings({
     EMPTY_LIST: 'Sin reservas.',
     DAYS: 'Días',
     COST: 'Coste',
+    OVERLAP_EXCEPTION: 'Excepción de solapamiento',
+    SIGNED_ONLINE: 'Firmado en línea',
   },
 })
 

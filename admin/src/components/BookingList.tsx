@@ -21,6 +21,7 @@ import {
   Card,
   CardContent,
   Typography,
+  Chip,
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { Edit as EditIcon, Delete as DeleteIcon, Check as CheckIcon } from '@mui/icons-material'
@@ -237,6 +238,28 @@ const BookingList = ({
 
   const getColumns = (): GridColDef<bookcarsTypes.Booking>[] => {
     const _columns: GridColDef<bookcarsTypes.Booking>[] = [
+      {
+        field: 'reference',
+        headerName: strings.REFERENCE,
+        flex: 1,
+        sortable: false,
+        renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.Booking>) => (
+          <span>
+            {row.reference || (row._id || '').slice(-8).toUpperCase()}
+            {row.overlapException && (
+              <Tooltip title={`${strings.OVERLAP_EXCEPTION}: ${row.overlapException.reason}`}>
+                <Chip size="small" color="warning" label={strings.OVERLAP_EXCEPTION} style={{ marginInlineStart: 6 }} />
+              </Tooltip>
+            )}
+            {row.onlineSignature?.signedAt && (
+              <Tooltip title={`${strings.SIGNED_ONLINE}: ${new Date(row.onlineSignature.signedAt).toLocaleString()}`}>
+                <Chip size="small" color="success" label={strings.SIGNED_ONLINE} style={{ marginInlineStart: 6 }} />
+              </Tooltip>
+            )}
+          </span>
+        ),
+        valueGetter: (value: string, row: bookcarsTypes.Booking) => value || (row._id || '').slice(-8).toUpperCase(),
+      },
       {
         field: 'driver',
         headerName: strings.DRIVER,
@@ -526,6 +549,24 @@ const BookingList = ({
                   <div className={`bs bs-${booking.status.toLowerCase()}`}>
                     <span>{helper.getBookingStatus(booking.status)}</span>
                   </div>
+                  <div className="booking-detail" style={{ height: bookingDetailHeight }}>
+                    <span className="booking-detail-title">{strings.REFERENCE}</span>
+                    <div className="booking-detail-value">
+                      {booking.reference || (booking._id || '').slice(-8).toUpperCase()}
+                    </div>
+                  </div>
+                  {booking.overlapException && (
+                    <div className="booking-detail" style={{ height: bookingDetailHeight }}>
+                      <span className="booking-detail-title">{strings.OVERLAP_EXCEPTION}</span>
+                      <div className="booking-detail-value">{booking.overlapException.reason}</div>
+                    </div>
+                  )}
+                  {booking.onlineSignature?.signedAt && (
+                    <div className="booking-detail" style={{ height: bookingDetailHeight }}>
+                      <span className="booking-detail-title">{strings.SIGNED_ONLINE}</span>
+                      <div className="booking-detail-value">{new Date(booking.onlineSignature.signedAt).toLocaleString()}</div>
+                    </div>
+                  )}
                   <div className="booking-detail" style={{ height: bookingDetailHeight }}>
                     <span className="booking-detail-title">{strings.CAR}</span>
                     <div className="booking-detail-value">

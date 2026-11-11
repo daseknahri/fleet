@@ -29,7 +29,58 @@ import { BookingConflictError, saveBookingWithAvailability, saveBookingsWithAvai
 import { postProviderPayment } from '../utils/ledger'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, getAgencyContext } from '../utils/agencyAuthorization'
+import { nextBookingReference } from '../utils/bookingReference'
+import { publicOnlineSignature } from '../utils/bookingSigning'
+import { ensureDraftInvoice } from '../utils/invoiceCreation'
+import { resolveBookingAgentSnapshot } from '../utils/agentCommission'
+
+/**
+ * GA-PAR-10 — overlap-exception gate for the admin create/update funnels.
+ *
+ * The hard overlap block stays the default. A caller may supply
+ * `overlapException: { reason }` to confirm one specific
+ * booking-vs-booking overlap as an exception. Only agency callers whose
+ * role is Owner or Manager may do so (resolved through the agency
+ * context — no new permission/capability); anyone else supplying the
+ * payload is refused 403. The reason is required, 3–1000 chars (house
+ * pattern); `authorisedBy`/`authorisedAt` are stamped server-side by
+ * the caller of this helper, never taken from the client. Maintenance
+ * work-order conflicts are never excepted (bookingReservationHelper).
+ * The public checkout funnel never calls this gate: it ignores the
+ * payload unconditionally.
+ */
+type OverlapExceptionGate =
+  | { ok: true, reason?: string }
+  | { ok: false, status: number, message: string }
+
+export const resolveOverlapExceptionGate = async (
+  req: Request,
+  actor: { _id: string, type?: bookcarsTypes.UserType },
+  supplierId: string,
+  raw: unknown,
+): Promise<OverlapExceptionGate> => {
+  if (raw === undefined || raw === null) {
+    return { ok: true }
+  }
+  let role = req.agency?.role
+  if (!role) {
+    if (actor.type === bookcarsTypes.UserType.Supplier) {
+      role = bookcarsTypes.AgencyRole.Owner
+    } else {
+      const context = await getAgencyContext({ _id: actor._id, type: actor.type }, supplierId)
+      role = context?.role
+    }
+  }
+  if (role !== bookcarsTypes.AgencyRole.Owner && role !== bookcarsTypes.AgencyRole.Manager) {
+    return { ok: false, status: 403, message: 'OVERLAP_EXCEPTION_FORBIDDEN: Only an agency Owner or Manager may confirm an overlap exception.' }
+  }
+  const reason = (raw as { reason?: unknown })?.reason
+  if (typeof reason !== 'string' || reason.trim().length < 3 || reason.trim().length > 1000) {
+    return { ok: false, status: 400, message: 'OVERLAP_EXCEPTION_REASON: An overlap exception requires a reason of 3 to 1000 characters.' }
+  }
+  return { ok: true, reason }
+}
 
 /**
  * Create a Booking.
@@ -84,9 +135,30 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
-    const driver = await User.findOne({ _id: driverId, type: bookcarsTypes.UserType.User }).select('_id')
+    const driver = await User.findOne({ _id: driverId, type: bookcarsTypes.UserType.User }).select('_id clientStatus blacklisted')
     if (!driver) {
       res.status(400).send('Booking customer not found')
+      return
+    }
+
+    // GA-PAR-04: blocked-client guard (admin create path ONLY - checkout,
+    // update and auth are untouched). A client whose workflow status is
+    // blocked, or who is blacklisted, cannot be booked; nothing persists.
+    if (driver.clientStatus === bookcarsTypes.ClientStatus.Blocked || driver.blacklisted === true) {
+      res.status(403).send('CLIENT_BLOCKED: This client is blocked and cannot be booked.')
+      return
+    }
+
+    // GA-PAR-10: overlap-exception gate — evaluated before anything is
+    // persisted, so a refused exception (403/400) leaves no trace.
+    const overlapGate = await resolveOverlapExceptionGate(
+      req,
+      { _id: String(sessionUser?._id || ''), type: sessionUser?.type },
+      supplierId,
+      bookingInput.overlapException,
+    )
+    if (!overlapGate.ok) {
+      res.status(overlapGate.status).send(overlapGate.message)
       return
     }
 
@@ -97,6 +169,27 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    // GA-PAR-07: resolve the apporteur snapshot BEFORE persisting. The
+    // agent must belong to this agency (a foreign agent id is refused
+    // here, never silently accepted); the payload may carry a per-contract
+    // override (mode/value), otherwise the agent's default applies; the
+    // amount is computed server-side from the rental total (the booking
+    // price on this path) and the rental day count.
+    let agentSnapshot
+    if (bookingInput.agent) {
+      const resolvedAgent = await resolveBookingAgentSnapshot(
+        supplierId,
+        bookingInput.agent as { agent?: unknown, mode?: unknown, value?: unknown },
+        Number(bookingInput.price),
+        helper.days(fromDate, toDate),
+      )
+      if (!resolvedAgent.ok) {
+        res.status(400).send(resolvedAgent.error)
+        return
+      }
+      agentSnapshot = resolvedAgent.snapshot
+    }
+
     let additionalDriverId: string | undefined
     if (bookingInput.additionalDriver && body.additionalDriver) {
       const additionalDriver = new AdditionalDriver(body.additionalDriver)
@@ -104,8 +197,11 @@ export const create = async (req: Request, res: Response) => {
       additionalDriverId = additionalDriver._id.toString()
     }
 
+    const reference = await nextBookingReference(supplierId)
+
     const booking = new Booking({
       ...bookingInput,
+      reference,
       supplier: supplierId,
       car: carId,
       driver: driver._id,
@@ -122,11 +218,44 @@ export const create = async (req: Request, res: Response) => {
       isDeposit: false,
       isPayedInFull: false,
       financialSnapshot: undefined,
+      agent: agentSnapshot,
+      // GA-PAR-10: never trust a client-shaped exception record — the
+      // record is stamped below only when a conflict was actually
+      // bypassed under the gate above.
+      overlapException: undefined,
     })
 
-    await saveBookingWithAvailability(booking)
+    // GA-PAR-10: with a gated exception the helper bypasses
+    // booking-vs-booking conflicts only (maintenance still throws) and
+    // reports the conflicting booking; the exception record is then
+    // persisted on the booking itself. If nothing actually conflicted
+    // (e.g. a blockOnPay=false car), no record is stamped — an exception
+    // that excepts nothing would be audit noise.
+    let overlapConflictingBookingId: string | undefined
+    await saveBookingWithAvailability(booking, {
+      allowOverlapException: !!overlapGate.reason,
+      onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
+    })
+    if (overlapGate.reason && overlapConflictingBookingId) {
+      booking.overlapException = {
+        reason: overlapGate.reason,
+        authorisedBy: new mongoose.Types.ObjectId(sessionUser._id),
+        authorisedAt: new Date(),
+        conflictingBooking: new mongoose.Types.ObjectId(overlapConflictingBookingId),
+      }
+      await booking.save()
+    }
+    // GA-PAR-05: auto-draft invoice (idempotent, never throws, draft only).
+    await ensureDraftInvoice(booking)
     res.json(booking)
   } catch (err) {
+    // GA-PAR-10: availability conflicts surface as 409 on create too,
+    // matching checkout/update/updateStatus (previously the generic 400
+    // below swallowed BookingConflictError on this funnel only).
+    if (err instanceof BookingConflictError) {
+      res.status(409).send(err.message)
+      return
+    }
     logger.error(`[booking.create] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
@@ -314,6 +443,11 @@ export const finalizePaidCheckoutBooking = async (
   }
 
   if (!saved) return false
+
+  // GA-PAR-05: the booking is finalised (expireAt cleared inside the
+  // transaction) — auto-draft its invoice. Idempotent and never throws,
+  // so a replayed finalisation still yields exactly one draft.
+  await ensureDraftInvoice(booking)
 
   const car = await Car.findById(booking.car)
   if (!car) {
@@ -687,7 +821,14 @@ export const checkout = async (req: Request, res: Response) => {
 
     const isPayLater = paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater
     const expireAt = isPayLater ? undefined : new Date(Date.now() + env.BOOKING_EXPIRE_AT * 1000)
+    const reference = await nextBookingReference(supplier._id)
+
+    // GA-PAR-10: the public checkout funnel ignores any overlapException
+    // payload unconditionally — the booking below is built field-by-field
+    // and never copies it, so normal conflict rules apply and no
+    // exception record can be persisted from checkout.
     const booking = new Booking({
+      reference,
       supplier: supplier._id,
       car: carObj._id,
       driver: user._id,
@@ -712,6 +853,11 @@ export const checkout = async (req: Request, res: Response) => {
     })
 
     await saveBookingWithAvailability(booking)
+
+    // GA-PAR-05: only the pay-later checkout is finalised at this point.
+    if (isPayLater) {
+      await ensureDraftInvoice(booking)
+    }
 
     if (!isPayLater && !user.verified) {
       user.expireAt = new Date(Date.now() + env.USER_EXPIRE_AT * 1000)
@@ -1003,6 +1149,39 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
+      // GA-PAR-10: overlap-exception gate, same rules as create. A
+      // payload whose reason matches the stored record is an echo of
+      // the already-authorised exception (the admin form resubmits the
+      // loaded booking), not a new exception: it continues under the
+      // original stamp. A stored record with no payload also continues.
+      // Anything else supplying a payload goes through the full gate
+      // (Owner/Manager only, reason 3–1000) before anything persists.
+      // NB: Mongoose hydrates the nested overlapException path as an
+      // empty subdocument on loaded bookings, so a stored exception is
+      // only real when it carries a reason — truthiness alone would
+      // silently bypass every update conflict.
+      const storedOverlapException = booking.overlapException?.reason ? booking.overlapException : undefined
+      const rawOverlapException = (body.booking as bookcarsTypes.Booking).overlapException
+      const isOverlapEcho = !!rawOverlapException && !!storedOverlapException
+        && typeof rawOverlapException.reason === 'string'
+        && rawOverlapException.reason === storedOverlapException.reason
+      let overlapGate: OverlapExceptionGate = { ok: true }
+      let overlapIsFresh = false
+      if (rawOverlapException && !isOverlapEcho) {
+        overlapGate = await resolveOverlapExceptionGate(
+          req,
+          { _id: sessionUser._id.toString(), type: sessionUser.type },
+          booking.supplier.toString(),
+          rawOverlapException,
+        )
+        if (!overlapGate.ok) {
+          res.status(overlapGate.status).send(overlapGate.message)
+          return
+        }
+        overlapIsFresh = !!overlapGate.reason
+      }
+      const overlapAllowed = overlapIsFresh || !!storedOverlapException
+
       const {
         supplier,
         car,
@@ -1118,11 +1297,90 @@ export const update = async (req: Request, res: Response) => {
         booking.isPayedInFull = isPayedInFull || false
       }
 
+      // GA-PAR-07: apporteur snapshot update rule — the stored snapshot is
+      // recomputed ONLY when the payload changes the agent inputs (a
+      // different agent, or a mode/value that differs from the stored
+      // snapshot). A payload without an `agent` key leaves the snapshot
+      // untouched; an explicit null (or an empty agent id) clears it; a
+      // payload amount is never trusted. Rental-total-only changes do NOT
+      // re-rate the commission (amendment re-pricing is GA-PAR-11). When a
+      // recompute does happen it uses the booking's current rental total
+      // and day count; mode/value fall back to the stored snapshot when
+      // the same agent is kept, and to the new agent's default when the
+      // agent changes.
+      if (Object.prototype.hasOwnProperty.call(body.booking, 'agent')) {
+        const payloadAgent = (body.booking as bookcarsTypes.Booking).agent
+        const storedAgent = booking.agent
+        if (payloadAgent === null) {
+          booking.agent = undefined
+        } else if (payloadAgent) {
+          const payloadAgentId = typeof payloadAgent.agent === 'string'
+            ? payloadAgent.agent
+            : (payloadAgent.agent as unknown as { _id?: string })?._id || ''
+          if (!payloadAgentId) {
+            booking.agent = undefined
+          } else {
+            const sameAgent = !!storedAgent && storedAgent.agent?.toString() === payloadAgentId
+            const inputsChanged = !sameAgent
+              || (payloadAgent.mode !== undefined && payloadAgent.mode !== storedAgent?.mode)
+              || (payloadAgent.value !== undefined && Number(payloadAgent.value) !== storedAgent?.value)
+            if (inputsChanged) {
+              const resolvedAgent = await resolveBookingAgentSnapshot(
+                booking.supplier.toString(),
+                {
+                  agent: payloadAgentId,
+                  mode: payloadAgent.mode ?? (sameAgent ? storedAgent?.mode : undefined),
+                  value: payloadAgent.value ?? (sameAgent ? storedAgent?.value : undefined),
+                },
+                booking.price,
+                helper.days(booking.from, booking.to),
+              )
+              if (!resolvedAgent.ok) {
+                res.status(400).send(resolvedAgent.error)
+                return
+              }
+              booking.agent = resolvedAgent.snapshot as typeof booking.agent
+            }
+          }
+        }
+      }
+
       if (!additionalDriver && booking._additionalDriver) {
         booking._additionalDriver = undefined
       }
 
-      await saveBookingWithAvailability(booking)
+      // GA-PAR-10: a fresh exception is stamped before the save (the
+      // conflicting booking is patched in afterwards, once the helper
+      // reports it); a continuing stored exception is left verbatim.
+      // Maintenance conflicts still throw inside the helper.
+      if (overlapIsFresh && overlapGate.ok && overlapGate.reason) {
+        booking.overlapException = {
+          reason: overlapGate.reason,
+          authorisedBy: sessionUser._id,
+          authorisedAt: new Date(),
+          conflictingBooking: undefined,
+        }
+      } else if (!storedOverlapException) {
+        // No exception in play: clear the (possibly empty, Mongoose-
+        // hydrated) nested path so no empty record is persisted.
+        booking.overlapException = undefined
+      }
+      let updateOverlapConflictingId: string | undefined
+      await saveBookingWithAvailability(booking, {
+        allowOverlapException: overlapAllowed,
+        onBookingConflict: (conflictingBookingId) => { updateOverlapConflictingId = conflictingBookingId },
+      })
+      if (overlapIsFresh) {
+        if (updateOverlapConflictingId) {
+          booking.overlapException!.conflictingBooking = new mongoose.Types.ObjectId(updateOverlapConflictingId)
+          await booking.save()
+        } else {
+          // Nothing actually conflicted: an exception that excepts
+          // nothing is not recorded (audit noise — cf. create).
+          booking.overlapException = undefined
+          await booking.save()
+        }
+      }
 
       if (previousStatus !== status) {
         // notify driver
@@ -1381,6 +1639,16 @@ export const getBooking = async (req: Request, res: Response) => {
       booking.pickupLocation.name = booking.pickupLocation.values.filter((value) => value.language === language)[0].value
       booking.dropOffLocation.name = booking.dropOffLocation.values.filter((value) => value.language === language)[0].value
 
+      // GA-PAR-12: signing secrets never leave the server. The nonce is
+      // `select: false` (absent here by construction) and is deleted
+      // defensively; the signature record is reduced to its derived
+      // state — presence + signedAt — so the stored file name and
+      // content hash stay server-side.
+      delete booking.signingNonce
+      if (booking.onlineSignature) {
+        booking.onlineSignature = publicOnlineSignature(booking.onlineSignature) as env.Booking['onlineSignature']
+      }
+
       res.json(booking)
       return
     }
@@ -1516,6 +1784,7 @@ export const getBookings = async (req: Request, res: Response) => {
         keyword = escapeStringRegexp(keyword)
         $match.$and!.push({
           $or: [
+            { reference: { $regex: keyword, $options: options } },
             { 'supplier.fullName': { $regex: keyword, $options: options } },
             { 'driver.fullName': { $regex: keyword, $options: options } },
             { 'car.name': { $regex: keyword, $options: options } },
@@ -1656,6 +1925,14 @@ export const getBookings = async (req: Request, res: Response) => {
     for (const booking of bookings) {
       const { _id, fullName, avatar, priceChangeRate } = booking.supplier
       booking.supplier = { _id, fullName, avatar, priceChangeRate }
+      // GA-PAR-12: aggregations bypass Mongoose `select: false`, so the
+      // signing nonce is stripped here explicitly and the signature
+      // record is reduced to presence + signedAt (see getBooking).
+      const row = booking as unknown as Record<string, unknown>
+      delete row.signingNonce
+      if (row.onlineSignature) {
+        row.onlineSignature = publicOnlineSignature(row.onlineSignature as { signedAt?: Date })
+      }
     }
 
     res.json(data)
