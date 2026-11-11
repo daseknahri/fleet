@@ -66,6 +66,22 @@ export const schema = z.object({
   multimedia: z.array(z.enum([...bookcarsHelper.getAllMultimedias()] as [string, ...string[]])).optional(),
   rating: z.string().optional(),
   co2: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  tankCapacityLitres: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  // GA-PAR-08: financing block (flat form fields, assembled into the
+  // financing sub-object at payload time) + document expiry dates.
+  financingType: z.string().optional(),
+  financingPurchasePrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  financingLender: z.string().optional(),
+  financingInstalmentAmount: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  financingDownPayment: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  financingDurationMonths: z.string().refine((val) => !val || /^\d+$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  financingFirstDueDate: z.date().optional().nullable(),
+  financingNextDueDate: z.date().optional().nullable(),
+  financingRemainingAmount: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  financingAutoDebit: z.boolean().optional(),
+  insuranceExpiryDate: z.date().optional().nullable(),
+  technicalInspectionExpiryDate: z.date().optional().nullable(),
+  vignetteExpiryDate: z.date().optional().nullable(),
   isDateBasedPrice: z.boolean(),
   dateBasedPrices: z.array(dateBasedPriceSchema).optional(),
 })

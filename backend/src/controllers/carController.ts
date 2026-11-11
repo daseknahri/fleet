@@ -28,7 +28,9 @@ const canManageAgency = (user: { _id: mongoose.Types.ObjectId | string, type?: b
   !!user && (user.type === bookcarsTypes.UserType.Admin || (user.type === bookcarsTypes.UserType.Supplier && user._id.toString() === supplierId))
 
 
-const validateLocationsForSupplier = async (locations: string[], supplierId: string) => {
+// GA-PAR-15: these car-create validators/normalisers are exported so the
+// Excel importer creates cars through the SAME rules (no forked copy).
+export const validateLocationsForSupplier = async (locations: string[], supplierId: string) => {
   if (!Array.isArray(locations) || locations.length === 0 || locations.some((location) => !mongoose.isValidObjectId(location))) {
     return false
   }
@@ -38,6 +40,119 @@ const validateLocationsForSupplier = async (locations: string[], supplierId: str
   return records.length === uniqueLocations.length
     && records.every((location) => !location.supplier || location.supplier.toString() === supplierId)
 }
+
+// GA-PAR-08: field-level validation + normalisation for the financing
+// block and the document expiry dates. Deliberately NO cross-field
+// business rules (no remaining <= purchasePrice, no due-date ordering):
+// only per-field shape — amounts are finite numbers >= 0, dates parse,
+// the financing type is in its enum, lender is a string, autoDebit a
+// boolean. null / '' means "clear" and is valid everywhere. Anything
+// else malformed is rejected with a 400 naming the field, before any
+// persistence; the schema's own enum/min/Date validators stay as the
+// second line of defence (the PAR-06 tank-capacity precedent).
+const FINANCING_AMOUNT_FIELDS = ['purchasePrice', 'instalmentAmount', 'downPayment', 'durationMonths', 'remainingAmount'] as const
+const FINANCING_DATE_FIELDS = ['firstDueDate', 'nextDueDate'] as const
+const CAR_DOCUMENT_DATE_FIELDS = ['insuranceExpiryDate', 'technicalInspectionExpiryDate', 'vignetteExpiryDate'] as const
+
+const isClearValue = (value: unknown) => value === undefined || value === null || value === ''
+
+const isValidDateValue = (value: unknown) => {
+  if (value instanceof Date) {
+    return !Number.isNaN(value.getTime())
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    return !Number.isNaN(new Date(value).getTime())
+  }
+  return false
+}
+
+export const invalidFinancingOrDocumentField = (payload: {
+  financing?: unknown
+  insuranceExpiryDate?: unknown
+  technicalInspectionExpiryDate?: unknown
+  vignetteExpiryDate?: unknown
+}): string | null => {
+  for (const field of CAR_DOCUMENT_DATE_FIELDS) {
+    const value = payload[field]
+    if (!isClearValue(value) && !isValidDateValue(value)) {
+      return field
+    }
+  }
+  const { financing } = payload
+  if (isClearValue(financing)) {
+    return null
+  }
+  if (typeof financing !== 'object' || Array.isArray(financing)) {
+    return 'financing'
+  }
+  const block = financing as Record<string, unknown>
+  if (!isClearValue(block.type) && !(Object.values(bookcarsTypes.CarFinancingType) as string[]).includes(block.type as string)) {
+    return 'financing.type'
+  }
+  for (const field of FINANCING_AMOUNT_FIELDS) {
+    const value = block[field]
+    if (isClearValue(value)) {
+      continue
+    }
+    if (typeof value === 'boolean' || typeof value === 'object') {
+      return `financing.${field}`
+    }
+    const amount = Number(value)
+    if (!Number.isFinite(amount) || amount < 0) {
+      return `financing.${field}`
+    }
+    if (field === 'durationMonths' && !Number.isInteger(amount)) {
+      return `financing.${field}`
+    }
+  }
+  if (!isClearValue(block.lender) && typeof block.lender !== 'string') {
+    return 'financing.lender'
+  }
+  for (const field of FINANCING_DATE_FIELDS) {
+    const value = block[field]
+    if (!isClearValue(value) && !isValidDateValue(value)) {
+      return `financing.${field}`
+    }
+  }
+  if (!isClearValue(block.autoDebit) && typeof block.autoDebit !== 'boolean') {
+    return 'financing.autoDebit'
+  }
+  return null
+}
+
+// Returns undefined when nothing should be stored (absent, null, or a
+// block whose every field is cleared); otherwise an object holding only
+// the set fields, with numbers and dates normalised.
+export const normalizeFinancing = (financing: bookcarsTypes.CarFinancingPayload | null | undefined): bookcarsTypes.CarFinancing | undefined => {
+  if (!financing) {
+    return undefined
+  }
+  const normalized: bookcarsTypes.CarFinancing = {}
+  if (!isClearValue(financing.type)) {
+    normalized.type = financing.type as bookcarsTypes.CarFinancingType
+  }
+  for (const field of FINANCING_AMOUNT_FIELDS) {
+    const value = financing[field]
+    if (!isClearValue(value)) {
+      normalized[field] = Number(value)
+    }
+  }
+  if (!isClearValue(financing.lender)) {
+    normalized.lender = financing.lender as string
+  }
+  for (const field of FINANCING_DATE_FIELDS) {
+    const value = financing[field]
+    if (!isClearValue(value)) {
+      normalized[field] = new Date(value as string)
+    }
+  }
+  if (!isClearValue(financing.autoDebit)) {
+    normalized.autoDebit = financing.autoDebit as boolean
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+export const normalizeDocumentDate = (value: Date | string | null | undefined): Date | undefined => (isClearValue(value) ? undefined : new Date(value as string))
 
 const validDateBasedPrices = (dateBasedPrices: bookcarsTypes.DateBasedPrice[] | undefined) =>
   (Array.isArray(dateBasedPrices) ? dateBasedPrices : []).filter((dbp) => {
@@ -78,6 +193,12 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    const invalidField = invalidFinancingOrDocumentField(body)
+    if (invalidField) {
+      res.status(400).send(`Invalid ${invalidField}`)
+      return
+    }
+
     if (!body.image) {
       throw new Error('Image not found in payload')
     }
@@ -93,7 +214,16 @@ export const create = async (req: Request, res: Response) => {
       }
     }
 
-    const car = new Car({ ...carFields, supplier: supplierId, locations: body.locations, dateBasedPrices: dateBasedPriceIds })
+    const car = new Car({
+      ...carFields,
+      supplier: supplierId,
+      locations: body.locations,
+      dateBasedPrices: dateBasedPriceIds,
+      financing: normalizeFinancing(body.financing),
+      insuranceExpiryDate: normalizeDocumentDate(body.insuranceExpiryDate),
+      technicalInspectionExpiryDate: normalizeDocumentDate(body.technicalInspectionExpiryDate),
+      vignetteExpiryDate: normalizeDocumentDate(body.vignetteExpiryDate),
+    })
     await car.save()
 
     // --------- image ---------
@@ -248,6 +378,12 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      const invalidField = invalidFinancingOrDocumentField(body)
+      if (invalidField) {
+        res.status(400).send(`Invalid ${invalidField}`)
+        return
+      }
+
       const {
         supplier,
         name,
@@ -285,6 +421,11 @@ export const update = async (req: Request, res: Response) => {
         multimedia,
         rating,
         co2,
+        tankCapacityLitres,
+        financing,
+        insuranceExpiryDate,
+        technicalInspectionExpiryDate,
+        vignetteExpiryDate,
         isDateBasedPrice,
         dateBasedPrices,
         blockOnPay,
@@ -339,6 +480,55 @@ export const update = async (req: Request, res: Response) => {
       car.multimedia = multimedia
       car.rating = rating
       car.co2 = co2
+      if (tankCapacityLitres !== undefined) {
+        // Assign the raw value and let the schema's min: 0 validation
+        // reject a negative capacity (400) instead of silently clearing.
+        car.tankCapacityLitres = tankCapacityLitres === null ? undefined : Number(tankCapacityLitres)
+      }
+      // GA-PAR-08: financing block + document expiry dates, following the
+      // tank-capacity discipline above — a field absent from the payload
+      // (undefined) is left untouched, an explicit null/'' clears exactly
+      // that field, any other value is assigned raw (normalised only for
+      // numbers/dates) so the schema validators reject bad values (400).
+      // The financing block merges field by field: an update carrying
+      // only some financing fields preserves the rest.
+      if (financing !== undefined) {
+        if (financing === null) {
+          car.financing = undefined
+        } else {
+          if (!car.financing) {
+            car.financing = {}
+          }
+          if (financing.type !== undefined) {
+            car.financing.type = isClearValue(financing.type) ? undefined : financing.type as bookcarsTypes.CarFinancingType
+          }
+          for (const field of FINANCING_AMOUNT_FIELDS) {
+            if (financing[field] !== undefined) {
+              car.financing[field] = isClearValue(financing[field]) ? undefined : Number(financing[field])
+            }
+          }
+          if (financing.lender !== undefined) {
+            car.financing.lender = isClearValue(financing.lender) ? undefined : financing.lender as string
+          }
+          for (const field of FINANCING_DATE_FIELDS) {
+            if (financing[field] !== undefined) {
+              car.financing[field] = isClearValue(financing[field]) ? undefined : new Date(financing[field] as string)
+            }
+          }
+          if (financing.autoDebit !== undefined) {
+            car.financing.autoDebit = isClearValue(financing.autoDebit) ? undefined : financing.autoDebit as boolean
+          }
+        }
+      }
+      if (insuranceExpiryDate !== undefined) {
+        car.insuranceExpiryDate = normalizeDocumentDate(insuranceExpiryDate)
+      }
+      if (technicalInspectionExpiryDate !== undefined) {
+        car.technicalInspectionExpiryDate = normalizeDocumentDate(technicalInspectionExpiryDate)
+      }
+      if (vignetteExpiryDate !== undefined) {
+        car.vignetteExpiryDate = normalizeDocumentDate(vignetteExpiryDate)
+      }
       car.isDateBasedPrice = isDateBasedPrice
       car.blockOnPay = blockOnPay
 

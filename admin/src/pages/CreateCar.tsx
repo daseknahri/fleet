@@ -10,6 +10,8 @@ import {
   Switch,
   TextField,
   FormHelperText,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import { Info as InfoIcon } from '@mui/icons-material'
 import { useForm, useWatch } from 'react-hook-form'
@@ -37,6 +39,7 @@ import FuelPolicyList from '@/components/FuelPolicyList'
 import CarRangeList from '@/components/CarRangeList'
 import MultimediaList from '@/components/MultimediaList'
 import DateBasedPriceEditList from '@/components/DateBasedPriceEditList'
+import DatePicker from '@/components/DatePicker'
 import { UserContextType, useUserContext } from '@/context/UserContext'
 import { Option, Supplier } from '@/models/common'
 import { schema, FormFields, DateBasedPrice } from '@/models/CarForm'
@@ -110,6 +113,20 @@ const CreateCar = () => {
       multimedia: [],
       rating: '',
       co2: '',
+      tankCapacityLitres: '',
+      financingType: '',
+      financingPurchasePrice: '',
+      financingLender: '',
+      financingInstalmentAmount: '',
+      financingDownPayment: '',
+      financingDurationMonths: '',
+      financingFirstDueDate: null,
+      financingNextDueDate: null,
+      financingRemainingAmount: '',
+      financingAutoDebit: false,
+      insuranceExpiryDate: null,
+      technicalInspectionExpiryDate: null,
+      vignetteExpiryDate: null,
       isDateBasedPrice: false,
       dateBasedPrices: [],
     }
@@ -130,6 +147,13 @@ const CreateCar = () => {
   const doors = useWatch({ control, name: 'doors' })
   const fuelPolicy = useWatch({ control, name: 'fuelPolicy' })
   const aircon = useWatch({ control, name: 'aircon' })
+  const financingType = useWatch({ control, name: 'financingType' })
+  const financingAutoDebit = useWatch({ control, name: 'financingAutoDebit' })
+  const financingFirstDueDate = useWatch({ control, name: 'financingFirstDueDate' })
+  const financingNextDueDate = useWatch({ control, name: 'financingNextDueDate' })
+  const insuranceExpiryDate = useWatch({ control, name: 'insuranceExpiryDate' })
+  const technicalInspectionExpiryDate = useWatch({ control, name: 'technicalInspectionExpiryDate' })
+  const vignetteExpiryDate = useWatch({ control, name: 'vignetteExpiryDate' })
 
 
   const handleBeforeUpload = () => {
@@ -222,6 +246,28 @@ const CreateCar = () => {
         multimedia: data.multimedia || [],
         rating: data.rating ? Number(data.rating) : undefined,
         co2: data.co2 ? Number(data.co2) : undefined,
+        tankCapacityLitres: data.tankCapacityLitres ? Number(data.tankCapacityLitres) : undefined,
+        // GA-PAR-08: financing block — sent only when at least one field
+        // is set; empty fields are omitted, never sent as empty strings.
+        financing: (data.financingType || data.financingPurchasePrice || data.financingLender || data.financingInstalmentAmount
+          || data.financingDownPayment || data.financingDurationMonths || data.financingFirstDueDate || data.financingNextDueDate
+          || data.financingRemainingAmount || data.financingAutoDebit)
+          ? {
+            type: data.financingType || undefined,
+            purchasePrice: data.financingPurchasePrice ? Number(data.financingPurchasePrice) : undefined,
+            lender: data.financingLender || undefined,
+            instalmentAmount: data.financingInstalmentAmount ? Number(data.financingInstalmentAmount) : undefined,
+            downPayment: data.financingDownPayment ? Number(data.financingDownPayment) : undefined,
+            durationMonths: data.financingDurationMonths ? Number(data.financingDurationMonths) : undefined,
+            firstDueDate: data.financingFirstDueDate || undefined,
+            nextDueDate: data.financingNextDueDate || undefined,
+            remainingAmount: data.financingRemainingAmount ? Number(data.financingRemainingAmount) : undefined,
+            autoDebit: data.financingAutoDebit || undefined,
+          }
+          : undefined,
+        insuranceExpiryDate: data.insuranceExpiryDate || undefined,
+        technicalInspectionExpiryDate: data.technicalInspectionExpiryDate || undefined,
+        vignetteExpiryDate: data.vignetteExpiryDate || undefined,
         isDateBasedPrice: data.isDateBasedPrice,
         dateBasedPrices: data.dateBasedPrices || [],
       }
@@ -639,6 +685,180 @@ const CreateCar = () => {
                     clearErrors('co2')
                   }
                 }}
+              />
+            </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <TextField
+                  label={strings.TANK_CAPACITY}
+                  {...register('tankCapacityLitres')}
+                  variant="standard"
+                  autoComplete="off"
+                  error={!!errors.tankCapacityLitres}
+                  helperText={errors.tankCapacityLitres?.message}
+                  slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.1 } }}
+                />
+              </FormControl>
+
+            {/* GA-PAR-08: financing block */}
+            <div className="info">
+              <InfoIcon />
+              <span>{strings.FINANCING_HEADING}</span>
+            </div>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.FINANCING_TYPE}</InputLabel>
+              <Select
+                label={strings.FINANCING_TYPE}
+                value={financingType || ''}
+                onChange={(e) => setValue('financingType', e.target.value)}
+                variant="standard"
+                fullWidth
+              >
+                <MenuItem value="">{'—'}</MenuItem>
+                <MenuItem value={bookcarsTypes.CarFinancingType.Credit}>{strings.FINANCING_CREDIT}</MenuItem>
+                <MenuItem value={bookcarsTypes.CarFinancingType.Cash}>{strings.FINANCING_CASH}</MenuItem>
+                <MenuItem value={bookcarsTypes.CarFinancingType.Instalments}>{strings.FINANCING_INSTALMENTS}</MenuItem>
+                <MenuItem value={bookcarsTypes.CarFinancingType.Leasing}>{strings.FINANCING_LEASING}</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={`${strings.PURCHASE_PRICE} (${commonStrings.CURRENCY})`}
+                {...register('financingPurchasePrice')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.financingPurchasePrice}
+                helperText={errors.financingPurchasePrice?.message}
+                slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.01 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.LENDER}
+                {...register('financingLender')}
+                variant="standard"
+                autoComplete="off"
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={`${strings.INSTALMENT_AMOUNT} (${commonStrings.CURRENCY})`}
+                {...register('financingInstalmentAmount')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.financingInstalmentAmount}
+                helperText={errors.financingInstalmentAmount?.message}
+                slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.01 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={`${strings.DOWN_PAYMENT} (${commonStrings.CURRENCY})`}
+                {...register('financingDownPayment')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.financingDownPayment}
+                helperText={errors.financingDownPayment?.message}
+                slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.01 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.DURATION_MONTHS}
+                {...register('financingDurationMonths')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.financingDurationMonths}
+                helperText={errors.financingDurationMonths?.message}
+                slotProps={{ htmlInput: { type: 'number', min: 0, step: 1 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.FIRST_DUE_DATE}
+                value={financingFirstDueDate || undefined}
+                variant="standard"
+                onChange={(date) => setValue('financingFirstDueDate', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.NEXT_DUE_DATE}
+                value={financingNextDueDate || undefined}
+                variant="standard"
+                onChange={(date) => setValue('financingNextDueDate', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={`${strings.REMAINING_AMOUNT} (${commonStrings.CURRENCY})`}
+                {...register('financingRemainingAmount')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.financingRemainingAmount}
+                helperText={errors.financingRemainingAmount?.message}
+                slotProps={{ htmlInput: { type: 'number', min: 0, step: 0.01 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense" className="checkbox-fc">
+              <FormControlLabel
+                control={(
+                  <Switch
+                    checked={!!financingAutoDebit}
+                    onChange={(e) => setValue('financingAutoDebit', e.target.checked)}
+                    color="primary"
+                  />
+                )}
+                label={strings.AUTO_DEBIT}
+                className="checkbox-fcl"
+              />
+            </FormControl>
+
+            {/* GA-PAR-08: document expiry dates */}
+            <div className="info">
+              <InfoIcon />
+              <span>{strings.DOCUMENTS_HEADING}</span>
+            </div>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.INSURANCE_EXPIRY}
+                value={insuranceExpiryDate || undefined}
+                variant="standard"
+                onChange={(date) => setValue('insuranceExpiryDate', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.TECHNICAL_INSPECTION_EXPIRY}
+                value={technicalInspectionExpiryDate || undefined}
+                variant="standard"
+                onChange={(date) => setValue('technicalInspectionExpiryDate', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.VIGNETTE_EXPIRY}
+                value={vignetteExpiryDate || undefined}
+                variant="standard"
+                onChange={(date) => setValue('vignetteExpiryDate', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
               />
             </FormControl>
 

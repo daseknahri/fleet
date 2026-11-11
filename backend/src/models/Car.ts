@@ -206,6 +206,73 @@ const carSchema = new Schema<env.Car>(
     co2: {
       type: Number,
     },
+    tankCapacityLitres: {
+      type: Number,
+      min: 0,
+    },
+    // GA-PAR-08: financing block (nested paths, all optional). Amounts
+    // carry min: 0 only — no cross-field rules are enforced (remaining
+    // vs purchase price is the operator's data). The type enum, the
+    // min validators and Date casting reject bad values at save (400).
+    financing: {
+      type: {
+        type: String,
+        enum: [
+          bookcarsTypes.CarFinancingType.Credit,
+          bookcarsTypes.CarFinancingType.Cash,
+          bookcarsTypes.CarFinancingType.Instalments,
+          bookcarsTypes.CarFinancingType.Leasing,
+        ],
+      },
+      purchasePrice: {
+        type: Number,
+        min: 0,
+      },
+      lender: {
+        type: String,
+        trim: true,
+      },
+      instalmentAmount: {
+        type: Number,
+        min: 0,
+      },
+      downPayment: {
+        type: Number,
+        min: 0,
+      },
+      durationMonths: {
+        type: Number,
+        min: 0,
+        validate: {
+          validator: Number.isInteger,
+          message: '{VALUE} is not an integer',
+        },
+      },
+      firstDueDate: {
+        type: Date,
+      },
+      nextDueDate: {
+        type: Date,
+      },
+      remainingAmount: {
+        type: Number,
+        min: 0,
+      },
+      autoDebit: {
+        type: Boolean,
+      },
+    },
+    // GA-PAR-08: document expiry dates (all optional) — GA-PAR-09's
+    // expiring-documents card reads these raw fields.
+    insuranceExpiryDate: {
+      type: Date,
+    },
+    technicalInspectionExpiryDate: {
+      type: Date,
+    },
+    vignetteExpiryDate: {
+      type: Date,
+    },
     blockOnPay: {
       type: Boolean,
       default: true,
