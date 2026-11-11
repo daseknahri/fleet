@@ -103,6 +103,16 @@ export enum AgencyPermission {
   ReadInvoices = 'readInvoices',
   ManageInvoices = 'manageInvoices',
   DecideInvoices = 'decideInvoices',
+  // GA-PAR-07: apporteur module — the one Queue-2 item sanctioned to touch
+  // this matrix. It only ADDS capabilities; no existing role decision
+  // changes (role-matrix items 2–5 stay open).
+  ReadAgents = 'readAgents',
+  ManageAgents = 'manageAgents',
+  // GA-PAR-13: reminders — additions only, no existing role decision
+  // changes. Owner + Manager = read+manage; Accountant, CounterAgent,
+  // Mechanic, ReadOnly = read (the Manager/role lists below).
+  ReadReminders = 'readReminders',
+  ManageReminders = 'manageReminders',
 }
 
 export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPermission[]> = {
@@ -128,6 +138,10 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadInvoices,
     AgencyPermission.ManageInvoices,
     AgencyPermission.DecideInvoices,
+    AgencyPermission.ReadAgents,
+    AgencyPermission.ManageAgents,
+    AgencyPermission.ReadReminders,
+    AgencyPermission.ManageReminders,
   ],
   [bookcarsTypes.AgencyRole.CounterAgent]: [
     AgencyPermission.ReadBookings,
@@ -144,6 +158,11 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.RecordPayments,
     AgencyPermission.ReadCash,
     AgencyPermission.RecordCash,
+    // GA-PAR-07: counter agents attach agents at booking time, so they
+    // need the picker (read) — never create/edit/settle (manage).
+    AgencyPermission.ReadAgents,
+    // GA-PAR-13: reminders are read-only for counter agents.
+    AgencyPermission.ReadReminders,
   ],
   [bookcarsTypes.AgencyRole.Accountant]: [
     AgencyPermission.ReadAgencyProfile,
@@ -160,6 +179,11 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.RecordCash,
     AgencyPermission.ReadInvoices,
     AgencyPermission.ManageInvoices,
+    // GA-PAR-07: accountants read agent balances; settling stays with
+    // Owner/Manager (ManageAgents).
+    AgencyPermission.ReadAgents,
+    // GA-PAR-13: reminders are read-only for accountants.
+    AgencyPermission.ReadReminders,
   ],
   [bookcarsTypes.AgencyRole.Mechanic]: [
     AgencyPermission.ReadBookings,
@@ -167,6 +191,9 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadLocations,
     AgencyPermission.ReadExpenses,
     AgencyPermission.ManageExpenses,
+    // GA-PAR-13: mechanics read reminders (oil change / visite dates are
+    // their working surface) — never manage.
+    AgencyPermission.ReadReminders,
   ],
   [bookcarsTypes.AgencyRole.ReadOnly]: [
     AgencyPermission.ReadBookings,
@@ -176,6 +203,9 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadPayments,
     AgencyPermission.ReadCash,
     AgencyPermission.ReadInvoices,
+    AgencyPermission.ReadAgents,
+    // GA-PAR-13: reminders are read-only for the ReadOnly role.
+    AgencyPermission.ReadReminders,
   ],
 }
 

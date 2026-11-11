@@ -3,6 +3,7 @@ const routes = {
   handover: '/api/contract-operations/:bookingId/handover',
   returnInspection: '/api/contract-operations/:bookingId/return',
   complete: '/api/contract-operations/:bookingId/complete',
+  settlementPreview: '/api/contract-operations/:bookingId/settlement-preview',
   uploadFile: '/api/contract-operations/:bookingId/files',
   deleteFile: '/api/contract-operations/:bookingId/files/:filename',
   getFile: '/api/contract-operations/:bookingId/files/:filename',

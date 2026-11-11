@@ -12,6 +12,7 @@ router.get(routes.list, authJwt.verifyToken, agencyAuth.requireAgencyPermission(
 router.post(routes.handover, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.handover)
 router.post(routes.returnInspection, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.returnInspection)
 router.post(routes.complete, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.complete)
+router.get(routes.settlementPreview, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.settlementPreview)
 router.post(routes.charges, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.createCharge)
 router.get(routes.charges, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.listCharges)
 router.post(routes.decideCharge, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.DecideInvoices), controller.decideCharge)

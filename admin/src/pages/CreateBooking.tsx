@@ -8,7 +8,10 @@ import {
   Switch,
   FormHelperText,
   InputLabel,
-  Input
+  Input,
+  MenuItem,
+  Select,
+  TextField
 } from '@mui/material'
 import {
   Info as InfoIcon,
@@ -30,6 +33,8 @@ import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/create-booking'
 import * as UserService from '@/services/UserService'
 import * as BookingService from '@/services/BookingService'
+import * as AgentService from '@/services/AgentService'
+import { strings as agentStrings } from '@/lang/agents'
 import * as helper from '@/utils/helper'
 import SupplierSelectList from '@/components/SupplierSelectList'
 import UserSelectList from '@/components/UserSelectList'
@@ -54,6 +59,18 @@ const CreateBooking = () => {
   const [minDate, setMinDate] = useState<Date>()
   const [fromError, setFromError] = useState(false)
   const [toError, setToError] = useState(false)
+  // GA-PAR-07: apporteur picker (active agents of the booking's agency) +
+  // optional per-contract commission override.
+  const [agents, setAgents] = useState<bookcarsTypes.Agent[]>([])
+  const [agentId, setAgentId] = useState('')
+  const [agentMode, setAgentMode] = useState<bookcarsTypes.CommissionMode | ''>('')
+  const [agentValue, setAgentValue] = useState('')
+  // GA-PAR-10: 409-retry overlap exception — hidden until a conflict
+  // response reveals it, and only ever offered to Owner/Manager.
+  const canOverlapException = agencyPermissions?.role === bookcarsTypes.AgencyRole.Owner
+    || agencyPermissions?.role === bookcarsTypes.AgencyRole.Manager
+  const [overlapConflict, setOverlapConflict] = useState(false)
+  const [overlapReason, setOverlapReason] = useState('')
 
   const {
     register,
@@ -86,6 +103,33 @@ const CreateBooking = () => {
   })
 
   const supplier = useWatch({ control, name: 'supplier' })
+  const supplierId = supplier?._id as string | undefined
+
+  // GA-PAR-07: load the agency's active agents for the picker whenever the
+  // booking's supplier is known (the backend re-scopes to the caller's
+  // agency; the picker is gated by ReadAgents on the backend route).
+  useEffect(() => {
+    let cancelled = false
+    if (!supplierId) {
+      setAgents([])
+      return undefined
+    }
+    AgentService.list(supplierId)
+      .then((list) => {
+        if (!cancelled) {
+          setAgents(list.filter((agent) => agent.active))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAgents([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [supplierId])
+
   const pickupLocation = useWatch({ control, name: 'pickupLocation' })
   const from = useWatch({ control, name: 'from' })
   const to = useWatch({ control, name: 'to' })
@@ -126,6 +170,20 @@ const CreateBooking = () => {
       additionalDriver: additionalDriverSet,
     }
 
+    // GA-PAR-07: attach the apporteur; mode/value are sent only when the
+    // operator overrode them — the server applies the agent default
+    // otherwise and always computes the snapshot amount itself.
+    if (agentId) {
+      const agentPayload: { agent: string, mode?: bookcarsTypes.CommissionMode, value?: number } = { agent: agentId }
+      if (agentMode) {
+        agentPayload.mode = agentMode
+      }
+      if (agentValue !== '' && Number.isFinite(Number(agentValue))) {
+        agentPayload.value = Number(agentValue)
+      }
+      booking.agent = agentPayload as bookcarsTypes.BookingAgentSnapshot
+    }
+
     let _additionalDriver: bookcarsTypes.AdditionalDriver | undefined = undefined
     if (additionalDriverSet) {
       _additionalDriver = {
@@ -145,6 +203,17 @@ const CreateBooking = () => {
       additionalDriver: additionalDriverSet,
     }
 
+    // GA-PAR-10: on the retry after a revealed conflict, the same
+    // payload is resubmitted with the exception reason attached; the
+    // backend re-checks the role and stamps author/time server-side.
+    if (overlapConflict) {
+      if (!canOverlapException || overlapReason.trim().length < 3 || overlapReason.trim().length > 1000) {
+        helper.error()
+        return
+      }
+      booking.overlapException = { reason: overlapReason }
+    }
+
     try {
       // use bookcarsHelper.calculatePrice
       const price = await bookcarsHelper.calculateTotalPrice(carObj, from!, to!, carObj.supplier.priceChangeRate || 0, options)
@@ -161,6 +230,13 @@ const CreateBooking = () => {
         helper.error()
       }
     } catch (err) {
+      // GA-PAR-10: a 409 conflict reveals the exception offer to
+      // Owner/Manager only; everyone else keeps the plain error.
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409 && canOverlapException && !overlapConflict) {
+        setOverlapConflict(true)
+        return
+      }
       helper.error(err)
     }
   }
@@ -298,6 +374,69 @@ const CreateBooking = () => {
               />
               {errors.status && <FormHelperText error>{commonStrings.REQUIRED}</FormHelperText>}
             </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <InputLabel>{strings.AGENT}</InputLabel>
+              <Select
+                label={strings.AGENT}
+                value={agentId}
+                onChange={(e) => {
+                  setAgentId(e.target.value)
+                  setAgentMode('')
+                  setAgentValue('')
+                }}
+              >
+                <MenuItem value="">{strings.AGENT_NONE}</MenuItem>
+                {agents.map((agent) => (
+                  <MenuItem key={agent._id} value={agent._id}>
+                    {agent.name}
+                    {' — '}
+                    {agent.commissionMode === bookcarsTypes.CommissionMode.Percent
+                      ? `${agent.commissionValue} %`
+                      : `${agent.commissionValue}${agent.commissionMode === bookcarsTypes.CommissionMode.PerDay ? ` / ${agentStrings.MODE_PER_DAY.toLowerCase()}` : ''}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {agentId && (
+              <>
+                <FormControl fullWidth margin="dense">
+                  <InputLabel>{strings.AGENT_MODE}</InputLabel>
+                  <Select
+                    label={strings.AGENT_MODE}
+                    value={agentMode}
+                    onChange={(e) => setAgentMode(e.target.value as bookcarsTypes.CommissionMode | '')}
+                  >
+                    <MenuItem value="">
+                      {agentStrings.COMMISSION}
+                      {': '}
+                      {agents.find((agent) => agent._id === agentId)?.commissionMode === bookcarsTypes.CommissionMode.Percent
+                        ? agentStrings.MODE_PERCENT
+                        : agents.find((agent) => agent._id === agentId)?.commissionMode === bookcarsTypes.CommissionMode.PerDay
+                          ? agentStrings.MODE_PER_DAY : agentStrings.MODE_FIXED}
+                    </MenuItem>
+                    {Object.values(bookcarsTypes.CommissionMode).map((mode) => (
+                      <MenuItem key={mode} value={mode}>
+                        {mode === bookcarsTypes.CommissionMode.Percent
+                          ? agentStrings.MODE_PERCENT
+                          : mode === bookcarsTypes.CommissionMode.PerDay ? agentStrings.MODE_PER_DAY : agentStrings.MODE_FIXED}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth margin="dense">
+                  <TextField
+                    label={strings.AGENT_VALUE}
+                    type="number"
+                    value={agentValue}
+                    onChange={(e) => setAgentValue(e.target.value)}
+                    placeholder={String(agents.find((agent) => agent._id === agentId)?.commissionValue ?? '')}
+                    inputProps={{ min: 0, step: 'any' }}
+                  />
+                </FormControl>
+              </>
+            )}
 
             <div className="info">
               <InfoIcon />
@@ -449,6 +588,27 @@ const CreateBooking = () => {
                   )}
                 </FormControl>
               </>
+            )}
+
+            {overlapConflict && canOverlapException && (
+              <div className="overlap-exception">
+                <div className="info">
+                  <InfoIcon />
+                  <span>{strings.OVERLAP_EXCEPTION_TITLE}</span>
+                </div>
+                <p>{strings.OVERLAP_EXCEPTION_TEXT}</p>
+                <FormControl fullWidth margin="dense">
+                  <TextField
+                    label={strings.OVERLAP_REASON}
+                    multiline
+                    minRows={2}
+                    required
+                    value={overlapReason}
+                    onChange={(e) => setOverlapReason(e.target.value)}
+                    inputProps={{ maxLength: 1000 }}
+                  />
+                </FormControl>
+              </div>
             )}
 
             <div>

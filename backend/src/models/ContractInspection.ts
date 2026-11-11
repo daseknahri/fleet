@@ -12,6 +12,16 @@ const schema = new Schema<env.ContractInspection>({
   condition: { type: String, maxlength: 4000, trim: true },
   damageNote: { type: String, maxlength: 4000, trim: true },
   photoFiles: [{ type: String, maxlength: 200 }],
+  checklist: {
+    spareWheelAndTools: { type: Boolean },
+    radio: { type: Boolean },
+    washed: { type: Boolean },
+  },
+  photos: [{
+    _id: false,
+    slot: { type: String, enum: Object.values(bookcarsTypes.InspectionPhotoSlot) },
+    file: { type: String, maxlength: 200 },
+  }],
   signatureFile: { type: String, maxlength: 200 },
   acknowledgedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   actor: { type: Schema.Types.ObjectId, ref: 'User' },
