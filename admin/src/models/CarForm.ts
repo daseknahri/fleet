@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings } from '@/lang/create-car'
 import { strings as commonStrings } from '@/lang/common'
@@ -48,6 +49,8 @@ export const schema = z.object({
   available: z.boolean(),
   fullyBooked: z.boolean(),
   comingSoon: z.boolean(),
+  // Fleet statuses (scorecard #15): operator-set state of the car.
+  operationalStatus: z.nativeEnum(bookcarsTypes.CarOperationalStatus),
   blockOnPay: z.boolean(),
   type: z.string(),
   gearbox: z.string(),
@@ -82,8 +85,46 @@ export const schema = z.object({
   insuranceExpiryDate: z.date().optional().nullable(),
   technicalInspectionExpiryDate: z.date().optional().nullable(),
   vignetteExpiryDate: z.date().optional().nullable(),
+  // Scorecard #17: garage block (flat form fields, assembled into the
+  // garage sub-object at payload time). Name 1–200 chars when set
+  // (enforced server-side; the form only requires the date order).
+  garageName: z.string().optional(),
+  garageSince: z.date().optional().nullable(),
+  garageExpectedBack: z.date().optional().nullable(),
+  // Scorecard #18: service state (flat form fields, assembled into the
+  // service sub-object at payload time). Km values are numbers >= 0
+  // (enforced server-side); the form only requires the next >= last
+  // order per pair.
+  serviceLastOilChangeKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  serviceLastFilterChangeKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  serviceNextOilChangeKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  serviceNextFilterChangeKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   isDateBasedPrice: z.boolean(),
   dateBasedPrices: z.array(dateBasedPriceSchema).optional(),
+}).superRefine((data, ctx) => {
+  // Scorecard #17: expected back must not precede since.
+  if (data.garageSince && data.garageExpectedBack && data.garageExpectedBack < data.garageSince) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['garageExpectedBack'],
+      message: strings.GARAGE_DATES_NOT_VALID,
+    })
+  }
+  // Scorecard #18: next change km must not precede the last change km, per pair.
+  if (data.serviceLastOilChangeKm && data.serviceNextOilChangeKm && Number(data.serviceNextOilChangeKm) < Number(data.serviceLastOilChangeKm)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['serviceNextOilChangeKm'],
+      message: strings.SERVICE_KM_NOT_VALID,
+    })
+  }
+  if (data.serviceLastFilterChangeKm && data.serviceNextFilterChangeKm && Number(data.serviceNextFilterChangeKm) < Number(data.serviceLastFilterChangeKm)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['serviceNextFilterChangeKm'],
+      message: strings.SERVICE_KM_NOT_VALID,
+    })
+  }
 })
 
 export type FormFields = z.infer<typeof schema>

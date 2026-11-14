@@ -14,7 +14,7 @@ section.car-list article span.fully-booked {
   font-size: 12px;
   font-weight: bold;
   display: table-row;
-  text-align: right;
+  text-align: end;
 }
 
 section.car-list article span.coming-soon {
@@ -44,7 +44,7 @@ section.car-list div.car-header div.location {
 }
 
 section.car-list div.car-header div.location span.location-name {
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 section.car-list div.car-header div.distance {
@@ -56,7 +56,7 @@ section.car-list div.car-header div.distance {
 section.car-list div.car-header div.distance img {
   max-width: 16px;
   max-height: 16px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 section.car-list {
@@ -131,7 +131,7 @@ section.car-list article div.car .car-footer div.rating span.trips {
 }
 
 section.car-list article div.car .car-footer div.co2 {
-  margin-left: 20px;
+  margin-inline-start: 20px;
 }
 
 section.car-list article div.car .car-footer div.co2 span {
@@ -141,7 +141,7 @@ section.car-list article div.car .car-footer div.co2 span {
 section.car-list article div.car .car-footer div.co2 img {
   max-width: 19px;
   max-height: 5px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 section.car-list article div.car-info {
@@ -206,9 +206,29 @@ section.car-list article div.car-info ul.car-info-list li.aircon {
   margin-bottom: 10px;
   padding-top: 3px;
   box-shadow: 0 0 0 1px #ddd inset;
-  margin-left: 5px;
+  margin-inline-start: 5px;
   border-radius: 5px;
   text-align: center;
+}
+
+/* Fleet statuses (scorecard #15): status badge colours on the car rows
+   (available reuses the existing green, stopped the existing red). */
+section.car-list article div.car-info ul.car-info-list li.car-maintenance {
+  color: #b26a00;
+}
+
+section.car-list article div.car-info ul.car-info-list li.car-rented {
+  color: #1565c0;
+}
+
+/* Fleet statuses (scorecard #15): per-status counts strip above the rows. */
+section.car-list div.fleet-status-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  justify-content: center;
+  margin-bottom: 10px;
+  font-weight: 500;
 }
 
 section.car-list article div.car-info .accordion {
@@ -251,7 +271,7 @@ section.car-list article div.car-info ul.extras-list li.car-unavailable {
 
 section.car-list article div.car-info ul.extras-list span.car-info-list-text {
   vertical-align: super;
-  margin-left: 3px;
+  margin-inline-start: 3px;
 }
 
 section.car-list article div.car-info ul.car-info-list div.car-info-list-item {
@@ -265,7 +285,7 @@ section.car-list article div.car-info ul.car-info-list li.fuel-policy div.car-in
 
 section.car-list article div.car-info ul.car-info-list span.car-info-list-text {
   vertical-align: super;
-  margin-left: 3px;
+  margin-inline-start: 3px;
 }
 
 section.car-list article div.car-info ul.car-info-list li .car-doors {

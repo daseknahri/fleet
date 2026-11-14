@@ -15,6 +15,7 @@ import {
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
@@ -210,6 +211,8 @@ const Dashboard = () => {
   const agencyPermissions = useAgencyPermissions()
   const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
   const navigate = useNavigate()
+  // FRAR D-AR-07: mirror forward arrows in RTL.
+  const isAr = UserService.getLanguage() === 'ar'
 
   const [user, setUser] = useState<User | null>(null)
   const userRef = useRef<User | null>(null)
@@ -461,7 +464,17 @@ const Dashboard = () => {
 
   const summaryMode = !!user && !helper.admin(user)
 
-  const availableCars = useMemo(() => carsBlock.data.filter((car) => car.available).length, [carsBlock.data])
+  // Fleet statuses (scorecard #15): a car in maintenance or stopped is
+  // NOT available, even when its `available` flag is true (a legacy car
+  // with no stored status reads as in service).
+  const availableCars = useMemo(
+    () => carsBlock.data.filter(
+      (car) => car.available
+        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Maintenance
+        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Stopped,
+    ).length,
+    [carsBlock.data],
+  )
 
   // Credit due (GA-PAR-08 financing): omitted entirely when no car in the
   // payload carries a financing block.
@@ -947,7 +960,7 @@ const Dashboard = () => {
           <span>
             {partialChip(bookingsBlock.partial)}
             {renderCustomControls('lists', 'latest')}
-            <Button endIcon={<ArrowForwardRoundedIcon />} onClick={() => navigate('/bookings')}>{strings.VIEW_ALL}</Button>
+            <Button endIcon={isAr ? <ArrowBackRoundedIcon /> : <ArrowForwardRoundedIcon />} onClick={() => navigate('/bookings')}>{strings.VIEW_ALL}</Button>
           </span>
         </div>
         {blockBody(bookingsBlock.status, () => void loadBookings(supplierIdsRef.current), (
@@ -1085,12 +1098,12 @@ const Dashboard = () => {
               <Typography component="h2" className="agency-dashboard__panel-title">{strings.QUICK_ACCESS}</Typography>
               <Typography className="agency-dashboard__panel-copy">{strings.DAILY_TOOLS}</Typography>
               <Stack spacing={1.25} className="agency-dashboard__shortcut-list">
-                <Shortcut label={strings.PLANNING} detail={strings.CHECK_AVAILABILITY} onClick={() => navigate('/calendar')} />
-                <Shortcut label={strings.FLEET} detail={strings.MANAGE_VEHICLES} onClick={() => navigate('/cars')} />
-                <Shortcut label={strings.CLIENTS} detail={strings.MANAGE_CLIENTS} onClick={() => navigate('/clients')} />
-                <Shortcut label={strings.MAINTENANCE} detail={strings.MANAGE_MAINTENANCE} onClick={() => navigate('/maintenance')} />
-                <Shortcut label={strings.PAYMENTS} detail={strings.MANAGE_PAYMENTS} onClick={() => navigate('/payments')} />
-                <Shortcut label={strings.CASH_JOURNAL} detail={strings.REVIEW_CASH} onClick={() => navigate('/caisse')} />
+                <Shortcut label={strings.PLANNING} detail={strings.CHECK_AVAILABILITY} flipIcon={isAr} onClick={() => navigate('/calendar')} />
+                <Shortcut label={strings.FLEET} detail={strings.MANAGE_VEHICLES} flipIcon={isAr} onClick={() => navigate('/cars')} />
+                <Shortcut label={strings.CLIENTS} detail={strings.MANAGE_CLIENTS} flipIcon={isAr} onClick={() => navigate('/clients')} />
+                <Shortcut label={strings.MAINTENANCE} detail={strings.MANAGE_MAINTENANCE} flipIcon={isAr} onClick={() => navigate('/maintenance')} />
+                <Shortcut label={strings.PAYMENTS} detail={strings.MANAGE_PAYMENTS} flipIcon={isAr} onClick={() => navigate('/payments')} />
+                <Shortcut label={strings.CASH_JOURNAL} detail={strings.REVIEW_CASH} flipIcon={isAr} onClick={() => navigate('/caisse')} />
               </Stack>
             </CardContent>
           </Card>
@@ -1104,12 +1117,13 @@ interface ShortcutProps {
   label: string
   detail: string
   onClick: () => void
+  flipIcon?: boolean
 }
 
-const Shortcut = ({ label, detail, onClick }: ShortcutProps) => (
+const Shortcut = ({ label, detail, onClick, flipIcon }: ShortcutProps) => (
   <button type="button" className="agency-dashboard__shortcut" onClick={onClick}>
     <span><strong>{label}</strong><small>{detail}</small></span>
-    <ArrowForwardRoundedIcon />
+    {flipIcon ? <ArrowBackRoundedIcon /> : <ArrowForwardRoundedIcon />}
   </button>
 )
 

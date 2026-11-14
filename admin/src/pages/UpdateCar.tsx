@@ -94,6 +94,8 @@ const UpdateCar = () => {
       discountedMonthlyPrice: '',
       deposit: '',
       available: true,
+      // Fleet statuses (scorecard #15): operator-set state of the car.
+      operationalStatus: bookcarsTypes.CarOperationalStatus.InService,
       fullyBooked: false,
       comingSoon: false,
       blockOnPay: true,
@@ -128,6 +130,13 @@ const UpdateCar = () => {
       insuranceExpiryDate: null,
       technicalInspectionExpiryDate: null,
       vignetteExpiryDate: null,
+      garageName: '',
+      garageSince: null,
+      garageExpectedBack: null,
+      serviceLastOilChangeKm: '',
+      serviceLastFilterChangeKm: '',
+      serviceNextOilChangeKm: '',
+      serviceNextFilterChangeKm: '',
       isDateBasedPrice: false,
       dateBasedPrices: [],
     }
@@ -141,6 +150,8 @@ const UpdateCar = () => {
   const range = useWatch({ control, name: 'range' })
   const multimedia = useWatch({ control, name: 'multimedia' })
   const available = useWatch({ control, name: 'available' })
+  // Fleet statuses (scorecard #15): operator-set state of the car.
+  const operationalStatus = useWatch({ control, name: 'operationalStatus' })
   const fullyBooked = useWatch({ control, name: 'fullyBooked' })
   const comingSoon = useWatch({ control, name: 'comingSoon' })
   const blockOnPay = useWatch({ control, name: 'blockOnPay' })
@@ -157,6 +168,9 @@ const UpdateCar = () => {
   const insuranceExpiryDate = useWatch({ control, name: 'insuranceExpiryDate' })
   const technicalInspectionExpiryDate = useWatch({ control, name: 'technicalInspectionExpiryDate' })
   const vignetteExpiryDate = useWatch({ control, name: 'vignetteExpiryDate' })
+  // Scorecard #17: garage block.
+  const garageSince = useWatch({ control, name: 'garageSince' })
+  const garageExpectedBack = useWatch({ control, name: 'garageExpectedBack' })
 
   const handleBeforeUpload = () => {
     setLoading(true)
@@ -230,6 +244,35 @@ const UpdateCar = () => {
         }
         : (car.financing ? null : undefined)
 
+      // Scorecard #17: garage payload — when any garage field is set,
+      // send the whole block (empty sub-fields as null, which clears them
+      // server-side); when every field was cleared and the car had a
+      // block, send null to clear the block; when the car never had one
+      // and nothing was entered, omit the block entirely.
+      const hasGarageInput = !!(data.garageName || data.garageSince || data.garageExpectedBack)
+      const garagePayload: bookcarsTypes.CarGaragePayload | null | undefined = hasGarageInput
+        ? {
+          garageName: data.garageName || null,
+          since: data.garageSince || null,
+          expectedBack: data.garageExpectedBack || null,
+        }
+        : (car.garage ? null : undefined)
+
+      // Scorecard #18: service payload — when any service field is set,
+      // send the whole block (empty sub-fields as null, which clears them
+      // server-side); when every field was cleared and the car had a
+      // block, send null to clear the block; when the car never had one
+      // and nothing was entered, omit the block entirely.
+      const hasServiceInput = !!(data.serviceLastOilChangeKm || data.serviceLastFilterChangeKm || data.serviceNextOilChangeKm || data.serviceNextFilterChangeKm)
+      const servicePayload: bookcarsTypes.CarServicePayload | null | undefined = hasServiceInput
+        ? {
+          lastOilChangeKm: data.serviceLastOilChangeKm ? Number(data.serviceLastOilChangeKm) : null,
+          lastFilterChangeKm: data.serviceLastFilterChangeKm ? Number(data.serviceLastFilterChangeKm) : null,
+          nextOilChangeKm: data.serviceNextOilChangeKm ? Number(data.serviceNextOilChangeKm) : null,
+          nextFilterChangeKm: data.serviceNextFilterChangeKm ? Number(data.serviceNextFilterChangeKm) : null,
+        }
+        : (car.service ? null : undefined)
+
       const payload: bookcarsTypes.UpdateCarPayload = {
         loggedUser: user!._id!,
         _id: car._id,
@@ -250,6 +293,7 @@ const UpdateCar = () => {
         discountedMonthlyPrice: getPrice(data.discountedMonthlyPrice!),
         deposit: Number(data.deposit),
         available: data.available,
+        operationalStatus: data.operationalStatus,
         type: data.type,
         gearbox: data.gearbox,
         aircon: data.aircon,
@@ -273,6 +317,8 @@ const UpdateCar = () => {
         insuranceExpiryDate: data.insuranceExpiryDate || null,
         technicalInspectionExpiryDate: data.technicalInspectionExpiryDate || null,
         vignetteExpiryDate: data.vignetteExpiryDate || null,
+        garage: garagePayload,
+        service: servicePayload,
         comingSoon: data.comingSoon,
         fullyBooked: data.fullyBooked,
         blockOnPay: data.blockOnPay,
@@ -397,7 +443,29 @@ const UpdateCar = () => {
               if (_car.vignetteExpiryDate) {
                 setValue('vignetteExpiryDate', new Date(_car.vignetteExpiryDate))
               }
+              // Scorecard #17: garage block load-back (this form is the
+              // car-detail display of the block).
+              if (_car.garage) {
+                setValue('garageName', _car.garage.garageName || '')
+                if (_car.garage.since) {
+                  setValue('garageSince', new Date(_car.garage.since))
+                }
+                if (_car.garage.expectedBack) {
+                  setValue('garageExpectedBack', new Date(_car.garage.expectedBack))
+                }
+              }
+              // Scorecard #18: service-state load-back (this form is the
+              // car-detail display of the block).
+              if (_car.service) {
+                setValue('serviceLastOilChangeKm', _car.service.lastOilChangeKm !== undefined && _car.service.lastOilChangeKm !== null ? String(_car.service.lastOilChangeKm) : '')
+                setValue('serviceLastFilterChangeKm', _car.service.lastFilterChangeKm !== undefined && _car.service.lastFilterChangeKm !== null ? String(_car.service.lastFilterChangeKm) : '')
+                setValue('serviceNextOilChangeKm', _car.service.nextOilChangeKm !== undefined && _car.service.nextOilChangeKm !== null ? String(_car.service.nextOilChangeKm) : '')
+                setValue('serviceNextFilterChangeKm', _car.service.nextFilterChangeKm !== undefined && _car.service.nextFilterChangeKm !== null ? String(_car.service.nextFilterChangeKm) : '')
+              }
               setValue('available', _car.available)
+              // Fleet statuses (scorecard #15): legacy cars carry no
+              // stored status and read as inService.
+              setValue('operationalStatus', _car.operationalStatus || bookcarsTypes.CarOperationalStatus.InService)
               setValue('fullyBooked', _car.fullyBooked || false)
               setValue('comingSoon', _car.comingSoon || false)
               setValue('blockOnPay', _car.blockOnPay || false)
@@ -987,6 +1055,118 @@ const UpdateCar = () => {
               />
             </FormControl>
 
+            {/* Scorecard #17: garage block — informational only; it never
+                changes booking behaviour (that rides on the fleet status). */}
+            <div className="info">
+              <InfoIcon />
+              <span>{strings.GARAGE_HEADING}</span>
+            </div>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.GARAGE_NAME}
+                {...register('garageName')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 200 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.GARAGE_SINCE}
+                value={garageSince || undefined}
+                variant="standard"
+                onChange={(date) => setValue('garageSince', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <DatePicker
+                label={strings.GARAGE_EXPECTED_BACK}
+                value={garageExpectedBack || undefined}
+                variant="standard"
+                onChange={(date) => setValue('garageExpectedBack', date)}
+                language={(user && user.language) || env.DEFAULT_LANGUAGE}
+              />
+              {errors.garageExpectedBack && (
+                <FormHelperText error>{errors.garageExpectedBack.message}</FormHelperText>
+              )}
+            </FormControl>
+
+            {/* Scorecard #18: service state — oil/filter change km
+                tracking, informational only; it never changes booking
+                behaviour (that rides on the fleet status). */}
+            <div className="info">
+              <InfoIcon />
+              <span>{strings.SERVICE_HEADING}</span>
+            </div>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.SERVICE_LAST_OIL_CHANGE_KM}
+                {...register('serviceLastOilChangeKm')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.serviceLastOilChangeKm}
+                helperText={errors.serviceLastOilChangeKm?.message}
+                onChange={() => {
+                  if (errors.serviceLastOilChangeKm) {
+                    clearErrors('serviceLastOilChangeKm')
+                  }
+                }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.SERVICE_LAST_FILTER_CHANGE_KM}
+                {...register('serviceLastFilterChangeKm')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.serviceLastFilterChangeKm}
+                helperText={errors.serviceLastFilterChangeKm?.message}
+                onChange={() => {
+                  if (errors.serviceLastFilterChangeKm) {
+                    clearErrors('serviceLastFilterChangeKm')
+                  }
+                }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.SERVICE_NEXT_OIL_CHANGE_KM}
+                {...register('serviceNextOilChangeKm')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.serviceNextOilChangeKm}
+                helperText={errors.serviceNextOilChangeKm?.message}
+                onChange={() => {
+                  if (errors.serviceNextOilChangeKm) {
+                    clearErrors('serviceNextOilChangeKm')
+                  }
+                }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.SERVICE_NEXT_FILTER_CHANGE_KM}
+                {...register('serviceNextFilterChangeKm')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.serviceNextFilterChangeKm}
+                helperText={errors.serviceNextFilterChangeKm?.message}
+                onChange={() => {
+                  if (errors.serviceNextFilterChangeKm) {
+                    clearErrors('serviceNextFilterChangeKm')
+                  }
+                }}
+              />
+            </FormControl>
+
               <FormControl fullWidth margin="dense" className="checkbox-fc">
                 <FormControlLabel
                   control={
@@ -999,6 +1179,20 @@ const UpdateCar = () => {
                   label={strings.AVAILABLE}
                   className="checkbox-fcl"
                 />
+              </FormControl>
+
+              {/* Fleet statuses (scorecard #15): operator-set state of the car. */}
+              <FormControl fullWidth margin="dense">
+                <InputLabel>{csStrings.FLEET_STATUS}</InputLabel>
+                <Select
+                  value={operationalStatus}
+                  label={csStrings.FLEET_STATUS}
+                  onChange={(e) => setValue('operationalStatus', e.target.value as bookcarsTypes.CarOperationalStatus)}
+                >
+                  <MenuItem value={bookcarsTypes.CarOperationalStatus.InService}>{csStrings.FLEET_STATUS_IN_SERVICE}</MenuItem>
+                  <MenuItem value={bookcarsTypes.CarOperationalStatus.Maintenance}>{csStrings.FLEET_STATUS_MAINTENANCE}</MenuItem>
+                  <MenuItem value={bookcarsTypes.CarOperationalStatus.Stopped}>{csStrings.FLEET_STATUS_STOPPED}</MenuItem>
+                </Select>
               </FormControl>
 
               <FormControl fullWidth margin="dense" className="checkbox-fc">
