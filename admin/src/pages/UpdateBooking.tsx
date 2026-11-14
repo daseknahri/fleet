@@ -31,6 +31,7 @@ import { strings as blStrings } from '@/lang/booking-list'
 import { strings as bfStrings } from '@/lang/booking-filter'
 import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/booking'
+import { strings as trashStrings } from '@/lang/trash'
 import { visuallyHidden } from '@mui/utils'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
@@ -176,6 +177,8 @@ const UpdateBooking = () => {
   const [isSupplier, setIsSupplier] = useState(false)
   const [minDate, setMinDate] = useState<Date>()
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteReasonTouched, setDeleteReasonTouched] = useState(false)
   const [language, setLanguage] = useState(env.DEFAULT_LANGUAGE)
   const [fromError, setFromError] = useState(false)
   const [toError, setToError] = useState(false)
@@ -258,20 +261,34 @@ const UpdateBooking = () => {
     }
   }
 
+  // GA-PAR-22 FIX22 (F2): the detail-page Delete is a purge, so
+  // the reason must travel with it — without one the route always
+  // refuses 400 PURGE_REASON. A live booking still refuses 409
+  // NOT_TRASHED; a trashed money-clean booking purges 200.
+  const deleteReasonValid = deleteReason.trim().length >= 3 && deleteReason.trim().length <= 1000
+
   const handleDelete = () => {
+    setDeleteReason('')
+    setDeleteReasonTouched(false)
     setOpenDeleteDialog(true)
   }
 
   const handleCancelDelete = () => {
+    setDeleteReason('')
+    setDeleteReasonTouched(false)
     setOpenDeleteDialog(false)
   }
 
   const handleConfirmDelete = async () => {
+    if (!deleteReasonValid) {
+      setDeleteReasonTouched(true)
+      return
+    }
     if (booking && booking._id) {
       try {
         setOpenDeleteDialog(false)
 
-        const _status = await BookingService.deleteBookings([booking._id])
+        const _status = await BookingService.deleteBookings([booking._id], deleteReason.trim())
 
         if (_status === 200) {
           navigate('/')
@@ -1224,7 +1241,17 @@ const UpdateBooking = () => {
             </div>
           )}
           <div className="col-1">
-            <ContractOperations bookingId={booking._id!} supplierId={typeof booking.supplier === 'string' ? booking.supplier : booking.supplier?._id} lifecycle={booking.lifecycle} depositAmount={booking.financialSnapshot?.depositAmount} amendmentHistory={booking.amendmentHistory} onCompleted={() => setBooking({ ...booking, lifecycle: bookcarsTypes.ContractLifecycle.Completed })} />
+            <ContractOperations bookingId={booking._id!} supplierId={typeof booking.supplier === 'string' ? booking.supplier : booking.supplier?._id} lifecycle={booking.lifecycle} depositAmount={booking.financialSnapshot?.depositAmount} amendmentHistory={booking.amendmentHistory} whatsApp={{
+              // GA-PAR-23: contract send — driver phone arrives via getBooking
+              // (backend populates driver with phone since this item).
+              phone: typeof booking.driver !== 'string' ? booking.driver?.phone : undefined,
+              clientName: typeof booking.driver !== 'string' ? booking.driver?.fullName || '' : '',
+              reference: booking.reference || '',
+              carLabel: typeof booking.car !== 'string' ? `${booking.car?.name || ''}${booking.car?.licensePlate ? ` · ${booking.car.licensePlate}` : ''}` : '',
+              from: booking.from,
+              to: booking.to,
+              agencyName: typeof booking.supplier !== 'string' ? booking.supplier?.fullName || '' : '',
+            }} onCompleted={() => setBooking({ ...booking, lifecycle: bookcarsTypes.ContractLifecycle.Completed })} />
           </div>
           <div className="col-2">
             {
@@ -1286,12 +1313,25 @@ const UpdateBooking = () => {
 
           <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
             <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-            <DialogContent>{strings.DELETE_BOOKING}</DialogContent>
+            <DialogContent className="dialog-content">
+              {trashStrings.PURGE_BOOKING}
+              <TextField
+                label={trashStrings.REASON_LABEL}
+                fullWidth
+                multiline
+                rows={2}
+                value={deleteReason}
+                onChange={(e) => { setDeleteReason(e.target.value); setDeleteReasonTouched(true) }}
+                error={deleteReasonTouched && !deleteReasonValid}
+                helperText={deleteReasonTouched && !deleteReasonValid ? trashStrings.REASON_REQUIRED : ''}
+                margin="normal"
+              />
+            </DialogContent>
             <DialogActions className="dialog-actions">
               <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
                 {commonStrings.CANCEL}
               </Button>
-              <Button onClick={handleConfirmDelete} variant="contained" color="error">
+              <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={!deleteReasonValid}>
                 {commonStrings.DELETE}
               </Button>
             </DialogActions>

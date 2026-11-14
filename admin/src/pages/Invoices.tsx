@@ -6,6 +6,7 @@ import {
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded'
+import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Layout from '@/components/Layout'
@@ -21,6 +22,7 @@ import * as SupplierService from '@/services/SupplierService'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 import { strings } from '@/lang/invoices'
+import { invoiceWhatsAppUrl } from '@/utils/whatsapp'
 import { useUserContext, UserContextType } from '@/context/UserContext'
 
 import '@/assets/css/invoices.css'
@@ -46,6 +48,20 @@ const contractLabel = (invoice: Invoice): string => {
   const booking = bookingOf(invoice)
   return booking?.reference || bookingIdOf(invoice).slice(-8).toUpperCase() || '—'
 }
+// GA-PAR-23: the client's stored phone comes from the invoice payload
+// (backend populates booking.driver with fullName/email/phone). No number
+// is ever fabricated: undefined here disables the WhatsApp action.
+const clientPhone = (invoice: Invoice): string | undefined => {
+  const driver = bookingOf(invoice)?.driver
+  return driver && typeof driver !== 'string' ? driver.phone || undefined : undefined
+}
+const agencyNameOf = (invoice: Invoice, fallback: string): string => {
+  const supplier = invoice.supplier
+  if (supplier && typeof supplier !== 'string') {
+    return supplier.fullName || fallback
+  }
+  return fallback
+}
 
 const uiLocale = () => {
   const language = UserService.getLanguage()
@@ -53,6 +69,10 @@ const uiLocale = () => {
 }
 const formatAmount = (amount: number | undefined, currency?: string) => (
   `${new Intl.NumberFormat(uiLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0)} ${currency || 'MAD'}`
+)
+// GA-PAR-23: number only (the WhatsApp template carries {currency} itself).
+const formatAmountValue = (amount: number | undefined) => (
+  new Intl.NumberFormat(uiLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0)
 )
 
 const statusLabel = (status: bookcarsTypes.InvoiceStatus) => (
@@ -298,6 +318,13 @@ const Invoices = () => {
     }, strings.PAYMENT_OK)
   }
 
+  // GA-PAR-23: opens the wa.me deep link in a new tab (no backend call).
+  const openWhatsApp = (url: string | null) => {
+    if (url) {
+      window.open(url, '_blank', 'noopener')
+    }
+  }
+
   const handleDownloadPdf = (invoice: Invoice) => runAction(async () => {
     const blob = await InvoiceService.downloadPdf(invoice._id as string)
     const url = URL.createObjectURL(blob)
@@ -459,6 +486,17 @@ const Invoices = () => {
               {filtered.map((invoice) => {
                 const approvalState = approvalStateOf(invoice)
                 const blocked = approvalBlocksPayment(invoice)
+                // GA-PAR-23: wa.me deep link (Issued only, rendered below).
+                // Null when the client has no usable stored phone.
+                const waUrl = invoiceWhatsAppUrl({
+                  phone: clientPhone(invoice),
+                  template: strings.WA_INVOICE_MESSAGE,
+                  clientName: clientName(invoice),
+                  agencyName: agencyNameOf(invoice, currentUser?.fullName || ''),
+                  invoiceNumber: invoice.number || '',
+                  amountText: formatAmountValue(invoice.total),
+                  currency: invoice.currency || 'MAD',
+                })
                 return (
                   <div key={invoice._id} className="agency-invoices__row agency-invoices__grid">
                     <span data-label={strings.NUMBER}><strong>{invoice.number || strings.DRAFT_NUMBER}</strong><br /><small>{contractLabel(invoice)}</small></span>
@@ -485,6 +523,9 @@ const Invoices = () => {
                       )}
                       {invoice.status === bookcarsTypes.InvoiceStatus.Issued && (
                         <Button size="small" startIcon={<PictureAsPdfRoundedIcon />} disabled={busy} onClick={() => handleDownloadPdf(invoice)}>{strings.DOWNLOAD_PDF}</Button>
+                      )}
+                      {invoice.status === bookcarsTypes.InvoiceStatus.Issued && (
+                        <Button size="small" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>
                       )}
                     </span>
                   </div>

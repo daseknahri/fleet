@@ -25,7 +25,15 @@ import * as helper from '../utils/helper'
 import * as mailHelper from '../utils/mailHelper'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
-import { BookingConflictError, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
+import { BookingConflictError, findBookingConflictForRestore, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
+import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
+import RentalPayment from '../models/RentalPayment'
+import Invoice from '../models/Invoice'
+import ContractCharge from '../models/ContractCharge'
+import Quote from '../models/Quote'
+import ContractSnapshot from '../models/ContractSnapshot'
+import ContractInspection from '../models/ContractInspection'
+import AgentSettlement from '../models/AgentSettlement'
 import { postProviderPayment } from '../utils/ledger'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
@@ -128,16 +136,36 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
-    const vehicle = await Car.findOne({ _id: carId, supplier: supplierId }).select('_id locations').lean()
+    // GA-PAR-22: a trashed car cannot be selected for a new booking.
+    const vehicle = await Car.findOne({ _id: carId, supplier: supplierId, deletedAt: null }).select('_id locations operationalStatus').lean()
     const locationIds = (vehicle?.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
     if (!vehicle || !locationIds.includes(pickupLocationId) || !locationIds.includes(dropOffLocationId)) {
       res.status(400).send('Vehicle and locations must belong to the booking agency')
       return
     }
+    // Fleet statuses (scorecard #15): a car in maintenance or stopped is
+    // NOT bookable — refused here in the admin-create path, mirroring
+    // the PAR-04 CLIENT_BLOCKED 403 pattern below. Checkout/update are
+    // untouched (documented residual, not silently fixed).
+    if (vehicle.operationalStatus === bookcarsTypes.CarOperationalStatus.Maintenance) {
+      res.status(403).send('CAR_NOT_BOOKABLE: This car is in maintenance and cannot be booked.')
+      return
+    }
+    if (vehicle.operationalStatus === bookcarsTypes.CarOperationalStatus.Stopped) {
+      res.status(403).send('CAR_NOT_BOOKABLE: This car is stopped and cannot be booked.')
+      return
+    }
 
-    const driver = await User.findOne({ _id: driverId, type: bookcarsTypes.UserType.User }).select('_id clientStatus blacklisted')
+    const driver = await User.findOne({ _id: driverId, type: bookcarsTypes.UserType.User }).select('_id clientStatus blacklisted deletedAt')
     if (!driver) {
       res.status(400).send('Booking customer not found')
+      return
+    }
+
+    // GA-PAR-22: a trashed client cannot be booked (403 CLIENT_TRASHED,
+    // same shape as the PAR-04 CLIENT_BLOCKED refusal below).
+    if (driver.deletedAt) {
+      res.status(403).send('CLIENT_TRASHED: This client is trashed and cannot be booked.')
       return
     }
 
@@ -626,8 +654,11 @@ export const checkout = async (req: Request, res: Response) => {
       return
     }
 
+    // GA-PAR-22: a trashed car cannot be booked from the public funnel.
+    // (findById keeps the pre-existing populate typing; the trash
+    // check is explicit so a trashed car reads as 'not found'.)
     const carObj = await Car.findById(body.booking.car).populate('dateBasedPrices').lean()
-    if (!carObj) {
+    if (!carObj || carObj.deletedAt) {
       res.status(400).send('Car not found')
       return
     }
@@ -756,6 +787,13 @@ export const checkout = async (req: Request, res: Response) => {
 
     if (!user) {
       throw new Error(`User ${body.booking.driver} not found`)
+    }
+    // GA-PAR-22: a trashed client cannot be booked from the public
+    // funnel (covers both the existing-account-by-email branch and the
+    // signed-in-driver branch above).
+    if (user.type === bookcarsTypes.UserType.User && user.deletedAt) {
+      res.status(403).send('CLIENT_TRASHED: This client is trashed and cannot be booked.')
+      return
     }
     if (supplier.licenseRequired && !user!.license) {
       throw new Error("Driver's license required")
@@ -1118,6 +1156,14 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      // GA-PAR-22: every mutation on a trashed booking refuses 409
+      // TRASHED (wall sits after the agency/ownership check above,
+      // before any other business validation).
+      if (booking.deletedAt) {
+        res.status(409).send(trashedMessage('booking'))
+        return
+      }
+
       const bookingId = (value: string | { _id?: string } | undefined) => (typeof value === 'string' ? value : value?._id) || ''
       const submittedSupplierId = bookingId(body.booking.supplier as string | { _id?: string })
       const submittedCarId = bookingId(body.booking.car as string | { _id?: string })
@@ -1133,7 +1179,8 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
-      const vehicle = await Car.findOne({ _id: submittedCarId, supplier: booking.supplier }).select('_id locations').lean()
+      // GA-PAR-22: a trashed car cannot be (re)selected on update.
+      const vehicle = await Car.findOne({ _id: submittedCarId, supplier: booking.supplier, deletedAt: null }).select('_id locations').lean()
       const carLocationIds = (vehicle?.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
       if (!vehicle
         || !carLocationIds.includes(submittedPickupLocationId)
@@ -1147,6 +1194,21 @@ export const update = async (req: Request, res: Response) => {
       if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
         res.status(400).send('Invalid rental dates')
         return
+      }
+
+      // GA-PAR-22: reassigning the booking to a trashed client refuses
+      // 403 CLIENT_TRASHED (same rule as create/checkout).
+      const submittedDriverId = bookingId(body.booking.driver as string | { _id?: string })
+      if (submittedDriverId && submittedDriverId !== booking.driver.toString()) {
+        const newDriver = await User.findOne({ _id: submittedDriverId, type: bookcarsTypes.UserType.User }).select('_id deletedAt').lean()
+        if (!newDriver) {
+          res.status(400).send('Booking customer not found')
+          return
+        }
+        if (newDriver.deletedAt) {
+          res.status(403).send('CLIENT_TRASHED: This client is trashed and cannot be booked.')
+          return
+        }
       }
 
       // GA-PAR-10: overlap-exception gate, same rules as create. A
@@ -1446,6 +1508,15 @@ export const updateStatus = async (req: Request, res: Response) => {
 
     const bookings = await Booking.find(filter)
 
+    // GA-PAR-22: a bulk status change refuses the whole request when
+    // any target is trashed (wall before other business validation;
+    // zero mutations on refusal).
+    const trashedBooking = bookings.find((booking) => booking.deletedAt)
+    if (trashedBooking) {
+      res.status(409).send(`TRASHED: Booking ${trashedBooking._id.toString()} is trashed and cannot be modified. Restore it first.`)
+      return
+    }
+
     if (paymentStatuses.has(status) || bookings.some((booking) => paymentStatuses.has(booking.status) && booking.status !== status)) {
       res.status(400).send('Payment statuses can only be changed through a verified payment workflow')
       return
@@ -1490,35 +1561,95 @@ export const updateStatus = async (req: Request, res: Response) => {
  */
 export const deleteBookings = async (req: Request, res: Response) => {
   try {
-    const { body }: { body: string[] } = req
-    const ids = body.map((id) => new mongoose.Types.ObjectId(id))
+    // GA-PAR-22: hard delete is purge-from-trash ONLY (D-22.9). The
+    // old delete-as-you-go shape is replaced by the H-025 pattern:
+    // validate every id first (scope, trash state, linked-record
+    // guards), then purge; any failure refuses the whole request with
+    // zero mutations. The admin calls this only from the Trash view;
+    // a live booking is never deleted by this route. The reason is
+    // required (3–1000 chars, D-22.4); the durable trace is the
+    // server log (D-22.8 — exactly one line per purged id).
+    const body = req.body as { ids?: unknown, reason?: unknown } | string[]
+    const idsRaw: unknown = Array.isArray(body) ? body : body?.ids
+    const reason = Array.isArray(body) ? undefined : body?.reason
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid booking ids')
+      return
+    }
+    if (!isValidTrashReason(reason)) {
+      res.status(400).send('PURGE_REASON: Purging a trashed booking requires a reason of 3 to 1000 characters.')
+      return
+    }
+    const ids = (idsRaw as string[]).map((id) => new mongoose.Types.ObjectId(id))
 
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.deleteBookings] Unauthorized purge attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot delete bookings')
+      return
+    }
+    const isAgencyUser = [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    const sessionAgencyId = agencySupplierId(req)
 
-    let unauthorizedAttemptLogged = false
-    for (const id of ids) {
-      const booking = await Booking.findById(id)
-
-      if (booking) {
-        // begin of security check
-        const sessionAgencyId = agencySupplierId(req)
-        const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
-        if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User || (isAgencyUser && sessionAgencyId !== booking.supplier?.toString())) {
-          logger.error(`[booking.deleteBookings] Unauthorized attempt to delete booking ${booking._id.toString()} by user ${sessionUserId}`)
-          unauthorizedAttemptLogged = true
-          continue
-        }
-        // end of security check
-
-        await booking.deleteOne()
-        await AdditionalDriver.deleteOne({ _id: booking._additionalDriver })
+    const bookings = await Booking.find({ _id: { $in: ids } })
+    if (bookings.length !== ids.length) {
+      res.status(400).send('PURGE_NOT_FOUND: One or more bookings were not found.')
+      return
+    }
+    for (const booking of bookings) {
+      if (isAgencyUser && sessionAgencyId !== booking.supplier?.toString()) {
+        logger.error(`[booking.deleteBookings] Unauthorized purge attempt on booking ${booking._id.toString()} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot delete some of the bookings')
+        return
+      }
+      if (!booking.deletedAt) {
+        res.status(409).send(`NOT_TRASHED: Booking ${booking._id.toString()} is not trashed. Trash it before purging.`)
+        return
       }
     }
 
-    if (unauthorizedAttemptLogged) {
-      res.status(403).send('Forbidden: You cannot delete some of the bookings')
-      return
+    // Purge guards (D-22.11): any linked record blocks the purge,
+    // naming the blocker. Checked for every booking before any purge
+    // runs, so a blocked bulk request changes nothing.
+    // FIX22 (S1): AgentSettlement.bookingRefs is a Booking ref the
+    // S-1 sweep missed — a settlement referencing the booking blocks
+    // the purge (PURGE_BLOCKED_AGENT_SETTLEMENT).
+    for (const booking of bookings) {
+      const [payment, invoice, charge, quote, snapshot, inspection, settlement] = await Promise.all([
+        RentalPayment.findOne({ booking: booking._id }).select('_id').lean(),
+        Invoice.findOne({ booking: booking._id }).select('_id').lean(),
+        ContractCharge.findOne({ booking: booking._id }).select('_id').lean(),
+        Quote.findOne({ booking: booking._id }).select('_id').lean(),
+        ContractSnapshot.findOne({ booking: booking._id }).select('_id').lean(),
+        ContractInspection.findOne({ booking: booking._id }).select('_id').lean(),
+        AgentSettlement.findOne({ bookingRefs: booking._id }).select('_id').lean(),
+      ])
+      const blockers: Array<[unknown, string, string]> = [
+        [payment, 'RENTAL_PAYMENT', 'rental payments'],
+        [invoice, 'INVOICE', 'invoices'],
+        [charge, 'CONTRACT_CHARGE', 'contract charges'],
+        [quote, 'QUOTE', 'quotes'],
+        [snapshot, 'CONTRACT_SNAPSHOT', 'contract snapshots'],
+        [inspection, 'CONTRACT_INSPECTION', 'contract inspections'],
+        [settlement, 'AGENT_SETTLEMENT', 'agent settlements'],
+      ]
+      const found = blockers.find(([row]) => !!row)
+      if (found) {
+        res.status(409).send(`PURGE_BLOCKED_${found[1]}: Booking ${booking._id.toString()} has ${found[2]} and cannot be purged.`)
+        return
+      }
+    }
+
+    // Cascade on purge: ONLY the `_additionalDriver` row (S-1).
+    // Notifications are left (today's behaviour); payments, invoices,
+    // charges, quotes, snapshots, inspections and agent settlements
+    // block the purge above instead of being deleted.
+    for (const booking of bookings) {
+      await booking.deleteOne()
+      await AdditionalDriver.deleteOne({ _id: booking._additionalDriver })
+      logger.info(`[booking.deleteBookings] Purged booking ${booking._id.toString()} by user ${sessionUserId} (reason: ${(reason as string).trim()})`)
     }
 
     res.sendStatus(200)
@@ -1581,7 +1712,7 @@ export const getBooking = async (req: Request, res: Response) => {
       })
       .populate<{ driver: env.UserInfo }>({
         path: 'driver',
-        select: '_id fullName avatar',
+        select: '_id fullName avatar phone', // GA-PAR-23: driver phone for the WhatsApp contract send
       })
       .populate<{ pickupLocation: env.LocationInfo }>({
         path: 'pickupLocation',
@@ -1615,6 +1746,14 @@ export const getBooking = async (req: Request, res: Response) => {
       if (!isValidSession && !isOwner && !isSupplier && !isAdmin) {
         logger.error(`[booking.getBooking] Forbidden access to booking ${id}`)
         res.status(403).send('Forbidden: Access denied')
+        return
+      }
+
+      // GA-PAR-22: a trashed booking is returned in full to the owning
+      // agency / platform admin only; every other caller (the customer,
+      // a checkout session) gets a silent 404 (OQ-7).
+      if (booking.deletedAt && !isSupplier && !isAdmin) {
+        res.sendStatus(404)
         return
       }
 
@@ -1735,7 +1874,9 @@ export const getBookings = async (req: Request, res: Response) => {
     // end of security check
 
     const $match: mongoose.QueryFilter<any> = {
-      $and: [{ 'supplier._id': { $in: suppliers } }, { status: { $in: statuses } }, { expireAt: null }],
+      // GA-PAR-22: live rows only — trashed bookings never leak into
+      // the live list (the trash view has its own endpoint).
+      $and: [{ 'supplier._id': { $in: suppliers } }, { status: { $in: statuses } }, { expireAt: null }, { deletedAt: null }],
     }
 
     if (sessionUser.type === bookcarsTypes.UserType.User) {
@@ -1930,6 +2071,9 @@ export const getBookings = async (req: Request, res: Response) => {
       // record is reduced to presence + signedAt (see getBooking).
       const row = booking as unknown as Record<string, unknown>
       delete row.signingNonce
+      // GA-PAR-22: lists carry the trash scalars (deletedAt /
+      // deletedBy / deleteReason) but never the history (§3).
+      delete row.trashHistory
       if (row.onlineSignature) {
         row.onlineSignature = publicOnlineSignature(row.onlineSignature as { signedAt?: Date })
       }
@@ -1961,7 +2105,9 @@ export const hasBookings = async (req: Request, res: Response) => {
     }
 
     const sessionUser = req.user
-    const filter: mongoose.QueryFilter<env.Booking> = { driver: new mongoose.Types.ObjectId(driver) }
+    // GA-PAR-22: only LIVE bookings count (a client whose bookings are
+    // all trashed reads as booking-free).
+    const filter: mongoose.QueryFilter<env.Booking> = { driver: new mongoose.Types.ObjectId(driver), deletedAt: null }
     if (sessionUser.type === bookcarsTypes.UserType.User) {
       if (sessionUser._id.toString() !== driver) {
         res.status(403).send('Forbidden: Access denied')
@@ -2022,6 +2168,12 @@ export const cancelBooking = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      // GA-PAR-22: a trashed booking cannot be cancelled — restore first.
+      if (booking.deletedAt) {
+        res.status(409).send(trashedMessage('booking'))
+        return
+      }
+
       booking.cancelRequest = true
       await booking.save()
 
@@ -2053,4 +2205,346 @@ export const cancelBooking = async (req: Request, res: Response) => {
   }
 }
 
+/**
+ * GA-PAR-22 — Trash Bookings (scorecard #47, D-22.3/D-22.4).
+ *
+ * Trash is an operational visibility state, not a financial reversal:
+ * exactly `deletedAt` / `deletedBy` / `deleteReason` are written and
+ * one `trashHistory` row is appended (exact-reversal invariant D-22.2),
+ * with a plain `save()` — never through `saveBookingWithAvailability`.
+ * The trashHistory row records whether the §5.7 money warning fired
+ * (`hadPayments` / `hadInvoices`). All-or-nothing per request (H-025):
+ * every id is validated before any mutation; any refusal changes
+ * nothing. Refusals: already trashed → 409 TRASHED; a temporary
+ * (`expireAt`-set) booking → 409 TEMP_BOOKING.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const trashBookings = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as { ids?: unknown, reason?: unknown }
+    const { ids: idsRaw, reason } = body
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid booking ids')
+      return
+    }
+    if (!isValidTrashReason(reason)) {
+      res.status(400).send('TRASH_REASON: Trashing a booking requires a reason of 3 to 1000 characters.')
+      return
+    }
+    const ids = (idsRaw as string[]).map((id) => new mongoose.Types.ObjectId(id))
 
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.trashBookings] Unauthorized trash attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot trash bookings')
+      return
+    }
+    const isAgencyUser = [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    const sessionAgencyId = agencySupplierId(req)
+
+    const bookings = await Booking.find({ _id: { $in: ids } })
+    if (bookings.length !== ids.length) {
+      res.status(400).send('TRASH_NOT_FOUND: One or more bookings were not found.')
+      return
+    }
+    // Validate everything before mutating anything (H-025).
+    const flags = new Map<string, { hadPayments: boolean, hadInvoices: boolean }>()
+    for (const booking of bookings) {
+      if (isAgencyUser && sessionAgencyId !== booking.supplier?.toString()) {
+        logger.error(`[booking.trashBookings] Unauthorized trash attempt on booking ${booking._id.toString()} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot trash some of the bookings')
+        return
+      }
+      if (booking.deletedAt) {
+        res.status(409).send(`TRASHED: Booking ${booking._id.toString()} is already trashed.`)
+        return
+      }
+      if (booking.expireAt) {
+        res.status(409).send(`TEMP_BOOKING: Booking ${booking._id.toString()} is a temporary checkout booking and cannot be trashed.`)
+        return
+      }
+      // §5.7 money warning, from the same sources the Payments /
+      // Invoices pages use; the flags land on the history row (§2.5).
+      const [payment, invoice] = await Promise.all([
+        RentalPayment.findOne({ booking: booking._id, status: bookcarsTypes.RentalPaymentStatus.Posted }).select('_id').lean(),
+        Invoice.findOne({ booking: booking._id, status: { $ne: bookcarsTypes.InvoiceStatus.Voided } }).select('_id').lean(),
+      ])
+      flags.set(booking._id.toString(), { hadPayments: !!payment, hadInvoices: !!invoice })
+    }
+
+    for (const booking of bookings) {
+      applyTrash(booking, sessionUser._id.toString(), reason as string, flags.get(booking._id.toString()))
+      await booking.save()
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[booking.trashBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Restore Bookings (scorecard #47, D-22.6).
+ *
+ * Exact reversal of trash (the three fields are cleared, one history
+ * row appended). Re-validation before any mutation, in the design's
+ * order: (a) car exists + live else 409 CAR_TRASHED; (b) driver exists
+ * + live else 409 CLIENT_TRASHED; (c) driver not Blocked/blacklisted
+ * else 409 CLIENT_BLOCKED; (d) availability re-runs against LIVE
+ * bookings only else 409 OVERLAP naming the conflicting booking (a
+ * stored PAR-10 overlap exception stays valid for the conflicting
+ * booking it names — OQ-8; maintenance conflicts are never excepted).
+ * Locations are NOT re-validated. The reason is optional (≤1000).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const restoreBookings = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as { ids?: unknown, reason?: unknown }
+    const { ids: idsRaw, reason } = body
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid booking ids')
+      return
+    }
+    if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length > 1000)) {
+      res.status(400).send('RESTORE_REASON: A restore reason must be at most 1000 characters.')
+      return
+    }
+    const ids = (idsRaw as string[]).map((id) => new mongoose.Types.ObjectId(id))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.restoreBookings] Unauthorized restore attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot restore bookings')
+      return
+    }
+    const isAgencyUser = [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    const sessionAgencyId = agencySupplierId(req)
+
+    const bookings = await Booking.find({ _id: { $in: ids } })
+    if (bookings.length !== ids.length) {
+      res.status(400).send('RESTORE_NOT_FOUND: One or more bookings were not found.')
+      return
+    }
+    // Validate everything before mutating anything (H-025).
+    for (const booking of bookings) {
+      if (isAgencyUser && sessionAgencyId !== booking.supplier?.toString()) {
+        logger.error(`[booking.restoreBookings] Unauthorized restore attempt on booking ${booking._id.toString()} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot restore some of the bookings')
+        return
+      }
+      if (!booking.deletedAt) {
+        res.status(409).send(`NOT_TRASHED: Booking ${booking._id.toString()} is not trashed.`)
+        return
+      }
+      const car = await Car.findById(booking.car).select('_id deletedAt').lean()
+      if (!car || car.deletedAt) {
+        res.status(409).send(`CAR_TRASHED: The car of booking ${booking._id.toString()} is trashed or no longer exists. Restore the car first.`)
+        return
+      }
+      const driver = await User.findById(booking.driver).select('_id clientStatus blacklisted deletedAt').lean()
+      if (!driver || driver.deletedAt) {
+        res.status(409).send(`CLIENT_TRASHED: The client of booking ${booking._id.toString()} is trashed or no longer exists. Restore the client first.`)
+        return
+      }
+      if (driver.clientStatus === bookcarsTypes.ClientStatus.Blocked || driver.blacklisted === true) {
+        res.status(409).send(`CLIENT_BLOCKED: The client of booking ${booking._id.toString()} is blocked and cannot be restored to a live booking.`)
+        return
+      }
+      const conflict = await findBookingConflictForRestore(booking)
+      if (conflict.maintenance) {
+        res.status(409).send(`OVERLAP: Booking ${booking._id.toString()} conflicts with scheduled maintenance for the car in the selected dates.`)
+        return
+      }
+      if (conflict.conflictingBookingId) {
+        // OQ-8: a stored PAR-10 overlap exception stays valid for the
+        // conflicting booking it names.
+        const exceptedId = booking.overlapException?.reason
+          ? booking.overlapException?.conflictingBooking?.toString()
+          : undefined
+        if (exceptedId !== conflict.conflictingBookingId) {
+          res.status(409).send(`OVERLAP: Booking ${booking._id.toString()} conflicts with booking ${conflict.conflictingBookingId} for the selected dates.`)
+          return
+        }
+      }
+    }
+
+    for (const booking of bookings) {
+      applyRestore(booking, sessionUser._id.toString(), typeof reason === 'string' ? reason : undefined)
+      await booking.save()
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[booking.restoreBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Get Trashed Bookings (scorecard #47, §5.2/§5.3).
+ *
+ * The trash view's read path is a separate dedicated endpoint — live
+ * endpoints can never return trashed rows. Same response shape as
+ * `getBookings` (aggregate-style `{ resultData, pageInfo }`), same
+ * keyword behaviour (reference, driver name, car name), sorted by
+ * trashed-at descending. Rows carry the trash scalars (`deletedAt` /
+ * `deletedBy` / `deleteReason`) and the trashed-by name, never the
+ * history (§3).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getTrashedBookings = async (req: Request, res: Response) => {
+  try {
+    const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+    let suppliers = body.suppliers.map((id) => new mongoose.Types.ObjectId(id))
+    let keyword = (body.filter && body.filter.keyword) || ''
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser) {
+      logger.error(`[booking.getTrashedBookings] Unauthorized attempt to get trashed bookings by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot get booking information')
+      return
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      suppliers = [new mongoose.Types.ObjectId(supplierId)]
+    }
+
+    const filter: mongoose.QueryFilter<env.Booking> = {
+      supplier: { $in: suppliers },
+      expireAt: null,
+      deletedAt: { $ne: null },
+    }
+    if (keyword) {
+      const isObjectId = helper.isValidObjectId(keyword)
+      if (isObjectId) {
+        filter._id = new mongoose.Types.ObjectId(keyword)
+      } else {
+        keyword = escapeStringRegexp(keyword)
+        const rx = new RegExp(keyword, 'i')
+        const [drivers, cars] = await Promise.all([
+          User.find({ fullName: rx }).select('_id').lean(),
+          Car.find({ name: rx }).select('_id').lean(),
+        ])
+        filter.$or = [
+          { reference: rx },
+          { driver: { $in: drivers.map((d) => d._id) } },
+          { car: { $in: cars.map((c) => c._id) } },
+        ]
+      }
+    }
+
+    const totalRecords = await Booking.countDocuments(filter)
+    const rows = await Booking.find(filter)
+      .populate<{ supplier: env.UserInfo }>('supplier', '_id fullName avatar')
+      .populate<{ car: env.CarInfo }>('car', '_id name')
+      .populate<{ driver: env.UserInfo }>('driver', '_id fullName avatar')
+      .populate<{ deletedBy: env.UserInfo }>('deletedBy', '_id fullName')
+      .sort({ deletedAt: -1, _id: 1 })
+      .skip((page - 1) * size)
+      .limit(size)
+      .lean()
+
+    const resultData = rows.map((row) => {
+      const r = row as unknown as Record<string, unknown>
+      // Lists never carry the history (§3) — but the trash view's
+      // money-warning flags come from its LAST row, flattened here so
+      // the table can show them without the history itself.
+      const history = (r.trashHistory as Array<{ hadPayments?: boolean, hadInvoices?: boolean }> | undefined) || []
+      const last = history[history.length - 1]
+      r.hadPayments = last?.hadPayments ?? false
+      r.hadInvoices = last?.hadInvoices ?? false
+      delete r.trashHistory
+      delete r.signingNonce
+      if (r.onlineSignature) {
+        r.onlineSignature = publicOnlineSignature(r.onlineSignature as { signedAt?: Date })
+      }
+      const deletedBy = r.deletedBy as { _id?: unknown, fullName?: string } | null | undefined
+      r.deletedByName = deletedBy?.fullName || ''
+      r.deletedBy = deletedBy?._id || null
+      return r
+    })
+
+    res.json([{ resultData, pageInfo: [{ totalRecords }] }])
+  } catch (err) {
+    logger.error(`[booking.getTrashedBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Booking trash-warning figures (§5.7).
+ *
+ * Live counts behind the trash confirm dialog, from the same sources
+ * the Payments/Invoices pages use: posted payments + MAD collected,
+ * invoices (issued count among them), pending charges. The warning
+ * flags are also stored on the trashHistory row at trash time (§2.5).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getBookingTrashWarning = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    const booking = await Booking.findById(id).select('_id supplier deletedAt').lean()
+    if (!booking) {
+      res.sendStatus(204)
+      return
+    }
+    const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User
+      || (isAgencyUser && agencySupplierId(req) !== booking.supplier?.toString())) {
+      logger.error(`[booking.getBookingTrashWarning] Forbidden access to booking ${id} by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: Access denied')
+      return
+    }
+
+    const [payments, invoices, charges] = await Promise.all([
+      RentalPayment.find({ booking: booking._id, status: bookcarsTypes.RentalPaymentStatus.Posted }).select('amount direction').lean(),
+      Invoice.find({ booking: booking._id, status: { $ne: bookcarsTypes.InvoiceStatus.Voided } }).select('status').lean(),
+      ContractCharge.find({ booking: booking._id, status: bookcarsTypes.ApprovalDecision.Pending }).select('_id').lean(),
+    ])
+    const collected = payments.reduce((sum, p) => sum + (p.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -Number(p.amount || 0) : Number(p.amount || 0)), 0)
+    const warning: bookcarsTypes.TrashWarning = {
+      paymentsCount: payments.length,
+      paymentsCollected: Number(collected.toFixed(2)),
+      invoicesCount: invoices.length,
+      invoicesIssuedCount: invoices.filter((i) => i.status === bookcarsTypes.InvoiceStatus.Issued).length,
+      pendingChargesCount: charges.length,
+    }
+    res.json(warning)
+  } catch (err) {
+    logger.error(`[booking.getBookingTrashWarning] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}

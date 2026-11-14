@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Alert, Button, Card, CardContent, Checkbox, Divider, FormControl, FormControlLabel, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material'
+import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import * as bookcarsTypes from ':bookcars-types'
 import strings from '@/lang/contract-operations'
 import * as ContractOperationService from '@/services/ContractOperationService'
+import { contractWhatsAppUrl } from '@/utils/whatsapp'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 
@@ -13,6 +15,16 @@ interface Props {
   depositAmount?: number
   /** GA-PAR-11: amendment history rows from the booking (read-only). */
   amendmentHistory?: bookcarsTypes.BookingAmendment[]
+  /** GA-PAR-23: WhatsApp contract send — supplied by the booking detail page. */
+  whatsApp?: {
+    phone?: string | null
+    clientName: string
+    reference: string
+    carLabel: string
+    from: Date | string
+    to: Date | string
+    agencyName: string
+  }
   onCompleted: () => void
 }
 
@@ -59,6 +71,8 @@ const uiLocale = () => {
 
 const formatDateTime = (date: Date | string) => new Intl.DateTimeFormat(uiLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(date))
 
+const formatDate = (date: Date | string) => new Intl.DateTimeFormat(uiLocale(), { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
+
 const chargeTypeLabel = (type: bookcarsTypes.ContractChargeType) => {
   if (type === bookcarsTypes.ContractChargeType.Fee) return strings.CHARGE_FEE
   if (type === bookcarsTypes.ContractChargeType.ExtraKm) return strings.CHARGE_EXTRA_KM
@@ -76,7 +90,7 @@ const inspectionTypeLabel = (type: bookcarsTypes.InspectionType) => (
   type === bookcarsTypes.InspectionType.Return ? strings.RETURN : strings.HANDOVER
 )
 
-const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, amendmentHistory, onCompleted }: Props) => {
+const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, amendmentHistory, whatsApp, onCompleted }: Props) => {
   const [inspections, setInspections] = useState<bookcarsTypes.ContractInspection[]>([])
   const [charges, setCharges] = useState<bookcarsTypes.ContractCharge[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,17 +255,26 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
     }
   }
 
-  const makeSnapshot = async () => {
+  // GA-PAR-14: withStamp requests the agency stamp in the generated PDF
+  // (a stamp-less agency renders a valid PDF without a stamp).
+  const makeSnapshot = async (withStamp = false) => {
     setBusy(true)
     setError('')
     try {
-      const s = await ContractOperationService.createSnapshot(bookingId, supplierId)
+      const s = await ContractOperationService.createSnapshot(bookingId, supplierId, withStamp)
       setSnapshot(s)
       await reload()
     } catch (err) {
       setError(helper.getErrorMessage(err, strings.ERROR))
     } finally {
       setBusy(false)
+    }
+  }
+
+  // GA-PAR-23: opens the wa.me deep link in a new tab (no backend call).
+  const openWhatsApp = (url: string | null) => {
+    if (url) {
+      window.open(url, '_blank', 'noopener')
     }
   }
 
@@ -323,6 +346,21 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
   const handoverInsp = inspections.filter((x) => x.type === bookcarsTypes.InspectionType.Handover).slice(-1)[0]
   const returnInsp = inspections.filter((x) => x.type === bookcarsTypes.InspectionType.Return).slice(-1)[0]
   const hasPendingCharge = charges.some((x) => x.status === bookcarsTypes.ApprovalDecision.Pending)
+
+  // GA-PAR-23: wa.me deep link for the contract send. Null when the client
+  // has no usable stored phone (the button then renders disabled with the
+  // WA_NO_PHONE tooltip). Same view-level gating as Snapshot/Download: no
+  // extra permission — anyone who can open this booking detail can use it.
+  const waUrl = whatsApp ? contractWhatsAppUrl({
+    phone: whatsApp.phone,
+    template: strings.WA_CONTRACT_MESSAGE,
+    clientName: whatsApp.clientName,
+    reference: whatsApp.reference,
+    carLabel: whatsApp.carLabel,
+    fromText: formatDate(whatsApp.from),
+    toText: formatDate(whatsApp.to),
+    agencyName: whatsApp.agencyName,
+  }) : null
 
   return (
     <Card className="contract-operations" data-testid="contract-operations">
@@ -485,9 +523,11 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               <TextField label={strings.DEPOSIT_NOTE} value={deposit.note} onChange={(e) => setDeposit({ ...deposit, note: e.target.value })} />
             </div>
             <Divider sx={{ my: 1 }} />
-            <Button variant="contained" disabled={busy} onClick={makeSnapshot}>{strings.SNAPSHOT}</Button>
-            {snapshot && <Button sx={{ ml: 1 }} disabled={busy} onClick={downloadSnapshot}>{strings.DOWNLOAD}</Button>}
-            <Button sx={{ ml: 1 }} variant="outlined" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
+            <Button variant="contained" disabled={busy} onClick={() => makeSnapshot(false)}>{strings.SNAPSHOT}</Button>
+            <Button sx={{ ms: 1 }} variant="outlined" disabled={busy} onClick={() => makeSnapshot(true)}>{strings.SNAPSHOT_WITH_STAMP}</Button>
+            {snapshot && <Button sx={{ ms: 1 }} disabled={busy} onClick={downloadSnapshot}>{strings.DOWNLOAD}</Button>}
+            {whatsApp && <Button sx={{ ms: 1 }} variant="outlined" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>}
+            <Button sx={{ ms: 1 }} variant="outlined" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
           </>
         )}
       </CardContent>
