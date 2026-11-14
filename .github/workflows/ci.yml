@@ -1,0 +1,173 @@
+# Gestion Auto CI — hosted gates (Queue 4, Q4-5; roadmap §10 gate item 12).
+#
+# Mirrors the LOCAL gates exactly: types / backend / admin / frontend builds
+# run the same npm scripts as the local build, and the P0 suites (8 suites)
+# run against a real MongoDB replica set (rs0) + Redis — the same topology
+# as the local docker compose stack (mongo:7.0.12, redis:7-alpine).
+#
+# No deploy, no publish, no secrets: the CI MongoDB runs without auth and
+# the only env values set here are non-secret test values (dummy cookie/JWT
+# secrets, CI-only). The first real hosted run happens on the push to main
+# that carries this file.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: builds (types, backend, admin, frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            admin/package-lock.json
+            frontend/package-lock.json
+            packages/bookcars-types/package-lock.json
+            packages/currency-converter/package-lock.json
+            packages/bookcars-helper/package-lock.json
+
+      # npm ci: a package-lock.json exists at every one of these six paths,
+      # so installs are exact reproductions of the locked tree.
+      - name: Install dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix admin
+          npm ci --prefix frontend
+          npm ci --prefix packages/bookcars-types
+          npm ci --prefix packages/currency-converter
+          npm ci --prefix packages/bookcars-helper
+
+      # Same four build commands as the local gate, in the same order.
+      - name: Build types
+        run: npm --prefix packages/bookcars-types run build
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Build admin
+        run: npm --prefix admin run build
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+  p0:
+    name: P0 (8 suites, MongoDB rs0 + Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # MongoDB must be a replica set: the P0 suites (and the booking
+      # reservation path) require rs0 (see backend/.env.docker.example).
+      # A plain service container cannot pass --replSet, so MongoDB is
+      # started explicitly with the same image and flags as local compose.
+      - name: Start MongoDB 7.0 (replica set rs0) and Redis 7
+        run: |
+          docker run -d --name ga-ci-mongo -p 27017:27017 mongo:7.0.12 mongod --replSet rs0 --bind_ip_all
+          docker run -d --name ga-ci-redis -p 6379:6379 redis:7-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec ga-ci-mongo mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null | grep -q '^1$'; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec ga-ci-mongo mongosh --quiet --eval "db.adminCommand('ping').ok" | grep -q '^1$'
+          docker exec ga-ci-mongo mongosh --quiet --eval "try { rs.status().ok } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}).ok }"
+          for attempt in $(seq 1 30); do
+            if docker exec ga-ci-mongo mongosh --quiet --eval "rs.status().members.filter(function (m) { return m.stateStr === 'PRIMARY' }).length" 2>/dev/null | grep -q '^1$'; then
+              echo "mongo PRIMARY after ${attempt} checks"
+              break
+            fi
+            sleep 2
+          done
+          docker exec ga-ci-mongo mongosh --quiet --eval "rs.status().members.filter(function (m) { return m.stateStr === 'PRIMARY' }).length" | grep -q '^1$'
+          docker exec ga-ci-redis redis-cli ping | grep -q PONG
+
+      - name: Install backend dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix packages/bookcars-types
+          npm ci --prefix packages/currency-converter
+          npm ci --prefix packages/bookcars-helper
+
+      # The P0 globalSetup runs from dist/, so the backend must be built
+      # first — same command as the local P0 runner.
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      # Same eight suites, same jest invocation as the local P0 runner
+      # (__scripts/run-p0-tests.ps1). BC_DB_URI mirrors the local runner's
+      # URI shape, minus auth: the CI MongoDB runs without credentials.
+      # BC_COOKIE_SECRET / BC_JWT_SECRET are dummy CI-only values, not
+      # real secrets. No production env file is read or created here.
+      - name: Run P0 suites
+        working-directory: backend
+        env:
+          BC_DB_URI: 'mongodb://127.0.0.1:27017/bookcars?appName=bookcars&replicaSet=rs0&directConnection=true'
+          BC_REDIS_URL: 'redis://127.0.0.1:6379'
+          BC_CI: 'true'
+          BC_ADMIN_EMAIL: 'admin@bookcars.ma'
+          BC_COOKIE_SECRET: 'ci-only-dummy-cookie-secret'
+          BC_JWT_SECRET: 'ci-only-dummy-jwt-secret'
+          # env.config marks these required: dummy / temp values only.
+          # No mail is sent and no real file store is used by the P0 suites.
+          BC_SMTP_HOST: 'localhost'
+          BC_SMTP_PORT: '1025'
+          BC_SMTP_USER: 'ci'
+          BC_SMTP_PASS: 'ci-only-dummy-smtp-pass'
+          BC_SMTP_FROM: 'ci@example.invalid'
+          BC_ADMIN_HOST: 'http://localhost:3001/'
+          BC_FRONTEND_HOST: 'http://localhost:8080/'
+          BC_CDN_ROOT: ${{ runner.temp }}/cdn
+          BC_CDN_USERS: ${{ runner.temp }}/cdn/users
+          BC_CDN_TEMP_USERS: ${{ runner.temp }}/cdn/temp/users
+          BC_CDN_CARS: ${{ runner.temp }}/cdn/cars
+          BC_CDN_TEMP_CARS: ${{ runner.temp }}/cdn/temp/cars
+          BC_CDN_LOCATIONS: ${{ runner.temp }}/cdn/locations
+          BC_CDN_TEMP_LOCATIONS: ${{ runner.temp }}/cdn/temp/locations
+          BC_CDN_CONTRACTS: ${{ runner.temp }}/cdn/contracts
+          BC_CDN_TEMP_CONTRACTS: ${{ runner.temp }}/cdn/temp/contracts
+          BC_CDN_LICENSES: ${{ runner.temp }}/cdn/licenses
+          BC_CDN_TEMP_LICENSES: ${{ runner.temp }}/cdn/temp/licenses
+          BC_CDN_MAINTENANCE: ${{ runner.temp }}/cdn/maintenance
+          BC_CDN_TEMP_MAINTENANCE: ${{ runner.temp }}/cdn/temp/maintenance
+          NODE_ENV: 'test'
+          NODE_OPTIONS: '--experimental-vm-modules'
+        run: >-
+          npx jest --config jest.config.json --runInBand --no-coverage --forceExit
+          __tests__/contractEvidence.integration.test.ts
+          __tests__/contractLifecycle.test.ts
+          __tests__/p0RouteAuthorizationFinancial.integration.test.ts
+          __tests__/maintenanceReceiptSchedule.integration.test.ts
+          __tests__/reportReconciliation.integration.test.ts
+          __tests__/securityBaseline.integration.test.ts
+          __tests__/providerCurrent.integration.test.ts
+          __tests__/approvalsProducer.integration.test.ts
+
+      - name: Stop CI services
+        if: always()
+        run: docker rm -f ga-ci-mongo ga-ci-redis || true

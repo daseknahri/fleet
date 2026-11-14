@@ -38,6 +38,7 @@ import signingRoutes from './routes/signingRoutes'
 import reportRoutes from './routes/reportRoutes'
 import importRoutes from './routes/importRoutes'
 import globalSearchRoutes from './routes/globalSearchRoutes'
+import healthRoutes from './routes/healthRoutes'
 import * as helper from './utils/helper'
 import * as logger from './utils/logger'
 
@@ -86,6 +87,10 @@ app.use('/cdn', (req, res) => {
   res.status(404).type('text/plain').send('Not found')
 })
 
+// GA-Q4-5: unauthenticated health probe for monitoring (GET /health).
+// Mounted first so it stays reachable even if an API router misbehaves;
+// it performs no auth, no writes, and exposes no secrets.
+app.use('/', healthRoutes)
 app.use('/', supplierRoutes)
 // GA-PAR-12: signing routes register BEFORE bookingRoutes — its
 // POST /api/bookings/:page/:size/:language pattern would otherwise

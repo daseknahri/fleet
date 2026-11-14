@@ -97,6 +97,37 @@ export const close = async (force = false): Promise<void> => {
 }
 
 /**
+ * Pings the database with a real round-trip (GA-Q4-5, GET /health).
+ * Returns false — never throws — when not connected, when the ping
+ * fails, or when it does not answer within 3 seconds, so a hung
+ * database cannot hang the health probe.
+ *
+ * @async
+ * @returns {Promise<boolean>} true when the database answers the ping
+ */
+export const ping = async (): Promise<boolean> => {
+  try {
+    if (mongoose.connection.readyState !== mongoose.ConnectionStates.connected) {
+      return false
+    }
+    const db = mongoose.connection.db
+    if (!db) {
+      return false
+    }
+    const pong = await Promise.race([
+      db.admin().ping(),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 3000)
+      }),
+    ])
+    return pong !== null && pong.ok === 1
+  } catch (err) {
+    logger.error('Database ping failed:', err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/**
  * Creates a text index on a model's field.
  *
  * @param {Model<T>} model - The Mongoose model.
