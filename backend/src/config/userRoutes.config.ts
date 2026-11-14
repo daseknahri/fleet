@@ -26,6 +26,12 @@ const routes = {
   deleteTempAvatar: '/api/delete-temp-avatar/:avatar',
   getUsers: '/api/users/:page/:size',
   delete: '/api/delete-users',
+  // GA-PAR-22: trash / restore + the trash view's read path. Purge
+  // reuses the existing delete route (trash precondition, §4.1).
+  trash: '/api/trash-users',
+  restore: '/api/restore-users',
+  getTrashed: '/api/trashed-users/:page/:size/:language',
+  trashWarning: '/api/users/:id/trash-warning',
   checkPassword: '/api/check-password/:id/:password',
   checkPasswordPost: '/api/check-password/:id',
   signout: '/api/sign-out',

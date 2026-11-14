@@ -16,6 +16,7 @@ import {
   ListItem
 } from '@mui/material'
 import {
+  Delete as TrashIcon,
   Menu as MenuIcon,
   Mail as MailIcon,
   Notifications as NotificationsIcon,
@@ -77,6 +78,9 @@ const Header = ({
   const showAgents = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadAgents)
   const showReminders = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadReminders)
   const showImports = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings)
+  // GA-PAR-22: the trash tab needs a Manage* capability (Read* alone
+  // must not see deleted records' reasons/actors — §6).
+  const showTrash = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings)
 
   const [currentUser, setCurrentUser] = useState<bookcarsTypes.User>()
   const [lang, setLang] = useState(helper.getLanguage(env.DEFAULT_LANGUAGE))
@@ -486,6 +490,17 @@ const Header = ({
                   <ListItemIcon><UsersIcon /></ListItemIcon>
                   <ListItemText primary={strings.CLIENTS} />
                 </ListItem>
+                {showTrash && (
+                <ListItem
+                  onClick={() => {
+                    navigate('/trash')
+                    handleSideMenuClose()
+                  }}
+                >
+                  <ListItemIcon><TrashIcon /></ListItemIcon>
+                  <ListItemText primary={strings.TRASH} />
+                </ListItem>
+                )}
                 <ListItem
                   onClick={() => {
                     navigate('/maintenance')

@@ -2,6 +2,12 @@ const routes = {
   create: '/api/create-car',
   update: '/api/update-car',
   delete: '/api/delete-car/:id',
+  // GA-PAR-22: trash / restore + the trash view's read path. Purge
+  // reuses the existing delete route (trash precondition, §4.1).
+  trash: '/api/trash-car/:id',
+  restore: '/api/restore-car/:id',
+  getTrashed: '/api/trashed-cars/:page/:size',
+  trashWarning: '/api/cars/:id/trash-warning',
   validateLicensePlate: '/api/validate-license-plate/:licensePlate',
   validateCarLicensePlate: '/api/validate-license-plate/:id/:licensePlate',
   createImage: '/api/create-car-image',

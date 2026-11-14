@@ -208,6 +208,37 @@ const bookingSchema = new Schema<env.Booking>(
       type: String,
       select: false,
     },
+
+    // GA-PAR-22: trash / restore (scorecard #47). Trashed is a
+    // timestamp, not a status: absent/`null` = live, set = trashed.
+    // `deletedAt` is the single source of truth; there is no
+    // `isDeleted` boolean. Trash writes exactly these three fields
+    // and appends one `trashHistory` row; restore clears exactly
+    // those three fields and appends one row (exact-reversal
+    // invariant, D-22.2). Legacy rows carry none of these fields and
+    // read as live with zero migration.
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    deleteReason: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+    },
+    trashHistory: [{
+      at: { type: Date },
+      by: { type: Schema.Types.ObjectId, ref: 'User' },
+      action: { type: String, enum: ['trashed', 'restored'] },
+      reason: { type: String, maxlength: 1000 },
+      // Booking rows only: whether the trash money-warning fired
+      // (§2.5 — posted payments / non-voided invoices present).
+      hadPayments: { type: Boolean },
+      hadInvoices: { type: Boolean },
+    }],
     // GA-PAR-12: the recorded online signature. `file` names a PNG in the
     // private contracts store (env.CDN_CONTRACTS), served only through
     // authenticated routes; `contentHash` is the SHA-256 of the stored
@@ -248,6 +279,9 @@ bookingSchema.index(
 
 // Common filter for every query
 bookingSchema.index({ 'supplier._id': 1, status: 1, expireAt: 1 })
+// GA-PAR-22: serves both the live lists (`deletedAt: null`) and the
+// trash view (`deletedAt: { $ne: null }`) per agency.
+bookingSchema.index({ supplier: 1, deletedAt: 1 })
 
 // Optional filters (can combine with the above depending on frequency)
 bookingSchema.index({ 'driver._id': 1 })

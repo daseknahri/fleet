@@ -94,6 +94,20 @@ const carSchema = new Schema<env.Car>(
       type: Boolean,
       default: false,
     },
+    // Fleet statuses (scorecard #15): operator-set state of the car.
+    // `rented` is NOT stored — it stays derived from live bookings (see
+    // backend/src/utils/fleetStatus.ts). A car with no stored value
+    // (legacy docs) reads as inService everywhere.
+    operationalStatus: {
+      type: String,
+      enum: [
+        bookcarsTypes.CarOperationalStatus.InService,
+        bookcarsTypes.CarOperationalStatus.Maintenance,
+        bookcarsTypes.CarOperationalStatus.Stopped,
+      ],
+      default: bookcarsTypes.CarOperationalStatus.InService,
+      index: true,
+    },
     type: {
       type: String,
       enum: [
@@ -273,6 +287,54 @@ const carSchema = new Schema<env.Car>(
     vignetteExpiryDate: {
       type: Date,
     },
+    // Scorecard #17: garage block (all optional, informational only).
+    // No required fields, no default: a car with no stored block is
+    // simply not at a garage. A block whose every field is cleared is
+    // stored as absent, never as an empty sub-document (see
+    // normalizeGarage in carController.ts). The block never drives
+    // booking behaviour — that rides solely on operationalStatus (#15);
+    // a car at the garage will normally also be `maintenance`, but the
+    // system does not enforce the coupling.
+    garage: {
+      garageName: {
+        type: String,
+        trim: true,
+        maxlength: 200,
+      },
+      since: {
+        type: Date,
+      },
+      expectedBack: {
+        type: Date,
+      },
+    },
+    // Scorecard #18: service state — oil/filter change km tracking
+    // (all optional, informational only). No required fields, no
+    // default: a car with no stored block simply has no recorded
+    // service state. A block whose every field is cleared is stored
+    // as absent, never as an empty sub-document (see normalizeService
+    // in carController.ts). The block never drives booking behaviour.
+    // The generic MaintenanceSchedule rows (intervalKm /
+    // nextDueMileage, per-type schedule entries) are a separate
+    // concern and are NOT the source of these fields.
+    service: {
+      lastOilChangeKm: {
+        type: Number,
+        min: 0,
+      },
+      lastFilterChangeKm: {
+        type: Number,
+        min: 0,
+      },
+      nextOilChangeKm: {
+        type: Number,
+        min: 0,
+      },
+      nextFilterChangeKm: {
+        type: Number,
+        min: 0,
+      },
+    },
     blockOnPay: {
       type: Boolean,
       default: true,
@@ -282,6 +344,31 @@ const carSchema = new Schema<env.Car>(
       default: 0,
       select: false,
     },
+
+    // GA-PAR-22: trash / restore (scorecard #47). See Booking.ts for
+    // the shared semantics (timestamp, not status; exact-reversal
+    // invariant D-22.2). Trash IS the retirement the deleteCar 409
+    // message has been prescribing: a car with live bookings CAN be
+    // trashed (its bookings stay live), and can essentially never be
+    // purged while booking history exists.
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    deleteReason: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+    },
+    trashHistory: [{
+      at: { type: Date },
+      by: { type: Schema.Types.ObjectId, ref: 'User' },
+      action: { type: String, enum: ['trashed', 'restored'] },
+      reason: { type: String, maxlength: 1000 },
+    }],
   },
   {
     timestamps: true,
@@ -292,6 +379,12 @@ const carSchema = new Schema<env.Car>(
 
 // Add custom indexes
 carSchema.index({ updatedAt: -1, _id: 1 })
+// GA-PAR-22: serves both the live lists (`deletedAt: null`) and the
+// trash view (`deletedAt: { $ne: null }`) per agency.
+carSchema.index({ supplier: 1, deletedAt: 1 })
+// Fleet statuses (scorecard #15): serves the fleet-status counts and
+// the status filter in getCars.
+carSchema.index({ supplier: 1, operationalStatus: 1 })
 carSchema.index({ supplier: 1, type: 1, available: 1, rating: -1, updatedAt: -1, _id: 1 })
 carSchema.index({ available: 1, gearbox: 1, deposit: 1 })
 carSchema.index({ seats: 1, doors: 1 })

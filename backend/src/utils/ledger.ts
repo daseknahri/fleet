@@ -8,7 +8,7 @@ import Invoice from '../models/Invoice'
 import { recomputeInvoicePayment } from './invoicePayment'
 
 export class LedgerError extends Error {
-  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION', message: string) {
+  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION' | 'TRASHED', message: string) {
     super(message)
     this.name = 'LedgerError'
   }
@@ -98,11 +98,16 @@ aggregate.session(session)
 const postWithinSession = async (input: PostRentalPaymentInput, session?: mongoose.ClientSession) => {
   const bookingId = new mongoose.Types.ObjectId(input.bookingId)
   const bookingQuery = Booking.findOne({ _id: bookingId, ...(input.supplierId ? { supplier: input.supplierId } : {}) })
-    .select('_id supplier price status expireAt financialSnapshot ledgerVersion')
+    .select('_id supplier price status expireAt financialSnapshot ledgerVersion deletedAt')
   if (session) {
 bookingQuery.session(session)
 }
   const booking = await bookingQuery
+  // GA-PAR-22: no new money may move against a trashed contract —
+  // restore the booking first (design §5.5 mutation wall).
+  if (booking?.deletedAt) {
+    throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
+  }
   if (!booking || booking.expireAt || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
     throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
   }
@@ -203,9 +208,14 @@ export const confirmRentalPayment = async (input: {
     if (!payment || payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
       throw new LedgerError('INVALID_CONFIRMATION', 'Only a pending payment entry can be confirmed')
     }
-    const booking = await Booking.findById(payment.booking).select('_id price financialSnapshot')
+    const booking = await Booking.findById(payment.booking).select('_id price financialSnapshot deletedAt')
     if (!booking) {
       throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
+    }
+    // GA-PAR-22: a pending payment on a trashed contract cannot be
+    // confirmed into posted money — restore the booking first.
+    if (booking.deletedAt) {
+      throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
     }
     const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
     const currency = (payment.currency || env.BASE_CURRENCY).toUpperCase()
@@ -269,6 +279,13 @@ return existing
     if (!original || original.status !== bookcarsTypes.RentalPaymentStatus.Posted
       || original.direction === bookcarsTypes.RentalPaymentDirection.Debit) {
       throw new LedgerError('INVALID_REVERSAL', 'Only a posted credit can be reversed')
+    }
+    // GA-PAR-22: a posted payment on a trashed contract cannot be
+    // reversed — reversal is ledger movement against the contract,
+    // so restore the booking first (same rule as charge decisions).
+    const reversalBooking = await Booking.findById(original.booking).select('_id deletedAt')
+    if (reversalBooking?.deletedAt) {
+      throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
     }
     const reversalDate = input.date || new Date()
     const reversal = new RentalPayment({

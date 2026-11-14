@@ -118,21 +118,38 @@ const computeTotals = async (
   return { currency, subtotal, taxAmount, taxRate, total }
 }
 
-type ResolveResult<T> = { ok: true, doc: T | null } | { ok: false }
+type ResolveResult<T> = { ok: true, doc: T | null } | { ok: false, trashed?: 'booking' | 'client' | 'car' }
+
+/** GA-PAR-22: a re-link to a trashed row refuses 409 TRASHED (the
+ * resolver reports it); anything else unresolvable stays 400. Returns
+ * true when the handler must stop. */
+const linkRefused = <T,>(res: Response, result: ResolveResult<T>, kind: 'booking' | 'client' | 'car', notFound: string): result is Extract<ResolveResult<T>, { ok: false }> => {
+  if (result.ok) return false
+  if (result.trashed) {
+    res.status(409).send(`TRASHED: The linked ${kind} is trashed. Restore it first.`)
+  } else {
+    res.status(400).send(notFound)
+  }
+  return true
+}
 
 const resolveBooking = async (supplierId: string, bookingId: unknown): Promise<ResolveResult<{ _id: mongoose.Types.ObjectId, supplier: mongoose.Types.ObjectId, price?: number, financialSnapshot?: { rentalTotal?: number, baseCurrency?: string } | null, status: string }>> => {
   if (bookingId === undefined || bookingId === null || bookingId === '') return { ok: true, doc: null }
   if (!mongoose.isValidObjectId(String(bookingId))) return { ok: false }
-  const booking = await Booking.findOne({ _id: String(bookingId), supplier: supplierId }).select('_id supplier price financialSnapshot status').lean()
+  const booking = await Booking.findOne({ _id: String(bookingId), supplier: supplierId }).select('_id supplier price financialSnapshot status deletedAt').lean()
   if (!booking) return { ok: false }
+  // GA-PAR-22: a trashed booking cannot be (re-)linked to a quote.
+  if (booking.deletedAt) return { ok: false, trashed: 'booking' }
   return { ok: true, doc: booking as never }
 }
 
 const resolveClient = async (supplierId: string, clientId: unknown): Promise<ResolveResult<{ _id: mongoose.Types.ObjectId }>> => {
   if (clientId === undefined || clientId === null || clientId === '') return { ok: true, doc: null }
   if (!mongoose.isValidObjectId(String(clientId))) return { ok: false }
-  const client = await User.findOne({ _id: String(clientId), type: bookcarsTypes.UserType.User }).select('_id supplier').lean()
+  const client = await User.findOne({ _id: String(clientId), type: bookcarsTypes.UserType.User }).select('_id supplier deletedAt').lean()
   if (!client) return { ok: false }
+  // GA-PAR-22: a trashed client cannot be (re-)linked to a quote.
+  if (client.deletedAt) return { ok: false, trashed: 'client' }
   // Clients created by an agency carry its id; legacy/seeded clients carry
   // supplier null (the standing Clients-grid reality). A client owned by a
   // DIFFERENT agency is refused.
@@ -143,8 +160,10 @@ const resolveClient = async (supplierId: string, clientId: unknown): Promise<Res
 const resolveCar = async (supplierId: string, carId: unknown): Promise<ResolveResult<{ _id: mongoose.Types.ObjectId }>> => {
   if (carId === undefined || carId === null || carId === '') return { ok: true, doc: null }
   if (!mongoose.isValidObjectId(String(carId))) return { ok: false }
-  const car = await Car.findOne({ _id: String(carId), supplier: supplierId }).select('_id').lean()
+  const car = await Car.findOne({ _id: String(carId), supplier: supplierId }).select('_id deletedAt').lean()
   if (!car) return { ok: false }
+  // GA-PAR-22: a trashed car cannot be (re-)linked to a quote.
+  if (car.deletedAt) return { ok: false, trashed: 'car' }
   return { ok: true, doc: car as never }
 }
 
@@ -193,11 +212,11 @@ export const create = async (req: Request, res: Response) => {
     const body = (req.body || {}) as Record<string, unknown>
 
     const bookingRes = await resolveBooking(String(supplierId), body.booking)
-    if (!bookingRes.ok) { res.status(400).send('Linked booking not found for this agency'); return }
+    if (linkRefused(res, bookingRes, 'booking', 'Linked booking not found for this agency')) return
     const clientRes = await resolveClient(String(supplierId), body.client)
-    if (!clientRes.ok) { res.status(400).send('Linked client not found for this agency'); return }
+    if (linkRefused(res, clientRes, 'client', 'Linked client not found for this agency')) return
     const carRes = await resolveCar(String(supplierId), body.car)
-    if (!carRes.ok) { res.status(400).send('Linked car not found for this agency'); return }
+    if (linkRefused(res, carRes, 'car', 'Linked car not found for this agency')) return
 
     const totals = await computeTotals(String(supplierId), body, bookingRes.doc)
     if ('error' in totals) { res.status(400).send(totals.error); return }
@@ -241,15 +260,15 @@ export const update = async (req: Request, res: Response) => {
     const body = (req.body || {}) as Record<string, unknown>
 
     const bookingRes = body.booking !== undefined ? await resolveBooking(supplierId, body.booking) : undefined
-    if (bookingRes && !bookingRes.ok) { res.status(400).send('Linked booking not found for this agency'); return }
+    if (bookingRes && linkRefused(res, bookingRes, 'booking', 'Linked booking not found for this agency')) return
     const clientRes = body.client !== undefined ? await resolveClient(supplierId, body.client) : undefined
-    if (clientRes && !clientRes.ok) { res.status(400).send('Linked client not found for this agency'); return }
+    if (clientRes && linkRefused(res, clientRes, 'client', 'Linked client not found for this agency')) return
     const carRes = body.car !== undefined ? await resolveCar(supplierId, body.car) : undefined
-    if (carRes && !carRes.ok) { res.status(400).send('Linked car not found for this agency'); return }
+    if (carRes && linkRefused(res, carRes, 'car', 'Linked car not found for this agency')) return
 
     const effectiveBooking = bookingRes !== undefined
       ? bookingRes.doc
-      : (quote.booking ? await Booking.findById(quote.booking).select('_id supplier price financialSnapshot status').lean() : null)
+      : (quote.booking ? await Booking.findById(quote.booking).select('_id supplier price financialSnapshot status deletedAt').lean() : null)
     const totals = await computeTotals(supplierId, body, effectiveBooking as never, { subtotal: quote.subtotal, days: quote.days, dailyRate: quote.dailyRate })
     if ('error' in totals) { res.status(400).send(totals.error); return }
 
@@ -319,9 +338,14 @@ export const convert = async (req: Request, res: Response) => {
     if (!quote.booking) {
       res.status(400).send('Quote has no linked booking: an invoice requires a booking. Link a booking to the quote before converting.'); return
     }
-    const booking = await Booking.findOne({ _id: quote.booking, supplier: quote.supplier }).select('_id supplier price financialSnapshot status')
+    const booking = await Booking.findOne({ _id: quote.booking, supplier: quote.supplier }).select('_id supplier price financialSnapshot status deletedAt')
     if (!booking || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
       res.status(404).send('Contract not found'); return
+    }
+    // GA-PAR-22: converting a quote whose booking is trashed would
+    // create an invoice against a trashed contract — refuse 409.
+    if (booking.deletedAt) {
+      res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return
     }
     let invoice
     try {

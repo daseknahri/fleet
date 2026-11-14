@@ -113,6 +113,8 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
     driver: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
     status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
     expireAt: null,
+    // GA-PAR-22: trashed bookings leave the live balance due (§2.5).
+    deletedAt: null,
   }).select('_id driver price financialSnapshot to lifecycle').lean()
 
   const bookingIds = bookings.map((booking) => booking._id)

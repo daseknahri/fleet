@@ -34,9 +34,13 @@ export const create = async (req: Request, res: Response) => {
     if (!user || !mongoose.isValidObjectId(supplierId) || !mongoose.isValidObjectId(bookingId)) {
  res.status(400).send('Invalid invoice'); return
 }
-    const booking = await Booking.findOne({ _id: bookingId, supplier: supplierId }).select('_id supplier price financialSnapshot status')
+    const booking = await Booking.findOne({ _id: bookingId, supplier: supplierId }).select('_id supplier price financialSnapshot status deletedAt')
     if (!booking || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
  res.status(404).send('Contract not found'); return
+}
+    // GA-PAR-22: no invoice may be created for a trashed booking.
+    if (booking.deletedAt) {
+ res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return
 }
     // GA-PAR-05: creation itself lives in the shared util
     // (utils/invoiceCreation) so the manual endpoint, the booking
@@ -79,6 +83,13 @@ export const issue = async (req: Request, res: Response) => {
 }
     if (invoice.status !== bookcarsTypes.InvoiceStatus.Draft) {
  res.status(409).send('Only draft invoices can be issued'); return 
+}
+    // GA-PAR-22: a draft invoice on a trashed booking cannot be
+    // issued — restore the booking first. (Void stays allowed: it is
+    // fiscal close-out, not contract advancement.)
+    const invoiceBooking = await Booking.findById(invoice.booking).select('_id deletedAt').lean()
+    if (invoiceBooking?.deletedAt) {
+ res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return 
 }
     const year = new Date().getFullYear()
     const counter = await Counter.findOneAndUpdate(
@@ -139,6 +150,12 @@ export const recordPayment = async (req: Request, res: Response) => {
     const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
     if (!invoice || invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
  res.status(404).send('Issued invoice not found'); return 
+}
+    // GA-PAR-22: no payment may be recorded against an invoice of a
+    // trashed booking — restore the booking first.
+    const recordBooking = await Booking.findById(invoice.booking).select('_id deletedAt').lean()
+    if (recordBooking?.deletedAt) {
+ res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return 
 }
     // Blocking effect (decision 1.5): an invoice at or above the approval
     // threshold cannot take payments while its request is pending, and a

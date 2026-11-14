@@ -233,6 +233,9 @@ const genericInvalid = (req: Request, res: Response, reason: string) => {
 
 const isSignable = (booking: env.Booking) => (
   !booking.expireAt
+  // GA-PAR-22: a trashed booking can never be signed (public GET/POST
+  // fall through to the generic-invalid response — no oracle).
+  && !booking.deletedAt
   && booking.status !== bookcarsTypes.BookingStatus.Cancelled
   && booking.status !== bookcarsTypes.BookingStatus.Void
   && booking.lifecycle !== bookcarsTypes.ContractLifecycle.Completed
@@ -253,6 +256,14 @@ const loadStaffBooking = async (req: Request, res: Response) => {
   const booking = await Booking.findById(id).select('+signingNonce')
   if (!booking) {
     res.sendStatus(404)
+    return null
+  }
+  // GA-PAR-22: staff signing actions refuse a trashed booking 409
+  // TRASHED (after the agency/ownership check below, before any
+  // other business validation — the wall sits here so both
+  // issue/revoke inherit it).
+  if (booking.deletedAt) {
+    res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.')
     return null
   }
   const sessionUserId = req.user?._id

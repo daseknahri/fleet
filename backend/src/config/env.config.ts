@@ -641,6 +641,8 @@ export interface User extends Document {
   city?: string
   vatEnabled?: boolean
   vatRate?: number
+  /** GA-PAR-14: agency stamp filename in the private contracts store. */
+  stampFile?: string
   cinNumber?: string
   cinExpiry?: Date
   passportNumber?: string
@@ -650,6 +652,11 @@ export interface User extends Document {
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
   clientDocuments?: bookcarsTypes.ClientDocument[]
+  /** GA-PAR-22: trash / restore (client rows only — see User.ts). */
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
 }
 
 /**
@@ -702,6 +709,30 @@ export interface UserInfo {
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
   clientDocuments?: bookcarsTypes.ClientDocument[]
+  /** GA-PAR-22: trash fields (single-get returns them; lists omit the history). */
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
+}
+
+/** GA-PAR-22 — one trash-history row (append-only, per document). */
+export interface TrashHistoryRow {
+  at: Date
+  by?: Types.ObjectId
+  action: 'trashed' | 'restored'
+  reason: string
+  /** Booking rows only: whether the trash money-warning fired (§2.5). */
+  hadPayments?: boolean
+  hadInvoices?: boolean
+}
+
+/** GA-PAR-22 — the uniform trash fields (D-22.1). */
+export interface TrashFields {
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
 }
 
 /**
@@ -847,6 +878,11 @@ export interface Booking extends Document {
    * in the Mongoose schema — never serialized into any API response).
    */
   signingNonce?: string
+  /** GA-PAR-22: trash / restore (see Booking.ts). */
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
 }
 
 /** Apporteur (business referrer) document (GA-PAR-07). */
@@ -968,6 +1004,8 @@ export interface ContractSnapshot extends Document {
   pdfFile: string
   contentHash: string
   generatedAt: Date
+  /** GA-PAR-14: the snapshot was generated with the agency stamp requested. */
+  withStamp?: boolean
 }
 
 export interface Invoice extends Document {
@@ -1150,6 +1188,28 @@ export interface CarFinancing {
 }
 
 /**
+ * Scorecard #17 — garage block (nested paths on the Car document).
+ * All fields optional; garageName is trimmed, 1–200 chars when set.
+ */
+export interface CarGarage {
+  garageName?: string
+  since?: Date
+  expectedBack?: Date
+}
+
+/**
+ * Scorecard #18 — service state (nested paths on the Car document).
+ * All fields optional; km values are finite numbers >= 0, next >= last
+ * per pair when both are set (enforced in carController).
+ */
+export interface CarService {
+  lastOilChangeKm?: number
+  lastFilterChangeKm?: number
+  nextOilChangeKm?: number
+  nextFilterChangeKm?: number
+}
+
+/**
  * Car Document.
  *
  * @export
@@ -1196,6 +1256,9 @@ export interface Car extends Document {
   available: boolean
   fullyBooked?: boolean
   comingSoon?: boolean
+  // Fleet statuses (scorecard #15): operator-set state; absent on legacy
+  // docs (reads as inService).
+  operationalStatus?: bookcarsTypes.CarOperationalStatus
   type: bookcarsTypes.CarType
   gearbox: bookcarsTypes.GearboxType
   aircon: boolean
@@ -1218,11 +1281,20 @@ export interface Car extends Document {
   tankCapacityLitres?: number
   blockOnPay?: boolean
   bookingReservationVersion?: number
+  /** GA-PAR-22: trash fields (lists carry the scalars, never the history). */
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
   // GA-PAR-08: financing block + document expiry dates (all optional)
   financing?: CarFinancing
   insuranceExpiryDate?: Date
   technicalInspectionExpiryDate?: Date
   vignetteExpiryDate?: Date
+  // Scorecard #17: garage block (all optional, informational only).
+  garage?: CarGarage
+  // Scorecard #18: service state (all optional, informational only).
+  service?: CarService
 }
 
 /**
@@ -1284,6 +1356,11 @@ export interface BookingInfo {
   _additionalDriver?: Types.ObjectId
   cancelRequest?: boolean
   price: number
+  /** GA-PAR-22: trash fields (lists carry the scalars, never the history). */
+  deletedAt?: Date | null
+  deletedBy?: Types.ObjectId
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
 }
 
 /**

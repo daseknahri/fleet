@@ -8,6 +8,7 @@ import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissi
 import AccessDenied from '@/components/AccessDenied'
 import env from '@/config/env.config'
 import { strings } from '@/lang/clients'
+import { strings as trashStrings } from '@/lang/trash'
 import Search from '@/components/Search'
 import UserList from '@/components/UserList'
 
@@ -40,6 +41,11 @@ const Clients = () => {
                 onClick={() => navigate('/create-user?type=user&from=clients')}
               >
                 {strings.ADD_CLIENT}
+              </Button>
+            )}
+            {canManageClients && (
+              <Button variant="text" size="small" onClick={() => navigate('/trash')}>
+                {trashStrings.VIEW_TRASH}
               </Button>
             )}
           </div>

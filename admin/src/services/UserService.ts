@@ -465,6 +465,10 @@ export const changePassword = (data: bookcarsTypes.ChangePasswordPayload): Promi
 /**
  * Delete Users.
  *
+ * Legacy plain-array body: Staff/Supplier targets keep today's
+ * hard-delete byte-for-byte. Client targets must go through the
+ * trash flow (trashUsers) or the purge flow (purgeUsers) instead.
+ *
  * @param {string[]} ids
  * @returns {Promise<number>}
  */
@@ -477,6 +481,90 @@ export const deleteUsers = (ids: string[]): Promise<number> => (
     )
     .then((res) => res.status)
 )
+
+/**
+ * Purge Clients from trash (GA-PAR-22).
+ *
+ * Refuses live clients (409 NOT_TRASHED) and clients with any booking
+ * (409 PURGE_BLOCKED_BOOKING). Called only from the Trash view; the
+ * reason is required (3–1000).
+ *
+ * @param {string[]} ids
+ * @param {string} reason
+ * @returns {Promise<number>}
+ */
+export const purgeUsers = (ids: string[], reason: string): Promise<number> => (
+  axiosInstance
+    .post(
+      '/api/delete-users',
+      { ids, reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+)
+
+/**
+ * Trash Clients (GA-PAR-22).
+ *
+ * @param {string[]} ids
+ * @param {string} reason
+ * @returns {Promise<number>}
+ */
+export const trashUsers = (ids: string[], reason: string): Promise<number> =>
+  axiosInstance
+    .post(
+      '/api/trash-users',
+      { ids, reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Restore Clients (GA-PAR-22).
+ *
+ * @param {string[]} ids
+ * @param {string} [reason]
+ * @returns {Promise<number>}
+ */
+export const restoreUsers = (ids: string[], reason?: string): Promise<number> =>
+  axiosInstance
+    .post(
+      '/api/restore-users',
+      { ids, reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Get Trashed Clients (GA-PAR-22).
+ *
+ * @param {string} keyword
+ * @param {number} page
+ * @param {number} size
+ * @returns {Promise<bookcarsTypes.Result<bookcarsTypes.User>>}
+ */
+export const getTrashedUsers = (keyword: string, page: number, size: number): Promise<bookcarsTypes.Result<bookcarsTypes.User>> =>
+  axiosInstance
+    .post(
+      `/api/trashed-users/${page}/${size}/${getLanguage()}/?s=${encodeURIComponent(keyword)}`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Get the trash-warning figures for one Client (GA-PAR-22, §5.7).
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.TrashWarning>}
+ */
+export const getUserTrashWarning = (id: string): Promise<bookcarsTypes.TrashWarning> =>
+  axiosInstance
+    .get(
+      `/api/users/${encodeURIComponent(id)}/trash-warning`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
 
 /**
 * Create temporary license.

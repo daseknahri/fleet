@@ -13,6 +13,12 @@ routes.route(routeNames.confirmPaymentIntent).post(bookingController.confirmPaym
 routes.route(routeNames.update).put(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.update)
 routes.route(routeNames.updateStatus).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.updateStatus)
 routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.deleteBookings)
+// GA-PAR-22: trash / restore / trash view are ManageBookings work —
+// the same capability as the delete they replace (no new capability).
+routes.route(routeNames.trash).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.trashBookings)
+routes.route(routeNames.restore).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.restoreBookings)
+routes.route(routeNames.getTrashed).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getTrashedBookings)
+routes.route(routeNames.trashWarning).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getBookingTrashWarning)
 routes.route(routeNames.deleteTempBooking).delete(bookingController.deleteTempBooking)
 routes.route(routeNames.getBooking).get(authJwt.verifyTokenOptional, bookingController.getBooking)
 routes.route(routeNames.getBookingId).get(bookingController.getBookingId)

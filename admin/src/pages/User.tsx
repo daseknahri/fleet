@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogActions,
   Tooltip,
+  TextField,
   Link,
 } from '@mui/material'
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material'
@@ -17,6 +18,7 @@ import * as bookcarsHelper from ':bookcars-helper'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as ulStrings } from '@/lang/user-list'
+import { strings as trashStrings } from '@/lang/trash'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
@@ -42,6 +44,9 @@ const User = () => {
   const [loading, setLoading] = useState(true)
   const [noMatch, setNoMatch] = useState(false)
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
+  const [trashReason, setTrashReason] = useState('')
+  const [trashReasonTouched, setTrashReasonTouched] = useState(false)
+  const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [balance, setBalance] = useState<bookcarsTypes.ClientBalance>()
   const [offset, setOffset] = useState(0)
@@ -63,13 +68,47 @@ const User = () => {
     setLoading(false)
   }
 
-  const handleDelete = () => {
+  // GA-PAR-22 FIX22 (F1): the detail-page Delete button trashes a
+  // client (reason required) instead of hard-deleting it through the
+  // legacy array path. Staff/supplier rows keep the legacy delete.
+  const isClient = user?.type === bookcarsTypes.UserType.User
+  const trashReasonValid = trashReason.trim().length >= 3 && trashReason.trim().length <= 1000
+
+  const handleDelete = async () => {
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
     setOpenDeleteDialog(true)
+    if (isClient && user?._id) {
+      try {
+        setTrashWarning(await UserService.getUserTrashWarning(user._id as string))
+      } catch (err) {
+        // advisory only
+      }
+    }
   }
 
   const handleConfirmDelete = async () => {
     try {
       if (user) {
+        if (isClient) {
+          if (!trashReasonValid) {
+            setTrashReasonTouched(true)
+            return
+          }
+          setOpenDeleteDialog(false)
+          const status = await UserService.trashUsers([user._id as string], trashReason.trim())
+          if (status === 200) {
+            navigate('/users')
+          } else {
+            helper.error()
+            setLoading(false)
+          }
+          setTrashReason('')
+          setTrashReasonTouched(false)
+          setTrashWarning(null)
+          return
+        }
         setOpenDeleteDialog(false)
 
         const status = await UserService.deleteUsers([user._id as string])
@@ -90,6 +129,9 @@ const User = () => {
 
   const handleCancelDelete = () => {
     setOpenDeleteDialog(false)
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
   }
 
   const onLoad = async (_loggedUser?: bookcarsTypes.User) => {
@@ -295,12 +337,33 @@ const User = () => {
       )}
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
         <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-        <DialogContent>{ulStrings.DELETE_USER}</DialogContent>
+        <DialogContent className="dialog-content">
+          {isClient ? trashStrings.TRASH_CLIENT : ulStrings.DELETE_USER}
+          {isClient && trashWarning && (trashWarning.bookingsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_BOOKINGS}: ${trashWarning.bookingsCount}`}</Typography>
+          )}
+          {isClient && trashWarning && (trashWarning.paymentsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_PAYMENTS}: ${trashWarning.paymentsCount} — ${trashWarning.paymentsCollected} MAD`}</Typography>
+          )}
+          {isClient && (
+            <TextField
+              label={trashStrings.REASON_LABEL}
+              fullWidth
+              multiline
+              rows={2}
+              value={trashReason}
+              onChange={(e) => { setTrashReason(e.target.value); setTrashReasonTouched(true) }}
+              error={trashReasonTouched && !trashReasonValid}
+              helperText={trashReasonTouched && !trashReasonValid ? trashStrings.REASON_REQUIRED : ''}
+              margin="normal"
+            />
+          )}
+        </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
             {commonStrings.CANCEL}
           </Button>
-          <Button onClick={handleConfirmDelete} variant="contained" color="error">
+          <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={isClient && !trashReasonValid}>
             {commonStrings.DELETE}
           </Button>
         </DialogActions>

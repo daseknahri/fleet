@@ -40,6 +40,12 @@ routes.route(routeNames.checkPassword).get(authJwt.verifyToken, userController.c
 routes.route(routeNames.checkPasswordPost).post(authJwt.verifyToken, userController.checkPassword)
 routes.route(routeNames.getUsers).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getUsers)
 routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.deleteUsers)
+// GA-PAR-22: trash / restore / trash view are ManageClients work —
+// the same capability as the delete they replace (no new capability).
+routes.route(routeNames.trash).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.trashUsers)
+routes.route(routeNames.restore).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.restoreUsers)
+routes.route(routeNames.getTrashed).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.getTrashedUsers)
+routes.route(routeNames.trashWarning).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.getUserTrashWarning)
 routes.route(routeNames.verifyRecaptcha).post(userController.verifyRecaptcha)
 routes.route(routeNames.sendEmail).post(mailRateLimiter, userController.sendEmail)
 routes.route(routeNames.hasPassword).get(authJwt.verifyToken, userController.hasPassword)

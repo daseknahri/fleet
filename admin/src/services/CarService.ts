@@ -75,18 +75,87 @@ export const validateCarLicensePlate = (carId: string, licensePlate: string): Pr
     .then((res) => res.status)
 
 /**
- * Delete a Car.
+ * Delete a Car (purge-from-trash only, GA-PAR-22).
+ *
+ * The route refuses live cars (409 NOT_TRASHED) and cars with any
+ * booking history (409, unchanged). Called only from the Trash view;
+ * the reason is required (3–1000).
  *
  * @param {string} id
+ * @param {string} reason
  * @returns {Promise<number>}
  */
-export const deleteCar = (id: string): Promise<number> =>
+export const deleteCar = (id: string, reason?: string): Promise<number> =>
   axiosInstance
     .delete(
       `/api/delete-car/${encodeURIComponent(id)}`,
+      { withCredentials: true, data: { reason } }
+    )
+    .then((res) => res.status)
+
+/**
+ * Trash a Car (GA-PAR-22).
+ *
+ * @param {string} id
+ * @param {string} reason
+ * @returns {Promise<number>}
+ */
+export const trashCar = (id: string, reason: string): Promise<number> =>
+  axiosInstance
+    .post(
+      `/api/trash-car/${encodeURIComponent(id)}`,
+      { reason },
       { withCredentials: true }
     )
     .then((res) => res.status)
+
+/**
+ * Restore a Car (GA-PAR-22).
+ *
+ * @param {string} id
+ * @param {string} [reason]
+ * @returns {Promise<number>}
+ */
+export const restoreCar = (id: string, reason?: string): Promise<number> =>
+  axiosInstance
+    .post(
+      `/api/restore-car/${encodeURIComponent(id)}`,
+      { reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Get Trashed Cars (GA-PAR-22).
+ *
+ * @param {string[]} suppliers
+ * @param {string} keyword
+ * @param {number} page
+ * @param {number} size
+ * @returns {Promise<bookcarsTypes.Result<bookcarsTypes.Car>>}
+ */
+export const getTrashedCars = (suppliers: string[], keyword: string, page: number, size: number): Promise<bookcarsTypes.Result<bookcarsTypes.Car>> =>
+  axiosInstance
+    .post(
+      `/api/trashed-cars/${page}/${size}/?s=${encodeURIComponent(keyword)}`,
+      { suppliers },
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Get the trash-warning figures for one Car (GA-PAR-22, §5.7).
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.TrashWarning>}
+ */
+export const getCarTrashWarning = (id: string): Promise<bookcarsTypes.TrashWarning> =>
+  axiosInstance
+    .get(
+      `/api/cars/${encodeURIComponent(id)}/trash-warning`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
 
 /**
  * Create a temporary Car image.

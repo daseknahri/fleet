@@ -11,7 +11,8 @@ import {
   Tooltip,
   Card,
   CardContent,
-  Typography
+  Typography,
+  TextField
 } from '@mui/material'
 import {
   LocalGasStation as CarTypeIcon,
@@ -32,7 +33,9 @@ import env from '@/config/env.config'
 import Const from '@/config/const'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/cars'
+import { strings as trashStrings } from '@/lang/trash'
 import * as helper from '@/utils/helper'
+import { fleetStatusClass, fleetStatusLabel, fleetStatusOfCar } from '@/utils/fleetStatus'
 import * as CarService from '@/services/CarService'
 import Pager from '@/components/Pager'
 import Progress from '@/components/Progress'
@@ -56,6 +59,9 @@ interface CarListProps {
   fuelPolicy?: string[],
   deposit?: number
   availability?: string[]
+  // Fleet statuses (scorecard #15): one of the four derived statuses;
+  // 'all' (default) means no status filter.
+  fleetStatus?: bookcarsTypes.CarFleetStatus | 'all'
   reload?: boolean
   cars?: bookcarsTypes.Car[]
   user?: bookcarsTypes.User
@@ -83,6 +89,7 @@ const CarList = ({
   fuelPolicy: _fuelPolicy,
   deposit: carDeposit,
   availability: carAvailability,
+  fleetStatus: carFleetStatus = 'all',
   reload,
   cars,
   user: carUser,
@@ -111,10 +118,19 @@ const CarList = ({
   const [page, setPage] = useState(1)
   const [rowCount, setRowCount] = useState(0)
   const [totalRecords, setTotalRecords] = useState(0)
+  // Fleet statuses (scorecard #15): per-status counts from the server,
+  // over the same filtered set as the list; zero until the first fetch.
+  const [fleetStatusCounts, setFleetStatusCounts] = useState<bookcarsTypes.FleetStatusCounts>({ available: 0, rented: 0, maintenance: 0, stopped: 0 })
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
   const [carId, setCarId] = useState('')
   const [carIndex, setCarIndex] = useState(-1)
-  const [openInfoDialog, setOpenInfoDialog] = useState(false)
+  // GA-PAR-22: the delete dialog is now a trash dialog (reason required,
+  // booking figures for the car). The checkCar info dialog is gone: a car
+  // WITH bookings CAN now be trashed (trash is the retirement).
+  const [trashReason, setTrashReason] = useState('')
+  const [trashReasonTouched, setTrashReasonTouched] = useState(false)
+  const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
+  const trashReasonValid = trashReason.trim().length >= 3 && trashReason.trim().length <= 1000
 
   useEffect(() => {
     if (env.PAGINATION_MODE === Const.PAGINATION_MODE.INFINITE_SCROLL || env.isMobile) {
@@ -145,6 +161,7 @@ const CarList = ({
     fuelPolicy?: string[],
     deposit?: number,
     availability?: string[],
+    fleetStatus?: bookcarsTypes.CarFleetStatus | 'all',
     _range?: string[],
     _multimedia?: string[],
     _rating?: number,
@@ -162,6 +179,8 @@ const CarList = ({
         fuelPolicy,
         deposit,
         availability,
+        // Fleet statuses (scorecard #15): 'all' sends no filter.
+        fleetStatus: fleetStatus === 'all' ? undefined : fleetStatus,
         ranges: _range,
         multimedia: _multimedia,
         rating: _rating,
@@ -169,12 +188,15 @@ const CarList = ({
       }
       const data = await CarService.getCars(keyword || '', payload, _page, env.CARS_PAGE_SIZE)
 
-      const _data = data && data.length > 0 ? data[0] : { pageInfo: { totalRecord: 0 }, resultData: [] }
+      const _data = data && data.length > 0 ? data[0] : { pageInfo: { totalRecord: 0 }, resultData: [], fleetStatusCounts: undefined }
       if (!_data) {
         helper.error()
         return
       }
       const _totalRecords = Array.isArray(_data.pageInfo) && _data.pageInfo.length > 0 ? _data.pageInfo[0].totalRecords : 0
+      // Fleet statuses (scorecard #15): per-status counts over the same
+      // filtered set as the list; zero when the server sends none.
+      setFleetStatusCounts(_data.fleetStatusCounts || { available: 0, rented: 0, maintenance: 0, stopped: 0 })
 
       let _rows: bookcarsTypes.Car[] = []
       if (env.PAGINATION_MODE === Const.PAGINATION_MODE.INFINITE_SCROLL || env.isMobile) {
@@ -217,6 +239,7 @@ const CarList = ({
           _fuelPolicy,
           carDeposit || 0,
           carAvailability,
+          carFleetStatus,
           range,
           multimedia,
           rating,
@@ -232,7 +255,7 @@ const CarList = ({
         setInit(false)
       }
     }
-  }, [page, carSuppliers, carKeyword, _carSpecs, _carType, carGearbox, carMileage, _fuelPolicy, carDeposit, carAvailability, range, multimedia, rating, seats]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, carSuppliers, carKeyword, _carSpecs, _carType, carGearbox, carMileage, _fuelPolicy, carDeposit, carAvailability, carFleetStatus, range, multimedia, rating, seats]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (cars) {
@@ -278,49 +301,49 @@ const CarList = ({
         _fuelPolicy,
         carDeposit,
         carAvailability,
+        carFleetStatus,
         range,
         multimedia,
         rating,
         seats,
       )
     }
-  }, [reload, carSuppliers, carKeyword, _carSpecs, _carType, carGearbox, carMileage, _fuelPolicy, carDeposit, carAvailability, range, multimedia, rating, seats,]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reload, carSuppliers, carKeyword, _carSpecs, _carType, carGearbox, carMileage, _fuelPolicy, carDeposit, carAvailability, carFleetStatus, range, multimedia, rating, seats,]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setUser(carUser)
   }, [carUser])
 
   const handleDelete = async (e: React.MouseEvent<HTMLElement>) => {
+    // GA-PAR-22: no checkCar gate any more — a car with bookings can be
+    // trashed. Opens the trash dialog and fetches the live §5.7 figures.
+    const _carId = e.currentTarget.getAttribute('data-id') as string
+    const _carIndex = Number(e.currentTarget.getAttribute('data-index') as string)
+
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
+    setOpenDeleteDialog(true)
+    setCarId(_carId)
+    setCarIndex(_carIndex)
     try {
-      const _carId = e.currentTarget.getAttribute('data-id') as string
-      const _carIndex = Number(e.currentTarget.getAttribute('data-index') as string)
-
-      const status = await CarService.check(_carId)
-
-      if (status === 200) {
-        setOpenInfoDialog(true)
-      } else if (status === 204) {
-        setOpenDeleteDialog(true)
-        setCarId(_carId)
-        setCarIndex(_carIndex)
-      } else {
-        helper.error()
-      }
+      setTrashWarning(await CarService.getCarTrashWarning(_carId))
     } catch (err) {
-      helper.error(err)
+      // advisory only
     }
   }
 
-  const handleCloseInfo = () => {
-    setOpenInfoDialog(false)
-  }
-
   const handleConfirmDelete = async () => {
+    // GA-PAR-22: delete now means trash — reason is required.
+    if (!trashReasonValid) {
+      setTrashReasonTouched(true)
+      return
+    }
     try {
       if (carId !== '' && carIndex > -1) {
         setOpenDeleteDialog(false)
 
-        const status = await CarService.deleteCar(carId)
+        const status = await CarService.trashCar(carId, trashReason.trim())
 
         if (status === 200) {
           const _rowCount = rowCount - 1
@@ -354,6 +377,9 @@ const CarList = ({
   const handleCancelDelete = () => {
     setOpenDeleteDialog(false)
     setCarId('')
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
   }
 
   const getExtraIcon = (option: string, extra: number) => {
@@ -393,6 +419,15 @@ const CarList = ({
     (user && (
       <>
         <section className={`${className ? `${className} ` : ''}car-list`}>
+          {/* Fleet statuses (scorecard #15): per-status counts over the
+              same filtered set as the list — display only, never
+              hard-coded; zero until the first fetch resolves. */}
+          <div className="fleet-status-counts">
+            <span>{`${strings.AVAILABLE}: ${fleetStatusCounts.available}`}</span>
+            <span>{`${strings.FLEET_STATUS_RENTED}: ${fleetStatusCounts.rented}`}</span>
+            <span>{`${strings.FLEET_STATUS_MAINTENANCE}: ${fleetStatusCounts.maintenance}`}</span>
+            <span>{`${strings.FLEET_STATUS_STOPPED}: ${fleetStatusCounts.stopped}`}</span>
+          </div>
           {rows.length === 0
             ? !init
             && !loading
@@ -406,6 +441,10 @@ const CarList = ({
             )
             : rows.map((car, index) => {
               const edit = admin || car.supplier._id === user._id
+              // Fleet statuses (scorecard #15): derived display status of
+              // the row (server value wins; the fallback never claims
+              // `rented` from the client).
+              const fleetStatus = fleetStatusOfCar(car)
               return (
                 <article key={car._id}>
                   <div className="car">
@@ -424,7 +463,7 @@ const CarList = ({
                         {car.co2 && (
                           <div className="co2">
                             <img
-                              alt="CO2 Effect"
+                              alt={strings.CO2}
                               src={
                                 car.co2 <= 90
                                   ? CO2MinIcon
@@ -526,6 +565,78 @@ const CarList = ({
                               </div>
                             </Tooltip>
                           </li>
+                          {/* Fleet statuses (scorecard #15): status badge
+                              of the row (no badge when the car belongs to
+                              none of the four counted statuses). */}
+                          {fleetStatus && (
+                            <li className={fleetStatusClass(fleetStatus)}>
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">{fleetStatusLabel(fleetStatus)}</span>
+                              </div>
+                            </li>
+                          )}
+                          {/* Scorecard #17: at-garage badge — shown whenever
+                              the car carries a garage block (any field set);
+                              the garage name is shown when present.
+                              Informational only. */}
+                          {car.garage && (
+                            <li className="car-maintenance">
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">{car.garage.garageName ? `${strings.GARAGE_AT_GARAGE} — ${car.garage.garageName}` : strings.GARAGE_AT_GARAGE}</span>
+                              </div>
+                            </li>
+                          )}
+                          {/* Scorecard #18: service state — last/next
+                              oil/filter km as recorded on the car. The due
+                              badges are a PURE DISPLAY comparison against
+                              the car's current mileage (mileage >= next
+                              km); nothing is derived server-side and no
+                              due-soon threshold is invented (there is no
+                              owner-set warning window). */}
+                          {car.service && (car.service.lastOilChangeKm != null || car.service.nextOilChangeKm != null) && (
+                            <li>
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">
+                                  {[
+                                    car.service.lastOilChangeKm != null ? `${strings.SERVICE_LAST_OIL}: ${bookcarsHelper.formatNumber(car.service.lastOilChangeKm, language as string)} km` : '',
+                                    car.service.nextOilChangeKm != null ? `${strings.SERVICE_NEXT_OIL}: ${bookcarsHelper.formatNumber(car.service.nextOilChangeKm, language as string)} km` : '',
+                                  ].filter(Boolean).join(' · ')}
+                                </span>
+                              </div>
+                            </li>
+                          )}
+                          {car.service && car.service.nextOilChangeKm != null && car.mileage >= car.service.nextOilChangeKm && (
+                            <li className="car-maintenance">
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">{strings.SERVICE_OIL_DUE}</span>
+                              </div>
+                            </li>
+                          )}
+                          {car.service && (car.service.lastFilterChangeKm != null || car.service.nextFilterChangeKm != null) && (
+                            <li>
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">
+                                  {[
+                                    car.service.lastFilterChangeKm != null ? `${strings.SERVICE_LAST_FILTER}: ${bookcarsHelper.formatNumber(car.service.lastFilterChangeKm, language as string)} km` : '',
+                                    car.service.nextFilterChangeKm != null ? `${strings.SERVICE_NEXT_FILTER}: ${bookcarsHelper.formatNumber(car.service.nextFilterChangeKm, language as string)} km` : '',
+                                  ].filter(Boolean).join(' · ')}
+                                </span>
+                              </div>
+                            </li>
+                          )}
+                          {car.service && car.service.nextFilterChangeKm != null && car.mileage >= car.service.nextFilterChangeKm && (
+                            <li className="car-maintenance">
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">{strings.SERVICE_FILTER_DUE}</span>
+                              </div>
+                            </li>
+                          )}
                           {car.fullyBooked && (
                             <li className="car-unavailable">
                               <div className="car-info-list-item">
@@ -651,24 +762,30 @@ const CarList = ({
 
           {loading && <Progress />}
 
-          <Dialog disableEscapeKeyDown maxWidth="xs" open={openInfoDialog}>
-            <DialogTitle className="dialog-header">{commonStrings.INFO}</DialogTitle>
-            <DialogContent>{strings.CANNOT_DELETE_CAR}</DialogContent>
-            <DialogActions className="dialog-actions">
-              <Button onClick={handleCloseInfo} variant="contained" className="btn-secondary">
-                {commonStrings.CLOSE}
-              </Button>
-            </DialogActions>
-          </Dialog>
-
           <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
             <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-            <DialogContent>{strings.DELETE_CAR}</DialogContent>
+            <DialogContent>
+              {trashStrings.TRASH_CAR}
+              {trashWarning && (trashWarning.bookingsCount || 0) > 0 && (
+                <Typography>{`${trashStrings.WARNING_BOOKINGS}: ${trashWarning.liveBookingsCount} ${trashStrings.WARNING_LIVE}, ${trashWarning.trashedBookingsCount} ${trashStrings.WARNING_TRASHED}`}</Typography>
+              )}
+              <TextField
+                label={trashStrings.REASON_LABEL}
+                fullWidth
+                multiline
+                rows={2}
+                value={trashReason}
+                onChange={(e) => { setTrashReason(e.target.value); setTrashReasonTouched(true) }}
+                error={trashReasonTouched && !trashReasonValid}
+                helperText={trashReasonTouched && !trashReasonValid ? trashStrings.REASON_REQUIRED : ''}
+                margin="normal"
+              />
+            </DialogContent>
             <DialogActions className="dialog-actions">
               <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
                 {commonStrings.CANCEL}
               </Button>
-              <Button onClick={handleConfirmDelete} variant="contained" color="error">
+              <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={!trashReasonValid}>
                 {commonStrings.DELETE}
               </Button>
             </DialogActions>

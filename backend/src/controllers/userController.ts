@@ -32,6 +32,8 @@ import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../util
 import { normalizeFiscalFields, applyFiscalFields, FISCAL_STRING_KEYS } from '../utils/fiscal'
 import { normalizeClientIdentityFields, applyClientIdentityFields, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
 import { getClientBalances } from '../utils/contractReceivable'
+import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
+import RentalPayment from '../models/RentalPayment'
 
 /**
  * Get status message as HTML.
@@ -1412,6 +1414,15 @@ export const update = async (req: Request, res: Response) => {
     }
     // end of security check
 
+    // GA-PAR-22: a trashed client cannot be updated — not even by the
+    // client themself (wall after the ownership check above, before
+    // any other business validation). Staff/Supplier rows are never
+    // trashed, so the wall applies to client rows only.
+    if (user.type === bookcarsTypes.UserType.User && user.deletedAt) {
+      res.status(409).send(trashedMessage('client'))
+      return
+    }
+
     const {
       fullName,
       phone,
@@ -1697,6 +1708,12 @@ export const getUser = async (req: Request, res: Response) => {
       priceChangeRate: 1,
       supplierCarLimit: 1,
       notifyAdminOnNewCar: 1,
+      // GA-PAR-22: single-gets return the trash fields + full history
+      // to agency/admin callers (§3).
+      deletedAt: 1,
+      deletedBy: 1,
+      deleteReason: 1,
+      trashHistory: 1,
     }).lean()
 
     // begin of security check
@@ -1757,6 +1774,15 @@ export const getUser = async (req: Request, res: Response) => {
       return
     }
     // end of security check
+
+    // GA-PAR-22: a trashed client row is never returned to a customer
+    // caller — not even to the client themself (silent 204). The
+    // owning agency / platform admin see the full row above.
+    if (user?.type === bookcarsTypes.UserType.User && user.deletedAt
+      && !isSupplierUser && !isStaffAgencyCustomer && sessionUserType !== bookcarsTypes.UserType.Admin) {
+      res.sendStatus(204)
+      return
+    }
 
     if (!user) {
       logger.error('[user.getUser] User not found:', req.params)
@@ -1845,6 +1871,11 @@ export const updateAvatar = async (req: Request, res: Response) => {
     }
 
     if (user) {
+      // GA-PAR-22: a trashed client's avatar cannot change.
+      if (user.type === bookcarsTypes.UserType.User && user.deletedAt) {
+        res.status(409).send(trashedMessage('client'))
+        return
+      }
       if (user.avatar && !user.avatar.startsWith('http')) {
         const avatar = path.join(env.CDN_USERS, user.avatar)
 
@@ -1912,6 +1943,11 @@ export const deleteAvatar = async (req: Request, res: Response) => {
     }
 
     if (user) {
+      // GA-PAR-22: a trashed client's avatar cannot be deleted.
+      if (user.type === bookcarsTypes.UserType.User && user.deletedAt) {
+        res.status(409).send(trashedMessage('client'))
+        return
+      }
       if (user.avatar && !user.avatar.startsWith('http')) {
         const avatar = path.join(env.CDN_USERS, user.avatar)
         if (await helper.pathExists(avatar)) {
@@ -2171,6 +2207,11 @@ export const getUsers = async (req: Request, res: Response) => {
         {
           expireAt: null,
         },
+        // GA-PAR-22: live rows only — trashed clients never leak into
+        // the live list (the trash view has its own endpoint).
+        {
+          deletedAt: null,
+        },
       ],
     }
 
@@ -2214,6 +2255,11 @@ export const getUsers = async (req: Request, res: Response) => {
             clientType: 1,
             clientStatus: 1,
             clientDocuments: 1,
+            // GA-PAR-22: lists carry the trash scalars, never the
+            // history (§3).
+            deletedAt: 1,
+            deletedBy: 1,
+            deleteReason: 1,
           },
         },
         {
@@ -2280,8 +2326,28 @@ export const getUsers = async (req: Request, res: Response) => {
  */
 export const deleteUsers = async (req: Request, res: Response) => {
   try {
-    const { body }: { body: string[] } = req
-    const ids: mongoose.Types.ObjectId[] = body.map((id: string) => new mongoose.Types.ObjectId(id))
+    // GA-PAR-22: two body shapes. The legacy plain array keeps
+    // today's hard-delete behaviour byte-for-byte for staff/supplier
+    // targets. The object shape `{ ids, reason }` is the purge path,
+    // called only from the Trash view. FIX22 (F1): the client
+    // precondition (design §4.1) applies in BOTH shapes — a live
+    // client → 409 NOT_TRASHED, a client with any booking → 409
+    // PURGE_BLOCKED_BOOKING — with no exception for body shape.
+    // The reason is required (3–1000 chars, D-22.4) in purge mode.
+    const body = req.body as { ids?: unknown, reason?: unknown } | string[]
+    const purgeMode = !Array.isArray(body)
+    const idsRaw: unknown = purgeMode ? (body as { ids?: unknown }).ids : body
+    const reason = purgeMode ? (body as { reason?: unknown }).reason : undefined
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid user ids')
+      return
+    }
+    if (purgeMode && !isValidTrashReason(reason)) {
+      res.status(400).send('PURGE_REASON: Purging a trashed client requires a reason of 3 to 1000 characters.')
+      return
+    }
+    const ids: mongoose.Types.ObjectId[] = (idsRaw as string[]).map((id: string) => new mongoose.Types.ObjectId(id))
 
     const sessionUserId = req.user?._id
     const sessionUser = await User.findById(sessionUserId)
@@ -2302,6 +2368,35 @@ export const deleteUsers = async (req: Request, res: Response) => {
         return
       }
     }
+    // GA-PAR-22 FIX22 (F1): validate every client target before
+    // deleting any — trashed state + the booking guard (any Booking,
+    // live OR trashed, blocks the client purge, D-22.11) — in BOTH
+    // body shapes (design §4.1 makes no exception for body shape).
+    // Staff/Supplier targets keep today's hard-delete path exactly.
+    // A missing target keeps its per-shape behaviour (purge mode:
+    // 400 PURGE_NOT_FOUND; legacy: skipped below, as today).
+    for (const id of ids) {
+      const target = await User.findById(id)
+      if (!target) {
+        if (purgeMode) {
+          res.status(400).send('PURGE_NOT_FOUND: One or more users were not found.')
+          return
+        }
+        continue
+      }
+      if (target.type === bookcarsTypes.UserType.User) {
+        if (!target.deletedAt) {
+          res.status(409).send(`NOT_TRASHED: User ${id} is not trashed. Trash it before purging.`)
+          return
+        }
+        const hasBooking = await Booking.findOne({ driver: id }).select('_id').lean()
+        if (hasBooking) {
+          res.status(409).send(`PURGE_BLOCKED_BOOKING: Client ${id} still has bookings and cannot be purged. Purge the bookings first.`)
+          return
+        }
+      }
+    }
+
     let unauthorizedAttemptLogged = false
     for (const id of ids) {
       const user = await User.findById(id)
@@ -2370,7 +2465,12 @@ export const deleteUsers = async (req: Request, res: Response) => {
             }
           }
         } else if (user.type === bookcarsTypes.UserType.User) {
-          await Booking.deleteMany({ driver: id })
+          // GA-PAR-22 FIX22 (F1): the blind Booking.deleteMany
+          // cascade is GONE in both shapes — the booking guard above
+          // proves the client has no bookings before any delete runs
+          // (D-22.11). The durable trace is the server log (D-22.8):
+          // exactly one `Purged client` line per purged client id.
+          logger.info(`[user.delete] Purged client ${id} by user ${sessionUserId} (reason: ${purgeMode ? (reason as string).trim() : 'legacy delete'})`)
         }
         await NotificationCounter.deleteMany({ user: id })
         await Notification.deleteMany({ user: id })
@@ -2580,6 +2680,11 @@ export const updateLicense = async (req: Request, res: Response) => {
     }
 
     if (user) {
+      // GA-PAR-22: a trashed client's licence cannot change.
+      if (user.deletedAt) {
+        res.status(409).send(trashedMessage('client'))
+        return
+      }
       if (user.license) {
         const licenseFile = path.join(env.CDN_LICENSES, user.license)
         if (await helper.pathExists(licenseFile)) {
@@ -2650,6 +2755,11 @@ export const deleteLicense = async (req: Request, res: Response) => {
     }
 
     if (user) {
+      // GA-PAR-22: a trashed client's licence cannot be deleted.
+      if (user.deletedAt) {
+        res.status(409).send(trashedMessage('client'))
+        return
+      }
       if (user.license) {
         const licenseFile = path.join(env.CDN_LICENSES, user.license)
         if (await helper.pathExists(licenseFile)) {
@@ -2760,6 +2870,11 @@ export const uploadClientDocument = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot manage this client\'s documents')
       return
     }
+    // GA-PAR-22: a trashed client's documents cannot change.
+    if (client.deletedAt) {
+      res.status(409).send(trashedMessage('client'))
+      return
+    }
 
     if (!file) {
       res.status(400).send('No file provided')
@@ -2825,6 +2940,11 @@ export const deleteClientDocument = async (req: Request, res: Response) => {
     }
     if (!allowed) {
       res.status(403).send('Forbidden: You cannot manage this client\'s documents')
+      return
+    }
+    // GA-PAR-22: a trashed client's documents cannot be deleted.
+    if (client.deletedAt) {
+      res.status(409).send(trashedMessage('client'))
       return
     }
 
@@ -2902,6 +3022,316 @@ export const getClientBalance = async (req: Request, res: Response) => {
     })
   } catch (err) {
     logger.error(`[user.getClientBalance] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Trash Clients (scorecard #47, D-22.3/D-22.4).
+ *
+ * Client rows (`type=User`) only — Staff/Supplier rows keep today's
+ * hard-delete path (a non-client target refuses 409 NOT_CLIENT).
+ * Exactly `deletedAt` / `deletedBy` / `deleteReason` are written and
+ * one `trashHistory` row is appended (exact-reversal invariant
+ * D-22.2). All-or-nothing per request (H-025). Refusals: already
+ * trashed → 409 TRASHED; a temporary (`expireAt`-set) row → 409
+ * TEMP_USER. Trash does NOT block sign-in, does NOT touch existing
+ * bookings, and does NOT free the email (§2.4).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const trashUsers = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as { ids?: unknown, reason?: unknown }
+    const { ids: idsRaw, reason } = body
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid user ids')
+      return
+    }
+    if (!isValidTrashReason(reason)) {
+      res.status(400).send('TRASH_REASON: Trashing a client requires a reason of 3 to 1000 characters.')
+      return
+    }
+    const ids = (idsRaw as string[]).map((id) => new mongoose.Types.ObjectId(id))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[user.trashUsers] Unauthorized trash attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot trash clients')
+      return
+    }
+    const isAgencyUser = [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    const sessionAgencyId = agencySupplierId(req)
+
+    const users = await User.find({ _id: { $in: ids } })
+    if (users.length !== ids.length) {
+      res.status(400).send('TRASH_NOT_FOUND: One or more users were not found.')
+      return
+    }
+    for (const user of users) {
+      if (user.type !== bookcarsTypes.UserType.User) {
+        res.status(409).send(`NOT_CLIENT: User ${user._id.toString()} is not a client. Staff and suppliers keep the hard-delete path.`)
+        return
+      }
+      if (isAgencyUser && sessionAgencyId !== user.supplier?.toString()) {
+        logger.error(`[user.trashUsers] Unauthorized trash attempt on user ${user._id.toString()} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot trash some of the clients')
+        return
+      }
+      if (user.deletedAt) {
+        res.status(409).send(`TRASHED: User ${user._id.toString()} is already trashed.`)
+        return
+      }
+      if (user.expireAt) {
+        res.status(409).send(`TEMP_USER: User ${user._id.toString()} is a temporary account and cannot be trashed.`)
+        return
+      }
+    }
+
+    for (const user of users) {
+      applyTrash(user, sessionUser._id.toString(), reason as string)
+      await user.save()
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[user.trashUsers] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Restore Clients (scorecard #47, D-22.6).
+ *
+ * Exact reversal of trash. No re-validation for clients (§2.6c): a
+ * restore of a blocked/blacklisted client succeeds and the client
+ * stays blocked/blacklisted. The reason is optional (≤1000).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const restoreUsers = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as { ids?: unknown, reason?: unknown }
+    const { ids: idsRaw, reason } = body
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0
+      || idsRaw.some((id) => typeof id !== 'string' || !mongoose.isValidObjectId(id))) {
+      res.status(400).send('Invalid user ids')
+      return
+    }
+    if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length > 1000)) {
+      res.status(400).send('RESTORE_REASON: A restore reason must be at most 1000 characters.')
+      return
+    }
+    const ids = (idsRaw as string[]).map((id) => new mongoose.Types.ObjectId(id))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[user.restoreUsers] Unauthorized restore attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot restore clients')
+      return
+    }
+    const isAgencyUser = [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    const sessionAgencyId = agencySupplierId(req)
+
+    const users = await User.find({ _id: { $in: ids } })
+    if (users.length !== ids.length) {
+      res.status(400).send('RESTORE_NOT_FOUND: One or more users were not found.')
+      return
+    }
+    for (const user of users) {
+      if (user.type !== bookcarsTypes.UserType.User) {
+        res.status(409).send(`NOT_CLIENT: User ${user._id.toString()} is not a client.`)
+        return
+      }
+      if (isAgencyUser && sessionAgencyId !== user.supplier?.toString()) {
+        logger.error(`[user.restoreUsers] Unauthorized restore attempt on user ${user._id.toString()} by user ${sessionUserId}`)
+        res.status(403).send('Forbidden: You cannot restore some of the clients')
+        return
+      }
+      if (!user.deletedAt) {
+        res.status(409).send(`NOT_TRASHED: User ${user._id.toString()} is not trashed.`)
+        return
+      }
+    }
+
+    for (const user of users) {
+      applyRestore(user, sessionUser._id.toString(), typeof reason === 'string' ? reason : undefined)
+      await user.save()
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[user.restoreUsers] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Get Trashed Clients (scorecard #47, §5.2/§5.3).
+ *
+ * The trash view's read path is a separate dedicated endpoint — live
+ * endpoints can never return trashed rows. Same response shape as
+ * `getUsers` (`{ resultData, pageInfo }` inside the aggregate-style
+ * array), same keyword behaviour (full name, email), sorted by
+ * trashed-at descending. Rows carry the trash scalars and the
+ * trashed-by name, never the history (§3).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getTrashedUsers = async (req: Request, res: Response) => {
+  try {
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      throw new Error('Forbidden: You cannot fetch users')
+    }
+
+    const keyword = escapeStringRegexp(String(req.query.s || ''))
+    const options = 'i'
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+
+    const $match: mongoose.QueryFilter<env.User> = {
+      $and: [
+        { type: bookcarsTypes.UserType.User },
+        {
+          $or: [
+            { fullName: { $regex: keyword, $options: options } },
+            { email: { $regex: keyword, $options: options } },
+          ],
+        },
+        { expireAt: null },
+        { deletedAt: { $ne: null } },
+      ],
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const agencyId = agencySupplierId(req)
+      if (!agencyId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      $match.$and!.push({ supplier: new mongoose.Types.ObjectId(agencyId) })
+    }
+
+    const users = await User.aggregate(
+      [
+        { $match },
+        {
+          $project: {
+            supplier: 1,
+            email: 1,
+            phone: 1,
+            fullName: 1,
+            verified: 1,
+            language: 1,
+            avatar: 1,
+            type: 1,
+            blacklisted: 1,
+            clientType: 1,
+            clientStatus: 1,
+            // GA-PAR-22: lists carry the trash scalars, never the
+            // history (§3).
+            deletedAt: 1,
+            deletedBy: 1,
+            deleteReason: 1,
+          },
+        },
+        {
+          $facet: {
+            resultData: [{ $sort: { deletedAt: -1, _id: 1 } }, { $skip: (page - 1) * size }, { $limit: size }],
+            pageInfo: [{ $count: 'totalRecords' }],
+          },
+        },
+      ],
+      { collation: { locale: env.DEFAULT_LANGUAGE, strength: 2 } },
+    )
+
+    const resultData = users?.[0]?.resultData as unknown as Record<string, unknown>[] | undefined
+    if (Array.isArray(resultData) && resultData.length > 0) {
+      // Aggregate rows carry `deletedBy` as an ObjectId.
+      const byIds = resultData
+        .map((row) => row.deletedBy)
+        .filter((id): id is mongoose.Types.ObjectId => !!id)
+        .map((id) => id.toString())
+      const actors = byIds.length > 0
+        ? await User.find({ _id: { $in: byIds.map((id) => new mongoose.Types.ObjectId(id)) } }).select('_id fullName').lean()
+        : []
+      const names = new Map(actors.map((a) => [a._id.toString(), a.fullName]))
+      for (const row of resultData) {
+        row.deletedByName = row.deletedBy ? (names.get(String(row.deletedBy)) || '') : ''
+      }
+    }
+
+    res.json(users)
+  } catch (err) {
+    logger.error(`[user.getTrashedUsers] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Client trash-warning figures (§5.7).
+ *
+ * Live counts behind the trash confirm dialog: bookings of the client
+ * (any state — the purge guard blocks on ANY booking, D-22.11) and
+ * posted payments on those bookings + MAD collected.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getUserTrashWarning = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('User id is not valid')
+      return
+    }
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    const client = await User.findOne({ _id: id, type: bookcarsTypes.UserType.User }).select('_id supplier deletedAt').lean()
+    if (!client) {
+      res.sendStatus(204)
+      return
+    }
+    const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User
+      || (isAgencyUser && agencySupplierId(req) !== client.supplier?.toString())) {
+      logger.error(`[user.getUserTrashWarning] Forbidden access to user ${id} by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: Access denied')
+      return
+    }
+
+    const bookings = await Booking.find({ driver: client._id }).select('_id').lean()
+    const bookingIds = bookings.map((b) => b._id)
+    const payments = bookingIds.length > 0
+      ? await RentalPayment.find({ booking: { $in: bookingIds }, status: bookcarsTypes.RentalPaymentStatus.Posted }).select('amount direction').lean()
+      : []
+    const collected = payments.reduce((sum, p) => sum + (p.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -Number(p.amount || 0) : Number(p.amount || 0)), 0)
+    const warning: bookcarsTypes.TrashWarning = {
+      bookingsCount: bookings.length,
+      paymentsCount: payments.length,
+      paymentsCollected: Number(collected.toFixed(2)),
+    }
+    res.json(warning)
+  } catch (err) {
+    logger.error(`[user.getUserTrashWarning] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

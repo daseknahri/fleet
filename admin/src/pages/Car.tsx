@@ -6,7 +6,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Tooltip
+  TextField,
+  Tooltip,
+  Typography
 } from '@mui/material'
 import {
   LocalGasStation as FuelIcon,
@@ -24,6 +26,7 @@ import Layout from '@/components/Layout'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/cars'
+import { strings as trashStrings } from '@/lang/trash'
 import * as UserService from '@/services/UserService'
 import * as CarService from '@/services/CarService'
 import * as SupplierService from '@/services/SupplierService'
@@ -49,7 +52,13 @@ const Car = () => {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [offset, setOffset] = useState(0)
-  const [openInfoDialog, setOpenInfoDialog] = useState(false)
+  // GA-PAR-22: the delete dialog is now a trash dialog (reason required,
+  // booking figures for the car). The checkCar info dialog is gone: a car
+  // WITH bookings CAN now be trashed.
+  const [trashReason, setTrashReason] = useState('')
+  const [trashReasonTouched, setTrashReasonTouched] = useState(false)
+  const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
+  const trashReasonValid = trashReason.trim().length >= 3 && trashReason.trim().length <= 1000
   const [language, setLanguage] = useState(env.DEFAULT_LANGUAGE)
 
   useEffect(() => {
@@ -69,22 +78,22 @@ const Car = () => {
     setLoading(false)
   }
 
-  const handleCloseInfo = () => {
-    setOpenInfoDialog(false)
-  }
-
   const handleDelete = async () => {
+    // GA-PAR-22: no checkCar gate any more — a car with bookings can be
+    // trashed. Opens the trash dialog and fetches the live §5.7 figures.
     try {
       if (car) {
-        const status = await CarService.check(car._id)
-
-        if (status === 200) {
-          setOpenInfoDialog(true)
-        } else if (status === 204) {
-          setOpenDeleteDialog(true)
-        } else {
-          helper.error()
+        setTrashReason('')
+        setTrashReasonTouched(false)
+        setTrashWarning(null)
+        setOpenDeleteDialog(true)
+        try {
+          setTrashWarning(await CarService.getCarTrashWarning(car._id))
+        } catch (err) {
+          // advisory only
         }
+      } else {
+        helper.error()
       }
     } catch (err) {
       helper.error(err)
@@ -93,14 +102,22 @@ const Car = () => {
 
   const handleCancelDelete = () => {
     setOpenDeleteDialog(false)
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
   }
 
   const handleConfirmDelete = async () => {
+    // GA-PAR-22: delete now means trash — reason is required.
+    if (!trashReasonValid) {
+      setTrashReasonTouched(true)
+      return
+    }
     try {
       if (car) {
         setOpenDeleteDialog(false)
 
-        const status = await CarService.deleteCar(car._id)
+        const status = await CarService.trashCar(car._id, trashReason.trim())
 
         if (status === 200) {
           window.location.href = '/cars'
@@ -273,6 +290,52 @@ const Car = () => {
                       </div>
                     </Tooltip>
                   </li>
+                  {/* Scorecard #18: service state — last/next oil/filter
+                      km as recorded on the car; the due badges are a pure
+                      display comparison against the car's current mileage
+                      (mileage >= next km). */}
+                  {car.service && (car.service.lastOilChangeKm != null || car.service.nextOilChangeKm != null) && (
+                    <li>
+                      <div className="car-info-list-item">
+                        <MileageIcon />
+                        <span className="car-info-list-text">
+                          {[
+                            car.service.lastOilChangeKm != null ? `${strings.SERVICE_LAST_OIL}: ${bookcarsHelper.formatNumber(car.service.lastOilChangeKm, language)} km` : '',
+                            car.service.nextOilChangeKm != null ? `${strings.SERVICE_NEXT_OIL}: ${bookcarsHelper.formatNumber(car.service.nextOilChangeKm, language)} km` : '',
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </div>
+                    </li>
+                  )}
+                  {car.service && car.service.nextOilChangeKm != null && car.mileage >= car.service.nextOilChangeKm && (
+                    <li className="car-maintenance">
+                      <div className="car-info-list-item">
+                        <MileageIcon />
+                        <span className="car-info-list-text">{strings.SERVICE_OIL_DUE}</span>
+                      </div>
+                    </li>
+                  )}
+                  {car.service && (car.service.lastFilterChangeKm != null || car.service.nextFilterChangeKm != null) && (
+                    <li>
+                      <div className="car-info-list-item">
+                        <MileageIcon />
+                        <span className="car-info-list-text">
+                          {[
+                            car.service.lastFilterChangeKm != null ? `${strings.SERVICE_LAST_FILTER}: ${bookcarsHelper.formatNumber(car.service.lastFilterChangeKm, language)} km` : '',
+                            car.service.nextFilterChangeKm != null ? `${strings.SERVICE_NEXT_FILTER}: ${bookcarsHelper.formatNumber(car.service.nextFilterChangeKm, language)} km` : '',
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </div>
+                    </li>
+                  )}
+                  {car.service && car.service.nextFilterChangeKm != null && car.mileage >= car.service.nextFilterChangeKm && (
+                    <li className="car-maintenance">
+                      <div className="car-info-list-item">
+                        <MileageIcon />
+                        <span className="car-info-list-text">{strings.SERVICE_FILTER_DUE}</span>
+                      </div>
+                    </li>
+                  )}
                   <li>
                     <Tooltip title={car.cancellation > -1 ? strings.CANCELLATION_TOOLTIP : helper.getCancellation(car.cancellation, language)} placement="left">
                       <div className="car-info-list-item">
@@ -364,23 +427,30 @@ const Car = () => {
           </div>
         </div>
       )}
-      <Dialog disableEscapeKeyDown maxWidth="xs" open={openInfoDialog}>
-        <DialogTitle className="dialog-header">{commonStrings.INFO}</DialogTitle>
-        <DialogContent>{strings.CANNOT_DELETE_CAR}</DialogContent>
-        <DialogActions className="dialog-actions">
-          <Button onClick={handleCloseInfo} variant="contained" className="btn-secondary">
-            {commonStrings.CLOSE}
-          </Button>
-        </DialogActions>
-      </Dialog>
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
         <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-        <DialogContent>{strings.DELETE_CAR}</DialogContent>
+        <DialogContent>
+          {trashStrings.TRASH_CAR}
+          {trashWarning && (trashWarning.bookingsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_BOOKINGS}: ${trashWarning.liveBookingsCount} ${trashStrings.WARNING_LIVE}, ${trashWarning.trashedBookingsCount} ${trashStrings.WARNING_TRASHED}`}</Typography>
+          )}
+          <TextField
+            label={trashStrings.REASON_LABEL}
+            fullWidth
+            multiline
+            rows={2}
+            value={trashReason}
+            onChange={(e) => { setTrashReason(e.target.value); setTrashReasonTouched(true) }}
+            error={trashReasonTouched && !trashReasonValid}
+            helperText={trashReasonTouched && !trashReasonValid ? trashStrings.REASON_REQUIRED : ''}
+            margin="normal"
+          />
+        </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
             {commonStrings.CANCEL}
           </Button>
-          <Button onClick={handleConfirmDelete} variant="contained" color="error">
+          <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={!trashReasonValid}>
             {commonStrings.DELETE}
           </Button>
         </DialogActions>

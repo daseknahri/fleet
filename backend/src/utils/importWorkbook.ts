@@ -548,7 +548,8 @@ const validateCars = async (
   }
 
   const existingPlates = new Set(
-    (await Car.find({ supplier: supplierId }).select('licensePlate').lean())
+    // GA-PAR-22: a trashed car's plate is free for reuse.
+    (await Car.find({ supplier: supplierId, deletedAt: null }).select('licensePlate').lean())
       .map((c) => String(c.licensePlate || '').trim().toLowerCase())
       .filter(Boolean),
   )
@@ -908,26 +909,30 @@ const validateBookings = async (
 
     let car: { _id: mongoose.Types.ObjectId, locations?: mongoose.Types.ObjectId[] } | null = null
     if (plate) {
-      car = await Car.findOne({ supplier: supplierId, licensePlate: plate }).select('_id locations').lean()
+      // GA-PAR-22: a trashed car cannot be booked by an import.
+      car = await Car.findOne({ supplier: supplierId, licensePlate: plate, deletedAt: null }).select('_id locations').lean()
       if (!car) {
         // Case-insensitive fallback so a differently-cased plate in the
         // sheet still resolves — but only ever within this agency.
-        const all = await Car.find({ supplier: supplierId }).select('_id locations licensePlate').lean()
+        const all = await Car.find({ supplier: supplierId, deletedAt: null }).select('_id locations licensePlate').lean()
         car = all.find((c) => String(c.licensePlate || '').trim().toLowerCase() === plate.toLowerCase()) || null
       }
       if (!car) {
         rowErrors.push({ row: row.row, field: 'carPlate', message: `Unknown car plate for this agency: "${plate}"` })
       }
     }
-    let driver: { _id: mongoose.Types.ObjectId, clientStatus?: string, blacklisted?: boolean } | null = null
+    let driver: { _id: mongoose.Types.ObjectId, clientStatus?: string, blacklisted?: boolean, deletedAt?: Date | null } | null = null
     if (email && validator.isEmail(email)) {
       // Agency-scoped resolution ONLY: a client of another agency is
       // "unknown" here and is never linked (and nothing about that other
       // agency's record leaks into this message).
       driver = await User.findOne({ supplier: supplierId, type: bookcarsTypes.UserType.User, email: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })
-        .select('_id clientStatus blacklisted').lean()
+        .select('_id clientStatus blacklisted deletedAt').lean()
       if (!driver) {
         rowErrors.push({ row: row.row, field: 'clientEmail', message: `Unknown client email for this agency: "${email}"` })
+      } else if (driver.deletedAt) {
+        // GA-PAR-22: a trashed client cannot be booked (CLIENT_TRASHED).
+        rowErrors.push({ row: row.row, field: 'clientEmail', message: 'Client is trashed and cannot be booked (CLIENT_TRASHED)' })
       } else if (driver.clientStatus === bookcarsTypes.ClientStatus.Blocked || driver.blacklisted === true) {
         rowErrors.push({ row: row.row, field: 'clientEmail', message: 'Client is blocked and cannot be booked (CLIENT_BLOCKED)' })
       }
@@ -940,6 +945,8 @@ const validateBookings = async (
       const now = new Date()
       const conflict = await Booking.findOne({
         car: car._id,
+        // GA-PAR-22: a trashed booking does not reserve its car.
+        deletedAt: null,
         from: { $lte: to },
         to: { $gte: from },
         $or: [
@@ -1028,7 +1035,8 @@ const validateExpenses = async (
 
   // Agency cars by plate (exact, then case-insensitive fallback — the
   // bookings importer's agency-only resolution rule).
-  const agencyCars = await Car.find({ supplier: supplierId }).select('_id licensePlate').lean()
+  // GA-PAR-22: trashed cars are absent from the plate map.
+  const agencyCars = await Car.find({ supplier: supplierId, deletedAt: null }).select('_id licensePlate').lean()
   const carByPlate = new Map<string, string>()
   for (const c of agencyCars) {
     const plate = String(c.licensePlate || '').trim()

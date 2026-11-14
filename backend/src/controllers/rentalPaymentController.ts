@@ -78,9 +78,11 @@ export const create = async (req: Request, res: Response) => {
     res.status(201).json(payment)
   } catch (err) {
     if (err instanceof LedgerError) {
+      // GA-PAR-22: a payment against a trashed booking refuses 409.
       const status = err.code === 'BOOKING_NOT_FOUND' ? 404
         : err.code === 'DUPLICATE_IDEMPOTENCY_KEY' ? 409
-          : 400
+          : err.code === 'TRASHED' ? 409
+            : 400
       res.status(status).send(err.message)
       return
     }
@@ -183,11 +185,26 @@ export const collectionsSummary = async (req: Request, res: Response) => {
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
       expireAt: null,
+      // GA-PAR-22: trashed bookings leave contractAmount (§2.5);
+      // their posted payments still count as collected, so `remaining`
+      // can understate — accepted semantics.
+      deletedAt: null,
     }).select('_id price financialSnapshot').lean()
     const bookingIds = bookings.map((b) => b._id)
+    // GA-PAR-22 (§2.5): `collected` is payment-driven and KEEPS the
+    // trashed booking's posted payments; `contractAmount` comes from
+    // live bookings only. The payment match therefore covers live +
+    // trashed bookings; the charge match stays live-only.
+    const trashedBookingIds = (await Booking.find({
+      ...getScope(req),
+      status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+      expireAt: null,
+      deletedAt: { $ne: null },
+    }).select('_id').lean()).map((b) => b._id)
+    const paymentBookingIds = [...bookingIds, ...trashedBookingIds]
     const [paymentRows, chargeRows] = await Promise.all([
-      bookingIds.length > 0 ? RentalPayment.aggregate([
-        { $match: { booking: { $in: bookingIds }, status: bookcarsTypes.RentalPaymentStatus.Posted } },
+      paymentBookingIds.length > 0 ? RentalPayment.aggregate([
+        { $match: { booking: { $in: paymentBookingIds }, status: bookcarsTypes.RentalPaymentStatus.Posted } },
         { $group: { _id: { booking: '$booking', purpose: { $ifNull: ['$purpose', bookcarsTypes.RentalPaymentPurpose.Rent] } }, total: { $sum: { $cond: [{ $eq: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } },
       ]) : [],
       bookingIds.length > 0 ? ContractCharge.aggregate([
@@ -225,6 +242,10 @@ export const collectionsSummary = async (req: Request, res: Response) => {
       // Per-booking minor-unit clamp, exactly as contractReceivable.
       remaining += Math.max(0, toMinorUnits(amount, currency) - toMinorUnits(paid, currency)) / (10 ** exponent)
     }
+    // GA-PAR-22 (§2.5): the trashed bookings' posted rent stays in
+    // `collected`. `remaining` is the live-only per-booking sum and
+    // therefore understates by up to that amount — accepted semantics.
+    collected += trashedBookingIds.reduce((s, id) => s + (rentByBooking.get(id.toString()) || 0), 0)
     contractAmount = round2(contractAmount)
     collected = round2(collected)
     remaining = round2(remaining)

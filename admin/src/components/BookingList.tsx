@@ -22,6 +22,7 @@ import {
   CardContent,
   Typography,
   Chip,
+  TextField,
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { Edit as EditIcon, Delete as DeleteIcon, Check as CheckIcon } from '@mui/icons-material'
@@ -33,6 +34,7 @@ import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/booking-list'
+import { strings as trashStrings } from '@/lang/trash'
 import * as helper from '@/utils/helper'
 import * as langHelper from '@/utils/langHelper'
 import * as BookingService from '@/services/BookingService'
@@ -108,6 +110,12 @@ const BookingList = ({
   const [car, setCar] = useState<string>(bookingCar || '')
   const [openUpdateDialog, setOpenUpdateDialog] = useState(false)
   const [openDeleteDialog, setopenDeleteDialog] = useState(false)
+  // GA-PAR-22: the delete dialog is now a trash dialog (reason required,
+  // money-warning figures for a single booking).
+  const [trashReason, setTrashReason] = useState('')
+  const [trashReasonTouched, setTrashReasonTouched] = useState(false)
+  const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
+  const trashReasonValid = trashReason.trim().length >= 3 && trashReason.trim().length <= 1000
   const [offset, setOffset] = useState(0)
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     pageSize: env.BOOKINGS_PAGE_SIZE,
@@ -302,7 +310,7 @@ const BookingList = ({
           const handleDelete = (e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation() // don't select this row after clicking
             setSelectedId(row._id || '')
-            setopenDeleteDialog(true)
+            prepareTrashDialog([row._id || ''])
           }
 
           return (
@@ -338,7 +346,7 @@ const BookingList = ({
             <Tooltip title={strings.DELETE_SELECTION}>
               <IconButton
                 onClick={() => {
-                  setopenDeleteDialog(true)
+                  prepareTrashDialog(selectedIds)
                 }}
               >
                 <DeleteIcon />
@@ -466,13 +474,30 @@ const BookingList = ({
     }
   }
 
+  // GA-PAR-22: opens the trash dialog; for a single booking it fetches
+  // the live §5.7 money figures shown behind the warning. The warning is
+  // advisory only — a failed fetch still opens the dialog.
+  const prepareTrashDialog = async (ids: string[]) => {
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
+    setopenDeleteDialog(true)
+    if (ids.length === 1 && ids[0]) {
+      try {
+        setTrashWarning(await BookingService.getBookingTrashWarning(ids[0]))
+      } catch (err) {
+        // advisory only
+      }
+    }
+  }
+
   const handleDelete = (e: React.MouseEvent<HTMLElement>) => {
     const _selectedId = e.currentTarget.getAttribute('data-id') as string
     const _selectedIndex = Number(e.currentTarget.getAttribute('data-index') as string)
 
     setSelectedId(_selectedId)
     setSelectedIndex(_selectedIndex)
-    setopenDeleteDialog(true)
+    prepareTrashDialog([_selectedId])
     setSelectedId(_selectedId)
     setSelectedIndex(_selectedIndex)
   }
@@ -480,14 +505,23 @@ const BookingList = ({
   const handleCancelDelete = () => {
     setopenDeleteDialog(false)
     setSelectedId('')
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
   }
 
   const handleConfirmDelete = async () => {
+    // GA-PAR-22: delete now means trash — the server refuses live-target
+    // purge, so this call can only soft-delete. Reason is required.
+    if (!trashReasonValid) {
+      setTrashReasonTouched(true)
+      return
+    }
     try {
       if (env.isMobile) {
         const ids = [selectedId]
 
-        const _status = await BookingService.deleteBookings(ids)
+        const _status = await BookingService.trashBookings(ids, trashReason.trim())
 
         if (_status === 200) {
           rows.splice(selectedIndex, 1)
@@ -502,7 +536,7 @@ const BookingList = ({
       } else {
         const ids = selectedIds.length > 0 ? selectedIds : [selectedId]
 
-        const _status = await BookingService.deleteBookings(ids)
+        const _status = await BookingService.trashBookings(ids, trashReason.trim())
 
         if (_status === 200) {
           if (selectedIds.length > 0) {
@@ -516,6 +550,9 @@ const BookingList = ({
 
         setopenDeleteDialog(false)
       }
+      setTrashReason('')
+      setTrashReasonTouched(false)
+      setTrashWarning(null)
     } catch (err) {
       helper.error(err)
     }
@@ -735,12 +772,34 @@ const BookingList = ({
 
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
         <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-        <DialogContent className="dialog-content">{selectedIds.length === 0 ? strings.DELETE_BOOKING : strings.DELETE_BOOKINGS}</DialogContent>
+        <DialogContent className="dialog-content">
+          {selectedIds.length === 0 ? trashStrings.TRASH_BOOKING : trashStrings.TRASH_BOOKINGS}
+          {trashWarning && (trashWarning.paymentsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_PAYMENTS}: ${trashWarning.paymentsCount} — ${trashWarning.paymentsCollected} MAD. ${trashStrings.MONEY_NOTE}`}</Typography>
+          )}
+          {trashWarning && (trashWarning.invoicesCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_INVOICES}: ${trashWarning.invoicesCount} (${trashWarning.invoicesIssuedCount} ${trashStrings.WARNING_ISSUED})`}</Typography>
+          )}
+          {trashWarning && (trashWarning.pendingChargesCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_CHARGES}: ${trashWarning.pendingChargesCount}`}</Typography>
+          )}
+          <TextField
+            label={trashStrings.REASON_LABEL}
+            fullWidth
+            multiline
+            rows={2}
+            value={trashReason}
+            onChange={(e) => { setTrashReason(e.target.value); setTrashReasonTouched(true) }}
+            error={trashReasonTouched && !trashReasonValid}
+            helperText={trashReasonTouched && !trashReasonValid ? trashStrings.REASON_REQUIRED : ''}
+            margin="normal"
+          />
+        </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
             {commonStrings.CANCEL}
           </Button>
-          <Button onClick={handleConfirmDelete} variant="contained" color="error">
+          <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={!trashReasonValid}>
             {commonStrings.DELETE}
           </Button>
         </DialogActions>

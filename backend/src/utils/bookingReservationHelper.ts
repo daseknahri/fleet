@@ -157,6 +157,8 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       const query = Booking.findOne({
         _id: { $nin: bookingIds },
         car: new mongoose.Types.ObjectId(carId),
+        // GA-PAR-22: a trashed booking does not reserve its car.
+        deletedAt: null,
         from: { $lte: booking.to },
         to: { $gte: booking.from },$or: [
           { status: { $in: BOOKING_RESERVATION_STATUSES } },
@@ -230,3 +232,67 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
 
 export const saveBookingWithAvailability = async (booking: env.Booking, options?: BookingSaveOptions) =>
   saveBookingsWithAvailability([booking], options)
+
+export interface RestoreConflict {
+  conflictingBookingId?: string
+  /** A scheduled/in-progress maintenance work order covers the window. */
+  maintenance?: boolean
+}
+
+/**
+ * GA-PAR-22 — restore re-validation (design §2.6d): re-run the
+ * availability check for a booking whose status reserves the car and
+ * whose lifecycle has not run its course, against LIVE bookings only.
+ * Mirrors the conflict logic inside `saveBookingsWithAvailability`
+ * (maintenance downtime first, then the `blockOnPay`-gated live-booking
+ * overlap, excluding the booking itself). A booking that does not
+ * reserve the car (or whose lifecycle is Completed/Cancelled) never
+ * conflicts. The caller names the blocker in the 409 (`OVERLAP` with
+ * the conflicting id, or a maintenance conflict).
+ */
+export const findBookingConflictForRestore = async (booking: env.Booking): Promise<RestoreConflict> => {
+  const now = new Date()
+  if (!reservesCar(booking, now)) {
+    return {}
+  }
+  if (
+    booking.lifecycle === bookcarsTypes.ContractLifecycle.Completed
+    || booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled
+  ) {
+    return {}
+  }
+
+  const carId = booking.car.toString()
+  const downtime = await MaintenanceWorkOrder.findOne({
+    supplier: booking.supplier,
+    car: new mongoose.Types.ObjectId(carId),
+    status: { $in: [bookcarsTypes.WorkOrderStatus.Scheduled, bookcarsTypes.WorkOrderStatus.InProgress] },
+    scheduledStart: { $lt: booking.to },
+    scheduledEnd: { $gt: booking.from },
+  }).select('_id').lean()
+
+  if (downtime) {
+    return { maintenance: true }
+  }
+
+  const car = await Car.findOne({ _id: new mongoose.Types.ObjectId(carId) }).select('blockOnPay').lean()
+  if (!car || !car.blockOnPay) {
+    return {}
+  }
+
+  const conflict = await Booking.findOne({
+    _id: { $nin: [booking._id] },
+    car: new mongoose.Types.ObjectId(carId),
+    // GA-PAR-22: only LIVE bookings can block a restore.
+    deletedAt: null,
+    from: { $lte: booking.to },
+    to: { $gte: booking.from },
+    $or: [
+      { status: { $in: BOOKING_RESERVATION_STATUSES } },
+      { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
+    ],
+    lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
+  }).select('_id').lean()
+
+  return conflict ? { conflictingBookingId: conflict._id.toString() } : {}
+}

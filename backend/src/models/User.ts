@@ -227,6 +227,16 @@ const userSchema = new Schema<env.User>(
       min: 0,
       max: 100,
     },
+    // GA-PAR-14: agency stamp image for the contract snapshot PDF.
+    // Stored filename inside the private contracts store
+    // (CDN_CONTRACTS); set only by the dedicated stamp upload
+    // endpoint, never by the generic supplier update. Optional —
+    // a stamp-less agency renders the snapshot without a stamp.
+    stampFile: {
+      type: String,
+      trim: true,
+      maxlength: 240,
+    },
     // GA-PAR-04: client identity pack (records with type=User only; the
     // controller validates/strips these fields for every other type, so
     // staff/supplier creation cannot regress). All optional. `license`
@@ -269,6 +279,29 @@ const userSchema = new Schema<env.User>(
         bookcarsTypes.ClientStatus.Blocked,
       ],
     },
+
+    // GA-PAR-22: trash / restore (scorecard #47). Applies to client
+    // rows (`type=User`) only — Staff/Supplier rows keep today's
+    // hard-delete path. See Booking.ts for the shared semantics
+    // (timestamp, not status; exact-reversal invariant D-22.2).
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    deleteReason: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+    },
+    trashHistory: [{
+      at: { type: Date },
+      by: { type: Schema.Types.ObjectId, ref: 'User' },
+      action: { type: String, enum: ['trashed', 'restored'] },
+      reason: { type: String, maxlength: 1000 },
+    }],
     clientDocuments: [{
       kind: {
         type: String,
@@ -301,6 +334,9 @@ const userSchema = new Schema<env.User>(
 
 // Add custom indexes
 userSchema.index({ type: 1, expireAt: 1, fullName: 1 })
+// GA-PAR-22: serves both the live lists (`deletedAt: null`) and the
+// trash view (`deletedAt: { $ne: null }`) per agency.
+userSchema.index({ supplier: 1, deletedAt: 1 })
 userSchema.index({ type: 1, expireAt: 1, email: 1 })
 userSchema.index({ type: 1, expireAt: 1, fullName: 1, _id: 1 })
 userSchema.index({ type: 1, expireAt: 1, email: 1, _id: 1 })

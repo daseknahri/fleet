@@ -223,6 +223,56 @@ export interface CarFinancingPayload {
   autoDebit?: boolean | null
 }
 
+/**
+ * Scorecard #17 (garage block) — where the car physically is while it is
+ * off the road. A car-level informational block, deliberately separate
+ * from MaintenanceWorkOrder (a scheduled-work record with its own
+ * vendor/window/status, backend-only, no admin UI): a work order existing
+ * does not mean the car is at the garage, and a car can be at the garage
+ * with no work order on file. All fields optional; a block with no set
+ * field is stored as absent, never as an empty object. The block is
+ * INFORMATIONAL only — it never changes booking behaviour; the booking
+ * refusal rides solely on operationalStatus (scorecard #15).
+ */
+export interface CarGarage {
+  garageName?: string
+  since?: Date
+  expectedBack?: Date
+}
+
+/** Scorecard #17 — create/update payload shape: every field may be nulled to clear it. */
+export interface CarGaragePayload {
+  garageName?: string | null
+  since?: Date | string | null
+  expectedBack?: Date | string | null
+}
+
+/**
+ * Scorecard #18 (service state) — oil/filter change km tracking, stored
+ * verbatim on the car. All fields optional, nullable numbers, km >= 0;
+ * next >= last per pair when both are set (enforced server-side, see
+ * carController.invalidServiceField). No computation is derived from the
+ * generic MaintenanceSchedule intervals (intervalKm / nextDueMileage):
+ * those are per-type schedule rows, not a car-level oil/filter state, and
+ * no expense of category `oil` ever moves these fields — an oil expense
+ * is a ledger row, this block is the operator-recorded service state.
+ * The block is INFORMATIONAL only — it never changes booking behaviour.
+ */
+export interface CarService {
+  lastOilChangeKm?: number
+  lastFilterChangeKm?: number
+  nextOilChangeKm?: number
+  nextFilterChangeKm?: number
+}
+
+/** Scorecard #18 — create/update payload shape: every field may be nulled to clear it. */
+export interface CarServicePayload {
+  lastOilChangeKm?: number | string | null
+  lastFilterChangeKm?: number | string | null
+  nextOilChangeKm?: number | string | null
+  nextFilterChangeKm?: number | string | null
+}
+
 /** GA-PAR-07 — payment methods accepted when settling an agent. */
 export enum AgentSettlementMethod {
   Cash = 'cash',
@@ -332,6 +382,29 @@ export enum Mileage {
 export enum Availablity {
   Available = 'available',
   Unavailable = 'unavailable',
+}
+
+// Fleet statuses (scorecard #15): the operator-set state of a car.
+// `rented` is NOT stored — it stays derived from live bookings (see
+// backend/src/utils/fleetStatus.ts). A car with no stored value (legacy
+// docs) reads as inService everywhere.
+export enum CarOperationalStatus {
+  InService = 'inService',
+  Maintenance = 'maintenance',
+  Stopped = 'stopped',
+}
+
+// Derived fleet status shown on the car list: the operator status wins;
+// otherwise a car with a live booking covering now is `rented`, else it
+// follows the `available` flag. `unavailable` (in service, not rented,
+// available=false) is NOT one of the four counted statuses.
+export type CarFleetStatus = 'available' | 'rented' | 'maintenance' | 'stopped'
+
+export interface FleetStatusCounts {
+  available: number
+  rented: number
+  maintenance: number
+  stopped: number
 }
 
 export enum RecordType {
@@ -466,6 +539,41 @@ export interface SettlementPreview {
   omissions: SettlementPreviewOmission[]
 }
 
+/** GA-PAR-22 — one trash-history row (append-only, per document). */
+export interface TrashHistoryRow {
+  at: Date
+  by?: string
+  action: 'trashed' | 'restored'
+  reason: string
+  /** Booking rows only: whether the trash money-warning fired (§2.5). */
+  hadPayments?: boolean
+  hadInvoices?: boolean
+}
+
+/** GA-PAR-22 — trash / restore / purge request body (bulk endpoints). */
+export interface TrashRequestPayload {
+  ids: string[]
+  /** Required (3–1000 chars) on trash and purge; optional on restore. */
+  reason?: string
+}
+
+/** GA-PAR-22 — live counts behind a trash confirm dialog (§5.7). */
+export interface TrashWarning {
+  /** Bookings: posted payments on the booking + their collected total. */
+  paymentsCount?: number
+  paymentsCollected?: number
+  /** Bookings: invoices on the booking (issued count among them). */
+  invoicesCount?: number
+  invoicesIssuedCount?: number
+  /** Bookings: pending contract charges on the booking. */
+  pendingChargesCount?: number
+  /** Clients: live bookings of the client + posted payments on them. */
+  bookingsCount?: number
+  /** Cars: bookings referencing the car (live / trashed split). */
+  liveBookingsCount?: number
+  trashedBookingsCount?: number
+}
+
 export interface Booking {
   _id?: string
   reference?: string
@@ -517,6 +625,17 @@ export interface Booking {
    * links are HMAC capability tokens over its current value.
    */
   signingNonce?: string
+  /** GA-PAR-22: trash / restore (see backend models/Booking.ts). */
+  deletedAt?: Date | null
+  deletedBy?: string | User
+  deletedByName?: string
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
+  /** GA-PAR-22: trash-view display flags, flattened from the last
+   * trashHistory row (the history itself never leaves the server in
+   * list responses — §3). */
+  hadPayments?: boolean
+  hadInvoices?: boolean
 }
 
 /**
@@ -771,6 +890,7 @@ export interface CreateCarPayload {
   available: boolean
   fullyBooked?: boolean
   comingSoon?: boolean
+  operationalStatus?: CarOperationalStatus
   type: string
   gearbox: string
   aircon: boolean
@@ -796,6 +916,10 @@ export interface CreateCarPayload {
   insuranceExpiryDate?: Date | string | null
   technicalInspectionExpiryDate?: Date | string | null
   vignetteExpiryDate?: Date | string | null
+  // Scorecard #17: garage block (all optional); null clears it on update.
+  garage?: CarGaragePayload | null
+  // Scorecard #18: service state (all optional); null clears it on update.
+  service?: CarServicePayload | null
 }
 
 export interface UpdateCarPayload extends CreateCarPayload {
@@ -817,6 +941,9 @@ export interface GetCarsPayload {
   fuelPolicy?: string[]
   deposit?: number
   availability?: string[]
+  // Fleet statuses (scorecard #15): one of the four derived statuses;
+  // absent means no status filter (all cars).
+  fleetStatus?: CarFleetStatus
   pickupLocation?: string
   ranges?: string[]
   multimedia?: string[]
@@ -1003,6 +1130,8 @@ export interface User {
   city?: string
   vatEnabled?: boolean
   vatRate?: number
+  /** GA-PAR-14: agency stamp filename in the private contracts store. */
+  stampFile?: string
   cinNumber?: string
   cinExpiry?: Date
   passportNumber?: string
@@ -1014,6 +1143,12 @@ export interface User {
   clientDocuments?: ClientDocument[]
   clientDocumentsCount?: number
   balanceDue?: number
+  /** GA-PAR-22: trash / restore (client rows only — see backend models/User.ts). */
+  deletedAt?: Date | null
+  deletedBy?: string | User
+  deletedByName?: string
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
 }
 
 export interface Option {
@@ -1100,6 +1235,11 @@ export interface Car {
   available: boolean
   fullyBooked?: boolean
   comingSoon?: boolean
+  // Fleet statuses (scorecard #15): operator-set state; absent on legacy
+  // docs (reads as inService). `fleetStatus` is the server-derived
+  // display status attached by getCars (never stored).
+  operationalStatus?: CarOperationalStatus
+  fleetStatus?: CarFleetStatus
   type: CarType
   gearbox: GearboxType
   aircon: boolean
@@ -1129,6 +1269,20 @@ export interface Car {
   insuranceExpiryDate?: Date
   technicalInspectionExpiryDate?: Date
   vignetteExpiryDate?: Date
+  // Scorecard #17: garage block (all optional, informational only — see
+  // CarGarage above; never drives booking behaviour).
+  garage?: CarGarage
+  // Scorecard #18: service state — oil/filter change km (all optional,
+  // informational only — see CarService above; never drives booking
+  // behaviour). A due badge in the admin list is a pure display
+  // comparison of these fields against the car's current mileage.
+  service?: CarService
+  /** GA-PAR-22: trash / restore (see backend models/Car.ts). */
+  deletedAt?: Date | null
+  deletedBy?: string | User
+  deletedByName?: string
+  deleteReason?: string
+  trashHistory?: TrashHistoryRow[]
   [propKey: string]: any
 }
 
@@ -1158,6 +1312,8 @@ export interface ContractSnapshot {
   pdfFile: string
   contentHash: string
   generatedAt: Date
+  /** GA-PAR-14: the snapshot was generated with the agency stamp requested. */
+  withStamp?: boolean
   createdAt?: Date
 }
 
@@ -1854,6 +2010,9 @@ export interface NotificationCounter {
 export interface ResultData<T> {
   pageInfo: { totalRecords: number }
   resultData: T[]
+  // Fleet statuses (scorecard #15): per-status counts over the same
+  // filtered set as the list (before the fleetStatus filter itself).
+  fleetStatusCounts?: FleetStatusCounts
 }
 
 export type Result<T> = [ResultData<T>] | [] | undefined | null

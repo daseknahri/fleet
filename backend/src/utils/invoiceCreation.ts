@@ -167,9 +167,10 @@ export const ensureDraftInvoice = async (booking: BookingLike | null | undefined
       return
     }
     const full = await Booking.findOne({ _id: booking._id, supplier: booking.supplier })
-      .select('_id supplier price financialSnapshot status')
+      .select('_id supplier price financialSnapshot status deletedAt')
       .lean()
-    if (!full || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(full.status)) {
+    // GA-PAR-22: a trashed booking gets no (new) draft invoice.
+    if (!full || full.deletedAt || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(full.status)) {
       return
     }
     await createInvoiceForBooking(full as unknown as BookingLike)

@@ -56,6 +56,7 @@ const Invoices = lazy(() => import('@/pages/Invoices'))
 const Agents = lazy(() => import('@/pages/Agents'))
 const Reminders = lazy(() => import('@/pages/Reminders'))
 const Imports = lazy(() => import('@/pages/Imports'))
+const Trash = lazy(() => import('@/pages/Trash'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -106,6 +107,8 @@ const router = createBrowserRouter([
       { path: 'agents', element: <Agents /> },
       { path: 'reminders', element: <Reminders /> },
       { path: 'imports', element: <Imports /> },
+      // GA-PAR-22: one trash page, three tabs (bookings / clients / cars).
+      { path: 'trash', element: <Trash /> },
       { path: 'sign-in', element: <SignIn /> },
       { path: 'activate', element: <Activate /> },
       { path: 'forgot-password', element: <ForgotPassword /> },

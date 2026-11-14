@@ -13,6 +13,7 @@ import { BookingConflictError, saveBookingWithAvailability } from '../utils/book
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { findActiveInvoice, refreshDraftInvoiceAfterAmendment } from '../utils/invoiceCreation'
 import { resolveOverlapExceptionGate } from './bookingController'
+import { trashedMessage } from '../utils/trash'
 
 /**
  * GA-PAR-11 — contract amendment / extension workflow.
@@ -89,6 +90,12 @@ export const amend = async (req: Request, res: Response) => {
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
     if (reason.length < 3 || reason.length > 1000) {
       res.status(400).send('AMENDMENT_REASON: A contract amendment requires a reason of 3 to 1000 characters.')
+      return
+    }
+
+    // GA-PAR-22: a trashed booking cannot be amended — restore it first.
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
       return
     }
 

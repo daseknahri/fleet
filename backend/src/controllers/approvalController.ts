@@ -7,6 +7,8 @@ import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import ContractCharge from '../models/ContractCharge'
+import Booking from '../models/Booking'
+import Invoice from '../models/Invoice'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 
@@ -77,6 +79,23 @@ export const decide = async (req: Request, res: Response) => {
     if (approval.requestedBy && approval.requestedBy.toString() === user._id.toString()) {
  res.status(403).send('The requester cannot decide their own approval request'); return 
 }
+    // GA-PAR-22 (§2.5): a charge/invoice on a trashed booking cannot be
+    // decided — restore the booking first. The wall sits before the
+    // decision is saved, so a refused decide changes nothing.
+    if (approval.subjectType === 'contract-charge' && mongoose.isValidObjectId(approval.subject)) {
+      const charge = await ContractCharge.findOne({ _id: approval.subject, supplier: approval.supplier }).select('booking').lean()
+      const chargeBooking = charge ? await Booking.findById(charge.booking).select('_id deletedAt').lean() : null
+      if (chargeBooking?.deletedAt) {
+ res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return 
+}
+    }
+    if (approval.subjectType === 'invoice' && mongoose.isValidObjectId(approval.subject)) {
+      const invoice = await Invoice.findOne({ _id: approval.subject, supplier: approval.supplier }).select('booking').lean()
+      const invoiceBooking = invoice ? await Booking.findById(invoice.booking).select('_id deletedAt').lean() : null
+      if (invoiceBooking?.deletedAt) {
+ res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return 
+}
+    }
     approval.status = decision === 'approved' ? bookcarsTypes.ApprovalDecision.Approved : bookcarsTypes.ApprovalDecision.Rejected
     approval.decidedBy = new mongoose.Types.ObjectId(user._id); approval.decidedAt = new Date(); approval.reason = String(reason || '').trim()
     await approval.save()

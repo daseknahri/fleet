@@ -19,7 +19,9 @@ import {
   Button,
   Avatar,
   Badge,
-  Box
+  Box,
+  TextField,
+  Typography
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import {
@@ -32,6 +34,7 @@ import * as bookcarsHelper from ':bookcars-helper'
 import env from '@/config/env.config'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/user-list'
+import { strings as trashStrings } from '@/lang/trash'
 import * as helper from '@/utils/helper'
 import * as UserService from '@/services/UserService'
 import { clientStatusLabel, clientTypeLabel } from '@/components/ClientDocuments'
@@ -83,6 +86,16 @@ const UserList = ({
   const [selectedId, setSelectedId] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false)
+  // GA-PAR-22: for clients (type=User) the delete dialog is now a trash
+  // dialog (reason required, money-warning figures for a single client).
+  // Staff/Supplier rows keep today's hard-delete dialog unchanged.
+  const [trashReason, setTrashReason] = useState('')
+  const [trashReasonTouched, setTrashReasonTouched] = useState(false)
+  const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
+  const [deleteTargetsClients, setDeleteTargetsClients] = useState(false)
+  const [deleteClientIds, setDeleteClientIds] = useState<string[]>([])
+  const [deleteStaffIds, setDeleteStaffIds] = useState<string[]>([])
+  const trashReasonValid = trashReason.trim().length >= 3 && trashReason.trim().length <= 1000
   const [types, setTypes] = useState<bookcarsTypes.UserType[]>()
   const [keyword, setKeyword] = useState(userListKeyword)
   const [reloadColumns, setReloadColumns] = useState(false)
@@ -273,7 +286,7 @@ const UserList = ({
           const handleDelete = (e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation() // don't select this row after clicking
             setSelectedId(row._id || '')
-            setOpenDeleteDialog(true)
+            prepareDeleteDialog([row._id || ''])
           }
 
           const __user = row
@@ -300,7 +313,7 @@ const UserList = ({
             <Tooltip title={strings.DELETE_SELECTION}>
               <IconButton
                 onClick={() => {
-                  setOpenDeleteDialog(true)
+                  prepareDeleteDialog(selectedIds)
                 }}
               >
                 <DeleteIcon />
@@ -389,28 +402,90 @@ const UserList = ({
     }
   }, [user, selectedIds, reloadColumns]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // GA-PAR-22 FIX22 (F1): split a selection so client rows go
+  // through trash (reason required) and staff/supplier rows keep the
+  // legacy hard-delete path. A mixed selection does both, one half
+  // at a time, and each half removes only its own rows on 200.
+  const partitionDeleteTargets = (ids: string[]) => {
+    const clientIds = ids.filter((id) => rows.find((row) => row._id === id)?.type === bookcarsTypes.RecordType.User)
+    const staffIds = ids.filter((id) => !clientIds.includes(id))
+    return { clientIds, staffIds }
+  }
+
+  // GA-PAR-22: opens the delete dialog. Client targets (type=User) get
+  // the trash dialog; staff/supplier targets keep the legacy hard-delete
+  // dialog. For a single client it fetches the live §5.7 figures.
+  const prepareDeleteDialog = async (ids: string[]) => {
+    const { clientIds, staffIds } = partitionDeleteTargets(ids)
+    setDeleteClientIds(clientIds)
+    setDeleteStaffIds(staffIds)
+    setDeleteTargetsClients(clientIds.length > 0)
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
+    setOpenDeleteDialog(true)
+    if (clientIds.length === 1 && clientIds[0]) {
+      try {
+        setTrashWarning(await UserService.getUserTrashWarning(clientIds[0]))
+      } catch (err) {
+        // advisory only
+      }
+    }
+  }
+
   const handleCancelDelete = () => {
     setOpenDeleteDialog(false)
     setSelectedId('')
+    setDeleteClientIds([])
+    setDeleteStaffIds([])
+    setTrashReason('')
+    setTrashReasonTouched(false)
+    setTrashWarning(null)
   }
 
   const handleConfirmDelete = async () => {
     try {
-      const ids = selectedIds.length > 0 ? selectedIds : [selectedId]
-
+      // GA-PAR-22 FIX22 (F1): split the selection — clients are
+      // trashed (reason required), staff/supplier rows keep the
+      // legacy hard-delete. Each half removes only its own rows on 200.
+      const { clientIds, staffIds } = partitionDeleteTargets(
+        selectedIds.length > 0 ? selectedIds : [selectedId],
+      )
+      if (clientIds.length > 0 && !trashReasonValid) {
+        setTrashReasonTouched(true)
+        return
+      }
       setOpenDeleteDialog(false)
 
-      const status = await UserService.deleteUsers(ids)
-
-      if (status === 200) {
-        if (selectedIds.length > 0) {
-          setRows(rows.filter((row) => !selectedIds.includes(row._id as string)))
+      const removedIds: string[] = []
+      let failed = false
+      if (clientIds.length > 0) {
+        const status = await UserService.trashUsers(clientIds, trashReason.trim())
+        if (status === 200) {
+          removedIds.push(...clientIds)
         } else {
-          setRows(rows.filter((row) => row._id !== selectedId))
+          failed = true
         }
-      } else {
+      }
+      if (staffIds.length > 0) {
+        const status = await UserService.deleteUsers(staffIds)
+        if (status === 200) {
+          removedIds.push(...staffIds)
+        } else {
+          failed = true
+        }
+      }
+      if (removedIds.length > 0) {
+        setRows(rows.filter((row) => !removedIds.includes(row._id as string)))
+      }
+      if (failed) {
         helper.error()
       }
+      setDeleteClientIds([])
+      setDeleteStaffIds([])
+      setTrashReason('')
+      setTrashReasonTouched(false)
+      setTrashWarning(null)
     } catch (err) {
       helper.error(err)
     } finally {
@@ -451,12 +526,34 @@ const UserList = ({
 
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openDeleteDialog}>
         <DialogTitle className="dialog-header">{commonStrings.CONFIRM_TITLE}</DialogTitle>
-        <DialogContent className="dialog-content">{selectedIds.length === 0 ? strings.DELETE_USER : strings.DELETE_USERS}</DialogContent>
+        <DialogContent className="dialog-content">
+          {deleteStaffIds.length > 0 && (deleteStaffIds.length === 1 && deleteClientIds.length === 0 ? strings.DELETE_USER : strings.DELETE_USERS)}
+          {deleteTargetsClients && (deleteClientIds.length === 1 ? trashStrings.TRASH_CLIENT : trashStrings.TRASH_CLIENTS)}
+          {deleteTargetsClients && trashWarning && (trashWarning.bookingsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_BOOKINGS}: ${trashWarning.bookingsCount}`}</Typography>
+          )}
+          {deleteTargetsClients && trashWarning && (trashWarning.paymentsCount || 0) > 0 && (
+            <Typography>{`${trashStrings.WARNING_PAYMENTS}: ${trashWarning.paymentsCount} — ${trashWarning.paymentsCollected} MAD`}</Typography>
+          )}
+          {deleteTargetsClients && (
+            <TextField
+              label={trashStrings.REASON_LABEL}
+              fullWidth
+              multiline
+              rows={2}
+              value={trashReason}
+              onChange={(e) => { setTrashReason(e.target.value); setTrashReasonTouched(true) }}
+              error={trashReasonTouched && !trashReasonValid}
+              helperText={trashReasonTouched && !trashReasonValid ? trashStrings.REASON_REQUIRED : ''}
+              margin="normal"
+            />
+          )}
+        </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelDelete} variant="contained" className="btn-secondary">
             {commonStrings.CANCEL}
           </Button>
-          <Button onClick={handleConfirmDelete} variant="contained" color="error">
+          <Button onClick={handleConfirmDelete} variant="contained" color="error" disabled={deleteTargetsClients && !trashReasonValid}>
             {commonStrings.DELETE}
           </Button>
         </DialogActions>

@@ -48,19 +48,88 @@ export const updateStatus = (data: bookcarsTypes.UpdateStatusPayload): Promise<n
     .then((res) => res.status)
 
 /**
- * Delete Bookings.
+ * Delete Bookings (purge-from-trash only, GA-PAR-22).
+ *
+ * The route refuses live bookings (409 NOT_TRASHED) and bookings with
+ * linked payments/invoices/charges/quotes/snapshots/inspections. It is
+ * called only from the Trash view; the reason is required (3–1000).
  *
  * @param {string[]} ids
+ * @param {string} reason
  * @returns {Promise<number>}
  */
-export const deleteBookings = (ids: string[]): Promise<number> =>
+export const deleteBookings = (ids: string[], reason?: string): Promise<number> =>
   axiosInstance
     .post(
       '/api/delete-bookings',
-      ids,
+      { ids, reason },
       { withCredentials: true }
     )
     .then((res) => res.status)
+
+/**
+ * Trash Bookings (GA-PAR-22).
+ *
+ * @param {string[]} ids
+ * @param {string} reason
+ * @returns {Promise<number>}
+ */
+export const trashBookings = (ids: string[], reason: string): Promise<number> =>
+  axiosInstance
+    .post(
+      '/api/trash-bookings',
+      { ids, reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Restore Bookings (GA-PAR-22).
+ *
+ * @param {string[]} ids
+ * @param {string} [reason]
+ * @returns {Promise<number>}
+ */
+export const restoreBookings = (ids: string[], reason?: string): Promise<number> =>
+  axiosInstance
+    .post(
+      '/api/restore-bookings',
+      { ids, reason },
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Get Trashed Bookings (GA-PAR-22).
+ *
+ * @param {string[]} suppliers
+ * @param {string} keyword
+ * @param {number} page
+ * @param {number} size
+ * @returns {Promise<bookcarsTypes.Result<bookcarsTypes.Booking>>}
+ */
+export const getTrashedBookings = (suppliers: string[], keyword: string, page: number, size: number): Promise<bookcarsTypes.Result<bookcarsTypes.Booking>> =>
+  axiosInstance
+    .post(
+      `/api/trashed-bookings/${page}/${size}/${UserService.getLanguage()}/?s=${encodeURIComponent(keyword)}`,
+      { suppliers },
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Get the trash-warning figures for one Booking (GA-PAR-22, §5.7).
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.TrashWarning>}
+ */
+export const getBookingTrashWarning = (id: string): Promise<bookcarsTypes.TrashWarning> =>
+  axiosInstance
+    .get(
+      `/api/bookings/${encodeURIComponent(id)}/trash-warning`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
 
 /**
  * Get a Booking by ID.

@@ -2,13 +2,13 @@ import { Request, Response } from 'express'
 import mongoose from 'mongoose'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import fs from 'node:fs/promises'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
 import ContractInspection from '../models/ContractInspection'
 import ContractCharge from '../models/ContractCharge'
 import ContractSnapshot from '../models/ContractSnapshot'
+import User from '../models/User'
 import Car from '../models/Car'
 import AgencyReturnSettings from '../models/AgencyReturnSettings'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
@@ -21,6 +21,8 @@ import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { approvalRequiredFor, mirrorApprovalDecision, produceApprovalRequest } from '../utils/approvalProducer'
+import { trashedMessage } from '../utils/trash'
+import { contractSnapshotQrPayload, generateContractQrPng, renderContractSnapshotPdf } from '../utils/contractSnapshotPdf'
 
 const idFrom = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
@@ -42,7 +44,7 @@ const bookingScope = async (req: Request, session?: mongoose.ClientSession) => {
   if (!supplier || !mongoose.isValidObjectId(supplier) || !mongoose.isValidObjectId(bookingId)) {
 return null
 }
-  const query = Booking.findOne({ _id: bookingId, supplier }).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature')
+  const query = Booking.findOne({ _id: bookingId, supplier }).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature deletedAt')
   if (session) {
 query.session(session)
 }
@@ -78,6 +80,10 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
       const booking = await bookingScope(req, session)
       if (invalidBooking(booking)) {
  throw new Error('CONTRACT_NOT_FOUND') 
+}
+      // GA-PAR-22: no inspection may advance on a trashed contract.
+      if (booking!.deletedAt) {
+ throw new Error('TRASHED') 
 }
       const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload)
       if (!payload) {
@@ -120,6 +126,9 @@ throw new Error('CONTRACT_OPERATION_FAILED')
     if (code === 'CONTRACT_NOT_FOUND') {
  res.status(404).send('Contract not found'); return 
 }
+    if (code === 'TRASHED') {
+ res.status(409).send(trashedMessage('booking')); return 
+}
     if (code === 'INVALID_INSPECTION') {
  res.status(400).send('Invalid inspection'); return 
 }
@@ -141,6 +150,10 @@ export const uploadFile = async (req: Request, res: Response) => {
     const file = req.file
     if (!booking || !file || !file.originalname) {
  res.status(404).send('Contract or file not found'); return 
+}
+    // GA-PAR-22: no file may be added to a trashed contract.
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
 }
     const ext = path.extname(file.originalname).toLowerCase()
     if (!['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(ext) || file.size <= 0 || file.size > 5 * 1024 * 1024 || !contentMatchesExtension(file.buffer, ext)) {
@@ -181,6 +194,10 @@ export const deleteFile = async (req: Request, res: Response) => {
     if (!booking || !safeContractFilename(filename)) {
  res.status(404).send('File not found'); return 
 }
+    // GA-PAR-22: no file may be deleted from a trashed contract.
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
     if (await ContractInspection.exists({ booking: booking._id, $or: [{ photoFiles: filename }, { 'photos.file': filename }, { signatureFile: filename }] })) {
  res.status(409).send('Contract file is referenced by an inspection'); return 
 }
@@ -214,6 +231,10 @@ export const listCharges = async (req: Request, res: Response) => {
 export const createCharge = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
+    // GA-PAR-22: no charge may be created on a trashed contract.
+    if (booking?.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
     const type = String(req.body?.type || '')
     const reason = String(req.body?.reason || '').trim()
     const amount = Number(req.body?.amount)
@@ -256,6 +277,11 @@ export const decideCharge = async (req: Request, res: Response) => {
     if (!booking) {
  res.sendStatus(404); return 
 }
+    // GA-PAR-22: charges on a trashed booking are hidden from the
+    // pending queue and their decide endpoint refuses (§2.5).
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
     const decision = String(req.body?.decision || '')
     const note = String(req.body?.note || '').trim()
     if (![bookcarsTypes.ApprovalDecision.Approved, bookcarsTypes.ApprovalDecision.Rejected].includes(decision as bookcarsTypes.ApprovalDecision) || note.length > 1000) {
@@ -288,62 +314,100 @@ export const decideCharge = async (req: Request, res: Response) => {
 }
 }
 
-const snapshotText = (booking: env.Booking, inspections: env.ContractInspection[], charges: env.ContractCharge[]) => {
-  const rows = [
-    'Gestion Auto contract snapshot', `Contract: ${booking.reference || booking._id}`, `Generated: ${new Date().toISOString()}`,
-    `Rental total: ${booking.financialSnapshot?.rentalTotal ?? booking.price} ${booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY}`,
-    '', 'Inspections:', ...inspections.map((x) => `${x.type} | ${new Date(x.occurredAt).toISOString()} | odometer ${x.odometer ?? '-'} | fuel ${x.fuelLevel ?? '-'} | ${x.condition || ''} | damage ${x.damageNote || '-'}`),
-    '', 'Approved charges:', ...charges.filter((x) => x.status === bookcarsTypes.ApprovalDecision.Approved).map((x) => `${x.type} | ${x.amount} ${x.currency} | ${x.reason}`),
-    // GA-PAR-12: when the client signed online before this snapshot was
-    // created, the snapshot records it (timestamp line here, signature
-    // image embedded by createSnapshot). Existing snapshots are never
-    // re-rendered — snapshots stay immutable once created.
-    ...(booking.onlineSignature?.signedAt
-      ? ['', `Client signed online: ${new Date(booking.onlineSignature.signedAt).toISOString()}`, `Signature SHA-256: ${booking.onlineSignature.contentHash || ''}`]
-      : []),
-  ]
-  return rows.join('\n')
-}
-
 export const createSnapshot = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
     if (!booking) {
  res.sendStatus(404); return 
 }
+    // GA-PAR-22: no snapshot may be created for a trashed contract.
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
+    // GA-PAR-14: withStamp is an explicit opt-in per generation; anything
+    // but a boolean is a 400. Absent means without stamp.
+    const rawWithStamp = (req.body as Record<string, unknown> | undefined)?.withStamp
+    if (rawWithStamp !== undefined && typeof rawWithStamp !== 'boolean') {
+ res.status(400).send('Invalid snapshot request'); return 
+}
+    const withStamp = rawWithStamp === true
     const inspections = await ContractInspection.find({ booking: booking._id, supplier: booking.supplier }).sort({ occurredAt: 1 }).lean()
     const charges = await ContractCharge.find({ booking: booking._id, supplier: booking.supplier }).lean()
     if (inspections.length < 2 || (charges.some((x) => x.status === bookcarsTypes.ApprovalDecision.Pending))) {
  res.status(409).send('Both inspections and charge decisions are required'); return 
 }
-    const text = snapshotText(booking, inspections as env.ContractInspection[], charges as env.ContractCharge[])
-    const pdf = await PDFDocument.create(); const page = pdf.addPage([612, 792]); const font = await pdf.embedFont(StandardFonts.Helvetica)
-    page.drawText(text, { x: 36, y: 756, size: 9, font, color: rgb(0.1, 0.1, 0.1), maxWidth: 540, lineHeight: 13 })
-    // GA-PAR-12: embed the recorded online signature image at the foot
-    // of the snapshot when one exists at snapshot-creation time. The
-    // PNG comes from the private contracts store; a missing/corrupt
-    // file degrades to the timestamp/hash text lines above (logged),
-    // never to a failed snapshot.
+    // GA-PAR-14: QR payload is the booking reference plus the agency
+    // identifier only (see contractSnapshotPdf) — no URL, no token, no
+    // signature material. A failed QR generation degrades to the text
+    // line only (logged), never to a failed snapshot.
+    const reference = booking.reference || String(booking._id)
+    const qrPayload = contractSnapshotQrPayload(reference, String(booking.supplier))
+    let qrPng: Buffer | null = null
+    try {
+      qrPng = await generateContractQrPng(qrPayload)
+    } catch (qrErr) {
+      logger.error('[contractOperations.createSnapshot] contract QR generation failed', qrErr)
+    }
+    // GA-PAR-14: the agency stamp is embedded only when requested AND
+    // the agency has one on file. A missing stamp degrades to a
+    // stamp-less PDF (logged), never to a failed snapshot — the same
+    // discipline as the PAR-12 signature embed below. A corrupt stamp
+    // file also degrades: it reads fine here, so no flag is set on read
+    // success — the renderer attempts the embed and the PDF text line
+    // reports the ACTUAL outcome (F1 fix, GA-PAR-14).
+    let stampImage: Buffer | null = null
+    if (withStamp) {
+      try {
+        const supplier = await User.findById(booking.supplier).select('stampFile').lean()
+        if (supplier?.stampFile) {
+          stampImage = await fs.readFile(path.resolve(env.CDN_CONTRACTS, supplier.stampFile))
+        }
+      } catch (stampErr) {
+        logger.error('[contractOperations.createSnapshot] agency stamp embed failed', stampErr)
+      }
+    }
+    // GA-PAR-12: read the recorded online signature image when one exists
+    // at snapshot-creation time. A missing/corrupt file degrades to the
+    // timestamp/hash text lines (logged), never to a failed snapshot.
+    let signatureImage: Buffer | null = null
     if (booking.onlineSignature?.file) {
       try {
-        const signatureBytes = await fs.readFile(path.resolve(env.CDN_CONTRACTS, booking.onlineSignature.file))
-        const signatureImage = await pdf.embedPng(signatureBytes)
-        const scale = Math.min(200 / signatureImage.width, 64 / signatureImage.height, 1)
-        page.drawText('Client signature (signed online):', { x: 36, y: 108, size: 9, font, color: rgb(0.1, 0.1, 0.1) })
-        page.drawImage(signatureImage, {
-          x: 36,
-          y: 36,
-          width: signatureImage.width * scale,
-          height: signatureImage.height * scale,
-        })
+        signatureImage = await fs.readFile(path.resolve(env.CDN_CONTRACTS, booking.onlineSignature.file))
       } catch (signatureErr) {
         logger.error('[contractOperations.createSnapshot] online signature embed failed', signatureErr)
       }
     }
-    const bytes = await pdf.save(); const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+    const generatedAt = new Date()
+    const bytes = await renderContractSnapshotPdf({
+      reference,
+      rentalTotal: booking.financialSnapshot?.rentalTotal ?? booking.price,
+      currency: String(booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase(),
+      inspections: (inspections as env.ContractInspection[]).map((x) => ({
+        type: x.type,
+        occurredAt: x.occurredAt,
+        odometer: x.odometer,
+        fuelLevel: x.fuelLevel,
+        condition: x.condition,
+        damageNote: x.damageNote,
+        checklist: x.checklist,
+      })),
+      charges: (charges as env.ContractCharge[]).map((x) => ({
+        type: x.type, amount: x.amount, currency: x.currency, reason: x.reason, status: x.status,
+      })),
+      onlineSignature: booking.onlineSignature
+        ? { signedAt: booking.onlineSignature.signedAt, contentHash: booking.onlineSignature.contentHash }
+        : undefined,
+      signatureImage,
+      stampImage,
+      stampRequested: withStamp,
+      qrPng,
+      qrPayload,
+      generatedAt,
+    })
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex')
     const version = (await ContractSnapshot.countDocuments({ booking: booking._id })) + 1
     const filename = `${crypto.randomUUID()}.pdf`; await fs.writeFile(path.resolve(env.CDN_CONTRACTS, `snapshot_${booking._id}_${filename}`), bytes, { flag: 'wx' })
-    const snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt: new Date() })
+    const snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt, withStamp })
     res.status(201).json(snapshot)
   } catch (err) {
  logger.error('[contractOperations.createSnapshot]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -488,6 +552,10 @@ export const complete = async (req: Request, res: Response) => {
     const booking = await bookingScope(req)
     if (invalidBooking(booking)) {
  res.status(404).send('Contract not found'); return 
+}
+    // GA-PAR-22: a trashed contract cannot be completed.
+    if (booking!.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
 }
     if ((booking!.lifecycle || bookcarsTypes.ContractLifecycle.Draft) !== bookcarsTypes.ContractLifecycle.ReturnReview) {
  res.status(409).send('Contract must be in return review before completion'); return 

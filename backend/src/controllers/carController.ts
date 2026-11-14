@@ -16,6 +16,7 @@ import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
+import { deriveFleetStatus, emptyFleetStatusCounts, fleetStatusForList, isFleetStatus } from '../utils/fleetStatus'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import DateBasedPrice from '../models/DateBasedPrice'
 import User from '../models/User'
@@ -23,6 +24,7 @@ import Notification from '../models/Notification'
 import NotificationCounter from '../models/NotificationCounter'
 import * as mailHelper from '../utils/mailHelper'
 import Location from '../models/Location'
+import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 
 const canManageAgency = (user: { _id: mongoose.Types.ObjectId | string, type?: bookcarsTypes.UserType } | undefined, supplierId: string) =>
   !!user && (user.type === bookcarsTypes.UserType.Admin || (user.type === bookcarsTypes.UserType.Supplier && user._id.toString() === supplierId))
@@ -154,6 +156,175 @@ export const normalizeFinancing = (financing: bookcarsTypes.CarFinancingPayload 
 
 export const normalizeDocumentDate = (value: Date | string | null | undefined): Date | undefined => (isClearValue(value) ? undefined : new Date(value as string))
 
+// Scorecard #17: garage block validation + normalisation, following the
+// GA-PAR-08 financing discipline — per-field shape only, plus the one
+// cross-field rule the scorecard states: expectedBack >= since when both
+// are set. null / '' means "clear" and is valid everywhere. A
+// whitespace-only name counts as cleared, not as a name. Anything else
+// malformed is rejected with a 400 naming the field, before any
+// persistence; the schema's own maxlength/Date validators stay as the
+// second line of defence.
+const GARAGE_NAME_MAX_LENGTH = 200
+
+export const invalidGarageField = (payload: {
+  garage?: unknown
+}): string | null => {
+  const { garage } = payload
+  if (isClearValue(garage)) {
+    return null
+  }
+  if (typeof garage !== 'object' || Array.isArray(garage)) {
+    return 'garage'
+  }
+  const block = garage as Record<string, unknown>
+  if (!isClearValue(block.garageName)) {
+    if (typeof block.garageName !== 'string' || block.garageName.trim().length > GARAGE_NAME_MAX_LENGTH) {
+      return 'garage.garageName'
+    }
+  }
+  for (const field of ['since', 'expectedBack'] as const) {
+    const value = block[field]
+    if (!isClearValue(value) && !isValidDateValue(value)) {
+      return `garage.${field}`
+    }
+  }
+  const since = isClearValue(block.since) ? undefined : new Date(block.since as string)
+  const expectedBack = isClearValue(block.expectedBack) ? undefined : new Date(block.expectedBack as string)
+  if (since && expectedBack && expectedBack < since) {
+    return 'garage.expectedBack'
+  }
+  return null
+}
+
+// Returns undefined when nothing should be stored (absent, null, or a
+// block whose every field is cleared); otherwise an object holding only
+// the set fields, name trimmed, dates normalised.
+export const normalizeGarage = (garage: bookcarsTypes.CarGaragePayload | null | undefined): bookcarsTypes.CarGarage | undefined => {
+  if (!garage) {
+    return undefined
+  }
+  const normalized: bookcarsTypes.CarGarage = {}
+  if (!isClearValue(garage.garageName) && typeof garage.garageName === 'string' && garage.garageName.trim().length > 0) {
+    normalized.garageName = garage.garageName.trim()
+  }
+  if (!isClearValue(garage.since)) {
+    normalized.since = new Date(garage.since as string)
+  }
+  if (!isClearValue(garage.expectedBack)) {
+    normalized.expectedBack = new Date(garage.expectedBack as string)
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+// Scorecard #17: the expectedBack >= since rule is checked on the MERGED
+// block in update — a payload that sets only expectedBack must still
+// respect the stored since (and vice versa). Returns true when the merged
+// pair violates the rule.
+export const mergedGarageDateOrderInvalid = (
+  stored: bookcarsTypes.CarGarage | undefined,
+  patch: bookcarsTypes.CarGaragePayload | null | undefined,
+): boolean => {
+  if (!patch || typeof patch !== 'object') {
+    return false
+  }
+  const since = patch.since !== undefined
+    ? (isClearValue(patch.since) ? undefined : new Date(patch.since as string))
+    : stored?.since
+  const expectedBack = patch.expectedBack !== undefined
+    ? (isClearValue(patch.expectedBack) ? undefined : new Date(patch.expectedBack as string))
+    : stored?.expectedBack
+  return !!since && !!expectedBack && expectedBack < since
+}
+
+// Scorecard #18: service-state validation + normalisation, following
+// the GA-PAR-08 financing / #17 garage discipline — per-field shape
+// only, plus the one cross-field rule the scorecard states: next >=
+// last per pair (oil, filter) when both are set. null / '' means
+// "clear" and is valid everywhere. Anything else malformed is rejected
+// with a 400 naming the field, before any persistence; the schema's
+// own min: 0 validators stay as the second line of defence.
+const SERVICE_KM_FIELDS = ['lastOilChangeKm', 'lastFilterChangeKm', 'nextOilChangeKm', 'nextFilterChangeKm'] as const
+
+export const invalidServiceField = (payload: {
+  service?: unknown
+}): string | null => {
+  const { service } = payload
+  if (isClearValue(service)) {
+    return null
+  }
+  if (typeof service !== 'object' || Array.isArray(service)) {
+    return 'service'
+  }
+  const block = service as Record<string, unknown>
+  for (const field of SERVICE_KM_FIELDS) {
+    const value = block[field]
+    if (isClearValue(value)) {
+      continue
+    }
+    if (typeof value === 'boolean' || typeof value === 'object') {
+      return `service.${field}`
+    }
+    const km = Number(value)
+    if (!Number.isFinite(km) || km < 0) {
+      return `service.${field}`
+    }
+  }
+  const lastOil = isClearValue(block.lastOilChangeKm) ? undefined : Number(block.lastOilChangeKm)
+  const nextOil = isClearValue(block.nextOilChangeKm) ? undefined : Number(block.nextOilChangeKm)
+  if (lastOil !== undefined && nextOil !== undefined && nextOil < lastOil) {
+    return 'service.nextOilChangeKm'
+  }
+  const lastFilter = isClearValue(block.lastFilterChangeKm) ? undefined : Number(block.lastFilterChangeKm)
+  const nextFilter = isClearValue(block.nextFilterChangeKm) ? undefined : Number(block.nextFilterChangeKm)
+  if (lastFilter !== undefined && nextFilter !== undefined && nextFilter < lastFilter) {
+    return 'service.nextFilterChangeKm'
+  }
+  return null
+}
+
+// Returns undefined when nothing should be stored (absent, null, or a
+// block whose every field is cleared); otherwise an object holding only
+// the set fields, normalised to numbers.
+export const normalizeService = (service: bookcarsTypes.CarServicePayload | null | undefined): bookcarsTypes.CarService | undefined => {
+  if (!service) {
+    return undefined
+  }
+  const normalized: bookcarsTypes.CarService = {}
+  for (const field of SERVICE_KM_FIELDS) {
+    const value = service[field]
+    if (!isClearValue(value)) {
+      normalized[field] = Number(value)
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+// Scorecard #18: the next >= last rule is checked on the MERGED block
+// in update — a payload that sets only nextOilChangeKm must still
+// respect the stored lastOilChangeKm (and vice versa), per pair.
+// Returns the offending next field, or null when the merged block is
+// valid.
+export const mergedServiceKmOrderInvalid = (
+  stored: bookcarsTypes.CarService | undefined,
+  patch: bookcarsTypes.CarServicePayload | null | undefined,
+): string | null => {
+  if (!patch || typeof patch !== 'object') {
+    return null
+  }
+  for (const [lastField, nextField] of [['lastOilChangeKm', 'nextOilChangeKm'], ['lastFilterChangeKm', 'nextFilterChangeKm']] as const) {
+    const last = patch[lastField] !== undefined
+      ? (isClearValue(patch[lastField]) ? undefined : Number(patch[lastField]))
+      : stored?.[lastField]
+    const next = patch[nextField] !== undefined
+      ? (isClearValue(patch[nextField]) ? undefined : Number(patch[nextField]))
+      : stored?.[nextField]
+    if (last !== undefined && next !== undefined && next < last) {
+      return `service.${nextField}`
+    }
+  }
+  return null
+}
+
 const validDateBasedPrices = (dateBasedPrices: bookcarsTypes.DateBasedPrice[] | undefined) =>
   (Array.isArray(dateBasedPrices) ? dateBasedPrices : []).filter((dbp) => {
     const start = new Date(dbp?.startDate || '')
@@ -199,6 +370,27 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    // Scorecard #17: garage block shape + date order.
+    const invalidGarage = invalidGarageField(body)
+    if (invalidGarage) {
+      res.status(400).send(`Invalid ${invalidGarage}`)
+      return
+    }
+
+    // Scorecard #18: service-state km shape + next >= last per pair.
+    const invalidService = invalidServiceField(body)
+    if (invalidService) {
+      res.status(400).send(`Invalid ${invalidService}`)
+      return
+    }
+
+    // Fleet statuses (scorecard #15): the operator status is one of the
+    // three enum values when present; absent means inService (default).
+    if (body.operationalStatus !== undefined && !Object.values(bookcarsTypes.CarOperationalStatus).includes(body.operationalStatus)) {
+      res.status(400).send('Invalid operationalStatus')
+      return
+    }
+
     if (!body.image) {
       throw new Error('Image not found in payload')
     }
@@ -223,6 +415,10 @@ export const create = async (req: Request, res: Response) => {
       insuranceExpiryDate: normalizeDocumentDate(body.insuranceExpiryDate),
       technicalInspectionExpiryDate: normalizeDocumentDate(body.technicalInspectionExpiryDate),
       vignetteExpiryDate: normalizeDocumentDate(body.vignetteExpiryDate),
+      // Scorecard #17: garage block (absent when nothing is set).
+      garage: normalizeGarage(body.garage),
+      // Scorecard #18: service state (absent when nothing is set).
+      service: normalizeService(body.service),
     })
     await car.save()
 
@@ -378,9 +574,50 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      // GA-PAR-22: a trashed car cannot be updated — restore it first.
+      if (car.deletedAt) {
+        res.status(409).send(trashedMessage('car'))
+        return
+      }
+
       const invalidField = invalidFinancingOrDocumentField(body)
       if (invalidField) {
         res.status(400).send(`Invalid ${invalidField}`)
+        return
+      }
+
+      // Fleet statuses (scorecard #15): the operator status is one of the
+      // three enum values when present.
+      if (body.operationalStatus !== undefined && !Object.values(bookcarsTypes.CarOperationalStatus).includes(body.operationalStatus)) {
+        res.status(400).send('Invalid operationalStatus')
+        return
+      }
+
+      // Scorecard #17: garage block shape + date order, checked on the
+      // payload first, then on the merged block (a payload that sets only
+      // expectedBack must still respect the stored since).
+      const invalidGarage = invalidGarageField(body)
+      if (invalidGarage) {
+        res.status(400).send(`Invalid ${invalidGarage}`)
+        return
+      }
+      if (mergedGarageDateOrderInvalid(car.garage, body.garage)) {
+        res.status(400).send('Invalid garage.expectedBack')
+        return
+      }
+
+      // Scorecard #18: service-state km shape + next >= last per pair,
+      // checked on the payload first, then on the merged block (a
+      // payload that sets only nextOilChangeKm must still respect the
+      // stored lastOilChangeKm, and vice versa, per pair).
+      const invalidService = invalidServiceField(body)
+      if (invalidService) {
+        res.status(400).send(`Invalid ${invalidService}`)
+        return
+      }
+      const mergedServiceInvalid = mergedServiceKmOrderInvalid(car.service, body.service)
+      if (mergedServiceInvalid) {
+        res.status(400).send(`Invalid ${mergedServiceInvalid}`)
         return
       }
 
@@ -392,6 +629,7 @@ export const update = async (req: Request, res: Response) => {
         available,
         fullyBooked,
         comingSoon,
+        operationalStatus,
         type,
         locations,
         dailyPrice,
@@ -426,6 +664,8 @@ export const update = async (req: Request, res: Response) => {
         insuranceExpiryDate,
         technicalInspectionExpiryDate,
         vignetteExpiryDate,
+        garage,
+        service,
         isDateBasedPrice,
         dateBasedPrices,
         blockOnPay,
@@ -452,6 +692,11 @@ export const update = async (req: Request, res: Response) => {
       car.available = available
       car.fullyBooked = fullyBooked
       car.comingSoon = comingSoon
+      // Fleet statuses (scorecard #15): an absent status leaves the
+      // stored value untouched (a legacy client never clears it).
+      if (operationalStatus !== undefined) {
+        car.operationalStatus = operationalStatus as bookcarsTypes.CarOperationalStatus
+      }
       car.type = type as bookcarsTypes.CarType
       car.dailyPrice = dailyPrice
       car.discountedDailyPrice = discountedDailyPrice
@@ -528,6 +773,59 @@ export const update = async (req: Request, res: Response) => {
       }
       if (vignetteExpiryDate !== undefined) {
         car.vignetteExpiryDate = normalizeDocumentDate(vignetteExpiryDate)
+      }
+      // Scorecard #17: garage block, following the financing merge
+      // discipline — absent leaves the stored block untouched, null clears
+      // the whole block, an object merges field by field (null/'' clears
+      // exactly that field). A merge that clears every field stores the
+      // block as absent, never as an empty sub-document.
+      if (garage !== undefined) {
+        if (garage === null) {
+          car.garage = undefined
+        } else {
+          if (!car.garage) {
+            car.garage = {}
+          }
+          if (garage.garageName !== undefined) {
+            car.garage.garageName = isClearValue(garage.garageName) || (typeof garage.garageName === 'string' && garage.garageName.trim().length === 0)
+              ? undefined
+              : (garage.garageName as string).trim()
+          }
+          if (garage.since !== undefined) {
+            car.garage.since = isClearValue(garage.since) ? undefined : new Date(garage.since as string)
+          }
+          if (garage.expectedBack !== undefined) {
+            car.garage.expectedBack = isClearValue(garage.expectedBack) ? undefined : new Date(garage.expectedBack as string)
+          }
+          if (!car.garage.garageName && !car.garage.since && !car.garage.expectedBack) {
+            car.garage = undefined
+          }
+        }
+      }
+      // Scorecard #18: service state, following the garage merge
+      // discipline — absent leaves the stored block untouched, null clears
+      // the whole block, an object merges field by field (null/'' clears
+      // exactly that field). A merge that clears every field stores the
+      // block as absent, never as an empty sub-document. The merged
+      // next >= last rule was already checked above, so the merge itself
+      // cannot create an invalid pair.
+      if (service !== undefined) {
+        if (service === null) {
+          car.service = undefined
+        } else {
+          if (!car.service) {
+            car.service = {}
+          }
+          for (const field of SERVICE_KM_FIELDS) {
+            if (service[field] !== undefined) {
+              car.service[field] = isClearValue(service[field]) ? undefined : Number(service[field])
+            }
+          }
+          if (car.service.lastOilChangeKm === undefined && car.service.lastFilterChangeKm === undefined
+            && car.service.nextOilChangeKm === undefined && car.service.nextFilterChangeKm === undefined) {
+            car.service = undefined
+          }
+        }
       }
       car.isDateBasedPrice = isDateBasedPrice
       car.blockOnPay = blockOnPay
@@ -642,7 +940,9 @@ export const validateLicensePlate = async (req: Request, res: Response) => {
 
   try {
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
-    const filter: Record<string, unknown> = { licensePlate }
+    // GA-PAR-22: a trashed car is absent for plate validation, so a
+    // new car can reuse its plate (200).
+    const filter: Record<string, unknown> = { licensePlate, deletedAt: null }
     if (sessionUser?.type !== bookcarsTypes.UserType.Admin) {
       const supplierId = agencySupplierId(req)
       if (!supplierId) {
@@ -677,7 +977,8 @@ export const validateCarLicensePlate = async (req: Request, res: Response) => {
 
   try {
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
-    const filter: Record<string, unknown> = { _id: { $ne: id }, licensePlate }
+    // GA-PAR-22: a trashed car is absent for plate validation.
+    const filter: Record<string, unknown> = { _id: { $ne: id }, licensePlate, deletedAt: null }
     if (sessionUser?.type !== bookcarsTypes.UserType.Admin) {
       const supplierId = agencySupplierId(req)
       if (!supplierId) {
@@ -711,6 +1012,17 @@ export const deleteCar = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GA-PAR-22: hard delete is purge-from-trash ONLY (D-22.9). The
+    // reason is required (3–1000 chars, D-22.4); a live car refuses
+    // 409 NOT_TRASHED. The any-history 409 is UNCHANGED (it counts
+    // all bookings, live and trashed — D-22.11), so a car with live
+    // bookings is retired by trash and can essentially never be
+    // purged. Called only from the Trash view.
+    const reason = (req.body as { reason?: unknown } | undefined)?.reason
+    if (!isValidTrashReason(reason)) {
+      res.status(400).send('PURGE_REASON: Purging a trashed car requires a reason of 3 to 1000 characters.')
+      return
+    }
     const car = await Car.findById(id)
     if (car) {
       // begin of security check
@@ -725,6 +1037,11 @@ export const deleteCar = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      if (!car.deletedAt) {
+        res.status(409).send(`NOT_TRASHED: Car ${car._id.toString()} is not trashed. Trash it before purging.`)
+        return
+      }
+
       // Preserve contract and payment history. Vehicles with booking history are retired, not deleted.
       const bookingCount = await Booking.countDocuments({ car: car._id })
       if (bookingCount > 0) {
@@ -733,6 +1050,8 @@ export const deleteCar = async (req: Request, res: Response) => {
       }
 
       await Car.deleteOne({ _id: id })
+      // D-22.8: exactly one server-log line per purged id.
+      logger.info(`[car.delete] Purged car ${car._id.toString()} by user ${sessionUserId} (reason: ${(reason as string).trim()})`)
 
       if (car.dateBasedPrices?.length > 0) {
         await DateBasedPrice.deleteMany({ _id: { $in: car.dateBasedPrices } })
@@ -829,6 +1148,11 @@ export const updateImage = async (req: Request, res: Response) => {
     }
 
     if (car) {
+      // GA-PAR-22: a trashed car's image cannot change.
+      if (car.deletedAt) {
+        res.status(409).send(trashedMessage('car'))
+        return
+      }
       if (car.image) {
         const image = path.join(env.CDN_CARS, car.image)
         if (await helper.pathExists(image)) {
@@ -893,6 +1217,11 @@ export const deleteImage = async (req: Request, res: Response) => {
     }
 
     if (car) {
+      // GA-PAR-22: a trashed car's image cannot be deleted.
+      if (car.deletedAt) {
+        res.status(409).send(trashedMessage('car'))
+        return
+      }
       if (car.image) {
         const image = path.join(env.CDN_CARS, car.image)
         if (await helper.pathExists(image)) {
@@ -987,6 +1316,22 @@ export const getCar = async (req: Request, res: Response) => {
       .lean()
 
     if (car) {
+      // GA-PAR-22: `getCar` is public, so a trashed car is returned
+      // only to the owning agency / platform admin; every other
+      // caller (public, foreign agency) gets a silent 204. The route
+      // carries `authJwt.verifyTokenOptional` so `req.user` is set
+      // when a session exists and absent for public callers.
+      const sessionUser = req.user
+      const sessionAgencyId = agencySupplierId(req)
+      const isAgencyCaller = !!sessionUser
+        && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+        && car.supplier._id?.toString() === sessionAgencyId
+      const isAdminCaller = sessionUser?.type === bookcarsTypes.UserType.Admin
+      if (car.deletedAt && !isAgencyCaller && !isAdminCaller) {
+        res.sendStatus(204)
+        return
+      }
+
       const {
         _id,
         fullName,
@@ -1043,6 +1388,7 @@ export const getCars = async (req: Request, res: Response) => {
       mileage,
       deposit,
       availability,
+      fleetStatus,
       fuelPolicy,
       carSpecs,
       ranges,
@@ -1050,6 +1396,12 @@ export const getCars = async (req: Request, res: Response) => {
       rating,
       seats,
     } = body
+    // Fleet statuses (scorecard #15): the status filter takes one of the
+    // four derived statuses; anything else is a 400.
+    if (fleetStatus !== undefined && !isFleetStatus(fleetStatus)) {
+      res.status(400).send('Invalid fleet status')
+      return
+    }
     const keyword = escapeStringRegexp(String(req.query.s || ''))
     const options = 'i'
 
@@ -1057,6 +1409,9 @@ export const getCars = async (req: Request, res: Response) => {
       $and: [
         { $or: [{ name: { $regex: keyword, $options: options } }, { licensePlate: { $regex: keyword, $options: options } }] },
         { supplier: { $in: suppliers } },
+        // GA-PAR-22: live cars only — trashed cars never leak into the
+        // live list (the trash view has its own endpoint).
+        { deletedAt: null },
       ],
     }
 
@@ -1090,7 +1445,7 @@ export const getCars = async (req: Request, res: Response) => {
       } else if (mileage.length === 1 && mileage[0] === bookcarsTypes.Mileage.Unlimited) {
         $match.$and!.push({ mileage: -1 })
       } else if (mileage.length === 0) {
-        res.json([{ resultData: [], pageInfo: [] }])
+        res.json([{ resultData: [], pageInfo: [], fleetStatusCounts: emptyFleetStatusCounts() }])
         return
       }
     }
@@ -1106,7 +1461,7 @@ export const getCars = async (req: Request, res: Response) => {
         && availability[0] === bookcarsTypes.Availablity.Unavailable) {
         $match.$and!.push({ available: false })
       } else if (availability.length === 0) {
-        res.json([{ resultData: [], pageInfo: [] }])
+        res.json([{ resultData: [], pageInfo: [], fleetStatusCounts: emptyFleetStatusCounts() }])
         return
       }
     }
@@ -1132,6 +1487,28 @@ export const getCars = async (req: Request, res: Response) => {
         } else {
           $match.$and!.push({ seats })
         }
+      }
+    }
+
+    // Fleet statuses (scorecard #15): counts + rented set over the SAME
+    // filtered set as the list, BEFORE the fleetStatus filter is applied
+    // (so switching filters keeps the counts stable and the counts
+    // always match the rows the list can show).
+    const { counts: fleetStatusCounts, rentedCarIds } = await fleetStatusForList($match.$and || [], suppliers)
+
+    if (fleetStatus) {
+      if (fleetStatus === 'maintenance') {
+        $match.$and!.push({ operationalStatus: bookcarsTypes.CarOperationalStatus.Maintenance })
+      } else if (fleetStatus === 'stopped') {
+        $match.$and!.push({ operationalStatus: bookcarsTypes.CarOperationalStatus.Stopped })
+      } else if (fleetStatus === 'rented') {
+        // Scorecard #15 FIX: aggregate $match does NOT cast strings to
+        // ObjectId, so the rented ids must be ObjectIds here (the counts
+        // path uses countDocuments, which casts, and stayed correct).
+        $match.$and!.push({ operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] }, _id: { $in: [...rentedCarIds].map((id) => new mongoose.Types.ObjectId(id)) } })
+      } else {
+        // 'available': in service, available, WITHOUT a live booking.
+        $match.$and!.push({ operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] }, available: true, _id: { $nin: [...rentedCarIds].map((id) => new mongoose.Types.ObjectId(id)) } })
       }
     }
 
@@ -1232,7 +1609,17 @@ export const getCars = async (req: Request, res: Response) => {
     for (const car of data[0].resultData) {
       const { _id, fullName, avatar } = car.supplier
       car.supplier = { _id, fullName, avatar }
+      // GA-PAR-22: lists carry the trash scalars but never the history (§3).
+      delete (car as Record<string, unknown>).trashHistory
+      // Fleet statuses (scorecard #15): derived display status of the
+      // row (`unavailable` rows carry none — they belong to none of the
+      // four counted statuses).
+      const fleetStatusOfCar = deriveFleetStatus(car, rentedCarIds)
+      if (fleetStatusOfCar !== 'unavailable') {
+        car.fleetStatus = fleetStatusOfCar
+      }
     }
+    ;(data[0] as bookcarsTypes.ResultData<bookcarsTypes.Car>).fleetStatusCounts = fleetStatusCounts
 
     res.json(data)
   } catch (err) {
@@ -1283,7 +1670,15 @@ export const getBookingCars = async (req: Request, res: Response) => {
             $and: [
               { 'supplier._id': supplier },
               { locations: pickupLocation },
-              { available: true }, { name: { $regex: keyword, $options: options } },
+              // GA-PAR-22: a trashed car cannot be selected for a booking.
+              { deletedAt: null },
+              { available: true },
+              // Scorecard #15: maintenance/stopped cars are never offered
+              // in the booking-create picker (legacy cars have no stored
+              // status, so null stays bookable); the 403 refusal at submit
+              // remains the enforcement backstop.
+              { operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] } },
+              { name: { $regex: keyword, $options: options } },
             ],
           },
         },
@@ -1366,6 +1761,11 @@ export const getFrontendCars = async (req: Request, res: Response) => {
         { gearbox: { $in: gearbox } },
         { available: true },
         { fullyBooked: { $in: [false, null] } },
+        // Fleet statuses (scorecard #15): the public site never shows a
+        // car in maintenance or stopped (absent = legacy inService).
+        { operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] } },
+        // GA-PAR-22: the public site never shows a trashed car.
+        { deletedAt: null },
       ],
     }
 
@@ -1655,5 +2055,281 @@ export const getFrontendCars = async (req: Request, res: Response) => {
   }
 }
 
+/**
+ * GA-PAR-22 — Trash Car (scorecard #47, D-22.3/D-22.4).
+ *
+ * Single-id route (`POST /api/trash-car/:id`, same `pinAgencySelector`
+ * shape as `delete-car`). A car with live bookings CAN be trashed —
+ * trash IS the retirement the deleteCar 409 message has been
+ * prescribing; its bookings stay live and keep reserving. No other
+ * refusal besides already-trashed. Exactly the three scalar fields +
+ * one history row are written (D-22.2).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const trashCar = async (req: Request, res: Response) => {
+  const { id } = req.params
 
+  try {
+    const reason = (req.body as { reason?: unknown } | undefined)?.reason
+    if (!isValidTrashReason(reason)) {
+      res.status(400).send('TRASH_REASON: Trashing a car requires a reason of 3 to 1000 characters.')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    // begin of security check
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    const sessionAgencyId = agencySupplierId(req)
+    const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    if (!sessionUser || (isAgencyUser && car.supplier?.toString() !== sessionAgencyId)) {
+      logger.error(`[car.trashCar] Unauthorized attempt to trash car ${car._id} by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot trash this car')
+      return
+    }
+    // end of security check
 
+    if (car.deletedAt) {
+      res.status(409).send(`TRASHED: Car ${car._id.toString()} is already trashed.`)
+      return
+    }
+
+    applyTrash(car, sessionUser._id.toString(), reason as string)
+    await car.save()
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[car.trashCar] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Restore Car (scorecard #47, D-22.6).
+ *
+ * Re-validation, in the design's order: (a) no other LIVE car of the
+ * same agency with the same plate else 409 PLATE_IN_USE; (b)
+ * `locations` non-empty and every Location still exists else 409
+ * LOCATION_MISSING (accepted OQ-6 edge — recovery is
+ * purge-and-recreate); (c) the supplier still exists else 409
+ * SUPPLIER_MISSING. The reason is optional (≤1000).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const restoreCar = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    const reason = (req.body as { reason?: unknown } | undefined)?.reason
+    if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length > 1000)) {
+      res.status(400).send('RESTORE_REASON: A restore reason must be at most 1000 characters.')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    // begin of security check
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    const sessionAgencyId = agencySupplierId(req)
+    const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    if (!sessionUser || (isAgencyUser && car.supplier?.toString() !== sessionAgencyId)) {
+      logger.error(`[car.restoreCar] Unauthorized attempt to restore car ${car._id} by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot restore this car')
+      return
+    }
+    // end of security check
+
+    if (!car.deletedAt) {
+      res.status(409).send(`NOT_TRASHED: Car ${car._id.toString()} is not trashed.`)
+      return
+    }
+    if (car.licensePlate) {
+      const plateClash = await Car.findOne({
+        _id: { $ne: car._id },
+        supplier: car.supplier,
+        licensePlate: car.licensePlate,
+        deletedAt: null,
+      }).select('_id').lean()
+      if (plateClash) {
+        res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${car.licensePlate}.`)
+        return
+      }
+    }
+    if (!car.locations || car.locations.length === 0) {
+      res.status(409).send(`LOCATION_MISSING: Car ${car._id.toString()} has no locations left to restore into.`)
+      return
+    }
+    const locationCount = await Location.countDocuments({ _id: { $in: car.locations } })
+    if (locationCount !== car.locations.length) {
+      res.status(409).send(`LOCATION_MISSING: One or more locations of car ${car._id.toString()} no longer exist.`)
+      return
+    }
+    const supplierExists = await User.exists({ _id: car.supplier, type: bookcarsTypes.UserType.Supplier })
+    if (!supplierExists) {
+      res.status(409).send(`SUPPLIER_MISSING: The supplier of car ${car._id.toString()} no longer exists.`)
+      return
+    }
+
+    applyRestore(car, sessionUser._id.toString(), typeof reason === 'string' ? reason : undefined)
+    await car.save()
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[car.restoreCar] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Get Trashed Cars (scorecard #47, §5.2/§5.3).
+ *
+ * The trash view's read path is a separate dedicated endpoint — live
+ * endpoints can never return trashed rows. Same response shape as
+ * `getCars` (`{ resultData, pageInfo }` inside the aggregate-style
+ * array), same keyword behaviour (name, license plate), sorted by
+ * trashed-at descending. Rows carry the trash scalars and the
+ * trashed-by name, never the history (§3).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getTrashedCars = async (req: Request, res: Response) => {
+  try {
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+    const agencyId = agencySupplierId(req)
+    const suppliers = req.user?.type !== bookcarsTypes.UserType.Admin && agencyId
+      ? [new mongoose.Types.ObjectId(agencyId)]
+      : (req.body as bookcarsTypes.GetCarsPayload).suppliers!.map((id) => new mongoose.Types.ObjectId(id))
+    const keyword = escapeStringRegexp(String(req.query.s || ''))
+    const options = 'i'
+
+    const $match: mongoose.QueryFilter<bookcarsTypes.Car> = {
+      $and: [
+        { $or: [{ name: { $regex: keyword, $options: options } }, { licensePlate: { $regex: keyword, $options: options } }] },
+        { supplier: { $in: suppliers } },
+        { deletedAt: { $ne: null } },
+      ],
+    }
+
+    const data = await Car.aggregate(
+      [
+        { $match },
+        {
+          $lookup: {
+            from: 'User',
+            localField: 'supplier',
+            foreignField: '_id',
+            as: 'supplier',
+          },
+        },
+        { $unwind: '$supplier' },
+        {
+          $facet: {
+            resultData: [
+              { $sort: { deletedAt: -1, _id: 1 } },
+              { $skip: (page - 1) * size },
+              { $limit: size },
+            ],
+            pageInfo: [
+              {
+                $group: {
+                  _id: null,
+                  totalRecords: { $sum: 1 },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      { collation: { locale: env.DEFAULT_LANGUAGE, strength: 2 } },
+    )
+
+    const rows = data[0].resultData as Record<string, unknown>[]
+    if (rows.length > 0) {
+      const byIds = rows
+        .map((row) => row.deletedBy)
+        .filter((id): id is mongoose.Types.ObjectId => !!id)
+        .map((id) => id.toString())
+      const actors = byIds.length > 0
+        ? await User.find({ _id: { $in: byIds.map((id) => new mongoose.Types.ObjectId(id)) } }).select('_id fullName').lean()
+        : []
+      const names = new Map(actors.map((a) => [a._id.toString(), a.fullName]))
+      for (const row of rows) {
+        const { _id, fullName, avatar } = row.supplier as { _id: unknown, fullName: string, avatar: string }
+        row.supplier = { _id, fullName, avatar }
+        delete row.trashHistory
+        row.deletedByName = row.deletedBy ? (names.get(String(row.deletedBy)) || '') : ''
+      }
+    }
+
+    res.json(data)
+  } catch (err) {
+    logger.error(`[car.getTrashedCars] ${i18n.t('ERROR')} ${req.query.s}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-22 — Car trash-warning figures (§5.7).
+ *
+ * Live counts behind the trash confirm dialog: bookings referencing
+ * the car, split live / trashed (a trashed car keeps its bookings
+ * live, and the purge stays blocked while ANY booking history exists).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getCarTrashWarning = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    const car = await Car.findById(id).select('_id supplier deletedAt').lean()
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    const sessionAgencyId = agencySupplierId(req)
+    const isAgencyUser = !!sessionUser && [bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)
+    if (!sessionUser || (isAgencyUser && car.supplier?.toString() !== sessionAgencyId)) {
+      logger.error(`[car.getCarTrashWarning] Forbidden access to car ${id} by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: Access denied')
+      return
+    }
+
+    const [liveBookingsCount, trashedBookingsCount] = await Promise.all([
+      Booking.countDocuments({ car: car._id, deletedAt: null }),
+      Booking.countDocuments({ car: car._id, deletedAt: { $ne: null } }),
+    ])
+    const warning: bookcarsTypes.TrashWarning = {
+      liveBookingsCount,
+      trashedBookingsCount,
+      bookingsCount: liveBookingsCount + trashedBookingsCount,
+    }
+    res.json(warning)
+  } catch (err) {
+    logger.error(`[car.getCarTrashWarning] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}

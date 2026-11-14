@@ -177,8 +177,9 @@ const build = async (req: Request) => {
   const [payments, expenses, bookings, fleet, invoices] = await Promise.all([
     RentalPayment.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to }, status: types.RentalPaymentStatus.Posted } }, { $group: { _id: '$purpose', total: { $sum: { $cond: [{ $eq: ['$direction', types.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } }]),
     MaintenanceExpense.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }]),
-    Booking.find({ supplier, from: { $lt: to }, to: { $gt: from }, status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] } }).select('_id from to price financialSnapshot').lean(),
-    Car.countDocuments({ supplier }),
+    Booking.find({ supplier, from: { $lt: to }, to: { $gt: from }, status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] }, deletedAt: null }).select('_id from to price financialSnapshot').lean(),
+    // GA-PAR-22: the fleet figure behind the old summary counts live cars only.
+    Car.countDocuments({ supplier, deletedAt: null }),
     Invoice.aggregate([{ $match: { supplier, status: { $ne: types.InvoiceStatus.Voided }, createdAt: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$total' }, paid: { $sum: '$paidAmount' }, count: { $sum: 1 } } }]),
   ])
   const rent = Number(payments.find((x) => x._id === types.RentalPaymentPurpose.Rent)?.total || 0)
@@ -324,13 +325,33 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     to: { $gt: from },
     status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
     expireAt: null,
+    // GA-PAR-22: trashed bookings leave contractAmount / contracts /
+    // occupancy (§2.5); their posted payments still count as
+    // collected, so `remaining` can understate — accepted semantics.
+    deletedAt: null,
     ...(carObjectId ? { car: carObjectId } : {}),
   }).select('_id car from to price financialSnapshot reference').lean()
 
   const bookingIds = bookings.map((b) => b._id)
+  // GA-PAR-22 (§2.5): `collected` is payment-driven and KEEPS the
+  // trashed booking's posted payments, while `contractAmount` /
+  // contracts / occupancy come from live bookings only. The payment
+  // match therefore covers live + trashed bookings in the window;
+  // the charge match stays live-only (approved charges on a trashed
+  // booking leave `contractAmount` with the booking).
+  const trashedBookingIds = (await Booking.find({
+    supplier,
+    from: { $lt: to },
+    to: { $gt: from },
+    status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
+    expireAt: null,
+    deletedAt: { $ne: null },
+    ...(carObjectId ? { car: carObjectId } : {}),
+  }).select('_id').lean()).map((b) => b._id)
+  const paymentBookingIds = [...bookingIds, ...trashedBookingIds]
   const [paymentRows, chargeRows, expenseRows] = await Promise.all([
-    bookingIds.length > 0 ? RentalPayment.aggregate([
-      { $match: { booking: { $in: bookingIds }, status: types.RentalPaymentStatus.Posted, ...(scope !== 'all' ? { method: { $in: SCOPE_METHODS[scope] } } : {}) } },
+    paymentBookingIds.length > 0 ? RentalPayment.aggregate([
+      { $match: { booking: { $in: paymentBookingIds }, status: types.RentalPaymentStatus.Posted, ...(scope !== 'all' ? { method: { $in: SCOPE_METHODS[scope] } } : {}) } },
       { $group: { _id: { booking: '$booking', purpose: { $ifNull: ['$purpose', types.RentalPaymentPurpose.Rent] } }, total: { $sum: { $cond: [{ $eq: ['$direction', types.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } },
     ]) : [],
     bookingIds.length > 0 ? ContractCharge.aggregate([
@@ -390,9 +411,15 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     date: new Date(e.date),
     amount: round(Number(e.amount || 0)),
   }))
+  // GA-PAR-22 (§2.5): the trashed bookings' posted rent stays in
+  // `collected` (money actually received). `remaining` is the live-only
+  // per-booking sum and therefore understates by up to the trashed
+  // bookings' collected amount — accepted semantics, surfaced by the
+  // trash confirm dialog (§5.7).
+  const trashedCollected = round(trashedBookingIds.reduce((s, id) => s + (rentByBooking.get(id.toString()) || 0), 0))
   const totals = {
     contractAmount: round(figures.reduce((s, b) => s + b.contractAmount, 0)),
-    collected: round(figures.reduce((s, b) => s + b.collected, 0)),
+    collected: round(figures.reduce((s, b) => s + b.collected, 0) + trashedCollected),
     remaining: round(figures.reduce((s, b) => s + b.remaining, 0)),
     expenses: round(expenses.reduce((s, e) => s + e.amount, 0)),
     net: 0,

@@ -6,6 +6,7 @@ import * as bookcarsHelper from ':bookcars-helper'
 import * as helper from '@/utils/helper'
 import env from '@/config/env.config'
 import { strings } from '@/lang/cars'
+import { strings as trashStrings } from '@/lang/trash'
 import { strings as commonStrings } from '@/lang/common'
 import * as SupplierService from '@/services/SupplierService'
 import Layout from '@/components/Layout'
@@ -20,6 +21,7 @@ import MileageFilter from '@/components/MileageFilter'
 import FuelPolicyFilter from '@/components/FuelPolicyFilter'
 import DepositFilter from '@/components/DepositFilter'
 import AvailabilityFilter from '@/components/AvailabilityFilter'
+import FleetStatusFilter from '@/components/FleetStatusFilter'
 import CarList from '@/components/CarList'
 
 import CarRangeFilter from '@/components/CarRangeFilter'
@@ -47,6 +49,8 @@ const Cars = () => {
   const [gearbox, setGearbox] = useState<string[]>([bookcarsTypes.GearboxType.Automatic, bookcarsTypes.GearboxType.Manual])
   const [mileage, setMileage] = useState<string[]>([bookcarsTypes.Mileage.Limited, bookcarsTypes.Mileage.Unlimited])
   const [availability, setAvailability] = useState<string[]>([bookcarsTypes.Availablity.Available, bookcarsTypes.Availablity.Unavailable])
+  // Fleet statuses (scorecard #15): 'all' means no status filter.
+  const [fleetStatus, setFleetStatus] = useState<bookcarsTypes.CarFleetStatus | 'all'>('all')
   const [fuelPolicy, setFuelPolicy] = useState(bookcarsHelper.getAllFuelPolicies())
   const [deposit, setDeposit] = useState(-1)
   const [language, setLanguage] = useState(env.DEFAULT_LANGUAGE)
@@ -140,6 +144,11 @@ const Cars = () => {
     setAvailability(values)
   }
 
+  // Fleet statuses (scorecard #15): single-select status filter.
+  const handleFleetStatusFilterChange = (value: bookcarsTypes.CarFleetStatus | 'all') => {
+    setFleetStatus(value)
+  }
+
   const onLoad = async (_user?: bookcarsTypes.User) => {
     setUser(_user)
     setLanguage(_user?.language as string)
@@ -193,6 +202,11 @@ const Cars = () => {
                   {strings.NEW_CAR}
                 </Button>
               )}
+              {canManageFleet && (
+                <Button variant="text" size="small" onClick={() => navigate('/trash')}>
+                  {trashStrings.VIEW_TRASH}
+                </Button>
+              )}
 
               {rowCount > 0 && <InfoBox value={`${bookcarsHelper.formatNumber(rowCount, language)} ${rowCount > 1 ? commonStrings.CARS : commonStrings.CAR}`} className="car-count" />}
 
@@ -218,6 +232,7 @@ const Cars = () => {
                   <FuelPolicyFilter className="filter" onChange={handleFuelPolicyFilterChange} />
                   <DepositFilter className="car-filter" onChange={handleDepositFilterChange} />
                   {admin && <AvailabilityFilter className="car-filter" onChange={handleAvailabilityFilterChange} />}
+                  <FleetStatusFilter value={fleetStatus} onChange={handleFleetStatusFilterChange} />
                 </>
               )}
             </div>
@@ -233,6 +248,7 @@ const Cars = () => {
               fuelPolicy={fuelPolicy}
               deposit={deposit}
               availability={availability}
+              fleetStatus={fleetStatus}
               range={ranges}
               multimedia={multimedia}
               rating={rating}
