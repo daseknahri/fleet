@@ -12,5 +12,6 @@ routes.get(routeNames.movements, authJwt.verifyToken, agencyAuth.requireAgencyPe
 routes.post(routeNames.movements, authJwt.verifyToken, agencyAuth.requireAnyAgencyPermission([agencyAuth.AgencyPermission.ManageCash, agencyAuth.AgencyPermission.RecordCash]), controller.createMovement)
 routes.post(routeNames.confirmMovement, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.confirmMovement)
 routes.post(routeNames.close, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.close)
+routes.get(routeNames.zReport, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.zReport)
 routes.post(routeNames.transfer, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.transfer)
 export default routes

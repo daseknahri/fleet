@@ -322,6 +322,30 @@ const CashJournal = () => {
 }
   }
 
+  // GA-PAR-24 — on-demand Z-report PDF for the closed focused session.
+  // Same blob-download pattern as the Reports car PDF; the button renders
+  // only for a closed session and shares the close action's gating.
+  const downloadZReport = async () => {
+    if (!session?._id) {
+      return
+    }
+    try {
+      setSessionError(false)
+      setSessionErrorMessage('')
+      const blob = await CashService.zReport(session._id, supplierScope)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `gestion-auto-z-report-${session._id}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setSessionError(true)
+      setSessionErrorMessage(helper.getErrorMessage(error, strings.Z_REPORT_ERROR))
+      helper.error(error, helper.getErrorMessage(error, strings.Z_REPORT_ERROR))
+    }
+  }
+
   const otherAccount = accountFocus === bookcarsTypes.CashAccountType.Cash ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
   const otherCurrent = currentByAccount[otherAccount]
 
@@ -352,7 +376,7 @@ const CashJournal = () => {
             {otherCurrent ? <span>{`${accountName(otherAccount)} · ${strings.SESSION_OPEN}`}</span> : null}
             <span>{session ? `${accountName(session.account)} · ${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
             {session && <span className="agency-cash__session-balances">{strings.OPENING_BALANCE}: {formatAmount(session.openingBalance)} · {strings.EXPECTED}: {session.expectedClosingBalance === undefined ? '—' : formatAmount(session.expectedClosingBalance)} · {strings.COUNTED_BALANCE}: {session.countedClosingBalance === undefined ? '—' : formatAmount(session.countedClosingBalance)} · {strings.DISCREPANCY}: {session.discrepancy === undefined ? '—' : formatAmount(session.discrepancy)}</span>}
-            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button>}
+            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <span className="agency-cash__session-actions"><Button disabled={!canMutateCash} variant="outlined" onClick={downloadZReport}>{strings.Z_REPORT}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button></span>}
           </div>
         </div>
         {loadError && <Alert severity="error" className="agency-cash__alert">{strings.LOAD_ERROR}</Alert>}

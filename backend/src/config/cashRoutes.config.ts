@@ -5,6 +5,7 @@ const routes = {
   movements: '/api/cash/sessions/:sessionId/movements',
   confirmMovement: '/api/cash/sessions/:sessionId/movements/:movementId/confirm',
   close: '/api/cash/sessions/:sessionId/close',
+  zReport: '/api/cash/sessions/:sessionId/z-report',
   transfer: '/api/cash/transfers',
 }
 export default routes

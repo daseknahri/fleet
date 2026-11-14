@@ -3,10 +3,12 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import CashSession from '../models/CashSession'
 import CashMovement from '../models/CashMovement'
+import User from '../models/User'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { normalizeLedgerAmount } from '../utils/ledger'
+import { renderCashSessionPdf } from '../utils/cashSessionPdf'
 import * as env from '../config/env.config'
 
 const currency = () => env.BASE_CURRENCY.toUpperCase()
@@ -386,3 +388,87 @@ export const close = async (req: Request, res: Response) => {
 }
 }
 
+
+// ---------------------------------------------------------------------
+// GA-PAR-24 — per-session closing (Z) report. On-demand pdf-lib PDF in
+// the PAR-03 / PAR-17 tradition: no file stored, no collection written.
+// Read-only: the handler writes nothing, so generating the report can
+// never change the session it describes.
+// Gated ManageCash — exactly like the session-close action. A session
+// of another agency answers 404 (established pattern); an open
+// (unclosed) session is refused 409 with a clear message.
+// Figures: expected / counted / discrepancy are printed exactly as
+// stored on the session. Movement totals use the same confirmed-only
+// rule close() uses; pending movements are listed separately and never
+// counted. Deposits have no stored session balance (see the renderer),
+// so no deposit figure is invented.
+// ---------------------------------------------------------------------
+
+export const zReport = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const supplierId = effectiveSupplierId(req)
+    if (!user || !supplierId || !mongoose.isValidObjectId(req.params.sessionId)) {
+      res.status(400).send('Invalid cash session'); return
+    }
+    const session = await CashSession.findOne({ _id: req.params.sessionId, supplier: supplierId })
+    if (!session) {
+      res.sendStatus(404); return
+    }
+    if (session.status !== bookcarsTypes.CashSessionStatus.Closed) {
+      res.status(409).send('Cash session is not closed'); return
+    }
+    const movements = await CashMovement.find({ session: session._id }).sort({ date: 1, createdAt: 1 }).lean()
+    const supplierDoc = await User.findById(supplierId).select('fullName email phone ice registreCommerce identifiantFiscal patente rib fiscalAddress city').lean()
+    const personIds = [session.openedBy, session.closedBy].filter((id): id is mongoose.Types.ObjectId => !!id)
+    const people = await User.find({ _id: { $in: personIds } }).select('fullName').lean()
+    const nameOf = (id: unknown) => {
+      const row = people.find((person) => person._id.toString() === String(id || ''))
+      return row?.fullName || ''
+    }
+    const confirmed = movements.filter((movement) => !movement.status || movement.status === 'confirmed')
+    const pending = movements.filter((movement) => movement.status === 'pending')
+    const sum = (rows: typeof movements, direction: bookcarsTypes.CashMovementDirection) => normalizeLedgerAmount(
+      rows.filter((movement) => movement.direction === direction).reduce((total, movement) => total + Number(movement.amount || 0), 0),
+      session.currency,
+    )
+    const pdf = await renderCashSessionPdf({
+      supplier: supplierDoc as never,
+      sessionShortId: session._id.toString().slice(-8).toUpperCase(),
+      account: session.account,
+      currency: session.currency,
+      openedAt: session.openedAt,
+      openedByName: nameOf(session.openedBy),
+      openingBalance: session.openingBalance,
+      status: session.status,
+      closedAt: session.closedAt,
+      closedByName: nameOf(session.closedBy),
+      expectedClosingBalance: session.expectedClosingBalance ?? 0,
+      countedClosingBalance: session.countedClosingBalance ?? 0,
+      discrepancy: session.discrepancy ?? 0,
+      closingNote: session.closingNote,
+      confirmedIn: sum(confirmed, bookcarsTypes.CashMovementDirection.In),
+      confirmedInCount: confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In).length,
+      confirmedOut: sum(confirmed, bookcarsTypes.CashMovementDirection.Out),
+      confirmedOutCount: confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out).length,
+      pendingIn: sum(pending, bookcarsTypes.CashMovementDirection.In),
+      pendingOut: sum(pending, bookcarsTypes.CashMovementDirection.Out),
+      pendingCount: pending.length,
+      movements: movements.map((movement) => ({
+        date: movement.date,
+        direction: movement.direction,
+        source: movement.source,
+        status: movement.status || 'confirmed',
+        reference: movement.reference,
+        note: movement.note,
+        amount: Number(movement.amount || 0),
+      })),
+      generatedAt: new Date(),
+    })
+    res.type('application/pdf')
+      .set('Content-Disposition', `attachment; filename="gestion-auto-z-report-${session._id}.pdf"`)
+      .send(pdf)
+  } catch (err) {
+    logger.error('[cash.zReport]', err); res.status(400).send(i18n.t('ERROR'))
+  }
+}
