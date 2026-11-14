@@ -18,6 +18,18 @@ if (import.meta.env.VITE_NODE_ENV === 'production') {
   disableDevTools()
 }
 
+// GA-Q4-4 (#54): register the admin service worker in production builds
+// only — never in dev, where the worker would cache the dev server's
+// responses. Registration failure (e.g. non-secure context) is non-fatal:
+// the admin works exactly as before, without offline support.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Non-fatal by design (see above).
+    })
+  })
+}
+
 let language = env.DEFAULT_LANGUAGE
 const user = JSON.parse(localStorage.getItem('bc-be-user') ?? 'null')
 let lang = UserService.getQueryLanguage()

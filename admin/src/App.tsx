@@ -5,6 +5,7 @@ import { UserProvider } from '@/context/UserContext'
 import { AgencyPermissionProvider } from '@/context/AgencyPermissionContext'
 import { RecaptchaProvider } from '@/context/RecaptchaContext'
 import ScrollToTop from '@/components/ScrollToTop'
+import OfflineBanner from '@/components/OfflineBanner'
 import NProgressIndicator from '@/components/NProgressIndicator'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
@@ -74,6 +75,7 @@ const AppLayout = () => {
           <RecaptchaProvider>
             <ScrollToTop />
             <div className="app">
+              <OfflineBanner />
               <Suspense fallback={<NProgressIndicator />}>
                 <Header />
                 <Outlet />
