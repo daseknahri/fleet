@@ -87,7 +87,7 @@ div.bs-list div.booking-details div.booking-detail div.booking-detail-value span
   color: rgb(0 0 0 / 60%);
   font-size: 0.9em;
   line-height: 1em;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.bs-list div.booking-details div.booking-detail div.booking-price {

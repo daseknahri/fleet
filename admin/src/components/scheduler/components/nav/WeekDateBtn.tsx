@@ -14,7 +14,7 @@ interface WeekDateBtnProps {
 }
 
 const WeekDateBtn = ({ selectedDate, onChange, weekProps }: WeekDateBtnProps) => {
-  const { locale, navigationPickerProps } = useStore()
+  const { locale, navigationPickerProps, translations } = useStore()
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
   const { weekStartOn } = weekProps
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: weekStartOn })
@@ -44,8 +44,8 @@ const WeekDateBtn = ({ selectedDate, onChange, weekProps }: WeekDateBtnProps) =>
 
   return (
     <>
-      <LocaleArrow type="prev" onClick={handlePrev} aria-label="previous week" />
-      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label="selected week">
+      <LocaleArrow type="prev" onClick={handlePrev} aria-label={translations.navigationAria?.prevWeek ?? 'previous week'} />
+      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label={translations.navigationAria?.selectedWeek ?? 'selected week'}>
         {`${format(weekStart, 'dd', { locale })} - ${format(weekEnd, 'dd MMM yyyy', {
           locale,
         })}`}
@@ -69,7 +69,7 @@ const WeekDateBtn = ({ selectedDate, onChange, weekProps }: WeekDateBtnProps) =>
           />
         </DateProvider>
       </Popover>
-      <LocaleArrow type="next" onClick={handleNext} aria-label="next week" />
+      <LocaleArrow type="next" onClick={handleNext} aria-label={translations.navigationAria?.nextWeek ?? 'next week'} />
     </>
   )
 }

@@ -38,8 +38,8 @@ div.scheduler {
 
   div.scheduler div.col-1 .cl-scheduler-filter div.panel,
   div.scheduler div.col-1 .cl-scheduler-filter div.panel-collapse {
-    padding-right: 15px;
-    padding-left: 15px;
+    padding-inline-end: 15px;
+    padding-inline-start: 15px;
   }
 
   div.scheduler div.col-1 .cl-new-booking {
@@ -60,7 +60,8 @@ div.scheduler {
     bottom: 0;
     left: 0;
     width: 320px;
-    padding: 12px 0 0 12px;
+    padding-block: 12px 0;
+    padding-inline: 12px 0;
     background: #fefefe;
     overflow: auto;
   }
@@ -82,14 +83,15 @@ div.scheduler {
   div.scheduler div.col-1 .cl-supplier-filter,
   div.scheduler div.col-1 .cl-status-filter,
   div.scheduler div.col-1 .cl-scheduler-filter {
-    margin: 10px 10px 10px 0;
+    margin-block: 10px 10px;
+    margin-inline: 0 10px;
     background-color: #fafafa;
   }
 
   div.scheduler div.col-1 .cl-scheduler-filter div.panel,
   div.scheduler div.col-1 .cl-scheduler-filter div.panel-collapse {
-    padding-right: 15px;
-    padding-left: 15px;
+    padding-inline-end: 15px;
+    padding-inline-start: 15px;
   }
 
   div.scheduler div.col-1 .cl-status-filter,
@@ -99,7 +101,7 @@ div.scheduler {
 
   div.scheduler div.col-1 .cl-new-booking {
     width: 290px;
-    margin-left: 5px;
+    margin-inline-start: 5px;
   }
 }
 
@@ -109,4 +111,17 @@ div.scheduler {
    #ccc -> #595959; today's white-on-#1a1a1a number is untouched.) */
 div.scheduler .MuiButton-textInfo {
   color: #01579b;
+}
+
+/* FRAR D-AR-04: mirror the filter column / grid split in RTL. */
+[dir="rtl"] div.scheduler div.col-1 {
+  left: auto;
+  right: 0;
+  padding-block: 12px 0;
+  padding-inline: 0 12px;
+}
+
+[dir="rtl"] div.scheduler div.col-2 {
+  left: 0;
+  right: 320px;
 }

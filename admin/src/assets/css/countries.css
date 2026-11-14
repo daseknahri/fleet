@@ -38,7 +38,8 @@ div.countries .info-box {
   }
 
   div.countries .new-country {
-    margin: 20px 5px 5px 0;
+    margin-block: 20px 5px;
+    margin-inline: 0 5px;
     width: 100%;
   }
 
@@ -58,9 +59,9 @@ div.countries .info-box {
   }
 
   div.countries div.col-1 {
-    float: left;
+    float: inline-start;
     width: 300px;
-    margin-left: 20px;
+    margin-inline-start: 20px;
   }
 
   div.countries div.col-2 {
@@ -75,7 +76,8 @@ div.countries .info-box {
   }
 
   div.countries .new-country {
-    margin: 10px 5px 0 0;
+    margin-block: 10px 0;
+    margin-inline: 0 5px;
     width: 100%;
   }
 }

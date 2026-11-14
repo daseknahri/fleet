@@ -58,7 +58,7 @@ form.home-search-form .chk-same-location input[type='checkbox'] {
 
   form.home-search-form .chk-same-location {
     align-self: flex-start;
-    margin-left: 10px;
+    margin-inline-start: 10px;
   }
 
   form.home-search-form .btn-search,
@@ -84,7 +84,7 @@ form.home-search-form .chk-same-location input[type='checkbox'] {
   form.home-search-form .pickup-location {
     display: table-cell;
     width: 350px;
-    padding-right: 2px;
+    padding-inline-end: 2px;
     padding-bottom: 10px;
   }
 

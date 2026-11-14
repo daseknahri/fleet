@@ -26,7 +26,7 @@ const About = () => {
         <Button
           variant="contained"
           className="btn-primary"
-          aria-label="Find deal"
+          aria-label={strings.FIND_DEAL}
           onClick={() => navigate('/')}
         >
           {strings.FIND_DEAL}

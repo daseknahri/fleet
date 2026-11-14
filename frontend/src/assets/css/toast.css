@@ -17,8 +17,8 @@ div.toast div.toast-content {
   flex-direction: column;
   width: fit-content;
   align-items: flex-start;
-  padding-right: 60px;
-  margin-left: 20px;
+  padding-inline-end: 60px;
+  margin-inline-start: 20px;
   color: #fff;
 }
 

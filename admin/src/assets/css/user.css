@@ -75,7 +75,7 @@ div.user div.col-1 .user-actions {
     width: 300px;
     padding-top: 20px;
     background: #fefefe;
-    border-right: #eee solid 1px;
+    border-inline-end: #eee solid 1px;
   }
 
   div.user div.col-1 section.user-avatar-sec {
@@ -99,7 +99,7 @@ div.user div.col-1 div.client-identity {
 }
 
 div.user div.col-1 div.client-identity .user-info {
-  text-align: left;
+  text-align: start;
   margin-top: 6px;
 }
 

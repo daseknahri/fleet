@@ -32,7 +32,7 @@ div.footer div.main-section {
 }
 
 div.footer div.main-section div.title {
-  text-align: left;
+  text-align: start;
   margin-bottom: 10px;
   font-weight: bold;
 }
@@ -63,7 +63,7 @@ div.footer div.footer-contact {
 
 div.footer div.footer-contact .icon {
   color: #525252;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 div.footer div.footer-contact a {
@@ -121,7 +121,7 @@ div.footer section.payment div.payment-text {
 
   div.footer section.payment div.payment-text {
     margin: 5px 0;
-    padding-left: 8px;
+    padding-inline-start: 8px;
     align-items: flex-start;
   }
 

@@ -355,7 +355,7 @@ const NotificationList = ({ user }: NotificationListProps) => {
                     setPage(_page)
                   }}
                 >
-                  <PreviousPageIcon className="icon" />
+                  {_ar ? <NextPageIcon className="icon" /> : <PreviousPageIcon className="icon" />}
                 </IconButton>
                 <IconButton
                   disabled={(page - 1) * env.PAGE_SIZE + rows.length >= totalRecords}
@@ -365,7 +365,7 @@ const NotificationList = ({ user }: NotificationListProps) => {
                     setPage(_page)
                   }}
                 >
-                  <NextPageIcon className="icon" />
+                  {_ar ? <PreviousPageIcon className="icon" /> : <NextPageIcon className="icon" />}
                 </IconButton>
               </div>
             </div>

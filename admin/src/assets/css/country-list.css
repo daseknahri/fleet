@@ -31,7 +31,7 @@ section.country-list .country-list-item {
 }
 
 section.country-list .country-title {
-  margin-right: 20px;
+  margin-inline-end: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

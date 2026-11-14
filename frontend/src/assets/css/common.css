@@ -17,8 +17,8 @@
 }
 
 .buttons button {
-  margin-right: 15px;
-  margin-left: 0 !important;
+  margin-inline-end: 15px;
+  margin-inline-start: 0 !important;
 }
 
 .btn-primary {
@@ -42,7 +42,7 @@
 }
 
 .btn-margin {
-  margin-right: 10px !important;
+  margin-inline-end: 10px !important;
 }
 
 .btn-margin-bottom {
@@ -135,7 +135,16 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  margin-left: 8px;
+  margin-inline-start: 8px;
+}
+
+.avatar-action-icon-rtl {
+  width: 32px !important;
+  height: 32px !important;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-inline-end: 8px;
 }
 
 .supplier-avatar {
@@ -206,7 +215,7 @@
   font-size: 0.9em;
   line-height: 1em;
   white-space: nowrap;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 /* GA hardening Wave 5: visually hidden but available to assistive tech
@@ -236,12 +245,12 @@
 }
 
 .dialog-actions {
-  margin-right: 5px;
+  margin-inline-end: 5px;
   margin-bottom: 10px;
 }
 
 .d-adornment {
-  margin-right: -13px;
+  margin-inline-end: -13px;
 }
 
 .d-adornment-icon {
@@ -283,15 +292,15 @@ div.content {
   }
 
   .buttons button {
-    margin-right: 0 !important;
+    margin-inline-end: 0 !important;
   }
 
   .btn-margin {
-    margin-right: 0 !important;
+    margin-inline-end: 0 !important;
   }
 
   .d-adornment {
-    margin-right: -3px;
+    margin-inline-end: -3px;
   }
 
   .dialog-content {
@@ -301,7 +310,7 @@ div.content {
 
 @media only screen and (width >=960px) {
   .buttons {
-    float: right;
+    float: inline-end;
     margin-top: 15px;
     margin-bottom: 5px;
   }

@@ -37,7 +37,7 @@ div.supplier-filter ul.supplier-list li span.supplier {
   overflow: hidden;
   margin-bottom: 0;
   font-weight: 400;
-  margin-left: 5px;
+  margin-inline-start: 5px;
   width: 62px;
   height: 32px;
   display: flex;
@@ -53,9 +53,9 @@ div.supplier-filter ul.supplier-list li span.supplier img {
 }
 
 div.supplier-filter ul.supplier-list li span.car-count {
-  margin-left: 5px;
+  margin-inline-start: 5px;
   width: 35px;
-  text-align: left;
+  text-align: start;
 }
 
 div.supplier-filter ul.supplier-list li input[type='checkbox'] {

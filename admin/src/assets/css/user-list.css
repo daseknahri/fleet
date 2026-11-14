@@ -42,7 +42,7 @@ div.us-list a.us-user {
 }
 
 div.us-list span.us-avatar {
-  margin-right: 5px;
+  margin-inline-end: 5px;
   width: 60px;
   height: 30px;
 }

@@ -8,13 +8,13 @@
   .contact-form {
     padding: 30px;
     max-width: 400px;
-    margin-right: 5px !important;
-    margin-left: 5px !important;
+    margin-inline-end: 5px !important;
+    margin-inline-start: 5px !important;
   }
 
   .contact-form .recaptcha {
     margin-top: 25px;
-    margin-left: -10px;
+    margin-inline-start: -10px;
   }
 }
 
@@ -26,7 +26,7 @@
 
   .contact-form .recaptcha {
     margin-top: 25px;
-    margin-left: 85px;
+    margin-inline-start: 85px;
   }
 
   .contact-form .btn {

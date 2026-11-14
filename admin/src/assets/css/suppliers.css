@@ -38,7 +38,8 @@ div.suppliers .info-box {
   }
 
   div.suppliers .new-supplier {
-    margin: 20px 5px 5px 0;
+    margin-block: 20px 5px;
+    margin-inline: 0 5px;
     width: 100%;
   }
 
@@ -60,7 +61,7 @@ div.suppliers .info-box {
 
   div.suppliers div.col-1 {
     width: 300px;
-    margin-left: 20px;
+    margin-inline-start: 20px;
   }
 
   div.suppliers div.col-2 {
@@ -75,7 +76,8 @@ div.suppliers .info-box {
   }
 
   div.suppliers .new-supplier {
-    margin: 10px 5px 0 0;
+    margin-block: 10px 0;
+    margin-inline: 0 5px;
     width: 100%;
   }
 }

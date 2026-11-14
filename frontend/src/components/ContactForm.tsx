@@ -62,7 +62,7 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
       }
 
       if (env.RECAPTCHA_ENABLED && !recaptchaToken) {
-        helper.error('reCAPTCHA error')
+        helper.error(commonStrings.RECAPTCHA_ERROR)
         return
       }
 
@@ -159,7 +159,7 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
             variant="outlined"
             color="primary"
             className="btn-margin-bottom btn"
-            aria-label="Cancel"
+            aria-label={commonStrings.CANCEL}
             onClick={() => {
               navigate('/')
             }}

@@ -51,7 +51,7 @@ div.supplier {
   font-size: 0.9em;
   line-height: 1em;
   white-space: nowrap;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 /* Device width is less than or equal to 960px */
@@ -90,7 +90,7 @@ div.supplier {
     min-height: 100vh;
     padding-top: 20px;
     background: #fefefe;
-    border-right: #eee solid 1px;
+    border-inline-end: #eee solid 1px;
   }
 
   .supplier div.col-1 section.supplier-avatar-sec {

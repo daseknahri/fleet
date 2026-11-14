@@ -136,7 +136,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <CssBaseline>
       <App />
       <ToastContainer
-        position="bottom-right"
+        position={isAr ? 'bottom-left' : 'bottom-right'}
         autoClose={5000}
         hideProgressBar={false}
         newestOnTop={false}

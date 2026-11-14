@@ -21,7 +21,7 @@ div.signin .signin-form-title {
 }
 
 div.signin div.signin-buttons {
-  float: right;
+  float: inline-end;
   margin-top: 20px;
 }
 
@@ -39,7 +39,7 @@ div.signin div.stay-connected {
 }
 
 div.signin div.stay-connected input[type='checkbox'] {
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 div.signin div.stay-connected label {
@@ -72,7 +72,7 @@ div.signin div.forgot-password-wrapper {
   }
 
   div.signin div.signin-buttons button {
-    margin-right: 0;
+    margin-inline-end: 0;
   }
 }
 

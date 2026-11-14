@@ -1,6 +1,7 @@
 div.user-type-filter {
   background: #fafafa;
-  margin: 10px 10px 0 0;
+  margin-block: 10px 0;
+  margin-inline: 0 10px;
   padding: 5px;
   border: 1px solid #dadada;
   font-size: 13px;
@@ -16,10 +17,10 @@ div.user-type-filter ul.user-type-list {
 
 div.user-type-filter ul.user-type-list li {
   width: 42%;
-  float: left;
+  float: inline-start;
   margin-bottom: 12px;
-  margin-left: 4%;
-  margin-right: 4%;
+  margin-inline-start: 4%;
+  margin-inline-end: 4%;
   clear: none;
 }
 
@@ -32,7 +33,7 @@ div.user-type-filter ul.user-type-list li span.bs {
   vertical-align: middle;
   position: relative;
   top: -3px;
-  left: 5px;
+  inset-inline-start: 5px;
   cursor: pointer;
   overflow: hidden;
   margin-bottom: 0;

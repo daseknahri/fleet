@@ -598,7 +598,7 @@ export const getUserType = (status?: bookcarsTypes.UserType) => {
  * @returns {string}
  */
 export const getDays = (days: number) =>
-  `${strings.PRICE_DAYS_PART_1} ${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
+  `${strings.PRICE_DAYS_PART_1} ${days} ${days > 1 ? strings.PRICE_DAYS_PART_2_PLURAL : strings.PRICE_DAYS_PART_2}`
 
 /**
  * Get short days label.

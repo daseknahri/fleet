@@ -5,16 +5,16 @@ div.booking {
 }
 
 div.booking div.col-2 div.col-2-header {
-  text-align: right;
+  text-align: end;
 }
 
 div.booking div.col-1 div.booking-buttons {
-  float: right;
+  float: inline-end;
 }
 
 div.booking div.col-2 div.col-2-header div.price {
   width: fit-content;
-  float: right;
+  float: inline-end;
 }
 
 div.booking div.col-2 div.col-2-header span.price-main {
@@ -24,7 +24,7 @@ div.booking div.col-2 div.col-2-header span.price-main {
   line-height: 1em;
   white-space: nowrap;
   display: table-row;
-  text-align: right;
+  text-align: end;
 }
 
 div.booking div.col-2 div.col-2-header span.price-days,
@@ -32,7 +32,7 @@ div.booking div.col-2 div.col-2-header span.price-day {
   font-size: 13px;
   color: #6e6e6e;
   display: table-row;
-  text-align: right;
+  text-align: end;
 }
 
 /* Device width is less than or equal to 960px */
@@ -60,7 +60,7 @@ div.booking div.col-2 div.col-2-header span.price-day {
 @media only screen and (width >=960px) {
   div.booking div.col-1 {
     background: #fefefe;
-    border-right: #eee solid 1px;
+    border-inline-end: #eee solid 1px;
     padding: 25px;
     flex: 0 1 30%;
   }
@@ -71,7 +71,7 @@ div.booking div.col-2 div.col-2-header span.price-day {
   }
 
   div.booking div.col-2 div.col-2-header {
-    padding-right: 25px;
+    padding-inline-end: 25px;
     display: flex;
     flex-direction: row;
     justify-content: flex-end;

@@ -19,7 +19,7 @@ div.checkout-status div.details div.status-details-container {
 div.checkout-status div.details div.status-info {
   display: flex;
   justify-content: flex-start;
-  text-align: left;
+  text-align: start;
   width: 100%;
   margin-bottom: 20px;
 }
@@ -29,14 +29,15 @@ div.checkout-status div.details div.status-info span {
   display: inline-block;
   font-size: 17px;
   font-weight: 700;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.checkout-status div.details div.status-details {
   display: table;
   color: #333;
   font-size: 15px;
-  padding: 0 40px 20px 0;
+  padding-block: 0 20px;
+  padding-inline: 0 40px;
 }
 
 div.checkout-status div.details div.status-details div.status-detail span.status-detail-title,

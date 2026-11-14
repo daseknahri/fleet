@@ -300,7 +300,7 @@ const Home = () => {
               <Tabs
                 value={tabValue}
                 onChange={handleTabChange}
-                aria-label="destinations"
+                aria-label={strings.DESTINATIONS_TITLE}
                 TabIndicatorProps={{ sx: { display: env.isMobile ? 'none' : null } }}
                 sx={{
                   '& .MuiTabs-flexContainer': {

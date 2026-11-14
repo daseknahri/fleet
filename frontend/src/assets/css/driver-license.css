@@ -6,7 +6,7 @@ div.driver-license {
 
 div.driver-license .filename {
   width: 280px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 div.driver-license div.actions {

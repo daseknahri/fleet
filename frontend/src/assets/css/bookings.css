@@ -13,7 +13,8 @@ div.bookings div.col-1 {
   bottom: 0;
   left: 0;
   width: 336px;
-  padding: 12px 0 0 12px;
+  padding-block: 12px 0;
+  padding-inline: 12px 0;
   background-color: #FAFAFA;
   overflow: auto;
 }
@@ -21,13 +22,14 @@ div.bookings div.col-1 {
 div.bookings div.col-1 .cl-supplier-filter,
 div.bookings div.col-1 .cl-status-filter,
 div.bookings div.col-1 .cl-booking-filter {
-  margin: 10px 10px 10px 0;
+  margin-block: 10px 10px;
+  margin-inline: 0 10px;
 }
 
 div.bookings div.col-1 .cl-booking-filter div.panel,
 div.bookings div.col-1 .cl-booking-filter div.panel-collapse {
-  padding-right: 15px;
-  padding-left: 15px;
+  padding-inline-end: 15px;
+  padding-inline-start: 15px;
 }
 
 div.bookings div.col-1 .cl-status-filter,
@@ -82,8 +84,8 @@ div.bookings div.col-2 {
 
   div.bookings div.col-1 .cl-booking-filter div.panel,
   div.bookings div.col-1 .cl-booking-filter div.panel-collapse {
-    padding-right: 15px;
-    padding-left: 15px;
+    padding-inline-end: 15px;
+    padding-inline-start: 15px;
   }
 
   div.bookings div.col-1 .cl-new-booking {

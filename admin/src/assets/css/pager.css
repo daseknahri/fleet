@@ -1,7 +1,8 @@
 div.pager-container {
   height: 54px;
   width: 100%;
-  padding: 5px 10px 5px 0;
+  padding-block: 5px 5px;
+  padding-inline: 0 10px;
   margin-bottom: 15px;
   background-color: #fff;
   border-radius: 5px;
@@ -21,7 +22,7 @@ div.pager div.row-count {
   display: flex;
   flex-direction: row;
   align-items: center;
-  margin-right: 7px;
+  margin-inline-end: 7px;
 }
 
 div.pager div.actions {

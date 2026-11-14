@@ -7,7 +7,7 @@ div.booking-status {
 div.booking-status .bs-icon {
   max-width: 18px;
   max-height: 18px;
-  margin-right: 2px;
+  margin-inline-end: 2px;
 }
 
 div.booking-status span.bs {

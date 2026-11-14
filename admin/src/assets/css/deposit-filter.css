@@ -4,11 +4,11 @@ div.deposit-filter div.filter-elements {
 
 div.deposit-filter div.filter-elements div.filter-element input[type='radio'].deposit-radio {
   cursor: pointer;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.deposit-filter div.filter-elements div.filter-element span {
-  margin-left: 5px;
+  margin-inline-start: 5px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 400;

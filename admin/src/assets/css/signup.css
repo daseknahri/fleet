@@ -15,14 +15,14 @@ div.signup {
 }
 
 .signup .buttons {
-  float: right;
+  float: inline-end;
   margin-top: 15px;
   margin-bottom: 15px;
 }
 
 .signup .buttons button {
-  margin-right: 15px;
-  margin-left: 0 !important;
+  margin-inline-end: 15px;
+  margin-inline-start: 0 !important;
 }
 
 /* Device width is less than or equal to 960px */
@@ -35,7 +35,7 @@ div.signup {
 
   .recaptcha {
     margin-top: 25px;
-    margin-left: -10px;
+    margin-inline-start: -10px;
   }
 }
 
@@ -49,6 +49,6 @@ div.signup {
 
   .recaptcha {
     margin-top: 25px;
-    margin-left: 85px;
+    margin-inline-start: 85px;
   }
 }

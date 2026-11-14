@@ -298,7 +298,8 @@ div.home div.car-size div.boxes div.box div.box-content {
 
 div.home div.car-size div.boxes div.box div.box-content ul {
   list-style: none;
-  padding: 0 0 0 27px;
+  padding-block: 0 0;
+  padding-inline: 27px 0;
   margin: 10px 0;
 }
 
@@ -376,7 +377,7 @@ div.home div.customer-care div.customer-care-text div.customer-care-boxes div.cu
 }
 
 div.home div.customer-care div.customer-care-text div.customer-care-boxes .customer-care-icon {
-  margin-right: 10px;
+  margin-inline-end: 10px;
 }
 
 div.home div.customer-care div.customer-care-img {
@@ -389,7 +390,7 @@ div.home div.customer-care div.customer-care-img {
 
 div.home div.customer-care div.customer-care-img img {
   height: 160px;
-  margin-left: -80px;
+  margin-inline-start: -80px;
   display: none;
 }
 
@@ -467,7 +468,7 @@ div.home div.customer-care div.customer-care-img img {
 
   div.home div.customer-care div.customer-care-img img {
     height: 160px;
-    margin-left: 0;
+    margin-inline-start: 0;
   }
 }
 
@@ -494,6 +495,6 @@ div.home div.customer-care div.customer-care-img img {
   }
 
   div.home div.car-size div.boxes div.box {
-    margin-right: 30px;
+    margin-inline-end: 30px;
   }
 }

@@ -56,7 +56,7 @@ div.search .btn-filters {
 
   div.search div.col-1 {
     width: 300px;
-    margin-left: 20px;
+    margin-inline-start: 20px;
   }
 
   div.search div.col-2 {

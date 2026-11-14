@@ -14,7 +14,7 @@ div.date-based-price-edit-list div.date-range {
 
 div.date-based-price-edit-list div.date-range .date,
 div.date-based-price-edit-list .price {
-  padding-right: 24px;
+  padding-inline-end: 24px;
 }
 
 div.date-based-price-edit-list div.rows div.row div.row-actions {

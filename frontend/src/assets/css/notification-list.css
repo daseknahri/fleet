@@ -60,7 +60,8 @@ div.notifications div.notifications-footer {
   flex-direction: row;
   justify-content: flex-end;
   border-top: 1px solid #ddd;
-  padding: 5px 10px 5px 0;
+  padding-block: 5px 5px;
+  padding-inline: 0 10px;
 }
 
 div.notifications div.notifications-footer div.row-count {
@@ -68,7 +69,7 @@ div.notifications div.notifications-footer div.row-count {
   display: flex;
   flex-direction: row;
   align-items: center;
-  margin-right: 7px;
+  margin-inline-end: 7px;
 }
 
 div.notifications div.notifications-footer div.actions {
@@ -89,7 +90,7 @@ div.notifications div.notifications-list {
   align-items: center;
   width: 100%;
   padding-top: 15px;
-  padding-right: 10px;
+  padding-inline-end: 10px;
   overflow-y: overlay;
 }
 
@@ -137,5 +138,5 @@ div.notifications div.notifications-list div.notification-container div.notifica
 div.notifications div.notifications-list div.notification-container div.notification div.message-container div.actions {
   display: flex;
   flex-direction: row;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }

@@ -71,6 +71,6 @@ ul.pricing-plan-features li {
     width: 260px;
     min-height: 300px;
     margin-top: 20px;
-    margin-right: 50px;
+    margin-inline-end: 50px;
   }
 }

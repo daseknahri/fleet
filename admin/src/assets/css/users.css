@@ -55,18 +55,19 @@ div.users {
     bottom: 0;
     left: 0;
     width: 300px;
-    padding: 20px 0 0 12px;
+    padding-block: 20px 0;
+    padding-inline: 12px 0;
     background: #fefefe;
   }
 
   div.users div.col-1 .user-type-filter {
-    margin-left: 5px;
+    margin-inline-start: 5px;
     width: 265px;
   }
 
   div.users div.col-1 .new-user {
     width: 265px;
-    margin-left: 5px;
+    margin-inline-start: 5px;
     margin-top: 15px;
   }
 

@@ -12,7 +12,7 @@ interface MonthDateBtnProps {
 }
 
 const MonthDateBtn = ({ selectedDate, onChange }: MonthDateBtnProps) => {
-  const { locale, navigationPickerProps } = useStore()
+  const { locale, navigationPickerProps, translations } = useStore()
   const currentMonth = getMonth(selectedDate)
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
 
@@ -37,8 +37,8 @@ const MonthDateBtn = ({ selectedDate, onChange }: MonthDateBtnProps) => {
   }
   return (
     <>
-      <LocaleArrow type="prev" onClick={handlePrev} aria-label="previous month" />
-      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label="selected month">
+      <LocaleArrow type="prev" onClick={handlePrev} aria-label={translations.navigationAria?.prevMonth ?? 'previous month'} />
+      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label={translations.navigationAria?.selectedMonth ?? 'selected month'}>
         {format(selectedDate, 'MMMM yyyy', { locale })}
       </Button>
       <Popover
@@ -60,7 +60,7 @@ const MonthDateBtn = ({ selectedDate, onChange }: MonthDateBtnProps) => {
           />
         </DateProvider>
       </Popover>
-      <LocaleArrow type="next" onClick={handleNext} aria-label="next month" />
+      <LocaleArrow type="next" onClick={handleNext} aria-label={translations.navigationAria?.nextMonth ?? 'next month'} />
     </>
   )
 }

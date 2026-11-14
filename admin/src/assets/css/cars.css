@@ -42,7 +42,8 @@ div.cars div.filter-progress-wrapper .filter-progress {
   }
 
   div.cars .new-car {
-    margin: 20px 5px 5px 0;
+    margin-block: 20px 5px;
+    margin-inline: 0 5px;
     width: 100%;
   }
 
@@ -59,7 +60,7 @@ div.cars div.filter-progress-wrapper .filter-progress {
   }
 
   div.cars .car-filter {
-    text-align: left;
+    text-align: start;
   }
 
   div.cars div.col-2 {
@@ -80,7 +81,7 @@ div.cars div.filter-progress-wrapper .filter-progress {
 
   div.cars div.col-1 {
     width: 300px;
-    margin-left: 20px;
+    margin-inline-start: 20px;
   }
 
   div.cars div.col-2 {
@@ -95,7 +96,8 @@ div.cars div.filter-progress-wrapper .filter-progress {
   }
 
   div.cars .new-car {
-    margin: 10px 5px 0 0;
+    margin-block: 10px 0;
+    margin-inline: 0 5px;
     width: 100%;
   }
 }

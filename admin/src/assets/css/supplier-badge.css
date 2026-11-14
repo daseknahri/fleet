@@ -29,7 +29,7 @@ div.supplier-badge {
     font-size: 0.9em;
     /* line-height: 1em; */
     white-space: nowrap;
-    margin-left: 5px;
+    margin-inline-start: 5px;
     word-break: break-word;
     overflow: hidden;
     text-overflow: ellipsis;

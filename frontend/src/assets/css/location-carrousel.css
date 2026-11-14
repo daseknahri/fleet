@@ -12,11 +12,11 @@ div.location-caroussel .btn-slider {
 }
 
 div.location-caroussel .btn-slider-prev {
-  margin-right: 60px;
+  margin-inline-end: 60px;
 }
 
 div.location-caroussel .btn-slider-next {
-  margin-left: 60px;
+  margin-inline-start: 60px;
 }
 
 div.location-caroussel div.box {
@@ -25,7 +25,7 @@ div.location-caroussel div.box {
   background-color: #fff;
   display: flex !important;
   flex-direction: column;
-  margin-right: 30px;
+  margin-inline-end: 30px;
 }
 
 div.location-caroussel div.box div.location-image {
@@ -51,7 +51,7 @@ div.location-caroussel div.box div.title {
   flex-direction: row;
   justify-content: space-between;
   align-items: flex-start;
-  padding-right: 12px;
+  padding-inline-end: 12px;
 }
 
 div.location-caroussel div.box div.title .title-badge {
@@ -65,7 +65,7 @@ div.location-caroussel div.box h2 {
   word-break: break-word;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: left;
+  text-align: start;
 }
 
 div.location-caroussel div.box h2,
@@ -77,16 +77,16 @@ div.location-caroussel div.box .btn-location {
   align-self: flex-start;
   margin-top: auto;
   margin-bottom: 6px;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 @media only screen and (width <=960px) {
   div.location-caroussel .btn-slider-prev {
-    margin-right: 20px;
+    margin-inline-end: 20px;
   }
 
   div.location-caroussel .btn-slider-next {
-    margin-left: 20px;
+    margin-inline-start: 20px;
   }
 
   div.location-caroussel div.box {

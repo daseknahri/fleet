@@ -12,7 +12,7 @@ div.rating-filter div.filter-elements div.filter-element {
 
 div.rating-filter div.filter-elements div.filter-element input[type='radio'].rating-checkbox {
   cursor: pointer;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.rating-filter div.filter-elements div.filter-element span.ratings {

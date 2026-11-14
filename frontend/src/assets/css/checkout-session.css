@@ -10,7 +10,8 @@ div.checkout-session {
 }
 
 div.checkout-session .status {
-  margin: 40px 0 0 30px;
+  margin-block: 40px 0;
+  margin-inline: 30px 0;
 }
 
 @media only screen and (width <=960px) {

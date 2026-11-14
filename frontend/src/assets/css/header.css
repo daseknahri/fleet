@@ -20,7 +20,7 @@
 
 .flag {
   width: 24px;
-  margin-right: 10px;
+  margin-inline-end: 10px;
 }
 
 .menu .menu-lnk {
@@ -36,7 +36,7 @@
 }
 
 .header-action {
-  margin-right: 20px;
+  margin-inline-end: 20px;
 }
 
 .header-desktop {
@@ -100,7 +100,7 @@
 
   .header-mobile {
     display: flex;
-    margin-right: -13px;
+    margin-inline-end: -13px;
   }
 
   .toolbar {

@@ -108,6 +108,17 @@ const VehicleScheduler = (
           today: "Aujourd'hui",
           agenda: 'Agenda',
         },
+        navigationAria: {
+          prevDay: 'Jour précédent',
+          nextDay: 'Jour suivant',
+          selectedDay: 'Date sélectionnée',
+          prevWeek: 'Semaine précédente',
+          nextWeek: 'Semaine suivante',
+          selectedWeek: 'Semaine sélectionnée',
+          prevMonth: 'Mois précédent',
+          nextMonth: 'Mois suivant',
+          selectedMonth: 'Mois sélectionné',
+        },
         form: {
           addTitle: 'Ajouter un événement',
           editTitle: 'Modifier un événement',
@@ -126,8 +137,8 @@ const VehicleScheduler = (
           required: 'Obligatoire',
           invalidEmail: 'E-mail non valide',
           onlyNumbers: 'Seuls les chiffres sont autorisés',
-          min: 'Minimum de {{min}} lettres',
-          max: 'Maximum de {{max}} lettres',
+          min: (min: number) => `Minimum de ${min} lettres`,
+          max: (max: number) => `Maximum de ${max} lettres`,
         },
         moreEvents: 'Plus...',
         noDataToDisplay: 'Aucune donnée à afficher',
@@ -143,6 +154,17 @@ const VehicleScheduler = (
           day: 'Día',
           today: 'Hoy',
           agenda: 'Agenda'
+        },
+        navigationAria: {
+          prevDay: 'Día anterior',
+          nextDay: 'Día siguiente',
+          selectedDay: 'Fecha seleccionada',
+          prevWeek: 'Semana anterior',
+          nextWeek: 'Semana siguiente',
+          selectedWeek: 'Semana seleccionada',
+          prevMonth: 'Mes anterior',
+          nextMonth: 'Mes siguiente',
+          selectedMonth: 'Mes seleccionado',
         },
         form: {
           addTitle: 'Agregar evento',
@@ -162,8 +184,8 @@ const VehicleScheduler = (
           required: 'Obligatorio',
           invalidEmail: 'Correo electrónico no válido',
           onlyNumbers: 'Solo se permiten números',
-          min: 'Mínimo {{min}} letras',
-          max: 'Máximo {{max}} letras'
+          min: (min: number) => `Mínimo ${min} letras`,
+          max: (max: number) => `Máximo ${max} letras`
         },
         moreEvents: 'Más...',
         noDataToDisplay: 'Sin datos para mostrar',
@@ -179,6 +201,17 @@ const VehicleScheduler = (
           day: 'يوم',
           today: 'اليوم',
           agenda: 'الأجندة',
+        },
+        navigationAria: {
+          prevDay: 'اليوم السابق',
+          nextDay: 'اليوم التالي',
+          selectedDay: 'التاريخ المحدد',
+          prevWeek: 'الأسبوع السابق',
+          nextWeek: 'الأسبوع التالي',
+          selectedWeek: 'الأسبوع المحدد',
+          prevMonth: 'الشهر السابق',
+          nextMonth: 'الشهر التالي',
+          selectedMonth: 'الشهر المحدد',
         },
         form: {
           addTitle: 'إضافة حدث',
@@ -198,8 +231,8 @@ const VehicleScheduler = (
           required: 'مطلوب',
           invalidEmail: 'بريد إلكتروني غير صالح',
           onlyNumbers: 'يسمح بالأرقام فقط',
-          min: 'الحد الأدنى {{min}} حرف',
-          max: 'الحد الأقصى {{max}} حرف',
+          min: (min: number) => `الحد الأدنى ${min} حرف`,
+          max: (max: number) => `الحد الأقصى ${max} حرف`,
         },
         moreEvents: 'المزيد...',
         noDataToDisplay: 'لا توجد بيانات لعرضها',
@@ -215,6 +248,17 @@ const VehicleScheduler = (
         day: 'Day',
         today: 'Today',
         agenda: 'Agenda',
+      },
+      navigationAria: {
+        prevDay: 'previous day',
+        nextDay: 'next day',
+        selectedDay: 'selected date',
+        prevWeek: 'previous week',
+        nextWeek: 'next week',
+        selectedWeek: 'selected week',
+        prevMonth: 'previous month',
+        nextMonth: 'next month',
+        selectedMonth: 'selected month',
       },
       form: {
         addTitle: 'Add Event',
@@ -234,8 +278,8 @@ const VehicleScheduler = (
         required: 'Required',
         invalidEmail: 'Invalid Email',
         onlyNumbers: 'Only Numbers Allowed',
-        min: 'Minimum {{min}} letters',
-        max: 'Maximum {{max}} letters',
+        min: (min: number) => `Minimum ${min} letters`,
+        max: (max: number) => `Maximum ${max} letters`,
       },
       moreEvents: 'More...',
       noDataToDisplay: 'No data to display',
@@ -248,6 +292,7 @@ const VehicleScheduler = (
       ref={schedulerRef}
       view="month"
       locale={language === 'fr' ? fr : language === 'es' ? es : language === 'ar' ? arMA : enUS}
+      direction={language === 'ar' ? 'rtl' : 'ltr'}
       disableViewer
       editable={false}
       draggable={false}

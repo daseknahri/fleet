@@ -12,7 +12,7 @@ interface DayDateBtnProps {
 }
 
 const DayDateBtn = ({ selectedDate, onChange }: DayDateBtnProps) => {
-  const { locale, navigationPickerProps } = useStore()
+  const { locale, navigationPickerProps, translations } = useStore()
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
 
   const handleOpen = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -37,8 +37,8 @@ const DayDateBtn = ({ selectedDate, onChange }: DayDateBtnProps) => {
   }
   return (
     <>
-      <LocaleArrow type="prev" onClick={handlePrev} aria-label="previous day" />
-      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label="selected date">
+      <LocaleArrow type="prev" onClick={handlePrev} aria-label={translations.navigationAria?.prevDay ?? 'previous day'} />
+      <Button style={{ padding: 4 }} onClick={handleOpen} aria-label={translations.navigationAria?.selectedDay ?? 'selected date'}>
         {format(selectedDate, 'dd MMMM yyyy', { locale })}
       </Button>
       <Popover
@@ -60,7 +60,7 @@ const DayDateBtn = ({ selectedDate, onChange }: DayDateBtnProps) => {
           />
         </DateProvider>
       </Popover>
-      <LocaleArrow type="next" onClick={handleNext} aria-label="next day" />
+      <LocaleArrow type="next" onClick={handleNext} aria-label={translations.navigationAria?.nextDay ?? 'next day'} />
     </>
   )
 }

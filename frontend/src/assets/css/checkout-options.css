@@ -20,7 +20,7 @@ div.checkout-info span {
   display: inline-block;
   font-size: 17px;
   font-weight: 700;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.checkout-options,

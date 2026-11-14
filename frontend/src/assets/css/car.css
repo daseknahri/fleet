@@ -21,7 +21,7 @@ div.car-container article span.fully-booked {
   font-size: 12px;
   font-weight: bold;
   display: table-row;
-  text-align: right;
+  text-align: end;
 }
 
 div.car-container article span.coming-soon {
@@ -51,7 +51,7 @@ div.car-container div.car-header div.location {
 }
 
 div.car-container div.car-header div.location span.location-name {
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.car-container div.car-header div.distance {
@@ -63,7 +63,7 @@ div.car-container div.car-header div.distance {
 div.car-container div.car-header div.distance img {
   max-width: 16px;
   max-height: 16px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 div.car-container {
@@ -136,7 +136,7 @@ div.car-container article div.car div.car-supplier span.car-supplier-info {
   font-size: 0.9em;
   line-height: 1em;
   white-space: nowrap;
-  margin-left: 5px;
+  margin-inline-start: 5px;
   word-break: break-word;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -173,7 +173,7 @@ div.car-container article div.car .car-footer div.rating span.trips {
 }
 
 div.car-container article div.car .car-footer div.co2 {
-  margin-left: 20px;
+  margin-inline-start: 20px;
 }
 
 div.car-container article div.car .car-footer div.co2 span {
@@ -183,7 +183,7 @@ div.car-container article div.car .car-footer div.co2 span {
 div.car-container article div.car .car-footer div.co2 img {
   max-width: 19px;
   max-height: 5px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
 }
 
 div.car-container article div.car-info {
@@ -227,7 +227,7 @@ div.car-container article span.price-main {
   line-height: 1em;
   white-space: nowrap;
   display: table-row;
-  text-align: right;
+  text-align: end;
 }
 
 div.car-container article span.price-days,
@@ -244,7 +244,7 @@ div.car-container article span.price-day {
 div.car-container article span.price-day span.price-day-value {
   color: #575757;
   font-weight: 500;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 div.car-container article div.car-info ul.car-info-list {
@@ -264,7 +264,7 @@ div.car-container article div.car-info ul.car-info-list li.aircon {
   margin-bottom: 10px;
   padding-top: 3px;
   box-shadow: 0 0 0 1px #ddd inset;
-  margin-left: 5px;
+  margin-inline-start: 5px;
   border-radius: 5px;
   text-align: center;
 }
@@ -313,7 +313,7 @@ div.car-container article div.car-info ul.extras-list .extra-info {
 
 div.car-container article div.car-info ul.extras-list span.car-info-list-text {
   vertical-align: super;
-  margin-left: 3px;
+  margin-inline-start: 3px;
 }
 
 div.car-container article div.car-info ul.car-info-list div.car-info-list-item {
@@ -327,7 +327,7 @@ div.car-container article div.car-info ul.car-info-list li.fuel-policy div.car-i
 
 div.car-container article div.car-info ul.car-info-list span.car-info-list-text {
   vertical-align: super;
-  margin-left: 3px;
+  margin-inline-start: 3px;
 }
 
 div.car-container article div.car-info ul.car-info-list li .car-doors {

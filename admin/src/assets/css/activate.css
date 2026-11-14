@@ -36,11 +36,11 @@ div.resend {
 }
 
 .resend-form div.resend-form-content span {
-  float: left;
+  float: inline-start;
 }
 
 .resend-form div.resend-form-content .btn-resend {
-  float: left;
+  float: inline-start;
   clear: left;
   width: 90px;
   margin-top: 15px !important;

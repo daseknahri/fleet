@@ -39,7 +39,7 @@ const NewsletterForm = () => {
       }
 
       if (env.RECAPTCHA_ENABLED && !recaptchaToken) {
-        helper.error('reCAPTCHA error')
+        helper.error(commonStrings.RECAPTCHA_ERROR)
         return
       }
 

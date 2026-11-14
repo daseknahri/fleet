@@ -210,7 +210,7 @@ const Car = ({
               {car.co2 && (
                 <div className="co2">
                   <img
-                    alt="CO2 Effect"
+                    alt={strings.CO2}
                     src={
                       car.co2 <= 90
                         ? CO2MinIcon

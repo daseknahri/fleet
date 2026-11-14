@@ -397,7 +397,7 @@ const Reports = () => {
                   <React.Fragment key={row.key}>
                     <TableRow hover onClick={() => toggleDrill(row)} sx={{ cursor: 'pointer' }}>
                       <TableCell>{builderResult.groupBy === bookcarsTypes.ReportGroupBy.Car ? carName(row.key) : row.key}{builderResult.groupBy === bookcarsTypes.ReportGroupBy.Car && (
-                        <Button size="small" sx={{ ml: 1 }} onClick={(e) => { e.stopPropagation(); void downloadCarPdf(row) }}>{strings.CAR_PDF}</Button>
+                        <Button size="small" sx={{ ms: 1 }} onClick={(e) => { e.stopPropagation(); void downloadCarPdf(row) }}>{strings.CAR_PDF}</Button>
                       )}</TableCell>
                       <TableCell align="right">{bMoney(row.contractAmount)}</TableCell>
                       <TableCell align="right">{bMoney(row.collected)}</TableCell>

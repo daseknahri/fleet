@@ -71,6 +71,18 @@ interface CalendarEvent {
 }
 export interface Translations {
   navigation: Record<View, string> & { today: string; agenda: string };
+  /** Screen-reader labels for the date navigation buttons (optional; buttons fall back to English). */
+  navigationAria?: {
+    prevDay: string;
+    nextDay: string;
+    selectedDay: string;
+    prevWeek: string;
+    nextWeek: string;
+    selectedWeek: string;
+    prevMonth: string;
+    nextMonth: string;
+    selectedMonth: string;
+  };
   form: {
     addTitle: string;
     editTitle: string;
