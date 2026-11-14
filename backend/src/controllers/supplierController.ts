@@ -22,6 +22,7 @@ import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../util
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
 import { normalizeFiscalFields, applyFiscalFields } from '../utils/fiscal'
+import { normalizeContractTerms } from '../utils/contractTerms'
 import AgencyMembership from '../models/AgencyMembership'
 
 /**
@@ -93,6 +94,14 @@ export const update = async (req: Request, res: Response) => {
         res.status(400).send(fiscal.error)
         return
       }
+      // GA-Q4-1: per-agency editable contract terms (FR + AR). Invalid
+      // input rejects the update; absent = leave unchanged, present
+      // empty = clear (same semantics as the fiscal fields above).
+      const terms = normalizeContractTerms(body as unknown as Record<string, unknown>)
+      if (!terms.ok) {
+        res.status(400).send(terms.error)
+        return
+      }
       const {
         fullName,
         phone,
@@ -118,6 +127,12 @@ export const update = async (req: Request, res: Response) => {
       supplier.notifyAdminOnNewCar = notifyAdminOnNewCar
       supplier.blacklisted = !!blacklisted
       applyFiscalFields(supplier as unknown as Record<string, any>, fiscal)
+      if (terms.present.has('contractTermsFr')) {
+        supplier.contractTermsFr = terms.value.contractTermsFr
+      }
+      if (terms.present.has('contractTermsAr')) {
+        supplier.contractTermsAr = terms.value.contractTermsAr
+      }
 
       await supplier.save()
       res.json({
@@ -145,6 +160,8 @@ export const update = async (req: Request, res: Response) => {
         vatEnabled: supplier.vatEnabled,
         vatRate: supplier.vatRate,
         stampFile: supplier.stampFile,
+        contractTermsFr: supplier.contractTermsFr,
+        contractTermsAr: supplier.contractTermsAr,
       })
       return
     }
@@ -316,6 +333,8 @@ export const getSupplier = async (req: Request, res: Response) => {
       vatEnabled,
       vatRate,
       stampFile,
+      contractTermsFr,
+      contractTermsAr,
     } = user
 
     res.json({
@@ -344,6 +363,8 @@ export const getSupplier = async (req: Request, res: Response) => {
       vatEnabled,
       vatRate,
       stampFile,
+      contractTermsFr,
+      contractTermsAr,
     })
   } catch (err) {
     logger.error(`[supplier.getSupplier] ${i18n.t('ERROR')} ${id}`, err)

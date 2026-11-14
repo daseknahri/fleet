@@ -9,6 +9,13 @@ const schema = new Schema<env.ContractSnapshot>({
   generatedAt: { type: Date, required: true },
   // GA-PAR-14: the snapshot was generated with the agency stamp requested.
   withStamp: { type: Boolean },
+  // GA-Q4-1: agency contract terms copied at issue (FR + AR) + SHA-256
+  // over the FR+AR text. Reprints render these stored terms, never
+  // live-edited text. Snapshots issued before this change carry no
+  // terms fields and render with no terms section.
+  termsFr: { type: String, trim: true, maxlength: 20000 },
+  termsAr: { type: String, trim: true, maxlength: 20000 },
+  termsSha256: { type: String, trim: true, maxlength: 128 },
 }, { timestamps: true, strict: true, collection: 'ContractSnapshot' })
 schema.index({ booking: 1, version: 1 }, { unique: true, sparse: true })
 export default model<env.ContractSnapshot>('ContractSnapshot', schema)

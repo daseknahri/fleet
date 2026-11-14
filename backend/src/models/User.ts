@@ -237,6 +237,20 @@ const userSchema = new Schema<env.User>(
       trim: true,
       maxlength: 240,
     },
+    // GA-Q4-1: per-agency editable contract terms (FR + AR) for the
+    // contract snapshot PDF. Set only through the supplier update
+    // (validated + length-capped in utils/contractTerms). Optional —
+    // an agency with no terms renders snapshots with no terms section.
+    contractTermsFr: {
+      type: String,
+      trim: true,
+      maxlength: 20000,
+    },
+    contractTermsAr: {
+      type: String,
+      trim: true,
+      maxlength: 20000,
+    },
     // GA-PAR-04: client identity pack (records with type=User only; the
     // controller validates/strips these fields for every other type, so
     // staff/supplier creation cannot regress). All optional. `license`

@@ -85,6 +85,8 @@ const UpdateSupplier = () => {
       city: '',
       vatEnabled: false,
       vatRate: '',
+      contractTermsFr: '',
+      contractTermsAr: '',
     },
   })
 
@@ -225,6 +227,8 @@ const UpdateSupplier = () => {
               setValue('city', _supplier.city || '')
               setValue('vatEnabled', !!_supplier.vatEnabled)
               setValue('vatRate', _supplier.vatRate?.toString() || '')
+              setValue('contractTermsFr', _supplier.contractTermsFr || '')
+              setValue('contractTermsAr', _supplier.contractTermsAr || '')
               setStampFile(_supplier.stampFile || '')
               if (_supplier.stampFile) {
                 SupplierService.fetchStampUrl(_supplier._id as string).then(setStampUrl).catch(() => { /* stamp preview is best-effort */ })
@@ -297,6 +301,10 @@ const UpdateSupplier = () => {
         city: data.city?.trim() || undefined,
         vatEnabled: data.vatEnabled,
         vatRate: data.vatRate ? Number(data.vatRate) : undefined,
+        // GA-Q4-1: send the raw text (possibly empty) so clearing the
+        // terms works — the backend treats present-empty as "clear".
+        contractTermsFr: data.contractTermsFr ?? '',
+        contractTermsAr: data.contractTermsAr ?? '',
       }
 
       const res = await SupplierService.update(payload)
@@ -739,6 +747,48 @@ const UpdateSupplier = () => {
                   <span>{csStrings.STAMP_NONE}</span>
                 </div>
               )}
+
+              <div className="info">
+                <InfoIcon />
+                <span>{csStrings.TERMS_HEADING}</span>
+              </div>
+
+              <div className="info">
+                <span>{csStrings.TERMS_HINT}</span>
+              </div>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-terms-fr">{csStrings.TERMS_FR_LABEL}</InputLabel>
+                <Input
+                  id="us-terms-fr"
+                  {...register('contractTermsFr')}
+                  multiline
+                  rows={6}
+                  type="text"
+                  autoComplete="off"
+                  error={!!errors.contractTermsFr}
+                />
+                <FormHelperText error={!!errors.contractTermsFr}>
+                  {errors.contractTermsFr?.message || ''}
+                </FormHelperText>
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <InputLabel htmlFor="us-terms-ar">{csStrings.TERMS_AR_LABEL}</InputLabel>
+                <Input
+                  id="us-terms-ar"
+                  {...register('contractTermsAr')}
+                  multiline
+                  rows={6}
+                  type="text"
+                  autoComplete="off"
+                  inputProps={{ dir: 'rtl', lang: 'ar', style: { textAlign: 'right' } }}
+                  error={!!errors.contractTermsAr}
+                />
+                <FormHelperText error={!!errors.contractTermsAr}>
+                  {errors.contractTermsAr?.message || ''}
+                </FormHelperText>
+              </FormControl>
 
               <FormControl fullWidth margin="dense">
                 <ContractList supplier={supplier} />

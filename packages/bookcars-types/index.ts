@@ -861,6 +861,9 @@ export interface UpdateSupplierPayload {
   city?: string
   vatEnabled?: boolean
   vatRate?: number
+  /** GA-Q4-1: per-agency editable contract terms (FR + AR). */
+  contractTermsFr?: string
+  contractTermsAr?: string
 }
 
 export interface CreateCarPayload {
@@ -1132,6 +1135,9 @@ export interface User {
   vatRate?: number
   /** GA-PAR-14: agency stamp filename in the private contracts store. */
   stampFile?: string
+  /** GA-Q4-1: per-agency editable contract terms (FR + AR). */
+  contractTermsFr?: string
+  contractTermsAr?: string
   cinNumber?: string
   cinExpiry?: Date
   passportNumber?: string

@@ -1,5 +1,8 @@
-import { PDFDocument, PDFImage, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument, PDFImage, PDFFont, StandardFonts, rgb } from 'pdf-lib'
 import QRCode from 'qrcode'
+import fontkit from '@pdf-lib/fontkit'
+import { amiriRegularFontBytes } from './arabicFontBase64'
+import { shapeArabicLine, splitVisualLineIntoRuns, wrapArabicParagraph, wrapLatinParagraph } from './arabicText'
 
 /**
  * GA-PAR-14 — contract snapshot PDF renderer (generate-on-demand).
@@ -30,11 +33,21 @@ import QRCode from 'qrcode'
  * Text discipline (same as invoicePdf / cashSessionPdf): pdf-lib's
  * standard Helvetica encodes WinAnsi only, so typographic characters
  * are folded and anything outside Latin-1 is dropped. French labels
- * are Latin-1 and survive; Arabic script cannot be rendered by this
- * path, so the new sections carry EN + FR labels (the same limitation
- * as every other PDF in the product — the admin UI itself stays fully
- * FR/AR). The grid uses the established `|`-column rows the invoice,
- * Z-report and snapshot already use.
+ * are Latin-1 and survive. The main page therefore carries EN + FR
+ * labels (the same limitation as every other PDF in the product —
+ * the admin UI itself stays fully FR/AR). The grid uses the
+ * established `|`-column rows the invoice, Z-report and snapshot
+ * already use.
+ *
+ * GA-Q4-1 — contract terms pages (FR then AR): the FR terms render in
+ * Helvetica (same WinAnsi discipline); the AR terms render in the
+ * embedded Amiri font after reshaping + bidi reordering (see
+ * utils/arabicText). pdf-lib's fontkit SUBSETTING drops the Arabic
+ * presentation-form glyphs (blank render, proven on the VM), so the
+ * font is embedded with subset:false — each snapshot PDF carries the
+ * full Amiri program (~200 KB compressed). Terms are rendered from
+ * the snapshot's STORED terms (input.terms), never from live agency
+ * settings: a reprint shows the terms as issued.
  */
 
 // QR payload (recorded decision, GA-PAR-14): `GA-CONTRACT:<reference>:
@@ -92,6 +105,10 @@ export interface ContractSnapshotPdfInput {
   qrPng?: Buffer | Uint8Array | null
   qrPayload: string
   generatedAt: Date | string
+  /** GA-Q4-1: agency contract terms as stored on the snapshot at issue
+   *  (FR + AR). Absent/empty on snapshots issued before this change —
+   *  those render with NO terms section (backward compatible). */
+  terms?: { fr?: string | null, ar?: string | null } | null
 }
 
 // Same WinAnsi discipline as invoicePdf.ts: fold typographic characters
@@ -242,6 +259,96 @@ export const renderContractSnapshotPdf = async (input: ContractSnapshotPdfInput)
     const width = Math.min(120, (stampImageObj.width / stampImageObj.height) * 110)
     const height = (stampImageObj.height / stampImageObj.width) * width
     page.drawImage(stampImageObj, { x: 612 - 36 - width, y: 36, width, height })
+  }
+
+  // GA-Q4-1: contract terms pages — FR section first, then the AR
+  // section. Terms come from input.terms (the snapshot's stored terms
+  // at issue), never from live settings. A snapshot with no terms
+  // renders no extra page at all.
+  const termsFr = (input.terms?.fr || '').trim()
+  const termsAr = (input.terms?.ar || '').trim()
+  if (termsFr !== '' || termsAr !== '') {
+    const TERMS_MARGIN = 36
+    const TERMS_WIDTH = 540
+    const TERMS_RIGHT = 612 - TERMS_MARGIN
+    const TERMS_COLOR = rgb(0.1, 0.1, 0.1)
+    let termsPage = pdf.addPage([612, 792])
+    let termsY = 756
+    const termsNewPage = () => {
+      termsPage = pdf.addPage([612, 792])
+      termsY = 756
+    }
+    const termsNeed = (height: number) => {
+      if (termsY - height < 48) {
+        termsNewPage()
+      }
+    }
+    termsPage.drawText('Contract terms / Conditions du contrat', {
+      x: TERMS_MARGIN, y: termsY, size: 12, font, color: TERMS_COLOR,
+    })
+    termsY -= 22
+    if (termsFr !== '') {
+      termsPage.drawText('Conditions du contrat (FR)', {
+        x: TERMS_MARGIN, y: termsY, size: 10, font, color: TERMS_COLOR,
+      })
+      termsY -= 16
+      for (const paragraph of termsFr.split(/\r?\n/)) {
+        const lines = wrapLatinParagraph(sanitize(paragraph), font, 9, TERMS_WIDTH)
+        for (const line of lines) {
+          termsNeed(13)
+          if (line !== '') {
+            termsPage.drawText(line, {
+              x: TERMS_MARGIN, y: termsY, size: 9, font, color: TERMS_COLOR,
+            })
+          }
+          termsY -= 13
+        }
+        termsY -= 4
+      }
+    }
+    if (termsAr !== '') {
+      // Amiri embed (subset:false — subsetting drops the Arabic
+      // presentation-form glyphs). A failed embed degrades to "FR
+      // section only": the bytes are compile-time constants, so this
+      // is near-impossible, but it must never break a snapshot.
+      let arabicFont: PDFFont | null = null
+      try {
+        pdf.registerFontkit(fontkit)
+        arabicFont = await pdf.embedFont(amiriRegularFontBytes(), { subset: false })
+      } catch {
+        arabicFont = null
+      }
+      if (arabicFont) {
+        // Draw one visual line as a sequence of runs (Arabic-script
+        // runs vs everything else), left to right in visual order:
+        // fontkit's layout() reverses digit runs inside a mixed
+        // Arabic string drawn whole ("150" -> "051"); a run drawn
+        // alone renders correctly (see arabicText.ts quirk note).
+        const drawArabicLine = (visual: string, size: number) => {
+          let x = TERMS_RIGHT - arabicFont.widthOfTextAtSize(visual, size)
+          for (const run of splitVisualLineIntoRuns(visual)) {
+            termsPage.drawText(run, {
+              x, y: termsY, size, font: arabicFont, color: TERMS_COLOR,
+            })
+            x += arabicFont.widthOfTextAtSize(run, size)
+          }
+        }
+        termsNeed(32)
+        drawArabicLine(shapeArabicLine('شروط العقد'), 12)
+        termsY -= 20
+        for (const paragraph of termsAr.split(/\r?\n/)) {
+          const lines = wrapArabicParagraph(paragraph, arabicFont, 11, TERMS_WIDTH)
+          for (const line of lines) {
+            termsNeed(16)
+            if (line !== '') {
+              drawArabicLine(line, 11)
+            }
+            termsY -= 16
+          }
+          termsY -= 4
+        }
+      }
+    }
   }
 
   const bytes = await pdf.save()

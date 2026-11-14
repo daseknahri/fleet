@@ -23,7 +23,9 @@ export const schema = z.object({
     fiscalAddress: z.string().max(500, { message: commonStrings.FIELD_NOT_VALID }).optional(),
     city: z.string().max(100, { message: commonStrings.FIELD_NOT_VALID }).optional(),
     vatEnabled: z.boolean().optional(),
-    vatRate: z.string().refine((val) => !val || (/^\d+(\.\d+)?$/.test(val) && Number(val) >= 0 && Number(val) <= 100), { message: commonStrings.FIELD_NOT_VALID }).optional()
+    vatRate: z.string().refine((val) => !val || (/^\d+(\.\d+)?$/.test(val) && Number(val) >= 0 && Number(val) <= 100), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+    contractTermsFr: z.string().max(20000, { message: commonStrings.FIELD_NOT_VALID }).optional(),
+    contractTermsAr: z.string().max(20000, { message: commonStrings.FIELD_NOT_VALID }).optional()
 })
 
 export type FormFields = z.infer<typeof schema>

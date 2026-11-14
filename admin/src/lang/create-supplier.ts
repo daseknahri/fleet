@@ -24,6 +24,10 @@ const strings = new LocalizedStrings({
     STAMP_REMOVE: 'Retirer le tampon',
     STAMP_ON_FILE: 'Tampon enregistré',
     STAMP_NONE: 'Aucun tampon enregistré — les PDF s’impriment sans tampon.',
+    TERMS_HEADING: 'Conditions du contrat (PDF du contrat)',
+    TERMS_FR_LABEL: 'Conditions en français',
+    TERMS_AR_LABEL: 'Conditions en arabe',
+    TERMS_HINT: 'Ces conditions sont copiées dans chaque PDF de contrat au moment de son émission. Modifier le texte ne change pas les contrats déjà émis.',
   },
   en: {
     CREATE_SUPPLIER_HEADING: 'New supplier',
@@ -46,6 +50,10 @@ const strings = new LocalizedStrings({
     STAMP_REMOVE: 'Remove stamp',
     STAMP_ON_FILE: 'Stamp on file',
     STAMP_NONE: 'No stamp on file — snapshots print without a stamp.',
+    TERMS_HEADING: 'Contract terms (contract PDF)',
+    TERMS_FR_LABEL: 'Terms in French',
+    TERMS_AR_LABEL: 'Terms in Arabic',
+    TERMS_HINT: 'These terms are copied into each contract PDF when it is issued. Editing the text does not change contracts already issued.',
   },
   ar: {
     CREATE_SUPPLIER_HEADING: 'مورد جديد',
@@ -68,6 +76,10 @@ const strings = new LocalizedStrings({
     STAMP_REMOVE: 'إزالة الختم',
     STAMP_ON_FILE: 'الختم مسجل',
     STAMP_NONE: 'لا يوجد ختم مسجل — تُطبع ملفات PDF بدون ختم.',
+    TERMS_HEADING: 'شروط العقد (PDF العقد)',
+    TERMS_FR_LABEL: 'الشروط بالفرنسية',
+    TERMS_AR_LABEL: 'الشروط بالعربية',
+    TERMS_HINT: 'تُنسخ هذه الشروط في كل ملف PDF للعقد عند إصداره. تعديل النص لا يغيّر العقود الصادرة من قبل.',
   },
   es: {
     CREATE_SUPPLIER_HEADING: 'Nuevo proveedor',
@@ -90,6 +102,10 @@ const strings = new LocalizedStrings({
     STAMP_REMOVE: 'Quitar sello',
     STAMP_ON_FILE: 'Sello guardado',
     STAMP_NONE: 'Sin sello guardado — los PDF se imprimen sin sello.',
+    TERMS_HEADING: 'Condiciones del contrato (PDF del contrato)',
+    TERMS_FR_LABEL: 'Condiciones en francés',
+    TERMS_AR_LABEL: 'Condiciones en árabe',
+    TERMS_HINT: 'Estas condiciones se copian en cada PDF de contrato cuando se emite. Editar el texto no cambia los contratos ya emitidos.',
   },
 })
 

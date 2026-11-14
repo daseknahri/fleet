@@ -23,6 +23,7 @@ import { contentMatchesExtension } from '../utils/fileContent'
 import { approvalRequiredFor, mirrorApprovalDecision, produceApprovalRequest } from '../utils/approvalProducer'
 import { trashedMessage } from '../utils/trash'
 import { contractSnapshotQrPayload, generateContractQrPng, renderContractSnapshotPdf } from '../utils/contractSnapshotPdf'
+import { contractTermsSha256 } from '../utils/contractTerms'
 
 const idFrom = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
@@ -355,17 +356,31 @@ export const createSnapshot = async (req: Request, res: Response) => {
     // file also degrades: it reads fine here, so no flag is set on read
     // success — the renderer attempts the embed and the PDF text line
     // reports the ACTUAL outcome (F1 fix, GA-PAR-14).
+    // GA-Q4-1: the agency's CURRENT contract terms (FR + AR) are copied
+    // into this snapshot at issue, versioned by their SHA-256 below.
+    // A reprint renders these stored terms — never live-edited text.
+    // A failed supplier read degrades to no terms (logged), never to a
+    // failed snapshot — the same discipline as the stamp/signature
+    // embeds around it.
+    let termsFr = ''
+    let termsAr = ''
     let stampImage: Buffer | null = null
-    if (withStamp) {
-      try {
-        const supplier = await User.findById(booking.supplier).select('stampFile').lean()
-        if (supplier?.stampFile) {
+    try {
+      const supplier = await User.findById(booking.supplier).select('stampFile contractTermsFr contractTermsAr').lean()
+      termsFr = supplier?.contractTermsFr || ''
+      termsAr = supplier?.contractTermsAr || ''
+      if (withStamp && supplier?.stampFile) {
+        try {
           stampImage = await fs.readFile(path.resolve(env.CDN_CONTRACTS, supplier.stampFile))
+        } catch (stampErr) {
+          logger.error('[contractOperations.createSnapshot] agency stamp embed failed', stampErr)
         }
-      } catch (stampErr) {
-        logger.error('[contractOperations.createSnapshot] agency stamp embed failed', stampErr)
       }
+    } catch (supplierErr) {
+      logger.error('[contractOperations.createSnapshot] agency terms/stamp read failed', supplierErr)
     }
+    const termsSha256 = contractTermsSha256(termsFr, termsAr)
+    const hasTerms = termsFr.trim() !== '' || termsAr.trim() !== ''
     // GA-PAR-12: read the recorded online signature image when one exists
     // at snapshot-creation time. A missing/corrupt file degrades to the
     // timestamp/hash text lines (logged), never to a failed snapshot.
@@ -403,11 +418,12 @@ export const createSnapshot = async (req: Request, res: Response) => {
       qrPng,
       qrPayload,
       generatedAt,
+      terms: hasTerms ? { fr: termsFr, ar: termsAr } : undefined,
     })
     const hash = crypto.createHash('sha256').update(bytes).digest('hex')
     const version = (await ContractSnapshot.countDocuments({ booking: booking._id })) + 1
     const filename = `${crypto.randomUUID()}.pdf`; await fs.writeFile(path.resolve(env.CDN_CONTRACTS, `snapshot_${booking._id}_${filename}`), bytes, { flag: 'wx' })
-    const snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt, withStamp })
+    const snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt, withStamp, termsFr, termsAr, termsSha256 })
     res.status(201).json(snapshot)
   } catch (err) {
  logger.error('[contractOperations.createSnapshot]', err); res.status(400).send(i18n.t('ERROR')) 

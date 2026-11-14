@@ -643,6 +643,10 @@ export interface User extends Document {
   vatRate?: number
   /** GA-PAR-14: agency stamp filename in the private contracts store. */
   stampFile?: string
+  /** GA-Q4-1: per-agency editable contract terms (FR + AR), printed in
+   *  the contract snapshot PDF. Empty/absent = no terms yet. */
+  contractTermsFr?: string
+  contractTermsAr?: string
   cinNumber?: string
   cinExpiry?: Date
   passportNumber?: string
@@ -1006,6 +1010,13 @@ export interface ContractSnapshot extends Document {
   generatedAt: Date
   /** GA-PAR-14: the snapshot was generated with the agency stamp requested. */
   withStamp?: boolean
+  /** GA-Q4-1: agency contract terms copied at issue (FR + AR) + SHA-256
+   *  over the FR+AR text (see utils/contractTerms). Reprints render
+   *  these stored terms, never live-edited text. Snapshots issued
+   *  before this change carry no terms fields. */
+  termsFr?: string
+  termsAr?: string
+  termsSha256?: string
 }
 
 export interface Invoice extends Document {
