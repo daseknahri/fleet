@@ -54,6 +54,7 @@ import { strings as commonStrings } from '@/lang/common'
 import * as UserService from '@/services/UserService'
 import * as BankDetailsService from '@/services/BankDetailsService'
 import Avatar from './Avatar'
+import GlobalSearch from './GlobalSearch'
 import * as langHelper from '@/utils/langHelper'
 import * as helper from '@/utils/helper'
 import { useNotificationContext, NotificationContextType } from '@/context/NotificationContext'
@@ -580,6 +581,9 @@ const Header = ({
           </>
           <div style={classes.grow} />
           <div className="header-desktop">
+            {isSignedIn && (
+              <GlobalSearch />
+            )}
             {isSignedIn && (
               <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">

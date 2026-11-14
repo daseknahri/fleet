@@ -37,6 +37,7 @@ import contractOperationRoutes from './routes/contractOperationRoutes'
 import signingRoutes from './routes/signingRoutes'
 import reportRoutes from './routes/reportRoutes'
 import importRoutes from './routes/importRoutes'
+import globalSearchRoutes from './routes/globalSearchRoutes'
 import * as helper from './utils/helper'
 import * as logger from './utils/logger'
 
@@ -117,6 +118,7 @@ app.use('/', approvalRoutes)
 app.use('/', contractOperationRoutes)
 app.use('/', reportRoutes)
 app.use('/', importRoutes)
+app.use('/', globalSearchRoutes)
 
 if (env.ENABLE_SENTRY) {
   Sentry.setupExpressErrorHandler(app)

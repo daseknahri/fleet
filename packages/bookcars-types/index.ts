@@ -2173,3 +2173,33 @@ export interface ImportReport {
   created: number
   errors: ImportRowError[]
 }
+
+/**
+ * GA-Q4-2 (#52) — agency-scoped global search (admin top bar).
+ * One keyword across bookings (reference / client name), cars (name /
+ * license plate) and clients (name / email / CIN). Read-only; the
+ * server pins the agency scope, so the payload never widens it.
+ * `suppliers` is used by platform-admin callers only (exactly as the
+ * list endpoints accept it); agency callers omit it — the server
+ * resolves their agency from the authenticated identity.
+ */
+export const GLOBAL_SEARCH_PER_GROUP_LIMIT = 6
+export const GLOBAL_SEARCH_MAX_KEYWORD_LENGTH = 100
+
+export interface GlobalSearchPayload {
+  keyword: string
+  suppliers?: string[]
+}
+
+export interface GlobalSearchHit {
+  id: string
+  label: string
+  subtitle: string
+  link: string
+}
+
+export interface GlobalSearchResult {
+  bookings: GlobalSearchHit[]
+  cars: GlobalSearchHit[]
+  clients: GlobalSearchHit[]
+}

@@ -62,3 +62,53 @@
     display: none;
   }
 }
+
+/* GA-Q4-2 (#52): global search in the top bar (desktop only). */
+
+.global-search {
+  position: relative;
+  width: 340px;
+  max-width: 32vw;
+  margin-inline-end: 12px;
+}
+
+.global-search-input .MuiOutlinedInput-root {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.global-search-input .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.global-search-input .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.global-search-input .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: #fff;
+}
+
+.global-search-input input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 1;
+}
+
+.global-search-icon {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.global-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 1402;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.global-search-group {
+  font-weight: 600;
+  background-color: #f5f5f5;
+}
