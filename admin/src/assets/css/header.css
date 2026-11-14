@@ -112,3 +112,17 @@
   font-weight: 600;
   background-color: #f5f5f5;
 }
+/* GA-Q4-3 (#53): quick-create "+" menu in the top bar (desktop only). */
+
+.quick-create {
+  display: flex;
+  align-items: center;
+  margin-inline-end: 4px;
+}
+
+.quick-create__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 8px !important;
+}

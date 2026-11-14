@@ -55,6 +55,7 @@ import * as UserService from '@/services/UserService'
 import * as BankDetailsService from '@/services/BankDetailsService'
 import Avatar from './Avatar'
 import GlobalSearch from './GlobalSearch'
+import QuickCreate from './QuickCreate'
 import * as langHelper from '@/utils/langHelper'
 import * as helper from '@/utils/helper'
 import { useNotificationContext, NotificationContextType } from '@/context/NotificationContext'
@@ -583,6 +584,9 @@ const Header = ({
           <div className="header-desktop">
             {isSignedIn && (
               <GlobalSearch />
+            )}
+            {isSignedIn && (
+              <QuickCreate />
             )}
             {isSignedIn && (
               <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
