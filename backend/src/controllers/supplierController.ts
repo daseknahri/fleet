@@ -144,6 +144,7 @@ export const update = async (req: Request, res: Response) => {
         city: supplier.city,
         vatEnabled: supplier.vatEnabled,
         vatRate: supplier.vatRate,
+        stampFile: supplier.stampFile,
       })
       return
     }
@@ -197,6 +198,13 @@ export const deleteSupplier = async (req: Request, res: Response) => {
               await asyncFs.unlink(file)
             }
           }
+        }
+      }
+
+      if (supplier.stampFile) {
+        const stamp = path.join(env.CDN_CONTRACTS, supplier.stampFile)
+        if (await helper.pathExists(stamp)) {
+          await asyncFs.unlink(stamp)
         }
       }
 
@@ -307,6 +315,7 @@ export const getSupplier = async (req: Request, res: Response) => {
       city,
       vatEnabled,
       vatRate,
+      stampFile,
     } = user
 
     res.json({
@@ -334,6 +343,7 @@ export const getSupplier = async (req: Request, res: Response) => {
       city,
       vatEnabled,
       vatRate,
+      stampFile,
     })
   } catch (err) {
     logger.error(`[supplier.getSupplier] ${i18n.t('ERROR')} ${id}`, err)
@@ -500,6 +510,9 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
         { fuelPolicy: { $in: fuelPolicy } },
         { available: true },
         { fullyBooked: { $in: [false, null] } },
+        // Fleet statuses (scorecard #15): the public site never shows a
+        // car in maintenance or stopped (absent = legacy inService).
+        { operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] } },
       ],
     }
 
@@ -1031,6 +1044,180 @@ export const deleteContract = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[supplier.deleteContract] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-14: upload the agency stamp image used by the contract snapshot
+ * PDF. Mirrors updateContract exactly: same can-manage check (platform
+ * admin / self supplier / staff with ManagePrivateDocuments), same
+ * private contracts store (CDN_CONTRACTS), same content-sniffing. The
+ * file must be a JPG/PNG image (pdf-lib can only embed PNG/JPG); webp
+ * and PDF are rejected even though other contract uploads accept them.
+ * The stored name is `stamp_<supplierId>_<nanoid>.<ext>`; replacing a
+ * stamp unlinks the previous file. The filename is recorded on the
+ * supplier as `stampFile` — never settable through the generic supplier
+ * update. A stamp-less agency renders the snapshot without a stamp.
+ */
+export const uploadStamp = async (req: Request, res: Response) => {
+  const { supplierId: id } = req.params
+  const { file } = req
+
+  try {
+    if (!file) {
+      throw new Error('req.file not found')
+    }
+    if (!file.originalname.includes('.')) {
+      throw new Error('File extension not found')
+    }
+    if (!helper.isValidObjectId(id)) {
+      throw new Error('Supplier Id not valid')
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const supplier = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier })
+    const canManageStamp = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments)))
+    if (!canManageStamp) {
+      res.status(403).send('Forbidden: You cannot update this supplier stamp')
+      return
+    }
+
+    if (supplier) {
+      // security check: restrict allowed extensions (JPG/PNG only —
+      // the snapshot renderer embeds with pdf-lib, which has no webp).
+      const ext = path.extname(file.originalname).toLowerCase()
+      if (!['.jpg', '.jpeg', '.png'].includes(ext)) {
+        res.status(400).send('Invalid stamp file type')
+        return
+      }
+      if (!contentMatchesExtension(file.buffer, ext)) {
+        res.status(400).send('Invalid stamp file type')
+        return
+      }
+
+      const filename = `stamp_${supplier._id.toString()}_${nanoid(12)}${ext}`
+      const filepath = path.join(env.CDN_CONTRACTS, filename)
+      await asyncFs.writeFile(filepath, file.buffer)
+
+      // Replace: unlink the previous stamp file (best effort — a stale
+      // file must never fail the upload).
+      if (supplier.stampFile && supplier.stampFile !== filename) {
+        const oldFile = path.join(env.CDN_CONTRACTS, supplier.stampFile)
+        try {
+          if (await helper.pathExists(oldFile)) {
+            await asyncFs.unlink(oldFile)
+          }
+        } catch (oldErr) {
+          logger.error(`[supplier.uploadStamp] previous stamp unlink failed ${supplier.stampFile}`, oldErr)
+        }
+      }
+
+      supplier.stampFile = filename
+      await supplier.save()
+      res.json(filename)
+      return
+    }
+
+    res.sendStatus(204)
+  } catch (err) {
+    logger.error(`[supplier.uploadStamp] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-14: delete the agency stamp (record + stored file); the agency
+ * renders stamp-less snapshots afterwards. Same can-manage check as
+ * uploadStamp.
+ */
+export const deleteStamp = async (req: Request, res: Response) => {
+  const { supplierId: id } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('Supplier Id not valid')
+      return
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const supplier = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier })
+    const canManageStamp = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ManagePrivateDocuments)))
+    if (!canManageStamp) {
+      res.status(403).send('Forbidden: You cannot delete this supplier stamp')
+      return
+    }
+
+    if (supplier) {
+      if (supplier.stampFile) {
+        const stampFile = path.join(env.CDN_CONTRACTS, supplier.stampFile)
+        if (await helper.pathExists(stampFile)) {
+          await asyncFs.unlink(stampFile)
+        }
+        // The stamp is the only mutation here, so unset it directly;
+        // no document save follows (the in-memory value must not be
+        // written back over the unset).
+        await User.updateOne({ _id: supplier._id }, { $unset: { stampFile: '' } })
+      }
+      res.sendStatus(200)
+      return
+    }
+
+    res.sendStatus(204)
+  } catch (err) {
+    logger.error(`[supplier.deleteStamp] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GA-PAR-14: download the agency stamp image (private, no-store).
+ * Read check mirrors the manage check with ReadPrivateDocuments for
+ * staff; the file itself is server-generated, so the stored name is
+ * still basename-guarded before it touches the filesystem.
+ */
+export const getStamp = async (req: Request, res: Response) => {
+  const { supplierId: id } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('Supplier Id not valid')
+      return
+    }
+
+    const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    const supplier = await User.findOne({ _id: id, type: bookcarsTypes.UserType.Supplier }).select('_id stampFile').lean()
+    const canReadStamp = !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin
+      || (sessionUser.type === bookcarsTypes.UserType.Supplier && sessionUser._id.toString() === id)
+      || (sessionUser.type === bookcarsTypes.UserType.Staff
+        && agencySupplierId(req) === id
+        && hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)))
+    if (!canReadStamp) {
+      res.status(403).send('Forbidden: You cannot read this supplier stamp')
+      return
+    }
+
+    if (!supplier?.stampFile || supplier.stampFile !== path.basename(supplier.stampFile)) {
+      res.sendStatus(404)
+      return
+    }
+    const target = path.join(env.CDN_CONTRACTS, supplier.stampFile)
+    if (!(await helper.pathExists(target))) {
+      res.sendStatus(404)
+      return
+    }
+    const ext = path.extname(supplier.stampFile).toLowerCase()
+    res.type(ext === '.png' ? 'image/png' : 'image/jpeg').set('Cache-Control', 'private, no-store').sendFile(target)
+  } catch (err) {
+    logger.error(`[supplier.getStamp] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

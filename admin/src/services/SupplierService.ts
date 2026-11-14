@@ -32,6 +32,56 @@ export const update = (data: bookcarsTypes.UpdateSupplierPayload): Promise<bookc
     .then((res) => ({ status: res.status, data: res.data }))
 
 /**
+ * Upload the agency stamp image (GA-PAR-14).
+ *
+ * @param {string} supplierId
+ * @param {Blob} file
+ * @returns {Promise<string>} stored filename
+ */
+export const uploadStamp = (supplierId: string, file: Blob): Promise<string> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  return axiosInstance
+    .post(
+      `/api/supplier-stamp/${encodeURIComponent(supplierId)}`,
+      formData,
+      {
+        withCredentials: true,
+        headers: { 'Content-Type': 'multipart/form-data' }
+      },
+    )
+    .then((res) => res.data)
+}
+
+/**
+ * Delete the agency stamp image (GA-PAR-14).
+ *
+ * @param {string} supplierId
+ * @returns {Promise<number>}
+ */
+export const deleteStamp = (supplierId: string): Promise<number> =>
+  axiosInstance
+    .post(
+      `/api/delete-supplier-stamp/${encodeURIComponent(supplierId)}`,
+      null,
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Fetch the agency stamp image through the authenticated axios instance
+ * and return a blob URL (GA-PAR-14).
+ *
+ * @param {string} supplierId
+ * @returns {Promise<string>}
+ */
+export const fetchStampUrl = async (supplierId: string): Promise<string> => {
+  const res = await axiosInstance.get(`/api/supplier-stamp/${encodeURIComponent(supplierId)}`, { withCredentials: true, responseType: 'blob' })
+  return URL.createObjectURL(res.data as Blob)
+}
+
+/**
  * Delete a Supplier.
  *
  * @param {string} id

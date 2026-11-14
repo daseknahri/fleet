@@ -19,6 +19,11 @@ const strings = new LocalizedStrings({
     FISCAL_CITY: 'Ville',
     FISCAL_VAT_ENABLED: 'TVA activée',
     FISCAL_VAT_RATE: 'Taux de TVA (%)',
+    STAMP_HEADING: 'Tampon de l’agence (PDF du contrat)',
+    STAMP_UPLOAD: 'Téléverser le tampon',
+    STAMP_REMOVE: 'Retirer le tampon',
+    STAMP_ON_FILE: 'Tampon enregistré',
+    STAMP_NONE: 'Aucun tampon enregistré — les PDF s’impriment sans tampon.',
   },
   en: {
     CREATE_SUPPLIER_HEADING: 'New supplier',
@@ -36,6 +41,11 @@ const strings = new LocalizedStrings({
     FISCAL_CITY: 'City',
     FISCAL_VAT_ENABLED: 'VAT enabled',
     FISCAL_VAT_RATE: 'VAT rate (%)',
+    STAMP_HEADING: 'Agency stamp (contract PDF)',
+    STAMP_UPLOAD: 'Upload stamp',
+    STAMP_REMOVE: 'Remove stamp',
+    STAMP_ON_FILE: 'Stamp on file',
+    STAMP_NONE: 'No stamp on file — snapshots print without a stamp.',
   },
   ar: {
     CREATE_SUPPLIER_HEADING: 'مورد جديد',
@@ -53,6 +63,11 @@ const strings = new LocalizedStrings({
     FISCAL_CITY: 'المدينة',
     FISCAL_VAT_ENABLED: 'تفعيل ضريبة القيمة المضافة',
     FISCAL_VAT_RATE: 'نسبة ضريبة القيمة المضافة (%)',
+    STAMP_HEADING: 'ختم الوكالة (PDF العقد)',
+    STAMP_UPLOAD: 'رفع الختم',
+    STAMP_REMOVE: 'إزالة الختم',
+    STAMP_ON_FILE: 'الختم مسجل',
+    STAMP_NONE: 'لا يوجد ختم مسجل — تُطبع ملفات PDF بدون ختم.',
   },
   es: {
     CREATE_SUPPLIER_HEADING: 'Nuevo proveedor',
@@ -70,6 +85,11 @@ const strings = new LocalizedStrings({
     FISCAL_CITY: 'Ciudad',
     FISCAL_VAT_ENABLED: 'IVA activado',
     FISCAL_VAT_RATE: 'Tipo de IVA (%)',
+    STAMP_HEADING: 'Sello de la agencia (PDF del contrato)',
+    STAMP_UPLOAD: 'Subir sello',
+    STAMP_REMOVE: 'Quitar sello',
+    STAMP_ON_FILE: 'Sello guardado',
+    STAMP_NONE: 'Sin sello guardado — los PDF se imprimen sin sello.',
   },
 })
 

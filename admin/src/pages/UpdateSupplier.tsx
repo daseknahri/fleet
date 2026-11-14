@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Input,
@@ -43,7 +43,12 @@ const UpdateSupplier = () => {
   const [loading, setLoading] = useState(false)
   const [noMatch, setNoMatch] = useState(false)
   const [avatar, setAvatar] = useState('')
-  const [avatarError, setAvatarError] = useState(false)
+  const [avatarError, setAvatarError] = useState(false)
+  // GA-PAR-14: agency stamp image for the contract snapshot PDF.
+  const [stampFile, setStampFile] = useState('')
+  const [stampUrl, setStampUrl] = useState('')
+  const [stampBusy, setStampBusy] = useState(false)
+  const stampInput = useRef<HTMLInputElement>(null)
 
   const {
     control,
@@ -115,6 +120,53 @@ const UpdateSupplier = () => {
     }
   }
 
+  const onStampUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !supplier) {
+      return
+    }
+    setStampBusy(true)
+    try {
+      const filename = await SupplierService.uploadStamp(supplier._id as string, file)
+      setStampFile(filename)
+      const _supplier = bookcarsHelper.clone(supplier)
+      _supplier.stampFile = filename
+      setSupplier(_supplier)
+      const url = await SupplierService.fetchStampUrl(supplier._id as string)
+      setStampUrl(url)
+      helper.info(commonStrings.UPDATED)
+    } catch (err) {
+      helper.error(err)
+    } finally {
+      setStampBusy(false)
+    }
+  }
+
+  const onStampRemove = async () => {
+    if (!supplier) {
+      return
+    }
+    setStampBusy(true)
+    try {
+      const status = await SupplierService.deleteStamp(supplier._id as string)
+      if (status === 200) {
+        setStampFile('')
+        setStampUrl('')
+        const _supplier = bookcarsHelper.clone(supplier)
+        _supplier.stampFile = undefined
+        setSupplier(_supplier)
+        helper.info(commonStrings.UPDATED)
+      } else {
+        helper.error()
+      }
+    } catch (err) {
+      helper.error(err)
+    } finally {
+      setStampBusy(false)
+    }
+  }
+
   const handleResendActivationLink = async () => {
     if (supplier) {
       try {
@@ -172,7 +224,11 @@ const UpdateSupplier = () => {
               setValue('fiscalAddress', _supplier.fiscalAddress || '')
               setValue('city', _supplier.city || '')
               setValue('vatEnabled', !!_supplier.vatEnabled)
-              setValue('vatRate', _supplier.vatRate?.toString() || '')
+              setValue('vatRate', _supplier.vatRate?.toString() || '')
+              setStampFile(_supplier.stampFile || '')
+              if (_supplier.stampFile) {
+                SupplierService.fetchStampUrl(_supplier._id as string).then(setStampUrl).catch(() => { /* stamp preview is best-effort */ })
+              }
               setVisible(true)
               setLoading(false)
             } else {
@@ -656,6 +712,33 @@ const UpdateSupplier = () => {
                 {errors.vatRate?.message || ''}
               </FormHelperText>
               </FormControl>
+
+              <div className="info">
+                <InfoIcon />
+                <span>{csStrings.STAMP_HEADING}</span>
+              </div>
+
+              <input ref={stampInput} hidden type="file" accept="image/png,image/jpeg" onChange={onStampUpload} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button variant="outlined" size="small" disabled={stampBusy} onClick={() => stampInput.current?.click()}>
+                  {csStrings.STAMP_UPLOAD}
+                </Button>
+                {stampFile && (
+                  <Button variant="outlined" size="small" disabled={stampBusy} onClick={onStampRemove}>
+                    {csStrings.STAMP_REMOVE}
+                  </Button>
+                )}
+              </div>
+              {stampFile ? (
+                <div style={{ marginTop: 8 }}>
+                  <div>{csStrings.STAMP_ON_FILE}</div>
+                  {stampUrl && <img src={stampUrl} alt={csStrings.STAMP_ON_FILE} style={{ maxWidth: 200, maxHeight: 120, marginTop: 8 }} />}
+                </div>
+              ) : (
+                <div className="info">
+                  <span>{csStrings.STAMP_NONE}</span>
+                </div>
+              )}
 
               <FormControl fullWidth margin="dense">
                 <ContractList supplier={supplier} />

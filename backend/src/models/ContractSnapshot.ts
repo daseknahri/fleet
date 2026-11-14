@@ -7,6 +7,8 @@ const schema = new Schema<env.ContractSnapshot>({
   pdfFile: { type: String, required: true, maxlength: 240 },
   contentHash: { type: String, required: true, maxlength: 128 },
   generatedAt: { type: Date, required: true },
+  // GA-PAR-14: the snapshot was generated with the agency stamp requested.
+  withStamp: { type: Boolean },
 }, { timestamps: true, strict: true, collection: 'ContractSnapshot' })
 schema.index({ booking: 1, version: 1 }, { unique: true, sparse: true })
 export default model<env.ContractSnapshot>('ContractSnapshot', schema)

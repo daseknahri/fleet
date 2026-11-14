@@ -11,6 +11,9 @@ const routes = {
   updateContract: '/api/update-contract/:supplierId/:language',
   deleteContract: '/api/delete-contract/:supplierId/:language',
   deleteTempContract: '/api/delete-temp-contract/:file',
+  uploadStamp: '/api/supplier-stamp/:supplierId',
+  deleteStamp: '/api/delete-supplier-stamp/:supplierId',
+  getStamp: '/api/supplier-stamp/:supplierId',
 }
 
 export default routes
