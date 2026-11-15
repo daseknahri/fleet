@@ -11,6 +11,7 @@ import i18n from '../lang/i18n'
 import Location from '../models/Location'
 import LocationValue from '../models/LocationValue'
 import Car from '../models/Car'
+import Country from '../models/Country'
 import User from '../models/User'
 import ParkingSpot from '../models/ParkingSpot'
 import * as logger from '../utils/logger'
@@ -28,6 +29,28 @@ const canAccessAgencyLocation = (req: Request, supplierId?: string | mongoose.Ty
 
 const canManageLocation = (user: { _id: mongoose.Types.ObjectId | string, type?: bookcarsTypes.UserType } | undefined, supplierId?: string) =>
   !!user && (user.type === bookcarsTypes.UserType.Admin || !!supplierId)
+
+/**
+ * H-043: a location's country must belong to the location's agency.
+ * A country with no supplier (legacy) is allowed, mirroring
+ * carController.validateLocationsForSupplier: only a country whose
+ * supplier exists and differs from the location's supplier is rejected.
+ * A malformed or unknown country id is rejected as well.
+ *
+ * @param {unknown} country
+ * @param {string} supplier
+ * @returns {Promise<boolean>}
+ */
+const validateCountryForSupplier = async (country: unknown, supplier: string): Promise<boolean> => {
+  if (!mongoose.isValidObjectId(country)) {
+    return false
+  }
+  const countryDoc = await Country.findById(country).select('supplier').lean()
+  if (!countryDoc) {
+    return false
+  }
+  return !countryDoc.supplier || countryDoc.supplier.toString() === supplier
+}
 
 const agencyLocationMatch = (req: Request): mongoose.QueryFilter<env.Location> => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -150,6 +173,13 @@ export const create = async (req: Request, res: Response) => {
 
     if (!Array.isArray(names) || !names.some((name) => typeof name?.name === 'string' && name.name.trim().length > 0)) {
       res.status(400).send('A location needs at least one name')
+      return
+    }
+
+    // H-043: reject a country owned by another agency before persisting
+    // anything (no LocationValue / Location / ParkingSpot is created yet).
+    if (!(await validateCountryForSupplier(country, supplier))) {
+      res.status(400).send('Invalid country: the country does not belong to the location agency')
       return
     }
 
@@ -316,6 +346,13 @@ export const update = async (req: Request, res: Response) => {
         parkingSpots,
         parentLocation,
       }: bookcarsTypes.UpsertLocationPayload = req.body
+
+      // H-043: same country-ownership check as create, before re-pointing
+      // the location at a new country.
+      if (!(await validateCountryForSupplier(country, location.supplier?.toString() || ''))) {
+        res.status(400).send('Invalid country: the country does not belong to the location agency')
+        return
+      }
 
       location.country = new mongoose.Types.ObjectId(country)
       location.longitude = longitude

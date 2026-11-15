@@ -745,3 +745,165 @@ describe('DELETE /api/delete-location/:id', () => {
     await testHelper.signout(token)
   })
 })
+
+//
+// H-043 regression (two-agency): a location's country must belong to the
+// location's agency. A country with no supplier (legacy) is allowed.
+// Admin creates for B on A's country -> 400, nothing persisted; owner B
+// creates on A's country -> 400; own country -> 200; update re-pointing
+// at a foreign country -> 400.
+//
+describe('H-043 country ownership (two-agency regression)', () => {
+  let supplierAId: string
+  let supplierBId: string
+  let countryAId: string
+  let countryBId: string
+  let countryLegacyId: string
+  let countryValueIds: string[] = []
+
+  const createCountry = async (supplier?: string) => {
+    const valueEn = new LocationValue({ language: 'en', value: `Country ${nanoid()}` })
+    await valueEn.save()
+    const valueFr = new LocationValue({ language: 'fr', value: `Pays ${nanoid()}` })
+    await valueFr.save()
+    countryValueIds.push(valueEn._id.toString(), valueFr._id.toString())
+    const country = new Country({ values: [valueEn._id, valueFr._id], supplier })
+    await country.save()
+    return country._id.toString()
+  }
+
+  const deleteLocationAndValues = async (locationId: string) => {
+    const location = await Location.findByIdAndDelete(locationId)
+    if (location) {
+      await LocationValue.deleteMany({ _id: { $in: location.values } })
+    }
+  }
+
+  beforeAll(async () => {
+    const nameA = testHelper.getSupplierName()
+    supplierAId = await testHelper.createSupplier(`${nameA}@testA.bookcars.ma`, nameA)
+    const nameB = testHelper.getSupplierName()
+    supplierBId = await testHelper.createSupplier(`${nameB}@testB.bookcars.ma`, nameB)
+    countryAId = await createCountry(supplierAId)
+    countryBId = await createCountry(supplierBId)
+    countryLegacyId = await createCountry()
+  })
+
+  afterAll(async () => {
+    await Country.deleteMany({ _id: { $in: [countryAId, countryBId, countryLegacyId] } })
+    await LocationValue.deleteMany({ _id: { $in: countryValueIds } })
+    await testHelper.deleteSupplier(supplierAId)
+    await testHelper.deleteSupplier(supplierBId)
+  })
+
+  it('should reject a country owned by another agency', async () => {
+    const token = await testHelper.signinAsAdmin()
+    const names: bookcarsTypes.LocationName[] = [
+      { language: 'en', name: nanoid() },
+      { language: 'fr', name: nanoid() },
+    ]
+
+    const locationsBefore = await Location.countDocuments()
+    const valuesBefore = await LocationValue.countDocuments()
+
+    // test failure (admin creates a location for agency B on agency A's country)
+    let payload: bookcarsTypes.UpsertLocationPayload = {
+      country: countryAId,
+      names,
+      latitude: 28.0268755,
+      longitude: 1.6528399999999976,
+      supplier: supplierBId,
+    }
+    let res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(payload)
+    expect(res.statusCode).toBe(400)
+    // nothing persisted (no Location, no LocationValue, no ParkingSpot)
+    expect(await Location.countDocuments()).toBe(locationsBefore)
+    expect(await LocationValue.countDocuments()).toBe(valuesBefore)
+
+    // test failure (owner B creates on agency A's country)
+    const supplierBToken = await testHelper.generateToken(supplierBId)
+    res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, supplierBToken)
+      .send({ country: countryAId, names, latitude: 28.0268755, longitude: 1.6528399999999976 })
+    expect(res.statusCode).toBe(400)
+    expect(await Location.countDocuments()).toBe(locationsBefore)
+    expect(await LocationValue.countDocuments()).toBe(valuesBefore)
+
+    // test failure (malformed country id)
+    payload = {
+      country: 'not-a-country-id',
+      names,
+      latitude: 28.0268755,
+      longitude: 1.6528399999999976,
+      supplier: supplierAId,
+    }
+    res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(payload)
+    expect(res.statusCode).toBe(400)
+    expect(await Location.countDocuments()).toBe(locationsBefore)
+
+    // test success (legacy country with no supplier is allowed)
+    payload = {
+      country: countryLegacyId,
+      names,
+      latitude: 28.0268755,
+      longitude: 1.6528399999999976,
+      supplier: supplierBId,
+    }
+    res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(payload)
+    expect(res.statusCode).toBe(200)
+    expect(res.body._id).toBeTruthy()
+    await deleteLocationAndValues(res.body._id)
+
+    // test success (own country) then update re-pointing at a foreign country
+    payload = {
+      country: countryAId,
+      names,
+      latitude: 28.0268755,
+      longitude: 1.6528399999999976,
+      supplier: supplierAId,
+    }
+    res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(payload)
+    expect(res.statusCode).toBe(200)
+    const locationId = res.body._id as string
+
+    const updatePayload: bookcarsTypes.UpsertLocationPayload = {
+      country: countryBId,
+      names,
+      latitude: 29.0268755,
+      longitude: 2.6528399999999976,
+    }
+    res = await request(app)
+      .put(`/api/update-location/${locationId}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(updatePayload)
+    expect(res.statusCode).toBe(400)
+    const unchanged = await Location.findById(locationId)
+    expect(unchanged?.country.toString()).toBe(countryAId)
+
+    // test success (update keeping the own country)
+    updatePayload.country = countryAId
+    res = await request(app)
+      .put(`/api/update-location/${locationId}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(updatePayload)
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.country).toBe(countryAId)
+
+    await deleteLocationAndValues(locationId)
+
+    await testHelper.signout(token)
+  })
+})
