@@ -1039,6 +1039,8 @@ export interface ReportViewConfig {
   carId?: string
   groupBy: bookcarsTypes.ReportGroupBy
   compare: boolean
+  // F7 / W3 R-5 — the cash/bank channel scope this view was saved with.
+  scope?: bookcarsTypes.ReportScope
 }
 
 /** Saved reports-builder view document (GA-PAR-14). */
@@ -1129,6 +1131,14 @@ export interface Invoice extends Document {
   paidAmount: number
   paymentStatus: 'unpaid' | 'partial' | 'paid'
   payments?: Types.ObjectId[]
+  // F7 / W3 B-2 — snapshot of the paid state at void time (the live
+  // paidAmount / paymentStatus / payments are cleared on void).
+  voidedPaidAmount?: number
+  voidedPaymentStatus?: 'unpaid' | 'partial' | 'paid'
+  // F7 / W3 B-4 — delivery log (status tracking only, no sending).
+  deliveries?: Array<{ channel: bookcarsTypes.InvoiceDeliveryChannel, at: Date, by?: Types.ObjectId }>
+  // F7 / W3 B-5 — log of payments unlinked from this invoice.
+  unlinkLog?: Array<{ payment: Types.ObjectId, reason: string, at: Date, by?: Types.ObjectId }>
   issuedAt?: Date
   issuedBy?: Types.ObjectId
   voidedAt?: Date

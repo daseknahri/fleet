@@ -1617,6 +1617,19 @@ export interface Invoice {
   paidAmount?: number
   paymentStatus?: 'unpaid' | 'partial' | 'paid'
   payments?: string[]
+  // F7 / W3 B-2 — what the invoice looked like when it was voided.
+  // Voiding clears paidAmount / paymentStatus / payments (see
+  // voidInvoice); the snapshot keeps the record of what was paid
+  // before the void, so a voided invoice never shows a stale paid
+  // status and the money is never silently forgotten.
+  voidedPaidAmount?: number
+  voidedPaymentStatus?: 'unpaid' | 'partial' | 'paid'
+  // F7 / W3 B-4 — delivery log (status tracking ONLY: no sending is
+  // built — SMTP/Resend is owner-decision pending, SMS/WhatsApp
+  // adapters are gated). One entry per recorded delivery.
+  deliveries?: Array<{ channel: InvoiceDeliveryChannel, at: Date, by?: string | User }>
+  // F7 / W3 B-5 — log of payments unlinked from this invoice.
+  unlinkLog?: Array<{ payment: string, reason: string, at: Date, by?: string | User }>
   issuedAt?: Date
   issuedBy?: string | User
   voidedAt?: Date
@@ -1625,6 +1638,16 @@ export interface Invoice {
   createdAt?: Date
   updatedAt?: Date
 }
+
+/** F7 / W3 B-4 — invoice delivery channels (tracking only, no sending). */
+export enum InvoiceDeliveryChannel {
+  Print = 'print',
+  Email = 'email',
+  Whatsapp = 'whatsapp',
+}
+
+export interface RecordInvoiceDeliveryPayload { channel: InvoiceDeliveryChannel }
+export interface UnlinkInvoicePaymentPayload { payment: string, reason: string }
 
 export interface CreateInvoicePayload { booking: string; taxAmount?: number }
 export interface VoidInvoicePayload { reason: string }
@@ -1889,6 +1912,9 @@ export interface ReportViewConfig {
   carId?: string
   groupBy: ReportGroupBy
   compare: boolean
+  // F7 / W3 R-5 — the cash/bank channel scope this view was saved
+  // with; applying the view restores it (it used to force scope All).
+  scope?: ReportScope
 }
 
 /** GA-PAR-14 — saved reports-builder view (owned by one user). */
@@ -1985,6 +2011,8 @@ export interface ReportDrilldownResult {
   groupBy: ReportGroupBy
   carId?: string
   bucket?: string
+  // F7 / W3 R-5 — the scope the drill-down was computed under.
+  scope: ReportScope
   limit: number
   bookings: Array<{ id: string, reference: string | null, carId: string, from: string, to: string, contractAmount: number, collected: number, remaining: number }>
   payments: Array<{ id: string, bookingId: string, date: string, amount: number }>
@@ -2310,6 +2338,11 @@ export interface MaintenanceSchedule {
   nextDueDate: Date
   nextDueMileage?: number
   status: MaintenanceScheduleStatus
+  // F7 / W3 M-4 — live-computed by the server (present()): whether the
+  // schedule is overdue by mileage, and the effective next-due mileage
+  // (stored nextDueMileage, else lastServiceMileage + intervalKm).
+  dueByMileage?: boolean
+  effectiveNextDueMileage?: number | null
   note?: string
   createdAt?: Date
   updatedAt?: Date

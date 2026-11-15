@@ -150,6 +150,9 @@ const Invoices = () => {
   const [voidReason, setVoidReason] = useState('')
   const [payTarget, setPayTarget] = useState<Invoice | null>(null)
   const [payPayment, setPayPayment] = useState('')
+  // F7 / W3 B-5 — unlink dialog (payment + recorded reason).
+  const [unlinkTarget, setUnlinkTarget] = useState<{ invoice: Invoice, payment: string } | null>(null)
+  const [unlinkReason, setUnlinkReason] = useState('')
   // GA-PAR-05: Quotes tab (same page, no new route)
   const [tab, setTab] = useState<'invoices' | 'quotes'>('invoices')
   const [quotes, setQuotes] = useState<Quote[]>([])
@@ -318,11 +321,34 @@ const Invoices = () => {
     }, strings.PAYMENT_OK)
   }
 
+  const handleUnlink = () => {
+    if (!unlinkTarget?.invoice._id) return
+    runAction(async () => {
+      await InvoiceService.unlinkPayment(unlinkTarget.invoice._id as string, unlinkTarget.payment, unlinkReason.trim())
+      setUnlinkTarget(null)
+      setUnlinkReason('')
+      setPayTarget(null)
+      await load(currentUser || undefined)
+    }, strings.UNLINKED)
+  }
+
+  // F7 / W3 B-4 — delivery log (status tracking only): the PDF
+  // download is recorded as a print delivery, the wa.me open as a
+  // whatsapp delivery. Nothing is sent by either call.
+  const deliveryLine = (invoice: Invoice): string => {
+    const deliveries = invoice.deliveries || []
+    if (deliveries.length === 0) return ''
+    return deliveries.map((d) => `${d.channel} ${new Date(d.at).toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short' })}`).join(' · ')
+  }
+
   // GA-PAR-23: opens the wa.me deep link in a new tab (no backend call).
-  const openWhatsApp = (url: string | null) => {
-    if (url) {
-      window.open(url, '_blank', 'noopener')
-    }
+  const openWhatsApp = (invoice: Invoice, url: string | null) => {
+    if (!url) return
+    window.open(url, '_blank', 'noopener')
+    runAction(async () => {
+      await InvoiceService.recordDelivery(invoice._id as string, bookcarsTypes.InvoiceDeliveryChannel.Whatsapp)
+      await load(currentUser || undefined)
+    }, '')
   }
 
   const handleDownloadPdf = (invoice: Invoice) => runAction(async () => {
@@ -333,6 +359,8 @@ const Invoices = () => {
     anchor.download = `invoice-${invoice.number || invoice._id}.pdf`
     anchor.click()
     URL.revokeObjectURL(url)
+    await InvoiceService.recordDelivery(invoice._id as string, bookcarsTypes.InvoiceDeliveryChannel.Print)
+    await load(currentUser || undefined)
   }, '')
 
   const filteredQuotes = useMemo(() => {
@@ -499,13 +527,13 @@ const Invoices = () => {
                 })
                 return (
                   <div key={invoice._id} className="agency-invoices__row agency-invoices__grid">
-                    <span data-label={strings.NUMBER}><strong>{invoice.number || strings.DRAFT_NUMBER}</strong><br /><small>{contractLabel(invoice)}</small></span>
+                    <span data-label={strings.NUMBER}><strong>{invoice.number || strings.DRAFT_NUMBER}</strong><br /><small>{contractLabel(invoice)}</small>{deliveryLine(invoice) && <><br /><small>{`${strings.DELIVERY}: ${deliveryLine(invoice)}`}</small></>}</span>
                     <span data-label={strings.CLIENT}>{clientName(invoice)}</span>
                     <span data-label={strings.CAR}>{carLabel(invoice)}</span>
                     <span data-label={strings.STATUS}><Chip size="small" color={statusColor(invoice.status)} label={statusLabel(invoice.status)} /></span>
                     <span data-label={strings.PAYMENT_STATUS}><Chip size="small" color={paymentColor(invoice.paymentStatus)} label={paymentLabel(invoice.paymentStatus)} /></span>
                     <span data-label={strings.TOTAL}>{formatAmount(invoice.total, invoice.currency)}<br /><small>{`${strings.SUBTOTAL} ${formatAmount(invoice.subtotal, invoice.currency)} · ${strings.TAX} ${formatAmount(invoice.taxAmount, invoice.currency)}`}</small></span>
-                    <span data-label={strings.PAID}>{formatAmount(invoice.paidAmount, invoice.currency)}</span>
+                    <span data-label={strings.PAID}>{formatAmount(invoice.paidAmount, invoice.currency)}{invoice.status === bookcarsTypes.InvoiceStatus.Voided && invoice.voidedPaidAmount !== undefined && invoice.voidedPaidAmount > 0 && <><br /><small>{`${strings.VOIDED_PAID}: ${formatAmount(invoice.voidedPaidAmount, invoice.currency)}`}</small></>}</span>
                     <span data-label={strings.APPROVAL}>
                       {approvalState ? <Chip size="small" color={approvalState === bookcarsTypes.ApprovalDecision.Approved ? 'success' : approvalState === bookcarsTypes.ApprovalDecision.Rejected ? 'error' : 'warning'} label={approvalLabel(approvalState)} /> : '—'}
                       {blocked && <><br /><small>{strings.APPROVAL_BLOCKED}</small></>}
@@ -525,7 +553,7 @@ const Invoices = () => {
                         <Button size="small" startIcon={<PictureAsPdfRoundedIcon />} disabled={busy} onClick={() => handleDownloadPdf(invoice)}>{strings.DOWNLOAD_PDF}</Button>
                       )}
                       {invoice.status === bookcarsTypes.InvoiceStatus.Issued && (
-                        <Button size="small" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>
+                        <Button size="small" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(invoice, waUrl)}>{strings.WA_SEND}</Button>
                       )}
                     </span>
                   </div>
@@ -582,10 +610,35 @@ const Invoices = () => {
                   </Select>
                 </FormControl>
               )}
+              {payTarget && (payTarget.payments || []).length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2">{strings.LINKED_PAYMENTS}</Typography>
+                  {(payTarget.payments || []).map((paymentId) => {
+                    const payment = payments.find((p) => p._id === String(paymentId))
+                    return (
+                      <Box key={String(paymentId)} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                        <Typography variant="body2">{payment ? `${formatAmount(payment.amount, payment.currency)} · ${payment.method}${payment.reference ? ` · ${payment.reference}` : ''}` : String(paymentId)}</Typography>
+                        <Button size="small" color="error" disabled={busy} onClick={() => { setUnlinkTarget({ invoice: payTarget, payment: String(paymentId) }); setUnlinkReason('') }}>{strings.UNLINK}</Button>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              )}
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setPayTarget(null)}>{strings.CANCEL}</Button>
               <Button variant="contained" disabled={busy || !payPayment} onClick={handleRecordPayment}>{strings.LINK}</Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog open={!!unlinkTarget} onClose={() => setUnlinkTarget(null)} fullWidth maxWidth="sm">
+            <DialogTitle>{strings.UNLINK_TITLE}</DialogTitle>
+            <DialogContent className="agency-invoices__form">
+              <TextField fullWidth size="small" label={strings.UNLINK_REASON} value={unlinkReason} onChange={(e) => setUnlinkReason(e.target.value)} />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setUnlinkTarget(null)}>{strings.CANCEL}</Button>
+              <Button variant="contained" color="error" disabled={busy || unlinkReason.trim().length < 3} onClick={handleUnlink}>{strings.UNLINK}</Button>
             </DialogActions>
           </Dialog>
 

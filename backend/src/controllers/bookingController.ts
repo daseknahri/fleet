@@ -3414,6 +3414,12 @@ export const restoreBookings = async (req: Request, res: Response) => {
         res.status(409).send(`OVERLAP: Booking ${booking._id.toString()} conflicts with scheduled maintenance for the car in the selected dates.`)
         return
       }
+      // F7 / W3 M-4 — an overdue schedule blocks a restore exactly
+      // like it blocks a fresh booking; the message names the schedule.
+      if (conflict.overdueSchedule) {
+        res.status(409).send(`OVERDUE_MAINTENANCE: Booking ${booking._id.toString()} cannot be restored: the car has an overdue maintenance schedule (${conflict.overdueSchedule.title}: ${conflict.overdueSchedule.trigger}).`)
+        return
+      }
       if (conflict.conflictingBookingId) {
         // OQ-8: a stored PAR-10 overlap exception stays valid for the
         // conflicting booking it names.

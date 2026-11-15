@@ -15,6 +15,8 @@ import MaintenanceExpense from '../src/models/MaintenanceExpense'
 import MaintenanceExpensePayment from '../src/models/MaintenanceExpensePayment'
 import MaintenanceExpenseAudit from '../src/models/MaintenanceExpenseAudit'
 import MaintenanceWorkOrder from '../src/models/MaintenanceWorkOrder'
+import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
+import ReportView from '../src/models/ReportView'
 import CashMovement from '../src/models/CashMovement'
 import CashSession from '../src/models/CashSession'
 import Invoice from '../src/models/Invoice'
@@ -95,12 +97,12 @@ const makeBooking = async (from: Date, to: Date, price: number, snap: ReturnType
   return booking
 }
 
-const makePostedRent = async (booking: env.Booking, amount: number, date: Date) => {
+const makePostedRent = async (booking: env.Booking, amount: number, date: Date, status: types.RentalPaymentStatus = types.RentalPaymentStatus.Posted) => {
   const payment = await new RentalPayment({
     supplier: supplier._id, booking: booking._id, date, amount,
     currency: env.BASE_CURRENCY, method: types.RentalPaymentMethod.Cash,
     purpose: types.RentalPaymentPurpose.Rent, direction: types.RentalPaymentDirection.Credit,
-    source: types.RentalPaymentSource.Manual, status: types.RentalPaymentStatus.Posted,
+    source: types.RentalPaymentSource.Manual, status,
     idempotencyKey: key('pay'),
   }).save()
   ids.push(payment._id)
@@ -151,6 +153,8 @@ afterAll(async () => {
   await MaintenanceExpensePayment.deleteMany({ supplier: supplier._id })
   await MaintenanceExpenseAudit.deleteMany({ supplier: supplier._id })
   await MaintenanceWorkOrder.deleteMany({ supplier: supplier._id })
+  await MaintenanceSchedule.deleteMany({ supplier: supplier._id })
+  await ReportView.deleteMany({ supplier: supplier._id })
   await CashMovement.deleteMany({ supplier: supplier._id })
   await CashSession.deleteMany({ supplier: supplier._id })
   await MaintenanceExpense.deleteMany({ supplier: supplier._id })
@@ -492,5 +496,238 @@ describe('F7 / W3 M-7 — expense changes leave an append-only audit trail', () 
     const deletedRow = (audit.body as Array<{ action: string, reason?: string }>)
       .find((r) => r.action === types.MaintenanceExpenseAuditAction.Deleted)
     expect(deletedRow?.reason).toBe('duplicate entry')
+  })
+})
+
+// The B-2/B-4/B-5, R-5 and M-4 sections run last; their fixtures are
+// December (or their own cars), so they cannot move the November
+// R-2/R-7 figures above.
+describe('F7 / W3 B-5 + B-4 + B-2 — link only Posted, record deliveries, void clears paid state', () => {
+  let bookingH: env.Booking
+  let invoiceId: string
+  let postedPaymentId: string
+  let pendingPaymentId: string
+
+  it('issues an invoice and refuses to link a Pending payment', async () => {
+    bookingH = await makeBooking(utc('2026-12-18T10:00:00.000'), utc('2026-12-20T10:00:00.000'), 500, snapshot(500, 0))
+    const created = await post(ownerToken, '/api/invoices', { booking: bookingH._id.toString() })
+    expect(created.status).toBe(201)
+    invoiceId = created.body._id
+    const issued = await post(ownerToken, `/api/invoices/${invoiceId}/issue`, {})
+    expect(issued.status).toBe(200)
+    expect(issued.body.status).toBe(types.InvoiceStatus.Issued)
+
+    const posted = await makePostedRent(bookingH, 200, utc('2026-12-10T12:00:00.000'))
+    postedPaymentId = posted._id.toString()
+    const pending = await makePostedRent(bookingH, 100, utc('2026-12-11T12:00:00.000'), types.RentalPaymentStatus.Pending)
+    pendingPaymentId = pending._id.toString()
+
+    const refused = await post(ownerToken, `/api/invoices/${invoiceId}/payments`, { payment: pendingPaymentId })
+    expect(refused.status).toBe(409)
+    expect(refused.text).toContain('posted')
+  })
+
+  it('links the Posted payment, records deliveries, and refuses a bad channel', async () => {
+    const linked = await post(ownerToken, `/api/invoices/${invoiceId}/payments`, { payment: postedPaymentId })
+    expect(linked.status).toBe(200)
+    expect(linked.body.paidAmount).toBe(200)
+    expect(linked.body.paymentStatus).toBe('partial')
+
+    const printed = await post(ownerToken, `/api/invoices/${invoiceId}/deliveries`, { channel: types.InvoiceDeliveryChannel.Print })
+    expect(printed.status).toBe(200)
+    expect(printed.body.deliveries).toHaveLength(1)
+    expect(printed.body.deliveries[0].channel).toBe('print')
+    const shared = await post(ownerToken, `/api/invoices/${invoiceId}/deliveries`, { channel: types.InvoiceDeliveryChannel.Whatsapp })
+    expect(shared.status).toBe(200)
+    expect(shared.body.deliveries).toHaveLength(2)
+    expect(shared.body.deliveries[1].channel).toBe('whatsapp')
+
+    expect((await post(ownerToken, `/api/invoices/${invoiceId}/deliveries`, { channel: 'pigeon' })).status).toBe(400)
+  })
+
+  it('refuses an unlink without a reason, then unlinks with a logged reason', async () => {
+    expect((await post(ownerToken, `/api/invoices/${invoiceId}/payments/unlink`, { payment: postedPaymentId })).status).toBe(400)
+    expect((await post(ownerToken, `/api/invoices/${invoiceId}/payments/unlink`, { payment: postedPaymentId, reason: 'no' })).status).toBe(400)
+
+    const unlinked = await post(ownerToken, `/api/invoices/${invoiceId}/payments/unlink`, { payment: postedPaymentId, reason: 'wrong payment linked' })
+    expect(unlinked.status).toBe(200)
+    expect(unlinked.body.paidAmount).toBe(0)
+    expect(unlinked.body.paymentStatus).toBe('unpaid')
+    expect(unlinked.body.payments).toHaveLength(0)
+    expect(unlinked.body.unlinkLog).toHaveLength(1)
+    expect(unlinked.body.unlinkLog[0].reason).toBe('wrong payment linked')
+
+    // The same payment is no longer linked, so a second unlink 409s.
+    expect((await post(ownerToken, `/api/invoices/${invoiceId}/payments/unlink`, { payment: postedPaymentId, reason: 'again' })).status).toBe(409)
+  })
+
+  it('voiding snapshots the paid state, then clears it', async () => {
+    const relinked = await post(ownerToken, `/api/invoices/${invoiceId}/payments`, { payment: postedPaymentId })
+    expect(relinked.status).toBe(200)
+    expect(relinked.body.paidAmount).toBe(200)
+
+    const voided = await post(ownerToken, `/api/invoices/${invoiceId}/void`, { reason: 'client cancelled' })
+    expect(voided.status).toBe(200)
+    expect(voided.body.status).toBe(types.InvoiceStatus.Voided)
+    expect(voided.body.paidAmount).toBe(0)
+    expect(voided.body.paymentStatus).toBe('unpaid')
+    expect(voided.body.payments).toHaveLength(0)
+    expect(voided.body.voidedPaidAmount).toBe(200)
+    expect(voided.body.voidedPaymentStatus).toBe('partial')
+  })
+})
+
+describe('F7 / W3 R-5 — drilldown and saved views keep the cash/bank scope', () => {
+  it('drilldown filters its payment list by scope and reports the scope', async () => {
+    // A bank payment on booking B, inside the November window: it must
+    // appear under scope all/bank and never under scope cash.
+    await new RentalPayment({
+      supplier: supplier._id, booking: bookingB._id, date: utc('2026-11-12T12:00:00.000'), amount: 100,
+      currency: env.BASE_CURRENCY, method: types.RentalPaymentMethod.BankTransfer,
+      purpose: types.RentalPaymentPurpose.Rent, direction: types.RentalPaymentDirection.Credit,
+      source: types.RentalPaymentSource.Manual, status: types.RentalPaymentStatus.Posted,
+      idempotencyKey: key('pay'),
+    }).save()
+
+    const all = await get(ownerToken, '/api/reports/drilldown?from=2026-11-10&to=2026-11-19&groupBy=car')
+    expect(all.status).toBe(200)
+    expect(all.body.scope).toBe('all')
+    // Booking A: 300 + 999 cash; booking B: 100 bank.
+    expect(all.body.payments).toHaveLength(3)
+
+    const cash = await get(ownerToken, '/api/reports/drilldown?from=2026-11-10&to=2026-11-19&groupBy=car&scope=cash')
+    expect(cash.status).toBe(200)
+    expect(cash.body.scope).toBe('cash')
+    expect(cash.body.payments).toHaveLength(2)
+
+    const bank = await get(ownerToken, '/api/reports/drilldown?from=2026-11-10&to=2026-11-19&groupBy=car&scope=bank')
+    expect(bank.status).toBe(200)
+    expect(bank.body.scope).toBe('bank')
+    expect(bank.body.payments).toHaveLength(1)
+    expect(bank.body.payments[0].amount).toBe(100)
+  })
+
+  it('saved views store the scope; a view without one defaults to all', async () => {
+    const saved = await post(ownerToken, '/api/reports/views', {
+      name: 'F7 cash view', config: { groupBy: 'car', compare: false, scope: 'cash' },
+    })
+    expect(saved.status).toBe(201)
+    expect(saved.body.config.scope).toBe('cash')
+
+    const bad = await post(ownerToken, '/api/reports/views', {
+      name: 'F7 bad view', config: { groupBy: 'car', compare: false, scope: 'bogus' },
+    })
+    expect(bad.status).toBe(400)
+
+    const plain = await post(ownerToken, '/api/reports/views', {
+      name: 'F7 plain view', config: { groupBy: 'car', compare: false },
+    })
+    expect(plain.status).toBe(201)
+    expect(plain.body.config.scope).toBe('all')
+
+    const listed = await get(ownerToken, '/api/reports/views')
+    expect(listed.status).toBe(200)
+    const cashView = (listed.body as Array<{ name: string, config: { scope?: string } }>)
+      .find((v) => v.name === 'F7 cash view')
+    expect(cashView?.config.scope).toBe('cash')
+  })
+})
+
+describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
+  let m4car: env.Car
+  let m4driver: env.User
+  let m4location: mongoose.Types.ObjectId
+  let scheduleId: string
+  let bookingId: string
+
+  const bookingPayload = (from: string, to: string) => ({
+    booking: {
+      supplier: supplier._id.toString(), car: m4car._id.toString(), driver: m4driver._id.toString(),
+      pickupLocation: m4location.toString(), dropOffLocation: m4location.toString(),
+      from, to, price: 300, status: types.BookingStatus.Reserved,
+      lifecycle: types.ContractLifecycle.Confirmed,
+      cancellation: false, amendments: false, theftProtection: false,
+      collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false,
+    },
+  })
+
+  it('flags a schedule overdue by mileage even though its due date is far away', async () => {
+    m4car = await makeCar()
+    m4location = (m4car.locations as mongoose.Types.ObjectId[])[0]
+    m4driver = await new User({
+      email: `f7-m4-${suffix}@test.bookcars.ma`, fullName: 'F7 M4 Driver', language: 'en',
+      type: types.UserType.User, active: true, verified: true, blacklisted: false,
+    }).save()
+    ids.push(m4driver._id)
+    // Odometer 51,000 km; the schedule below falls due at 50,000 km.
+    await Car.findByIdAndUpdate(m4car._id, { odometerKm: 51000 })
+
+    const created = await post(ownerToken, '/api/maintenance-schedules', {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+    })
+    expect(created.status).toBe(201)
+    scheduleId = created.body._id
+    expect(created.body.status).toBe(types.MaintenanceScheduleStatus.Overdue)
+    expect(created.body.dueByMileage).toBe(true)
+    expect(created.body.effectiveNextDueMileage).toBe(50000)
+
+    const listed = await get(ownerToken, '/api/maintenance-schedules')
+    const row = (listed.body as Array<{ _id: string, status: string, dueByMileage?: boolean, effectiveNextDueMileage?: number }>)
+      .find((r) => r._id === scheduleId)
+    expect(row?.status).toBe(types.MaintenanceScheduleStatus.Overdue)
+    expect(row?.dueByMileage).toBe(true)
+  })
+
+  it('blocks a fresh booking on the car, naming the overdue schedule', async () => {
+    const first = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
+    // No booking exists yet on this car — the first create is refused
+    // by the overdue schedule, not by any overlap.
+    expect(first.status).toBe(409)
+    expect(first.text).toContain('F7 M4 oil service')
+    expect(first.text).toContain('51000')
+  })
+
+  it('blocks a restore while the schedule is overdue, and allows it once the schedule is completed', async () => {
+    // A booking created before the schedule went overdue: create it
+    // with the schedule temporarily completed, then trash + restore.
+    await put(ownerToken, `/api/maintenance-schedules/${scheduleId}`, {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+      status: types.MaintenanceScheduleStatus.Completed,
+    })
+    const created = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
+    expect(created.status).toBe(201)
+    bookingId = created.body._id
+
+    // Reopen the schedule (status back to a derived one) so it is
+    // overdue by mileage again.
+    await put(ownerToken, `/api/maintenance-schedules/${scheduleId}`, {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+      status: types.MaintenanceScheduleStatus.Upcoming,
+    })
+    const listed = await get(ownerToken, '/api/maintenance-schedules')
+    const row = (listed.body as Array<{ _id: string, status: string }>)
+      .find((r) => r._id === scheduleId)
+    expect(row?.status).toBe(types.MaintenanceScheduleStatus.Overdue)
+
+    const trashed = await post(ownerToken, '/api/trash-bookings', { ids: [bookingId], reason: 'F7 test trash' })
+    expect(trashed.status).toBe(200)
+    const blocked = await post(ownerToken, '/api/restore-bookings', { ids: [bookingId] })
+    expect(blocked.status).toBe(409)
+    expect(blocked.text).toContain('OVERDUE_MAINTENANCE')
+    expect(blocked.text).toContain('F7 M4 oil service')
+
+    await put(ownerToken, `/api/maintenance-schedules/${scheduleId}`, {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+      status: types.MaintenanceScheduleStatus.Completed,
+    })
+    const restored = await post(ownerToken, '/api/restore-bookings', { ids: [bookingId] })
+    expect(restored.status).toBe(200)
+
+    const fresh = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-28T10:00:00.000Z', '2026-12-30T10:00:00.000Z'))
+    expect(fresh.status).toBe(201)
   })
 })

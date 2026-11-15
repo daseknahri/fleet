@@ -751,9 +751,12 @@ export const drilldown = async (req: Request, res: Response) => {
       res.status(400).send('Agency filter required')
       return
     }
-    const { from, to, groupBy, carId } = parseBuilderParams(req)
+    const { from, to, groupBy, carId, scope } = parseBuilderParams(req)
     const bucket = typeof req.query.bucket === 'string' ? req.query.bucket : ''
-    const data = await computePeriod(supplier, from, to, carId)
+    // F7 / W3 R-5 — the drill-down inherits the builder's scope: the
+    // period figures AND the payment list are computed under it, so a
+    // cash-scoped drill-down never shows bank payments.
+    const data = await computePeriod(supplier, from, to, carId, scope)
     let bookings = data.bookings
     let expenses = data.expenses
     if (bucket) {
@@ -769,7 +772,8 @@ export const drilldown = async (req: Request, res: Response) => {
     const payments = bookingIds.length > 0 ? await RentalPayment.find({
       booking: { $in: bookingIds },
       status: types.RentalPaymentStatus.Posted,
-    }).select('_id booking date amount direction purpose').sort({ date: 1 }).limit(DRILLDOWN_LIMIT + 1).lean() : []
+      ...(scope !== 'all' ? { method: { $in: SCOPE_METHODS[scope] } } : {}),
+    }).select('_id booking date amount direction purpose method').sort({ date: 1 }).limit(DRILLDOWN_LIMIT + 1).lean() : []
     const rentPayments = payments.filter((p) => !p.purpose || p.purpose === types.RentalPaymentPurpose.Rent)
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
@@ -780,6 +784,7 @@ export const drilldown = async (req: Request, res: Response) => {
       groupBy,
       ...(carId ? { carId } : {}),
       ...(bucket ? { bucket } : {}),
+      scope,
       limit: DRILLDOWN_LIMIT,
       bookings: bookings.slice(0, DRILLDOWN_LIMIT).map((b) => ({
         id: b.id, reference: b.reference || null, carId: b.carId, from: b.from, to: b.to, contractAmount: b.contractAmount, collected: b.collected, remaining: b.remaining,
@@ -947,6 +952,14 @@ const validateViewConfig = async (raw: unknown, supplier: mongoose.Types.ObjectI
     return { error: 'Invalid groupBy' }
   }
   const value: types.ReportViewConfig = { groupBy: groupBy as types.ReportGroupBy, compare: input.compare === true }
+  // F7 / W3 R-5 — a saved view stores its cash/bank scope; absent
+  // means 'all' (views saved before this change keep working).
+  if (input.scope !== undefined && input.scope !== null && input.scope !== '') {
+    if (typeof input.scope !== 'string' || !SCOPES.includes(input.scope as ReportScope)) {
+      return { error: 'Invalid scope' }
+    }
+    value.scope = input.scope as types.ReportScope
+  }
   if (input.periodPreset !== undefined) {
     if (typeof input.periodPreset !== 'string' || !PERIOD_PRESETS.includes(input.periodPreset)) {
       return { error: 'Invalid periodPreset' }

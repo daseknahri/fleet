@@ -4,6 +4,7 @@ import * as env from '../config/env.config'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import { findOverdueSchedule } from './maintenanceSchedule'
 
 export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Deposit,
@@ -21,6 +22,22 @@ export class BookingConflictError extends Error {
     super('The car is no longer available for the selected rental dates')
     this.name = 'BookingConflictError'
     this.conflictingBookingId = conflictingBookingId
+  }
+}
+
+/**
+ * F7 / W3 M-4 — a car with an overdue maintenance schedule cannot be
+ * booked. Extends BookingConflictError, so every existing `instanceof
+ * BookingConflictError` catch answers 409 with this message — including
+ * the Stripe/PayPal refund paths, where refusing the booking is the
+ * correct behaviour. The message names the schedule and the trigger
+ * (overdue date and/or mileage) so the operator knows what to service.
+ */
+export class OverdueMaintenanceError extends BookingConflictError {
+  constructor(scheduleTitle: string, trigger: string) {
+    super()
+    this.name = 'OverdueMaintenanceError'
+    this.message = `The car has an overdue maintenance schedule (${scheduleTitle}: ${trigger}) and cannot be booked until it is serviced`
   }
 }
 
@@ -159,6 +176,13 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
         // NEVER bypassed by an overlap exception - no flag overrides this.
         throw new BookingConflictError()
       }
+      // F7 / W3 M-4 — an overdue maintenance schedule blocks the
+      // booking outright (same never-bypassed rule as downtime: no
+      // overlap exception applies, whatever the booking dates are).
+      const overdue = await findOverdueSchedule(booking.supplier, carId, session)
+      if (overdue) {
+        throw new OverdueMaintenanceError(overdue.title, overdue.trigger)
+      }
       if (!blockingCars.has(carId)) {
         continue
       }
@@ -248,6 +272,8 @@ export interface RestoreConflict {
   conflictingBookingId?: string
   /** A scheduled/in-progress maintenance work order covers the window. */
   maintenance?: boolean
+  /** F7 / W3 M-4 — an overdue maintenance schedule blocks the car. */
+  overdueSchedule?: { title: string, trigger: string }
 }
 
 /**
@@ -284,6 +310,14 @@ export const findBookingConflictForRestore = async (booking: env.Booking): Promi
 
   if (downtime) {
     return { maintenance: true }
+  }
+
+  // F7 / W3 M-4 — an overdue schedule blocks a restore exactly like
+  // it blocks a fresh booking (evaluated live, never the stored
+  // date-only status).
+  const overdue = await findOverdueSchedule(booking.supplier, carId)
+  if (overdue) {
+    return { overdueSchedule: { title: overdue.title, trigger: overdue.trigger } }
   }
 
   const car = await Car.findOne({ _id: new mongoose.Types.ObjectId(carId) }).select('blockOnPay').lean()

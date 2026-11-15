@@ -195,8 +195,9 @@ const Reports = () => {
     setDrill(null)
     const range = rangeForPreset(preset, customFrom, customTo)
     try {
+      // F7 / W3 R-5 — the drill-down inherits the builder's scope.
       setDrill(await ReportService.drilldown({
-        from: range.from, to: range.to, groupBy, carId: carId || undefined, compare, supplier: effectiveSupplier || undefined, bucket: row.key,
+        from: range.from, to: range.to, groupBy, carId: carId || undefined, compare, scope, supplier: effectiveSupplier || undefined, bucket: row.key,
       }))
     } catch {
       setBuilderError(true)
@@ -213,7 +214,7 @@ const Reports = () => {
         supplier: effectiveSupplier || undefined,
         name: viewName.trim(),
         config: {
-          periodPreset: preset, from: range.from, to: range.to, carId: carId || undefined, groupBy, compare,
+          periodPreset: preset, from: range.from, to: range.to, carId: carId || undefined, groupBy, compare, scope,
         },
       })
       setViewName('')
@@ -229,15 +230,18 @@ const Reports = () => {
     const nextPreset = (cfg.periodPreset as Preset) || 'custom'
     const nextFrom = cfg.from || customFrom
     const nextTo = cfg.to || customTo
+    // F7 / W3 R-5 — applying a view restores the scope it was saved
+    // with (views saved before scopes existed have none → All).
+    const nextScope = cfg.scope || bookcarsTypes.ReportScope.All
     setPreset(nextPreset)
     setCustomFrom(nextFrom)
     setCustomTo(nextTo)
     setCarId(cfg.carId || '')
     setGroupBy(cfg.groupBy)
     setCompare(!!cfg.compare)
-    setScope(bookcarsTypes.ReportScope.All)
+    setScope(nextScope)
     void runBuilder(effectiveSupplier, {
-      preset: nextPreset, customFrom: nextFrom, customTo: nextTo, carId: cfg.carId || '', groupBy: cfg.groupBy, compare: !!cfg.compare, scope: bookcarsTypes.ReportScope.All,
+      preset: nextPreset, customFrom: nextFrom, customTo: nextTo, carId: cfg.carId || '', groupBy: cfg.groupBy, compare: !!cfg.compare, scope: nextScope,
     })
   }
 
