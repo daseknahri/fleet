@@ -51,6 +51,9 @@ routes.route(routeNames.sendEmail).post(mailRateLimiter, userController.sendEmai
 routes.route(routeNames.hasPassword).get(authJwt.verifyToken, userController.hasPassword)
 routes.route(routeNames.uploadClientDocument).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.uploadClientDocument)
 routes.route(routeNames.deleteClientDocument).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.deleteClientDocument)
+// F5b (W2-06): verify/reject is a document-management mutation — same
+// ManageClients gate as upload/delete (see verifyClientDocument).
+routes.route(routeNames.verifyClientDocument).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.verifyClientDocument)
 routes.route(routeNames.getClientBalance).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getClientBalance)
 routes.route(routeNames.createLicense).post([multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.createLicense)
 routes.route(routeNames.updateLicense).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.updateLicense)

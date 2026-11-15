@@ -29,6 +29,15 @@ export enum ClientDocumentKind {
   Other = 'other',
 }
 
+/** F5b (W2-06): verification state of one client document. New uploads
+ * are `pending`; an operator with document-management rights marks them
+ * `verified` or `rejected` through the verify endpoint. */
+export enum ClientDocumentStatus {
+  Pending = 'pending',
+  Verified = 'verified',
+  Rejected = 'rejected',
+}
+
 /** F5b (W2-14): kinds of privately stored car documents. */
 export enum CarDocumentKind {
   Insurance = 'insurance',
@@ -43,6 +52,15 @@ export interface ClientDocument {
   file: string
   originalName?: string
   uploadedAt?: Date
+  /** F5b (W2-06): verification state (default `pending`); `verifiedBy` /
+   * `verifiedAt` record who decided it and when (the decision instant
+   * for both `verified` and `rejected`). There is no separate "expired"
+   * state — expiry is derived in the UI from the linked identity date
+   * (kind cin → cinExpiry, passport → passportExpiry, license →
+   * licenseExpiry). */
+  status?: ClientDocumentStatus | string
+  verifiedBy?: string
+  verifiedAt?: Date
 }
 
 /** F5b (W2-14): one privately stored car document. `expiryDate` is the
@@ -1044,6 +1062,16 @@ export interface CreateUserPayload {
   licenseExpiry?: string | Date | null
   clientType?: ClientType | string
   clientStatus?: ClientStatus | string
+  /** F5b (W2-18): company-client fields (clientType=Company only;
+   * `companyName` is required for company clients). */
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  /** F5b (W2-05): consent. `consentAt` is server-derived (see
+   * clientIdentity.consentAtForTransition) and is never accepted from
+   * a payload — it is deliberately absent from this interface. */
+  consentGiven?: boolean
+  consentScope?: string[]
 }
 
 export interface UpdateUserPayload extends CreateUserPayload {
@@ -1177,6 +1205,12 @@ export interface User {
   licenseExpiry?: Date
   clientType?: ClientType | string
   clientStatus?: ClientStatus | string
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: ClientDocument[]
   clientDocumentsCount?: number
   balanceDue?: number

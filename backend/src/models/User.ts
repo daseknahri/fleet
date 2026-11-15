@@ -293,6 +293,42 @@ const userSchema = new Schema<env.User>(
         bookcarsTypes.ClientStatus.Blocked,
       ],
     },
+    // F5b (W2-18): company-client fields — only meaningful when
+    // `clientType` is Company; `companyName` is required for company
+    // clients (enforced in the controller, where the merged type is
+    // known). Kept on the record if the type later flips back to
+    // Individual (partial-PUT preservation), and simply not shown.
+    companyName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    companyRegistration: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    companyContactName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    // F5b (W2-05): consent. `consentAt` is server-derived only — the
+    // controller stamps it on the false→true transition and clears it
+    // when consent is withdrawn; a payload value is ignored. No
+    // retention/deletion policy field: that is a policy decision, not
+    // a data field (see F5B-REPORT.md).
+    consentGiven: {
+      type: Boolean,
+      default: false,
+    },
+    consentAt: {
+      type: Date,
+    },
+    consentScope: {
+      type: [String],
+      default: [],
+    },
 
     // GA-PAR-22: trash / restore (scorecard #47). Applies to client
     // rows (`type=User`) only — Staff/Supplier rows keep today's
@@ -336,6 +372,26 @@ const userSchema = new Schema<env.User>(
       uploadedAt: {
         type: Date,
         default: Date.now,
+      },
+      // F5b (W2-06): verification state (default pending) + who decided
+      // it and when (`verifiedAt` is the decision instant for both
+      // verified and rejected). No "expired" state: expiry is derived
+      // in the UI from the linked identity date (kind → expiry field).
+      status: {
+        type: String,
+        enum: [
+          bookcarsTypes.ClientDocumentStatus.Pending,
+          bookcarsTypes.ClientDocumentStatus.Verified,
+          bookcarsTypes.ClientDocumentStatus.Rejected,
+        ],
+        default: bookcarsTypes.ClientDocumentStatus.Pending,
+      },
+      verifiedBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      verifiedAt: {
+        type: Date,
       },
     }],
   },

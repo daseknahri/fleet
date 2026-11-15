@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import { intervalToDuration } from 'date-fns'
+import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
@@ -28,12 +29,27 @@ export const schema = z.object({
   licenseExpiry: z.date().optional().nullable(),
   clientType: z.string().optional(),
   clientStatus: z.string().optional(),
+  companyName: z.string().max(100).optional(),
+  companyRegistration: z.string().max(100).optional(),
+  companyContactName: z.string().max(100).optional(),
+  consentGiven: z.boolean().optional(),
+  consentScope: z.array(z.string()).optional(),
   payLater: z.boolean().optional(),
   licenseRequired: z.boolean().optional(),
   minimumRentalDays: z.string().refine((val) => !val || /^\d+$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   priceChangeRate: z.string().refine((val) => !val || /^-?\d+(\.\d+)?$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   supplierCarLimit: z.string().refine((val) => !val || /^\d+$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   notifyAdminOnNewCar: z.boolean().optional()
+}).superRefine((data, ctx) => {
+  // F5b (W2-18): a company client needs a company name — the same rule
+  // the server enforces (clientType is always set by the form).
+  if (data.clientType === bookcarsTypes.ClientType.Company && !data.companyName?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['companyName'],
+      message: commonStrings.COMPANY_REQUIRED,
+    })
+  }
 })
 
 export type FormFields = z.infer<typeof schema>

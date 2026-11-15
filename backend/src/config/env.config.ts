@@ -665,6 +665,12 @@ export interface User extends Document {
   licenseExpiry?: Date
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: bookcarsTypes.ClientDocument[]
   /** GA-PAR-22: trash / restore (client rows only — see User.ts). */
   deletedAt?: Date | null
@@ -722,6 +728,12 @@ export interface UserInfo {
   licenseExpiry?: Date
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: bookcarsTypes.ClientDocument[]
   /** GA-PAR-22: trash fields (single-get returns them; lists omit the history). */
   deletedAt?: Date | null

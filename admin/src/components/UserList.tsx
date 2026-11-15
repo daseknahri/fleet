@@ -339,11 +339,22 @@ const UserList = ({
           field: 'clientStatus',
           headerName: strings.CLIENT_STATUS,
           flex: 1,
-          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, string>) => (
-            <span className={`bs us-client-status-${(value || bookcarsTypes.ClientStatus.Active).toLowerCase()}`}>
-              {clientStatusLabel(value)}
-            </span>
-          ),
+          // F5b (W2-17): the chip shows the EFFECTIVE block state — a
+          // blacklisted client reads as blocked whatever its
+          // clientStatus says, because booking refuses both. The row
+          // class below follows the same rule; the two mechanisms are
+          // NOT merged on write (owner decision, see F5B-REPORT.md).
+          renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.User, string>) => {
+            const blocked = row.blacklisted || value === bookcarsTypes.ClientStatus.Blocked
+            return (
+              <span
+                className={`bs us-client-status-${blocked ? 'blocked' : (value || bookcarsTypes.ClientStatus.Active).toLowerCase()}`}
+                title={row.blacklisted ? commonStrings.BLACKLISTED_TOOLTIP : undefined}
+              >
+                {blocked ? clientStatusLabel(bookcarsTypes.ClientStatus.Blocked) : clientStatusLabel(value)}
+              </span>
+            )
+          },
           valueGetter: (value: string) => value,
         },
         {
@@ -519,7 +530,9 @@ const UserList = ({
             setReloadColumns(true)
           }}
           localeText={gridLocaleText}
-          getRowClassName={(params: any) => (params.row.blacklisted ? 'us-blacklisted' : '')}
+          // F5b (W2-17): effective-blocked rows (blacklisted OR
+          // clientStatus Blocked) share the blocked row style.
+          getRowClassName={(params: any) => ((params.row.blacklisted || params.row.clientStatus === bookcarsTypes.ClientStatus.Blocked) ? 'us-blacklisted' : '')}
           disableRowSelectionOnClick
         />
       )}

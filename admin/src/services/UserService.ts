@@ -739,6 +739,25 @@ export const deleteClientDocument = (userId: string, file: string): Promise<numb
 )
 
 /**
+ * F5b (W2-06): verify or reject one client document. `status` must be
+ * 'verified' or 'rejected'; returns the updated document.
+ *
+ * @param {string} userId
+ * @param {string} file
+ * @param {string} status
+ * @returns {Promise<bookcarsTypes.Response<bookcarsTypes.ClientDocument>>}
+ */
+export const verifyClientDocument = (userId: string, file: string, status: string): Promise<bookcarsTypes.Response<bookcarsTypes.ClientDocument>> => (
+  axiosInstance
+    .post(
+      `/api/verify-client-document/${encodeURIComponent(userId)}/${encodeURIComponent(file)}`,
+      { status },
+      { withCredentials: true }
+    )
+    .then((res) => ({ status: res.status, data: res.data }))
+)
+
+/**
  * GA-PAR-04: get a client's balance (contractReceivable semantics,
  * deposit reported separately, never netted).
  *

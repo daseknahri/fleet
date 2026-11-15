@@ -12,6 +12,8 @@ import {
   Upload as UploadIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
 import { strings as commonStrings } from '@/lang/common'
@@ -55,6 +57,35 @@ export const clientDocumentKindLabel = (kind?: string): string => {
       return commonStrings.DOCUMENT_KIND_LICENSE
     default:
       return commonStrings.DOCUMENT_KIND_OTHER
+  }
+}
+
+/** F5b (W2-06): localised verification-state labels. */
+export const clientDocumentStatusLabel = (status?: string): string => {
+  switch (status) {
+    case bookcarsTypes.ClientDocumentStatus.Verified:
+      return commonStrings.DOCUMENT_STATUS_VERIFIED
+    case bookcarsTypes.ClientDocumentStatus.Rejected:
+      return commonStrings.DOCUMENT_STATUS_REJECTED
+    default:
+      return commonStrings.DOCUMENT_STATUS_PENDING
+  }
+}
+
+/** F5b (W2-06): the identity expiry linked to a document kind — expiry
+ * is derived, never stored on the document itself (kind cin → cinExpiry,
+ * passport → passportExpiry, license → licenseExpiry; other kinds have
+ * no linked expiry). */
+export const clientDocumentExpiry = (user: bookcarsTypes.User, kind?: string): Date | undefined => {
+  switch (kind) {
+    case bookcarsTypes.ClientDocumentKind.Cin:
+      return user.cinExpiry
+    case bookcarsTypes.ClientDocumentKind.Passport:
+      return user.passportExpiry
+    case bookcarsTypes.ClientDocumentKind.License:
+      return user.licenseExpiry
+    default:
+      return undefined
   }
 }
 
@@ -114,6 +145,26 @@ const ClientDocuments = ({ user, className, onChange }: ClientDocumentsProps) =>
     }
   }
 
+  // F5b (W2-06): verify or reject one document (same audience as
+  // upload/delete — everyone who can open this page manages the
+  // client's documents).
+  const handleVerify = async (doc: bookcarsTypes.ClientDocument, status: string) => {
+    try {
+      const res = await UserService.verifyClientDocument(user._id!, doc.file, status)
+      if (res.status === 200 && res.data) {
+        const _documents = documents.map((d) => (d.file === doc.file ? res.data : d))
+        setDocuments(_documents)
+        if (onChange) {
+          onChange(_documents)
+        }
+      } else {
+        helper.error()
+      }
+    } catch (err) {
+      helper.error(err)
+    }
+  }
+
   return (
     <div className={`client-documents ${className || ''}`}>
       <Typography variant="subtitle2" className="client-documents-title">{commonStrings.CLIENT_DOCUMENTS}</Typography>
@@ -121,26 +172,46 @@ const ClientDocuments = ({ user, className, onChange }: ClientDocumentsProps) =>
         <Typography variant="body2" className="client-documents-empty">—</Typography>
       )}
       <List dense disablePadding>
-        {documents.map((doc) => (
-          <ListItem key={doc.file} disableGutters className="client-documents-item">
-            <ListItemText
-              primary={doc.originalName || doc.file}
-              secondary={clientDocumentKindLabel(doc.kind)}
-            />
-            <IconButton
-              size="small"
-              onClick={() => {
-                const url = `${env.API_HOST.replace(/\/$/, '')}/api/client-document/${user._id}/${encodeURIComponent(doc.file)}`
-                helper.downloadURI(url)
-              }}
-            >
-              <ViewIcon className="icon" />
-            </IconButton>
-            <IconButton size="small" onClick={() => handleDelete(doc)}>
-              <DeleteIcon className="icon" />
-            </IconButton>
-          </ListItem>
-        ))}
+        {documents.map((doc) => {
+          const expiry = clientDocumentExpiry(user, doc.kind)
+          const expired = !!expiry && new Date(expiry).getTime() < Date.now()
+          return (
+            <ListItem key={doc.file} disableGutters className="client-documents-item">
+              <ListItemText
+                primary={doc.originalName || doc.file}
+                secondary={`${clientDocumentKindLabel(doc.kind)} · ${clientDocumentStatusLabel(doc.status)}${expired ? ` · ${commonStrings.EXPIRED}` : ''}`}
+              />
+              <IconButton
+                size="small"
+                onClick={() => handleVerify(doc, bookcarsTypes.ClientDocumentStatus.Verified)}
+                disabled={doc.status === bookcarsTypes.ClientDocumentStatus.Verified}
+                title={commonStrings.VERIFY_DOCUMENT}
+              >
+                <CheckIcon className="icon" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => handleVerify(doc, bookcarsTypes.ClientDocumentStatus.Rejected)}
+                disabled={doc.status === bookcarsTypes.ClientDocumentStatus.Rejected}
+                title={commonStrings.REJECT_DOCUMENT}
+              >
+                <CloseIcon className="icon" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const url = `${env.API_HOST.replace(/\/$/, '')}/api/client-document/${user._id}/${encodeURIComponent(doc.file)}`
+                  helper.downloadURI(url)
+                }}
+              >
+                <ViewIcon className="icon" />
+              </IconButton>
+              <IconButton size="small" onClick={() => handleDelete(doc)}>
+                <DeleteIcon className="icon" />
+              </IconButton>
+            </ListItem>
+          )
+        })}
       </List>
       <div className="client-documents-upload">
         <Select

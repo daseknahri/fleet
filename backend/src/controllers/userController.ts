@@ -30,7 +30,7 @@ import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } fro
 import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
 import { normalizeFiscalFields, applyFiscalFields, FISCAL_STRING_KEYS } from '../utils/fiscal'
-import { normalizeClientIdentityFields, applyClientIdentityFields, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
+import { normalizeClientIdentityFields, applyClientIdentityFields, consentAtForTransition, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
 import { getClientBalances } from '../utils/contractReceivable'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
@@ -48,6 +48,57 @@ const getStatusMessage = (lang: string, msg: string) => (
 
 const isDuplicateEmailError = (err: unknown) =>
   typeof err === 'object' && err !== null && 'code' in err && err.code === 11000
+
+/**
+ * F5b (W2-07): agency-scoped duplicate check for the identity numbers
+ * that are unique per person (CIN / passport). Phone is deliberately
+ * NOT checked — shared family phones are legitimate. The scope is the
+ * agency the client belongs to; an admin create without a supplier
+ * scopes to supplier-less rows (`supplier: null` also matches rows
+ * where the field is absent). Case-insensitive (strength-2 collation),
+ * matching the importer's existing checks. Returns the colliding field
+ * or null. There is intentionally NO unique index behind this (see
+ * F5B-REPORT.md): a partial index that fails to build on production
+ * duplicates is a boot failure for a P1, and the supplier is optional
+ * on clients — so the check is explicit and the race window is the
+ * same narrow one the F5a plate check had before its index.
+ */
+export const findDuplicateClientIdentity = async (
+  supplierId: string | undefined | null,
+  cinNumber: string | undefined,
+  passportNumber: string | undefined,
+  excludeId?: string,
+): Promise<'cinNumber' | 'passportNumber' | null> => {
+  const or: Record<string, unknown>[] = []
+  if (cinNumber) {
+    or.push({ cinNumber })
+  }
+  if (passportNumber) {
+    or.push({ passportNumber })
+  }
+  if (or.length === 0) {
+    return null
+  }
+  const filter: Record<string, unknown> = {
+    supplier: supplierId ? new mongoose.Types.ObjectId(supplierId) : null,
+    type: bookcarsTypes.UserType.User,
+    $or: or,
+  }
+  if (excludeId) {
+    filter._id = { $ne: new mongoose.Types.ObjectId(excludeId) }
+  }
+  const dup = await User.findOne(filter)
+    .collation({ locale: env.DEFAULT_LANGUAGE, strength: 2 })
+    .select('cinNumber passportNumber')
+    .lean()
+  if (!dup) {
+    return null
+  }
+  if (cinNumber && typeof dup.cinNumber === 'string' && dup.cinNumber.toLowerCase() === cinNumber.toLowerCase()) {
+    return 'cinNumber'
+  }
+  return 'passportNumber'
+}
 
 /**
  * Sign Up.
@@ -331,6 +382,31 @@ export const create = async (req: Request, res: Response) => {
       for (const key of identity.present) {
         ;(body as unknown as Record<string, unknown>)[key] = identityTarget[key]
       }
+      // F5b (W2-05): the consent timestamp is server-derived — a
+      // payload value is ignored, never stored.
+      delete (body as unknown as Record<string, unknown>).consentAt
+      const consentAt = consentAtForTransition(undefined, identityTarget.consentGiven)
+      if (consentAt) {
+        ;(body as unknown as Record<string, unknown>).consentAt = consentAt
+      }
+      // F5b (W2-18): a company client needs a company name (the merged
+      // type on create is the payload type, defaulting to Individual —
+      // the form always sends it).
+      const mergedClientType = identityTarget.clientType ?? bookcarsTypes.ClientType.Individual
+      if (mergedClientType === bookcarsTypes.ClientType.Company && !identityTarget.companyName) {
+        res.status(400).send('Company name is required for company clients (companyName)')
+        return
+      }
+      // F5b (W2-07): agency-scoped duplicate CIN / passport.
+      const duplicateField = await findDuplicateClientIdentity(
+        body.supplier,
+        identityTarget.cinNumber,
+        identityTarget.passportNumber,
+      )
+      if (duplicateField) {
+        res.status(400).send(`Duplicate client identity: ${duplicateField} already exists for this agency`)
+        return
+      }
     } else {
       for (const key of CLIENT_IDENTITY_KEYS) {
         delete (body as unknown as Record<string, unknown>)[key]
@@ -574,6 +650,13 @@ export const create = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.create] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)
+    // F5b (W2-16): a duplicate email is a 409 naming the problem, not
+    // the generic 400. The self-sign-up path keeps its silent 200
+    // (anti-enumeration) and is untouched.
+    if (isDuplicateEmailError(err)) {
+      res.status(409).send('Email already registered')
+      return
+    }
     res.status(400).send(i18n.t('ERROR'))
   }
 }
@@ -1496,7 +1579,40 @@ export const update = async (req: Request, res: Response) => {
         res.status(400).send(identity.error)
         return
       }
+      // F5b (W2-05): the consent timestamp follows the transition from
+      // the STORED value — computed before the apply below mutates it.
+      // A payload `consentAt` is never read.
+      const consentAt = consentAtForTransition(
+        user.consentGiven,
+        identity.present.has('consentGiven') ? identity.value.consentGiven : undefined,
+      )
       applyClientIdentityFields(user as unknown as Record<string, any>, identity)
+      if (typeof consentAt !== 'undefined') {
+        user.consentAt = consentAt
+      }
+      // F5b (W2-18): company-name requirement against the MERGED type
+      // (payload type when present, stored type otherwise) and the
+      // MERGED company name (payload when present, stored otherwise).
+      const mergedClientType = identity.value.clientType ?? user.clientType
+      const mergedCompanyName = identity.present.has('companyName') ? identity.value.companyName : user.companyName
+      if (mergedClientType === bookcarsTypes.ClientType.Company && !mergedCompanyName) {
+        res.status(400).send('Company name is required for company clients (companyName)')
+        return
+      }
+      // F5b (W2-07): agency-scoped duplicate CIN / passport, excluding
+      // this client (an unchanged own number is not a duplicate).
+      if (identity.present.has('cinNumber') || identity.present.has('passportNumber')) {
+        const duplicateField = await findDuplicateClientIdentity(
+          user.supplier?.toString(),
+          identity.present.has('cinNumber') ? identity.value.cinNumber : undefined,
+          identity.present.has('passportNumber') ? identity.value.passportNumber : undefined,
+          user._id.toString(),
+        )
+        if (duplicateField) {
+          res.status(400).send(`Duplicate client identity: ${duplicateField} already exists for this agency`)
+          return
+        }
+      }
     }
     // only admins can update user type
     if (sessionUser.type === bookcarsTypes.UserType.Admin) {
@@ -1703,6 +1819,12 @@ export const getUser = async (req: Request, res: Response) => {
       licenseExpiry: 1,
       clientType: 1,
       clientStatus: 1,
+      companyName: 1,
+      companyRegistration: 1,
+      companyContactName: 1,
+      consentGiven: 1,
+      consentAt: 1,
+      consentScope: 1,
       clientDocuments: 1,
       minimumRentalDays: 1,
       priceChangeRate: 1,
@@ -2254,6 +2376,12 @@ export const getUsers = async (req: Request, res: Response) => {
             customerId: 1,
             clientType: 1,
             clientStatus: 1,
+            companyName: 1,
+            companyRegistration: 1,
+            companyContactName: 1,
+            consentGiven: 1,
+            consentAt: 1,
+            consentScope: 1,
             clientDocuments: 1,
             // GA-PAR-22: lists carry the trash scalars, never the
             // history (§3).
@@ -2910,6 +3038,9 @@ export const uploadClientDocument = async (req: Request, res: Response) => {
       file: filename,
       originalName: path.basename(file.originalname).slice(0, 255),
       uploadedAt: new Date(),
+      // F5b (W2-06): every upload starts pending; verification is a
+      // separate, audited decision (verifyClientDocument).
+      status: bookcarsTypes.ClientDocumentStatus.Pending,
     }
     client.clientDocuments = [...(client.clientDocuments || []), document]
     await client.save()
@@ -2965,6 +3096,66 @@ export const deleteClientDocument = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.deleteClientDocument] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F5b (W2-06): verify or reject one client document. Gating mirrors
+ * upload/delete (canManageClientDocuments — ManageClients for agency
+ * staff), NOT ManagePrivateDocuments: verification is a document-
+ * management mutation like upload/delete, while ManagePrivateDocuments
+ * guards READING the private files. Sets the status plus who decided
+ * it and when (`verifiedAt` is the decision instant for both
+ * outcomes); a trashed client's documents cannot change.
+ */
+export const verifyClientDocument = async (req: Request, res: Response) => {
+  const { id, file } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id) || file !== path.basename(file)) {
+      res.status(400).send('Invalid document reference')
+      return
+    }
+
+    const rawStatus = typeof req.body?.status === 'string' ? req.body.status.trim().toLowerCase() : ''
+    if (![bookcarsTypes.ClientDocumentStatus.Verified, bookcarsTypes.ClientDocumentStatus.Rejected].includes(rawStatus as bookcarsTypes.ClientDocumentStatus)) {
+      res.status(400).send('Invalid document status')
+      return
+    }
+    const status = rawStatus as bookcarsTypes.ClientDocumentStatus
+
+    const { client, allowed, sessionUser } = await canManageClientDocuments(req, id)
+    if (!client) {
+      res.sendStatus(404)
+      return
+    }
+    if (!allowed) {
+      res.status(403).send('Forbidden: You cannot manage this client\'s documents')
+      return
+    }
+    // GA-PAR-22: a trashed client's documents cannot change.
+    if (client.deletedAt) {
+      res.status(409).send(trashedMessage('client'))
+      return
+    }
+
+    const documents = client.clientDocuments || []
+    const target = documents.find((doc) => doc.file === file)
+    if (!target) {
+      res.sendStatus(404)
+      return
+    }
+
+    target.status = status
+    // Stored as an ObjectId by the schema; the string form casts
+    // cleanly and is what the JSON response carries.
+    target.verifiedBy = sessionUser?._id?.toString()
+    target.verifiedAt = new Date()
+    await client.save()
+    res.json(target)
+  } catch (err) {
+    logger.error(`[user.verifyClientDocument] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

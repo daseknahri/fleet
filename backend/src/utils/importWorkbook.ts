@@ -142,6 +142,11 @@ export const IMPORT_COLUMNS: Record<ImportEntity, ColumnSpec[]> = {
     { name: 'licenseExpiry' },
     { name: 'clientType' },
     { name: 'clientStatus' },
+    { name: 'companyName' },
+    { name: 'companyRegistration' },
+    { name: 'companyContactName' },
+    { name: 'consentGiven' },
+    { name: 'consentScope' },
   ],
   bookings: [
     { name: 'carPlate', required: true },
@@ -210,6 +215,11 @@ const EXAMPLES: Record<ImportEntity, Record<string, string>> = {
     licenseExpiry: '2032-03-15',
     clientType: 'individual',
     clientStatus: 'active',
+    companyName: '',
+    companyRegistration: '',
+    companyContactName: '',
+    consentGiven: 'yes',
+    consentScope: 'marketing',
   },
   bookings: {
     carPlate: 'EXAMPLE-001',
@@ -246,6 +256,7 @@ const NOTES: Record<ImportEntity, string[]> = {
     'Required columns: fullName, email.',
     'email and cinNumber (when provided) must be unique within this agency; duplicates — in the agency or inside the file — are row errors. Rows are never merged or updated.',
     'clientType: individual | company. clientStatus: active | underReview | blocked.',
+    'Company clients (clientType: company) need companyName. consentGiven: yes | no; consentScope: marketing, processing (comma-separated).',
     'Dates (birthDate and the identity expiry dates) use YYYY-MM-DD. Maximum 1000 data rows per file.',
     'Imported clients are created exactly like back-office clients (unverified, no password): they can be activated / given access later from the Clients page.',
   ],
@@ -781,7 +792,7 @@ interface ClientCandidate {
   body: Record<string, unknown>
 }
 
-const CLIENT_STRING_FIELDS = ['fullName', 'email', 'phone', 'cinNumber', 'passportNumber', 'licenseNumber'] as const
+const CLIENT_STRING_FIELDS = ['fullName', 'email', 'phone', 'cinNumber', 'passportNumber', 'licenseNumber', 'companyName', 'companyRegistration', 'companyContactName'] as const
 const CLIENT_DATE_FIELDS = ['birthDate', 'cinExpiry', 'passportExpiry', 'licenseExpiry'] as const
 
 const validateClients = async (
@@ -838,8 +849,11 @@ const validateClients = async (
       }
     }
     // PAR-04 identity validation is reused verbatim (enums, lengths, dates).
+    // F5b (W2-18 / W2-05): company + consent fields go through the same
+    // normaliser (consentGiven accepts yes/no; consentScope a
+    // comma-separated list).
     const identityProbe: Record<string, unknown> = {}
-    for (const key of ['cinNumber', 'cinExpiry', 'passportNumber', 'passportExpiry', 'licenseNumber', 'licenseExpiry', 'clientType', 'clientStatus']) {
+    for (const key of ['cinNumber', 'cinExpiry', 'passportNumber', 'passportExpiry', 'licenseNumber', 'licenseExpiry', 'clientType', 'clientStatus', 'companyName', 'companyRegistration', 'companyContactName', 'consentGiven', 'consentScope']) {
       if (v[key] !== undefined) {
         identityProbe[key] = v[key] instanceof Date ? (v[key] as Date).toISOString() : asText(v[key])
       }
@@ -847,6 +861,10 @@ const validateClients = async (
     const identity = normalizeClientIdentityFields(identityProbe)
     if (!identity.ok) {
       rowErrors.push({ row: row.row, field: identity.field, message: identity.error })
+    }
+    // F5b (W2-18): a company row needs a company name.
+    if (asText(v.clientType).toLowerCase() === bookcarsTypes.ClientType.Company && !asText(v.companyName)) {
+      rowErrors.push({ row: row.row, field: 'companyName', message: 'Company name is required for company clients' })
     }
     if (rowErrors.length > 0) {
       errors.push(...rowErrors)
@@ -869,6 +887,14 @@ const validateClients = async (
       }
     }
     for (const key of ['clientType', 'clientStatus']) {
+      if (v[key] !== undefined) {
+        body[key] = asText(v[key])
+      }
+    }
+    // F5b (W2-05): consent passes through as raw text — userController
+    // .create normalises it (yes/no, comma-separated scope) and stamps
+    // consentAt server-side; consentAt itself is never a column.
+    for (const key of ['consentGiven', 'consentScope']) {
       if (v[key] !== undefined) {
         body[key] = asText(v[key])
       }
