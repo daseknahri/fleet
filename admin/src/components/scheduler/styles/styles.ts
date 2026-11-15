@@ -132,6 +132,12 @@ export const TableGrid = styled('div')<{
       position: 'sticky',
       left: 0,
       zIndex: 99,
+      // FRAR T3 (PC-11): pin the sticky time gutter to the inline-start
+      // edge in RTL, mirroring the D-AR-04 scheduler pattern.
+      '[dir="rtl"] &': {
+        left: 'auto',
+        right: 0,
+      },
       [theme.breakpoints.down('sm')]: {
         writingMode: 'vertical-rl',
       },

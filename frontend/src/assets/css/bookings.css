@@ -94,3 +94,16 @@ div.bookings div.col-2 {
     margin: 15px 10px 5px;
   }
 }
+
+/* FRAR T3: mirror the filter column / content split in RTL (D-AR-04 pattern). */
+@media only screen and (width >=960px) {
+  [dir="rtl"] div.bookings div.col-1 {
+    left: auto;
+    right: 0;
+  }
+
+  [dir="rtl"] div.bookings div.col-2 {
+    left: 0;
+    right: 336px;
+  }
+}

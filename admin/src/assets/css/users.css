@@ -75,4 +75,15 @@ div.users {
     position: absolute;
     inset: 0 0 0 300px;
   }
+
+  /* FRAR T3: mirror the filter column / content split in RTL (D-AR-04 pattern). */
+  [dir="rtl"] div.users div.col-1 {
+    left: auto;
+    right: 0;
+  }
+
+  [dir="rtl"] div.users div.col-2 {
+    left: 0;
+    right: 300px;
+  }
 }

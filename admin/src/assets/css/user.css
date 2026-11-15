@@ -89,6 +89,17 @@ div.user div.col-1 .user-actions {
     inset: 0 0 0 300px;
     overflow: auto;
   }
+
+  /* FRAR T3: mirror the filter column / content split in RTL (D-AR-04 pattern). */
+  [dir="rtl"] div.user div.col-1 {
+    left: auto;
+    right: 0;
+  }
+
+  [dir="rtl"] div.user div.col-2 {
+    left: 0;
+    right: 300px;
+  }
 }
 
 /* GA-PAR-04: client identity pack on the client file */
