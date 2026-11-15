@@ -456,3 +456,221 @@ describe('F1 — reversing a provider payment refunds at the provider (W3 P-5)',
     expect(flipped?.status).toBe(bookcarsTypes.RentalPaymentStatus.Reversed)
   })
 })
+
+describe('F1 fix-up — attribution branches refund a succeeded payment before answering (W4 GAP-05)', () => {
+  it('refunds a succeeded Stripe intent on metadata mismatch and returns manual-review 409', async () => {
+    const fixture = await makeFixture('stripe-meta', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    const otherBookingId = oid().toString()
+    stripeSessionRetrieve.mockResolvedValue({
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: otherBookingId },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_f1_meta',
+    })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_meta', status: 'succeeded',
+      metadata: { bookingId: otherBookingId },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_meta' })
+    const response = await request(app).post(`/api/check-checkout-session/${fixture.booking.sessionId}`)
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_meta' },
+      { idempotencyKey: 'refund-pi_f1_meta-mismatch' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('returns 500 when the refund fails on Stripe metadata mismatch', async () => {
+    const fixture = await makeFixture('stripe-meta-fail', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    stripeSessionRetrieve.mockResolvedValue({
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: oid().toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_f1_meta_fail',
+    })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_meta_fail', status: 'succeeded',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockRejectedValue(new Error('refund down'))
+    const response = await request(app).post(`/api/check-checkout-session/${fixture.booking.sessionId}`)
+    expect(response.status).toBe(500)
+    expect(response.text).toContain('refund')
+  })
+
+  it('keeps the plain 409 with no refund for an unpaid session on metadata mismatch', async () => {
+    const fixture = await makeFixture('stripe-meta-unpaid', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    stripeSessionRetrieve.mockResolvedValue({
+      id: fixture.booking.sessionId, payment_status: 'unpaid',
+      metadata: { bookingId: oid().toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_f1_meta_unpaid',
+    })
+    const response = await request(app).post(`/api/check-checkout-session/${fixture.booking.sessionId}`)
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('manual review')
+    expect(response.text).not.toContain('refunded')
+    expect(stripeIntentRetrieve).not.toHaveBeenCalled()
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+  })
+
+  it('refunds a succeeded Stripe intent when the booking snapshot is missing', async () => {
+    const fixture = await makeFixture('stripe-nosnap', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    await Booking.updateOne({ _id: fixture.booking._id }, { $unset: { financialSnapshot: 1 } })
+    stripeSessionRetrieve.mockResolvedValue({
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_f1_nosnap',
+    })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_nosnap', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_nosnap' })
+    const response = await request(app).post(`/api/check-checkout-session/${fixture.booking.sessionId}`)
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_nosnap' },
+      { idempotencyKey: 'refund-pi_f1_nosnap-mismatch' },
+    )
+  })
+
+  it('refunds a succeeded mobile intent that is not linked to the booking', async () => {
+    const fixture = await makeFixture('mobile-unlinked', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_unlinked', status: 'succeeded',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_unlinked' })
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_unlinked' })
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_unlinked' },
+      { idempotencyKey: 'refund-pi_f1_unlinked-mismatch' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+  })
+
+  it('returns 500 when the refund fails for an unlinked mobile intent', async () => {
+    const fixture = await makeFixture('mobile-unlinked-fail', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_unlinked_fail', status: 'succeeded',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockRejectedValue(new Error('refund down'))
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_unlinked_fail' })
+    expect(response.status).toBe(500)
+    expect(response.text).toContain('refund')
+  })
+
+  it('keeps the plain 409 with no refund for an unlinked mobile intent that never succeeded', async () => {
+    const fixture = await makeFixture('mobile-unlinked-unpaid', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_unlinked_unpaid', status: 'requires_payment_method',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 0,
+    })
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_unlinked_unpaid' })
+    expect(response.status).toBe(409)
+    expect(response.text).toBe('Payment intent is not linked to this booking')
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+  })
+
+  it('refunds a succeeded differently-attributed intent on an expired mobile booking', async () => {
+    const fixture = await makeFixture('mobile-expired-stray', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    await Booking.updateOne(
+      { _id: fixture.booking._id },
+      { expireAt: new Date(Date.now() - 60000), paymentIntentId: 'pi_f1_expired_other' },
+    )
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_expired_stray', status: 'succeeded',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_expired_stray' })
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_expired_stray' })
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_expired_stray' },
+      { idempotencyKey: 'expired-booking-pi_f1_expired_stray' },
+    )
+  })
+
+  it('still returns 410 with a refund for the matching intent on an expired mobile booking', async () => {
+    const fixture = await makeFixture('mobile-expired-match', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    await Booking.updateOne(
+      { _id: fixture.booking._id },
+      { expireAt: new Date(Date.now() - 60000), paymentIntentId: 'pi_f1_expired_match' },
+    )
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_expired_match', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_expired_match' })
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_expired_match' })
+    expect(response.status).toBe(410)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_expired_match' },
+      { idempotencyKey: 'expired-booking-pi_f1_expired_match' },
+    )
+  })
+
+  it('refunds a second succeeded intent when the booking is already paid through another intent', async () => {
+    const fixture = await makeFixture('mobile-second-intent', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    await Booking.updateOne(
+      { _id: fixture.booking._id },
+      { status: bookcarsTypes.BookingStatus.PaidInFull, paymentIntentId: 'pi_f1_first' },
+    )
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f1_second', status: 'succeeded',
+      metadata: { bookingId: oid().toString() },
+      currency: 'MAD', amount_received: 125000,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_second' })
+    const response = await request(app).post('/api/confirm-payment-intent').send({ bookingId: fixture.booking._id.toString(), paymentIntentId: 'pi_f1_second' })
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_second' },
+      { idempotencyKey: 'refund-pi_f1_second-mismatch' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.PaidInFull)
+    expect(booking?.paymentIntentId).toBe('pi_f1_first')
+  })
+})
+
+describe('F1 fix-up — deposit leg is validated against its cap before any posting (W4 GAP-07 residual)', () => {
+  it('refunds and posts no ledger rows when a Full-mode snapshot has a deposit over its cap', async () => {
+    const fixture = await makeFixture('deposit-cap', bookcarsTypes.CheckoutPaymentMode.Full, { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1300 })
+    mockStripeSuccess(fixture.booking, 'pi_f1_deposit_cap', 130000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_f1_deposit_cap' })
+    const response = await request(app).post(`/api/check-checkout-session/${fixture.booking.sessionId}`)
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_f1_deposit_cap' },
+      { idempotencyKey: 'refund-pi_f1_deposit_cap-mismatch' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    // The rent leg must not have posted before the deposit-leg failure:
+    // before this fix-up the rent leg posted, then the deposit leg threw
+    // OVERPAYMENT, leaving a posted row on a Void booking.
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+})

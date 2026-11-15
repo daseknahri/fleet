@@ -138,6 +138,21 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
 
     const financialSnapshot = booking.financialSnapshot
     if (!financialSnapshot || session.metadata?.bookingId !== booking._id.toString()) {
+      // F1 fix-up / W4 GAP-05: a paid session whose snapshot is missing or
+      // whose metadata disagrees with the booking took the money — refund
+      // the succeeded intent before answering, as the adjacent
+      // currency/amount branches do. Refunding returns the money to this
+      // session's payer; bookings are found by their own sessionId, so no
+      // other booking's flow can refund the same intent. An unpaid session
+      // took nothing and keeps the plain 409.
+      if (session.payment_status === 'paid') {
+        const mismatchIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+        if (mismatchIntentId) {
+          if (respondMismatch(res, await refundSucceededIntent(stripeAPI, mismatchIntentId), 'Payment requires manual review because the booking snapshot is missing or mismatched')) {
+            return
+          }
+        }
+      }
       res.status(409).send('Payment requires manual review because the booking snapshot is missing or mismatched')
       return
     }

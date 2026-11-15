@@ -438,12 +438,31 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
 const splitProviderCheckoutAmounts = (snapshot: bookcarsTypes.BookingFinancialSnapshot) => {
   const amountDueNow = snapshot.amountDueNow
   const rentalTotal = snapshot.rentalTotal
+  const depositAmount = snapshot.depositAmount
+  // F1 fix-up / W4 GAP-07 residual (§2.2): the deposit leg is validated
+  // against its cap HERE, before any posting. Previously only the
+  // Full-mode rent leg was checked, so on an inconsistent snapshot the
+  // rent leg could post and the deposit leg then throw OVERPAYMENT —
+  // leaving a posted RentalPayment row on a Void booking (standalone path)
+  // while the caller refunded the provider. The split now never returns
+  // a deposit leg that exceeds its cap. (The Rental-mode rent leg is the
+  // first leg, so an over-cap throw there cannot orphan a row, and the
+  // ledger still enforces its cap. Remainder, follow-up: a throw after
+  // the legs post — e.g. a missing car/driver — still leaves posted legs
+  // on the rolled-back booking; that needs posted-leg cleanup in the
+  // standalone rollback, not a cap check.)
   if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit) {
+    if (amountDueNow > depositAmount) {
+      throw new Error('Snapshot amountDueNow exceeds the deposit amount in Deposit mode')
+    }
     return { rent: 0, deposit: amountDueNow }
   }
   if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full) {
     if (amountDueNow < rentalTotal) {
       throw new Error('Snapshot amountDueNow is below the rental total in Full mode')
+    }
+    if (amountDueNow - rentalTotal > depositAmount) {
+      throw new Error('Snapshot deposit exceeds the deposit amount in Full mode')
     }
     return { rent: rentalTotal, deposit: amountDueNow - rentalTotal }
   }
@@ -641,21 +660,59 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
       return
     }
     if (booking.status !== bookcarsTypes.BookingStatus.Void || !booking.expireAt) {
+      // F1 fix-up / W4 GAP-05: this 409 can hide a second succeeded intent
+      // (the booking was already paid through another intent, or is Void
+      // with no expiry left). Refund it before answering, as the expired
+      // branch does; an intent that never succeeded keeps the plain 409.
+      try {
+        const strayIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+        if (strayIntent.status === 'succeeded') {
+          verifiedPaymentIntentId = strayIntent.id
+          try {
+            await stripeAPI.refunds.create(
+              { payment_intent: strayIntent.id },
+              { idempotencyKey: `refund-${strayIntent.id}-mismatch` },
+            )
+          } catch (refundError) {
+            logger.error('[booking.confirmPaymentIntent] Failed to refund payment for booking not awaiting payment', refundError)
+            res.status(500).send('Booking is not awaiting payment. Payment refund requires support review.')
+            return
+          }
+          res.status(409).send('Booking is not awaiting payment; the payment was refunded. Support review is required.')
+          return
+        }
+      } catch (err) {
+        logger.error(`[booking.confirmPaymentIntent] Could not retrieve payment intent ${paymentIntentId} for booking not awaiting payment`, err)
+      }
       res.status(409).send('Booking is not awaiting payment')
       return
     }
 
     if (booking.expireAt <= new Date()) {
       const expiredPaymentIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
-      if (expiredPaymentIntent.status === 'succeeded'
-        && expiredPaymentIntent.metadata.bookingId === booking._id.toString()
-        && booking.paymentIntentId === expiredPaymentIntent.id) {
+      // F1 fix-up / W4 GAP-05: the booking expired, but a succeeded intent
+      // took the money — refund it regardless of the metadata/attribution
+      // match, before answering. The 410 stays for the intent that was
+      // this booking's; a differently-attributed succeeded intent is still
+      // refunded, answered 409.
+      if (expiredPaymentIntent.status === 'succeeded') {
         verifiedPaymentIntentId = expiredPaymentIntent.id
-        await stripeAPI.refunds.create(
-          { payment_intent: expiredPaymentIntent.id },
-          { idempotencyKey: `expired-booking-${expiredPaymentIntent.id}` },
-        )
-        res.status(410).send('Booking expired; the payment was refunded')
+        try {
+          await stripeAPI.refunds.create(
+            { payment_intent: expiredPaymentIntent.id },
+            { idempotencyKey: `expired-booking-${expiredPaymentIntent.id}` },
+          )
+        } catch (refundError) {
+          logger.error('[booking.confirmPaymentIntent] Failed to refund payment for expired booking', refundError)
+          res.status(500).send('Booking expired. Payment refund requires support review.')
+          return
+        }
+        if (expiredPaymentIntent.metadata.bookingId === booking._id.toString()
+          && booking.paymentIntentId === expiredPaymentIntent.id) {
+          res.status(410).send('Booking expired; the payment was refunded')
+          return
+        }
+        res.status(409).send('Booking expired; the payment was refunded. Support review is required.')
         return
       }
       res.status(409).send('Booking is not awaiting payment')
@@ -664,6 +721,29 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
 
     const snapshot = booking.financialSnapshot
     if (!snapshot || booking.paymentIntentId !== paymentIntentId) {
+      // F1 fix-up / W4 GAP-05: a succeeded client-supplied intent that is
+      // not this booking's intent took the money — refund it before the
+      // 409, as the verification-mismatch branch below does. An intent
+      // that never succeeded keeps the plain 409.
+      try {
+        const unlinkedIntent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+        if (unlinkedIntent.status === 'succeeded') {
+          try {
+            await stripeAPI.refunds.create(
+              { payment_intent: unlinkedIntent.id },
+              { idempotencyKey: `refund-${unlinkedIntent.id}-mismatch` },
+            )
+          } catch (refundError) {
+            logger.error('[booking.confirmPaymentIntent] Failed to refund unlinked payment intent', refundError)
+            res.status(500).send('Payment intent is not linked to this booking. Payment refund requires support review.')
+            return
+          }
+          res.status(409).send('Payment intent is not linked to this booking; the payment was refunded. Support review is required.')
+          return
+        }
+      } catch (err) {
+        logger.error(`[booking.confirmPaymentIntent] Could not retrieve unlinked payment intent ${paymentIntentId}`, err)
+      }
       res.status(409).send('Payment intent is not linked to this booking')
       return
     }
