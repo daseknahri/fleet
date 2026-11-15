@@ -907,3 +907,197 @@ describe('H-043 country ownership (two-agency regression)', () => {
     await testHelper.signout(token)
   })
 })
+
+//
+// F5b (W2-20) — coordinate range validation
+//
+describe('F5b (W2-20) coordinate range validation', () => {
+  const freshNames = (): bookcarsTypes.LocationName[] => [
+    { language: 'en', name: nanoid() },
+    { language: 'fr', name: nanoid() },
+  ]
+
+  const buildCreatePayload = (overrides: Partial<bookcarsTypes.UpsertLocationPayload> = {}): bookcarsTypes.UpsertLocationPayload => ({
+    country: countryId,
+    names: freshNames(),
+    latitude: 28.0268755,
+    longitude: 1.6528,
+    supplier: SUPPLIER_ID,
+    ...overrides,
+  })
+
+  const deleteLocationAndValues = async (locationId: string) => {
+    const location = await Location.findByIdAndDelete(locationId)
+    if (location) {
+      await LocationValue.deleteMany({ _id: { $in: location.values } })
+    }
+  }
+
+  it('should reject a create with latitude above 90 and store nothing', async () => {
+    const token = await testHelper.signinAsAdmin()
+    const before = await Location.countDocuments()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({ latitude: 91 }))
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid latitude')
+    expect(await Location.countDocuments()).toBe(before)
+
+    await testHelper.signout(token)
+  })
+
+  it('should reject a create with longitude above 180 and store nothing', async () => {
+    const token = await testHelper.signinAsAdmin()
+    const before = await Location.countDocuments()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({ longitude: 181 }))
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid longitude')
+    expect(await Location.countDocuments()).toBe(before)
+
+    await testHelper.signout(token)
+  })
+
+  it('should accept a create at the latitude/longitude boundaries', async () => {
+    const token = await testHelper.signinAsAdmin()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({ latitude: -90, longitude: -180 }))
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.latitude).toBe(-90)
+    expect(res.body?.longitude).toBe(-180)
+
+    await deleteLocationAndValues(res.body._id)
+
+    await testHelper.signout(token)
+  })
+
+  it('should reject a create with a non-numeric latitude', async () => {
+    const token = await testHelper.signinAsAdmin()
+    const before = await Location.countDocuments()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({ latitude: 'abc' as unknown as number }))
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid latitude')
+    expect(await Location.countDocuments()).toBe(before)
+
+    await testHelper.signout(token)
+  })
+
+  it('should reject a create with an out-of-range parking-spot latitude and store nothing', async () => {
+    const token = await testHelper.signinAsAdmin()
+    const before = await Location.countDocuments()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({
+        parkingSpots: [{
+          latitude: 100,
+          longitude: 1.5,
+          values: [{ language: 'en', value: 'Parking spot 1' }],
+        }],
+      }))
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid parking spot latitude at index 0')
+    expect(await Location.countDocuments()).toBe(before)
+
+    await testHelper.signout(token)
+  })
+
+  it('should accept a create with no coordinates', async () => {
+    const token = await testHelper.signinAsAdmin()
+
+    const res = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({ latitude: undefined, longitude: undefined }))
+    expect(res.statusCode).toBe(200)
+    expect(res.body?._id).toBeTruthy()
+
+    await deleteLocationAndValues(res.body._id)
+
+    await testHelper.signout(token)
+  })
+
+  it('should reject an update with latitude above 90 and leave the stored value unchanged', async () => {
+    const token = await testHelper.signinAsAdmin()
+
+    const created = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload())
+    expect(created.statusCode).toBe(200)
+    const locationId = created.body._id as string
+
+    const res = await request(app)
+      .put(`/api/update-location/${locationId}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({
+        country: countryId,
+        names: freshNames(),
+        latitude: 91,
+        longitude: 1.6528,
+      } as bookcarsTypes.UpsertLocationPayload)
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid latitude')
+    const unchanged = await Location.findById(locationId)
+    expect(unchanged?.latitude).toBe(28.0268755)
+
+    await deleteLocationAndValues(locationId)
+
+    await testHelper.signout(token)
+  })
+
+  it('should reject an update with an out-of-range parking-spot longitude', async () => {
+    const token = await testHelper.signinAsAdmin()
+
+    const created = await request(app)
+      .post('/api/create-location')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send(buildCreatePayload({
+        parkingSpots: [{
+          latitude: 28.1,
+          longitude: 1.7,
+          values: [{ language: 'en', value: 'Parking spot 1' }],
+        }],
+      }))
+    expect(created.statusCode).toBe(200)
+    const locationId = created.body._id as string
+    const storedBefore = await Location.findById(locationId)
+    expect(storedBefore?.parkingSpots.length).toBe(1)
+
+    const res = await request(app)
+      .put(`/api/update-location/${locationId}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({
+        country: countryId,
+        names: freshNames(),
+        latitude: 28.0268755,
+        longitude: 1.6528,
+        parkingSpots: [{
+          latitude: 28.1,
+          longitude: 200,
+          values: [{ language: 'en', value: 'Parking spot 1' }],
+        }],
+      } as bookcarsTypes.UpsertLocationPayload)
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toBe('Invalid parking spot longitude at index 0')
+    const unchanged = await Location.findById(locationId)
+    expect(unchanged?.parkingSpots.length).toBe(1)
+
+    await deleteLocationAndValues(locationId)
+
+    await testHelper.signout(token)
+  })
+})

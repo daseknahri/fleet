@@ -7,7 +7,9 @@ import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
 
 export const schema = z.object({
-  fullName: z.string(),
+  // F5b (W2-22): the full name must be non-blank — the server requires
+  // it and an empty name used to pass zod and fail server-side generic.
+  fullName: z.string().refine((val) => val.trim().length > 0, { message: commonStrings.FIELD_NOT_VALID }),
   email: z.string().email({ message: commonStrings.EMAIL_NOT_VALID }),
   phone: z.string().refine((val) => !val || isMobilePhone(val), { message: commonStrings.PHONE_NOT_VALID }).optional(),
   location: z.string().optional(),

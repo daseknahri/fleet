@@ -2313,7 +2313,7 @@ export const getUsers = async (req: Request, res: Response) => {
     const page = Number.parseInt(req.params.page, 10)
     const size = Number.parseInt(req.params.size, 10)
     const { body }: { body: bookcarsTypes.GetUsersBody } = req
-    const { types, user: userId } = body
+    const { types, user: userId, filters } = body
 
     const $match: mongoose.QueryFilter<env.User> = {
       $and: [
@@ -2324,6 +2324,12 @@ export const getUsers = async (req: Request, res: Response) => {
           $or: [
             { fullName: { $regex: keyword, $options: options } },
             { email: { $regex: keyword, $options: options } },
+            // F5b (W2-04): keyword search also matches phone and the
+            // identity numbers.
+            { phone: { $regex: keyword, $options: options } },
+            { cinNumber: { $regex: keyword, $options: options } },
+            { passportNumber: { $regex: keyword, $options: options } },
+            { licenseNumber: { $regex: keyword, $options: options } },
           ],
         },
         {
@@ -2350,6 +2356,33 @@ export const getUsers = async (req: Request, res: Response) => {
 
     if (userId) {
       $match.$and!.push({ _id: { $ne: new mongoose.Types.ObjectId(userId) } })
+    }
+
+    // F5b (W2-04): client-list filters (Clients page toolbar). Unknown
+    // enum values are ignored — the UI only sends select values.
+    if (filters?.clientStatus && Object.values(bookcarsTypes.ClientStatus).includes(filters.clientStatus as bookcarsTypes.ClientStatus)) {
+      $match.$and!.push({ clientStatus: filters.clientStatus })
+    }
+    if (filters?.clientType && Object.values(bookcarsTypes.ClientType).includes(filters.clientType as bookcarsTypes.ClientType)) {
+      $match.$and!.push({ clientType: filters.clientType })
+    }
+    if (filters?.missingDocs === true) {
+      // "Missing documents" = no client documents at all, or any
+      // expired identity date. A missing expiry date is NOT an expired
+      // one — only a stored past date counts.
+      const now = new Date()
+      $match.$and!.push({
+        $or: [
+          { clientDocuments: { $exists: false } },
+          { clientDocuments: { $size: 0 } },
+          { cinExpiry: { $lt: now } },
+          { passportExpiry: { $lt: now } },
+          { licenseExpiry: { $lt: now } },
+        ],
+      })
+    }
+    if (filters?.hasContracts === true) {
+      $match.$and!.push({ 'contracts.0': { $exists: true } } as mongoose.QueryFilter<env.User>)
     }
 
     const users = await User.aggregate(
@@ -2382,6 +2415,13 @@ export const getUsers = async (req: Request, res: Response) => {
             consentGiven: 1,
             consentAt: 1,
             consentScope: 1,
+            // F5b (W2-04): the three expiries feed the per-row
+            // documentsMissing/documentsExpired flags below (stripped
+            // again for callers without ReadPrivateDocuments, like the
+            // identity numbers in getUser).
+            cinExpiry: 1,
+            passportExpiry: 1,
+            licenseExpiry: 1,
             clientDocuments: 1,
             // GA-PAR-22: lists carry the trash scalars, never the
             // history (§3).
@@ -2419,8 +2459,23 @@ export const getUsers = async (req: Request, res: Response) => {
       for (const row of rows) {
         const documents = row.clientDocuments
         row.clientDocumentsCount = Array.isArray(documents) ? documents.length : 0
+        // F5b (W2-04): per-row document flags for customer rows (the
+        // list needs them for the missing-docs filter and any future
+        // badge; staff/supplier rows carry no documents). Computed
+        // BEFORE the strip below — the raw expiries never leave the
+        // server for callers without ReadPrivateDocuments.
+        if (row.type === bookcarsTypes.UserType.User) {
+          const now = new Date()
+          const expired = [row.cinExpiry, row.passportExpiry, row.licenseExpiry]
+            .some((d) => !!d && new Date(d as string).getTime() < now.getTime())
+          row.documentsExpired = expired
+          row.documentsMissing = !Array.isArray(documents) || documents.length === 0 || expired
+        }
         if (!canReadPrivateDocuments) {
           delete row.clientDocuments
+          delete row.cinExpiry
+          delete row.passportExpiry
+          delete row.licenseExpiry
         }
       }
       const clientIds = resultData

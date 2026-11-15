@@ -409,17 +409,25 @@ const CreateCar = () => {
                 {...register('name')}
                 required
                 autoComplete="off"
+                error={!!errors.name}
               />
+              <FormHelperText error={!!errors.name}>
+                {errors.name?.message || ''}
+              </FormHelperText>
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel htmlFor="cc-license-plate">{strings.LICENSE_PLATE}</InputLabel>
+              <InputLabel className="required" htmlFor="cc-license-plate">{strings.LICENSE_PLATE}</InputLabel>
               <Input
                 id="cc-license-plate"
                 type="text"
                 {...register('licensePlate')}
                 autoComplete="off"
+                error={!!errors.licensePlate}
               />
+              <FormHelperText error={!!errors.licensePlate}>
+                {errors.licensePlate?.message || ''}
+              </FormHelperText>
             </FormControl>
 
             {/* F5b (W2-12): vehicle identity — structured make/model/year. */}
