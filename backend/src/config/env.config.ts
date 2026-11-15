@@ -818,6 +818,15 @@ export interface ContractInspection extends Document {
   signatureFile?: string
   acknowledgedBy?: Types.ObjectId
   actor?: Types.ObjectId
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: {
+    reason: string
+    raisedBy?: Types.ObjectId
+    raisedAt: Date
+    resolvedAt?: Date
+    resolvedBy?: Types.ObjectId
+    resolution?: string
+  }
 }
 
 /** GA-PAR-06: per-agency return & settlement rates (new collection; the global Setting singleton is untouched). */
@@ -862,6 +871,10 @@ export interface Booking extends Document {
   cancelRequestAt?: Date
   /** F3 / W1 #9 — who filed the cancel request. */
   cancelRequestBy?: Types.ObjectId
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: Types.ObjectId
   /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
   cancellationRecord?: {
     reason: string
@@ -918,6 +931,17 @@ export interface Booking extends Document {
     priceDelta: number
     basisDailyRate?: number
     basisDays?: number
+    /** F4 / W1 #6 — the correction this amendment recorded, if any. */
+    correction?: {
+      pickupLocationBefore?: string
+      pickupLocationAfter?: string
+      dropOffLocationBefore?: string
+      dropOffLocationAfter?: string
+      carBefore?: string
+      carAfter?: string
+      optionsBefore?: { cancellation: boolean, amendments: boolean, theftProtection: boolean, collisionDamageWaiver: boolean, fullInsurance: boolean, additionalDriver: boolean }
+      optionsAfter?: { cancellation: boolean, amendments: boolean, theftProtection: boolean, collisionDamageWaiver: boolean, fullInsurance: boolean, additionalDriver: boolean }
+    }
   }[]
   /** GA-PAR-10: recorded overlap exception (server-stamped). */
   overlapException?: {
@@ -1041,6 +1065,15 @@ export interface ContractCharge extends Document {
   decidedBy?: Types.ObjectId
   decidedAt?: Date
   decisionNote?: string
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: {
+    reason: string
+    raisedBy?: Types.ObjectId
+    raisedAt: Date
+    resolvedAt?: Date
+    resolvedBy?: Types.ObjectId
+    resolution?: string
+  }
 }
 
 export interface Approval extends Document {
@@ -1454,6 +1487,10 @@ export interface BookingInfo {
   cancelRequestAt?: Date
   /** F3 / W1 #9 — who filed the cancel request. */
   cancelRequestBy?: Types.ObjectId
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: Types.ObjectId
   /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
   cancellationRecord?: Booking['cancellationRecord']
   price: number

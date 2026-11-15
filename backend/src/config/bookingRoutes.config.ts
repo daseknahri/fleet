@@ -25,6 +25,9 @@ const routes = {
   decideCancelRequest: '/api/bookings/:id/decide-cancel-request',
   confirmManualPayment: '/api/bookings/:id/confirm-payment',
   amend: '/api/bookings/:id/amend',
+  // F4 / W1 #7 — no-show marking + overdue (late-return) list.
+  markNoShow: '/api/bookings/:id/mark-no-show',
+  getOverdueBookings: '/api/overdue-bookings/:page/:size/:language',
 }
 
 export default routes

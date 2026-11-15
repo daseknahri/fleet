@@ -115,6 +115,15 @@ const bookingSchema = new Schema<env.Booking>(
       type: Schema.Types.ObjectId,
       ref: 'User',
     },
+    // F4 / W1 #7 — server-stamped no-show record (mark-no-show). No
+    // refund/fee decision is recorded here (ADR-001-gated).
+    noShowAt: {
+      type: Date,
+    },
+    noShowBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
     // F3 / W1 #1 — staff cancellation record. The refund decision is
     // the staff member's explicit choice at approval time; the code
     // never auto-decides a refund amount (ADR-001 gated, GAPS.md §5).
@@ -137,8 +146,17 @@ const bookingSchema = new Schema<env.Booking>(
       type: String,
       index: true,
     },
+    // F4 / W1 #15 — restores upstream's sparse-unique backstop against
+    // one PaymentIntent finalising two bookings (removed in GA without
+    // a cited decision; the finalisation guard was the only backstop).
+    // Sparse: bookings without an intent (pay-later, manual) are
+    // untouched. DEPLOY PRECONDITION: the target database must be
+    // checked for duplicate paymentIntentId values BEFORE deploy —
+    // duplicates fail the boot (initialize() -> createIndexes()).
     paymentIntentId: {
       type: String,
+      unique: true,
+      sparse: true,
     },
     customerId: {
       type: String,
@@ -199,6 +217,32 @@ const bookingSchema = new Schema<env.Booking>(
       priceDelta: { type: Number },
       basisDailyRate: { type: Number },
       basisDays: { type: Number },
+      // F4 / W1 #6 — the correction this amendment recorded, if any
+      // (only the fields that actually changed are present).
+      correction: {
+        pickupLocationBefore: { type: String },
+        pickupLocationAfter: { type: String },
+        dropOffLocationBefore: { type: String },
+        dropOffLocationAfter: { type: String },
+        carBefore: { type: String },
+        carAfter: { type: String },
+        optionsBefore: {
+          cancellation: { type: Boolean },
+          amendments: { type: Boolean },
+          theftProtection: { type: Boolean },
+          collisionDamageWaiver: { type: Boolean },
+          fullInsurance: { type: Boolean },
+          additionalDriver: { type: Boolean },
+        },
+        optionsAfter: {
+          cancellation: { type: Boolean },
+          amendments: { type: Boolean },
+          theftProtection: { type: Boolean },
+          collisionDamageWaiver: { type: Boolean },
+          fullInsurance: { type: Boolean },
+          additionalDriver: { type: Boolean },
+        },
+      },
     }],
     // GA-PAR-07: apporteur commission SNAPSHOT captured at booking time
     // (mode/value = the agent default or the per-contract override then in

@@ -87,6 +87,17 @@ export const rateLimiter = createRateLimiter('auth')
 // cannot drain the sign-in bucket of the same IP (and vice versa).
 export const mailRateLimiter = createRateLimiter('mail')
 
+// F4 / W1 #8 (= W4 GAP-01) — the public checkout surface (checkout +
+// confirmPaymentIntent) creates guest users, sends activation emails
+// and creates live Stripe customers/sessions per anonymous request,
+// so it gets its OWN bucket, like mail/sign above: checkout abuse can
+// never drain the sign-in bucket of the same IP (and vice versa). The
+// budget is the same env default as the auth bucket (capacity 10,
+// one token per 2 s) — the same budget upstream applied to checkout.
+// Anonymous-capable by design: the limiter keys on IP only, no auth
+// middleware is added (checkout identity comes from the body).
+export const checkoutRateLimiter = createRateLimiter('checkout')
+
 // GA-PAR-12: the public online-signing surface is unauthenticated by
 // design (the capability token is the credential), so it gets its OWN
 // stricter buckets — separate Redis scopes, so signing traffic can

@@ -505,6 +505,8 @@ export interface ContractInspection {
   signatureFile?: string
   acknowledgedBy?: string | User
   actor?: string | User
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: ContractDispute
   createdAt?: Date
 }
 
@@ -577,6 +579,14 @@ export interface SettlementPreview {
   lines: SettlementPreviewLine[]
   unavailable: SettlementPreviewOmission[]
   omissions: SettlementPreviewOmission[]
+  /** F4 / W1 #7 — late return, informational only (no amount, no fee:
+   * any late fee is ADR-001-gated). Present only when the return
+   * inspection's occurredAt is past the booking's scheduled `to`. */
+  lateReturn?: {
+    returnedAt: Date
+    dueAt: Date
+    lateHours: number
+  }
 }
 
 /** GA-PAR-22 — one trash-history row (append-only, per document). */
@@ -626,6 +636,9 @@ export interface Booking {
   to: Date
   status: BookingStatus
   lifecycle?: ContractLifecycle
+  /** F4 / W1 #7 — computed read-model flag (lifecycle Active + past
+   * `to`); never stored, set by getBooking / list endpoints. */
+  overdue?: boolean
   cancellation?: boolean
   amendments?: boolean
   theftProtection?: boolean
@@ -638,6 +651,10 @@ export interface Booking {
   cancelRequestAt?: Date
   /** F3 / W1 #9 — who filed the cancel request (server-stamped). */
   cancelRequestBy?: string | User
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: string | User
   /** F3 / W1 #1 — staff cancellation record (reason, refund decision, amounts at stake). */
   cancellationRecord?: BookingCancellationRecord
   price?: number
@@ -762,6 +779,16 @@ export interface CancelRequestRow {
   requestedAt?: Date
 }
 
+/** F4 / W1 #7 — one row of the overdue (late-return) list. */
+export interface OverdueBookingRow {
+  booking: Booking
+  currency: string
+  /** The scheduled return time the booking is overdue since. */
+  overdueSince: Date
+  /** Whole hours past the scheduled return (ceiled, helper.hours). */
+  overdueHours: number
+}
+
 /**
  * GA-PAR-12 — the recorded online client signature on a booking.
  * `file` is the stored PNG name inside the private contracts store
@@ -803,6 +830,19 @@ export interface SignBookingPayload {
   signaturePngBase64: string
 }
 
+/** F4 / W1 #6 — the correction an amendment recorded (only the fields
+ * that actually changed are present). */
+export interface BookingAmendmentCorrection {
+  pickupLocationBefore?: string
+  pickupLocationAfter?: string
+  dropOffLocationBefore?: string
+  dropOffLocationAfter?: string
+  carBefore?: string
+  carAfter?: string
+  optionsBefore?: CarOptions
+  optionsAfter?: CarOptions
+}
+
 /**
  * GA-PAR-11 — one recorded contract amendment (POST /api/bookings/:id/amend).
  * `by`/`at` are stamped server-side; `reason` is the only operator text.
@@ -823,6 +863,8 @@ export interface BookingAmendment {
   priceDelta: number
   basisDailyRate?: number
   basisDays?: number
+  /** F4 / W1 #6 — the correction this amendment recorded, if any. */
+  correction?: BookingAmendmentCorrection
 }
 
 /** GA-PAR-11 — payload for POST /api/bookings/:id/amend. */
@@ -834,6 +876,21 @@ export interface AmendBookingPayload {
    * from an agency Owner/Manager, and only stamped when a conflict
    * was actually bypassed. Maintenance conflicts are never bypassed. */
   overlapException?: { reason: string }
+
+  /** F4 / W1 #6 — correction inputs (see bookingAmendmentController):
+   * new pickup/drop-off locations, a replacement vehicle, add-on
+   * option corrections (present + boolean only), and the additional
+   * driver details (required when turning that option on). */
+  pickupLocation?: string
+  dropOffLocation?: string
+  car?: string
+  cancellation?: boolean
+  amendments?: boolean
+  theftProtection?: boolean
+  collisionDamageWaiver?: boolean
+  fullInsurance?: boolean
+  additionalDriver?: boolean
+  additionalDriverDetails?: { fullName: string, email: string, phone: string, birthDate: string | Date }
 }
 
 /**
@@ -1475,6 +1532,32 @@ export interface Car {
   [propKey: string]: any
 }
 
+/**
+ * F4 / W1 #7 — a dispute raised against a contract charge or inspection
+ * record (roadmap §3). A metadata flag only: it never edits the
+ * record's evidence. Open while `resolvedAt` is absent; resolving
+ * stamps who/when and the resolution. An open dispute blocks
+ * `complete`.
+ */
+export interface ContractDispute {
+  reason: string
+  raisedBy?: string | User
+  raisedAt: Date
+  resolvedAt?: Date
+  resolvedBy?: string | User
+  resolution?: string
+}
+
+/** F4 / W1 #7 — raise a dispute on a charge/inspection record. */
+export interface DisputeContractRecordPayload {
+  reason: string
+}
+
+/** F4 / W1 #7 — resolve an open dispute. */
+export interface ResolveContractDisputePayload {
+  resolution: string
+}
+
 export interface ContractCharge {
   _id?: string
   supplier: string | User
@@ -1489,6 +1572,8 @@ export interface ContractCharge {
   decidedBy?: string | User
   decidedAt?: Date
   decisionNote?: string
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: ContractDispute
   createdAt?: Date
   updatedAt?: Date
 }

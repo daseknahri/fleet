@@ -99,7 +99,11 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
       if (type === bookcarsTypes.InspectionType.Handover && booking!.status === bookcarsTypes.BookingStatus.Pending) {
         const receivable = await getContractReceivable(booking!)
         paymentConfirmed = receivable.outstandingBalance <= 0
-        if (!paymentConfirmed && booking!.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
+        // F4 / W1 #5 — the pre-check fires for Draft AND Confirmed:
+        // the handover payment gate now applies to both lifecycles
+        // (inspectionTransition), so a Confirmed booking that is still
+        // Pending must 409 here with the amount, not slip through.
+        if (!paymentConfirmed) {
           throw new Error(`PAYMENT_NOT_CONFIRMED: Payment must be confirmed before handover. Outstanding balance: ${receivable.outstandingBalance} ${receivable.currency}. Record the payment first.`)
         }
       }
@@ -337,6 +341,124 @@ export const decideCharge = async (req: Request, res: Response) => {
 }
 }
 
+/**
+ * F4 / W1 #7 — raise / resolve a dispute on a contract charge or
+ * inspection (roadmap §3: the dispute path must be explicit).
+ *
+ * A dispute is a metadata flag on the record under challenge — it never
+ * edits the record's evidence fields (an inspection stays immutable in
+ * substance; the flag only records that its content is challenged).
+ * Raising needs a reason (3–1000, house pattern); resolving needs a
+ * resolution of the same length. Raiser/resolver and times are stamped
+ * server-side. An open dispute blocks `complete` until resolved
+ * (mirroring the pending-charge gate). Re-disputing a resolved record
+ * opens a fresh dispute (the previous resolution is replaced, not kept
+ * as history — the flag is the current challenge state, not a ledger).
+ * A dispute is allowed on a charge of any decision status: it challenges
+ * the record's substance, not its decision.
+ */
+const raiseDispute = async (
+  req: Request,
+  res: Response,
+  kind: 'charge' | 'inspection',
+) => {
+  try {
+    const booking = await chargeScope(req)
+    if (!booking) {
+ res.sendStatus(404); return 
+}
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
+    const reason = String(req.body?.reason || '').trim()
+    if (reason.length < 3 || reason.length > 1000) {
+ res.status(400).send('Invalid dispute: a reason of 3 to 1000 characters is required'); return 
+}
+    const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
+    const now = new Date()
+    if (kind === 'charge') {
+      const charge = await ContractCharge.findOne({ _id: req.params.chargeId, booking: booking._id, supplier: booking.supplier })
+      if (!charge) {
+ res.sendStatus(404); return 
+}
+      if (charge.dispute && !charge.dispute.resolvedAt) {
+ res.status(409).send('This charge already has an open dispute'); return 
+}
+      charge.dispute = { reason, raisedBy: actor, raisedAt: now }
+      await charge.save()
+      res.status(201).json(charge)
+      return
+    }
+    const inspection = await ContractInspection.findOne({ _id: req.params.inspectionId, booking: booking._id, supplier: booking.supplier })
+    if (!inspection) {
+ res.sendStatus(404); return 
+}
+    if (inspection.dispute && !inspection.dispute.resolvedAt) {
+ res.status(409).send('This inspection already has an open dispute'); return 
+}
+    inspection.dispute = { reason, raisedBy: actor, raisedAt: now }
+    await inspection.save()
+    res.status(201).json(inspection)
+  } catch (err) {
+ logger.error(`[contractOperations.dispute-${kind}]`, err); res.status(400).send(i18n.t('ERROR')) 
+}
+}
+
+const resolveDispute = async (
+  req: Request,
+  res: Response,
+  kind: 'charge' | 'inspection',
+) => {
+  try {
+    const booking = await chargeScope(req)
+    if (!booking) {
+ res.sendStatus(404); return 
+}
+    if (booking.deletedAt) {
+ res.status(409).send(trashedMessage('booking')); return 
+}
+    const resolution = String(req.body?.resolution || '').trim()
+    if (resolution.length < 3 || resolution.length > 1000) {
+ res.status(400).send('Invalid dispute resolution: a resolution of 3 to 1000 characters is required'); return 
+}
+    const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
+    if (kind === 'charge') {
+      const charge = await ContractCharge.findOne({ _id: req.params.chargeId, booking: booking._id, supplier: booking.supplier })
+      if (!charge) {
+ res.sendStatus(404); return 
+}
+      if (!charge.dispute || charge.dispute.resolvedAt) {
+ res.status(409).send('This charge has no open dispute to resolve'); return 
+}
+      charge.dispute.resolvedAt = new Date()
+      charge.dispute.resolvedBy = actor
+      charge.dispute.resolution = resolution
+      await charge.save()
+      res.json(charge)
+      return
+    }
+    const inspection = await ContractInspection.findOne({ _id: req.params.inspectionId, booking: booking._id, supplier: booking.supplier })
+    if (!inspection) {
+ res.sendStatus(404); return 
+}
+    if (!inspection.dispute || inspection.dispute.resolvedAt) {
+ res.status(409).send('This inspection has no open dispute to resolve'); return 
+}
+    inspection.dispute.resolvedAt = new Date()
+    inspection.dispute.resolvedBy = actor
+    inspection.dispute.resolution = resolution
+    await inspection.save()
+    res.json(inspection)
+  } catch (err) {
+ logger.error(`[contractOperations.resolve-dispute-${kind}]`, err); res.status(400).send(i18n.t('ERROR')) 
+}
+}
+
+export const disputeCharge = (req: Request, res: Response) => raiseDispute(req, res, 'charge')
+export const resolveChargeDispute = (req: Request, res: Response) => resolveDispute(req, res, 'charge')
+export const disputeInspection = (req: Request, res: Response) => raiseDispute(req, res, 'inspection')
+export const resolveInspectionDispute = (req: Request, res: Response) => resolveDispute(req, res, 'inspection')
+
 export const createSnapshot = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
@@ -356,8 +478,13 @@ export const createSnapshot = async (req: Request, res: Response) => {
     const withStamp = rawWithStamp === true
     const inspections = await ContractInspection.find({ booking: booking._id, supplier: booking.supplier }).sort({ occurredAt: 1 }).lean()
     const charges = await ContractCharge.find({ booking: booking._id, supplier: booking.supplier }).lean()
-    if (inspections.length < 2 || (charges.some((x) => x.status === bookcarsTypes.ApprovalDecision.Pending))) {
- res.status(409).send('Both inspections and charge decisions are required'); return 
+    // F4 / W1 #12 — the snapshot needs one handover AND one return
+    // inspection, not any two: two handovers and no return passed the
+    // old count check (`inspections.length < 2`).
+    const hasHandoverInspection = inspections.some((x) => x.type === bookcarsTypes.InspectionType.Handover)
+    const hasReturnInspection = inspections.some((x) => x.type === bookcarsTypes.InspectionType.Return)
+    if (!hasHandoverInspection || !hasReturnInspection || (charges.some((x) => x.status === bookcarsTypes.ApprovalDecision.Pending))) {
+ res.status(409).send('A handover inspection, a return inspection and all charge decisions are required'); return 
 }
     // GA-PAR-14: QR payload is the booking reference plus the agency
     // identifier only (see contractSnapshotPdf) — no URL, no token, no
@@ -557,7 +684,14 @@ export const settlementPreview = async (req: Request, res: Response) => {
         }
       }
       // wash
-      if (returnInsp.checklist?.washed !== false) {
+      // F4 / W1 #14 — a missing checklist (or a checklist that does
+      // not answer the wash question) is a missing-checklist omission,
+      // not evidence the car was washed: `washed` unknown must never
+      // read as `washedAtReturn`.
+      const washedAtReturn = returnInsp.checklist?.washed
+      if (washedAtReturn === undefined) {
+        omit('wash', 'missingChecklist')
+      } else if (washedAtReturn !== false) {
         omit('wash', 'washedAtReturn')
       } else if (rates.washFee === null || rates.washFee <= 0) {
         omit('wash', 'missingWashFee')
@@ -570,6 +704,18 @@ export const settlementPreview = async (req: Request, res: Response) => {
       }
     }
 
+    // F4 / W1 #7 — late return, informational only: the return
+    // inspection's occurredAt vs the scheduled `to`. No amount and no
+    // fee: a late fee is an ADR-001-gated charge decision, never an
+    // invented number. Staff who need to charge for the delay create a
+    // manual charge (type Fee) from this figure.
+    const lateReturn = returnInsp && returnInsp.occurredAt && new Date(returnInsp.occurredAt).getTime() > new Date(booking!.to).getTime()
+      ? {
+        returnedAt: new Date(returnInsp.occurredAt),
+        dueAt: new Date(booking!.to),
+        lateHours: helper.hours(booking!.to, returnInsp.occurredAt),
+      }
+      : undefined
     const preview: bookcarsTypes.SettlementPreview = {
       booking: String(booking!._id),
       currency,
@@ -578,6 +724,7 @@ export const settlementPreview = async (req: Request, res: Response) => {
       lines,
       unavailable,
       omissions: unavailable,
+      ...(lateReturn ? { lateReturn } : {}),
     }
     res.json(preview)
   } catch (err) {
@@ -601,6 +748,15 @@ export const complete = async (req: Request, res: Response) => {
     const pendingCharges = await ContractCharge.exists({ booking: booking!._id, supplier: booking!.supplier, status: bookcarsTypes.ApprovalDecision.Pending })
     if (pendingCharges) {
  res.status(409).send('All contract charge decisions are required before completion'); return 
+}
+    // F4 / W1 #7 — an open dispute blocks completion exactly like a
+    // pending charge decision: the record under dispute must be
+    // resolved first. A dispute is open while it has no resolution
+    // stamp; deciding the charge underneath does not resolve it.
+    const openChargeDispute = await ContractCharge.exists({ booking: booking!._id, supplier: booking!.supplier, 'dispute.raisedAt': { $exists: true }, 'dispute.resolvedAt': { $exists: false } })
+    const openInspectionDispute = await ContractInspection.exists({ booking: booking!._id, supplier: booking!.supplier, 'dispute.raisedAt': { $exists: true }, 'dispute.resolvedAt': { $exists: false } })
+    if (openChargeDispute || openInspectionDispute) {
+ res.status(409).send('Unresolved contract disputes must be resolved before completion'); return 
 }
     const snapshot = await ContractSnapshot.findOne({ booking: booking!._id, supplier: booking!.supplier }).sort({ version: -1 })
     if (!snapshot) {

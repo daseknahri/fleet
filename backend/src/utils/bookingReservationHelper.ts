@@ -45,8 +45,17 @@ const reservesCar = (booking: env.Booking, now: Date) =>
   BOOKING_RESERVATION_STATUSES.includes(booking.status)
   || (booking.status === bookcarsTypes.BookingStatus.Void && !!booking.expireAt && booking.expireAt > now)
 
+/**
+ * F4 / W1 #4 (= W4 GAP-09) — the boundary rule is strict: two rentals
+ * touch but do not overlap when one pickup is exactly the previous
+ * return (`first.to === second.from`). Back-to-back / same-day turnaround
+ * is a normal rental operation and must not 409. The earlier inclusive
+ * predicate (`<=` / `>=`) blocked it with no cited decision. If a
+ * turnaround buffer is ever wanted, it must be an explicit, named,
+ * configurable gap — never a silent inclusive boundary.
+ */
 const overlaps = (first: env.Booking, second: env.Booking) =>
-  first.from <= second.to && first.to >= second.from
+  first.from < second.to && first.to > second.from
 
 // Simple queue-based lock for non-transactional environments
 const carLocks = new Map<string, Promise<void>>()
@@ -159,8 +168,10 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
         car: new mongoose.Types.ObjectId(carId),
         // GA-PAR-22: a trashed booking does not reserve its car.
         deletedAt: null,
-        from: { $lte: booking.to },
-        to: { $gte: booking.from },$or: [
+        // F4 / W1 #4 — strict range: a booking whose pickup is exactly
+        // this booking's return (or vice versa) does not overlap.
+        from: { $lt: booking.to },
+        to: { $gt: booking.from },$or: [
           { status: { $in: BOOKING_RESERVATION_STATUSES } },
           { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
         ],
@@ -285,8 +296,9 @@ export const findBookingConflictForRestore = async (booking: env.Booking): Promi
     car: new mongoose.Types.ObjectId(carId),
     // GA-PAR-22: only LIVE bookings can block a restore.
     deletedAt: null,
-    from: { $lte: booking.to },
-    to: { $gte: booking.from },
+    // F4 / W1 #4 — strict range, same boundary rule as above.
+    from: { $lt: booking.to },
+    to: { $gt: booking.from },
     $or: [
       { status: { $in: BOOKING_RESERVATION_STATUSES } },
       { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },

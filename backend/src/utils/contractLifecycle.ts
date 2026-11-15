@@ -11,6 +11,13 @@ import * as bookcarsTypes from ':bookcars-types'
  * outstanding (e.g. a zero-total booking) may still be handed over.
  * The controller computes that from the ledger and passes it in; the
  * default (`false`) keeps the gate closed for every other caller.
+ *
+ * F4 / W1 #5 — the gate applies to `Confirmed` exactly as to `Draft`.
+ * F3 left the Confirmed branch ungated because no producer assigned
+ * `Confirmed` yet; F4 adds the producer (provider finalisation and
+ * manual payment confirmation, both paid-only), so a `Confirmed`
+ * booking that is still `Pending` hands over only when nothing is
+ * outstanding (`paymentConfirmed`).
  */
 export const inspectionTransition = (
   lifecycle: bookcarsTypes.ContractLifecycle | undefined,
@@ -21,8 +28,7 @@ export const inspectionTransition = (
   const current = lifecycle || bookcarsTypes.ContractLifecycle.Draft
   if (type === bookcarsTypes.InspectionType.Handover
     && (current === bookcarsTypes.ContractLifecycle.Draft || current === bookcarsTypes.ContractLifecycle.Confirmed)
-    && (current !== bookcarsTypes.ContractLifecycle.Draft
-      || !status
+    && (!status
       || [
         bookcarsTypes.BookingStatus.Deposit,
         bookcarsTypes.BookingStatus.Paid,
@@ -36,6 +42,28 @@ export const inspectionTransition = (
     return bookcarsTypes.ContractLifecycle.ReturnReview
   }
   return null
+}
+
+/**
+ * F4 / W1 #7 — late return, read-model derivation (roadmap §3: the
+ * late path must be explicit; there is no late status write). A
+ * booking is overdue when it is `Active` (handed over, no return
+ * inspection yet — a return moves it to `ReturnReview`) and its
+ * scheduled return `to` has passed. No fee is derived here: any
+ * late charge is an ADR-001-gated staff decision, never an invented
+ * amount. The overdue-bookings list endpoint filters on the same
+ * rule in its Mongo query; this helper is the single definition
+ * both the list and the single-booking read use.
+ */
+export const isBookingOverdue = (
+  booking: { lifecycle?: bookcarsTypes.ContractLifecycle, to?: Date | string | null },
+  now: Date = new Date(),
+): boolean => {
+  if (booking.lifecycle !== bookcarsTypes.ContractLifecycle.Active || !booking.to) {
+    return false
+  }
+  const due = booking.to instanceof Date ? booking.to : new Date(booking.to)
+  return !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()
 }
 
 const CHECKLIST_KEYS = ['spareWheelAndTools', 'radio', 'washed'] as const

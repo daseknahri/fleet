@@ -43,6 +43,7 @@ import { nextBookingReference } from '../utils/bookingReference'
 import { publicOnlineSignature } from '../utils/bookingSigning'
 import { ensureDraftInvoice } from '../utils/invoiceCreation'
 import { resolveLocationTranslation } from '../utils/locationHelper'
+import { isBookingOverdue } from '../utils/contractLifecycle'
 import { resolveBookingAgentSnapshot } from '../utils/agentCommission'
 
 /**
@@ -484,12 +485,25 @@ export const finalizePaidCheckoutBooking = async (
 
   const originalStatus = booking.status
   const originalExpireAt = booking.expireAt
+  const originalLifecycle = booking.lifecycle
   let saved = false
 
   const runFinalization = async (session?: mongoose.ClientSession) => {
     if (provider === 'stripe') booking.paymentIntentId = reference
     else booking.paypalOrderId = reference
     booking.expireAt = undefined
+    // F4 / W1 #5 — a provider-verified payment confirms the contract:
+    // the lifecycle middle finally has a producer. Only a Draft (or
+    // legacy lifecycle-less) booking is confirmed here; a booking that
+    // already advanced is left alone. The pay-later half of the middle
+    // is produced by refreshBookingPaymentStatus (manual/cash
+    // confirmation to Paid); a pay-later booking is NOT confirmed at
+    // checkout creation — it is still unpaid, and confirming it there
+    // would let it bypass the handover payment gate (W1 #11). The
+    // approvals-queue producer half stays GATED (#41, GAPS.md §5).
+    if (!booking.lifecycle || booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
+      booking.lifecycle = bookcarsTypes.ContractLifecycle.Confirmed
+    }
     booking.status = snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit
       ? bookcarsTypes.BookingStatus.Deposit
       : snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full
@@ -601,6 +615,7 @@ export const finalizePaidCheckoutBooking = async (
         try {
           booking.status = originalStatus
           booking.expireAt = originalExpireAt
+          booking.lifecycle = originalLifecycle
           await booking.save()
         } catch (rollbackError) {
           logger.error('[booking.finalizePaidCheckoutBooking] Failed to roll back booking after ledger failure', rollbackError)
@@ -882,6 +897,14 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
  * @returns {unknown}
  */
 export const checkout = async (req: Request, res: Response) => {
+  // F4 / W1 #10 — orphan-cleanup tracking. These live outside the try:
+  // the catch cannot see block-scoped `let`s declared inside it. Only
+  // a guest account created by THIS request is ever removed — an
+  // existing account matched by email is never deleted.
+  let guestUserCreatedInRequest = false
+  let guestUserId: string | undefined
+  let guestUserLicenseFile: string | undefined
+  let guestAdditionalDriverId: string | undefined
   try {
     let user: env.User | null
     const { body }: { body: bookcarsTypes.CheckoutPayload } = req
@@ -992,6 +1015,8 @@ export const checkout = async (req: Request, res: Response) => {
           blacklisted: false,
         })
         await user.save()
+        guestUserCreatedInRequest = true
+        guestUserId = user._id.toString()
 
         // create license
         if (license) {
@@ -1012,6 +1037,7 @@ export const checkout = async (req: Request, res: Response) => {
 
           await asyncFs.rename(tempLicensePath, destPath)
           user.license = filename
+          guestUserLicenseFile = filename
           await user.save()
         }
 
@@ -1132,6 +1158,7 @@ export const checkout = async (req: Request, res: Response) => {
       const additionalDriver = new AdditionalDriver(body.additionalDriver)
       await additionalDriver.save()
       additionalDriverId = additionalDriver._id.toString()
+      guestAdditionalDriverId = additionalDriver._id.toString()
     }
 
     const isPayLater = paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater
@@ -1299,6 +1326,32 @@ export const checkout = async (req: Request, res: Response) => {
     } satisfies bookcarsTypes.CheckoutResult)
   } catch (err) {
     if (err instanceof BookingConflictError) {
+      // F4 / W1 #10 — the conflict leaves the just-created guest user
+      // behind with no `expireAt` (it is set only after the availability
+      // save succeeds) and the activation email already sent — and the
+      // additional-driver row created for it. Remove exactly what this
+      // request created, best-effort and logged: the booking itself was
+      // never saved (the save threw), so there is no booking row to
+      // delete, and the reference counter advancing is harmless. A
+      // pre-existing account matched by email is untouched.
+      if (guestUserCreatedInRequest && guestUserId) {
+        try {
+          if (guestUserLicenseFile) {
+            await asyncFs.unlink(path.resolve(env.CDN_LICENSES, guestUserLicenseFile)).catch(() => undefined)
+          }
+          await Token.deleteMany({ user: new mongoose.Types.ObjectId(guestUserId) })
+          await User.deleteOne({ _id: new mongoose.Types.ObjectId(guestUserId) })
+        } catch (cleanupError) {
+          logger.error('[booking.checkout] Could not clean up guest account after booking conflict', cleanupError)
+        }
+      }
+      if (guestAdditionalDriverId) {
+        try {
+          await AdditionalDriver.deleteOne({ _id: new mongoose.Types.ObjectId(guestAdditionalDriverId) })
+        } catch (cleanupError) {
+          logger.error('[booking.checkout] Could not clean up additional driver after booking conflict', cleanupError)
+        }
+      }
       res.status(409).send(err.message)
       return
     }
@@ -2101,6 +2154,12 @@ export const getBooking = async (req: Request, res: Response) => {
 
       booking.pickupLocation.name = resolveLocationTranslation(booking.pickupLocation.values, language)
       booking.dropOffLocation.name = resolveLocationTranslation(booking.dropOffLocation.values, language)
+      // F4 / W1 #7 — late-return read model (Active + past `to`); a
+      // computed flag only, never a stored state.
+      ;(booking as unknown as Record<string, unknown>).overdue = isBookingOverdue({
+        lifecycle: booking.lifecycle,
+        to: booking.to,
+      })
 
       // GA-PAR-12: signing secrets never leave the server. The nonce is
       // `select: false` (absent here by construction) and is deleted
@@ -2908,6 +2967,164 @@ export const decideCancelRequest = async (req: Request, res: Response) => {
     })
   } catch (err) {
     logger.error(`[booking.decideCancelRequest] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F4 / W1 #7 — mark a booking as a no-show (roadmap §3: the no-show path
+ * must be explicit; absent in both codebases).
+ *
+ * A `Draft`/`Confirmed` booking whose scheduled pickup time has passed
+ * without a handover is cancelled: `status` + `lifecycle` become
+ * `Cancelled` in one availability save, so the car is freed for the
+ * dates exactly as a staff cancel frees them. The no-show itself is
+ * recorded with server-stamped `noShowAt` / `noShowBy` — no refund or
+ * fee decision is taken here: any charge/fee attached to a no-show is
+ * ADR-001-gated (GAPS.md §5) and must never be invented by this
+ * endpoint. The driver is notified best-effort (a failing mailer never
+ * fails the marking, F1 / W4 GAP-06 lesson).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const markNoShow = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.sendStatus(404)
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'mark bookings as no-show')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
+      return
+    }
+    if (booking.status === bookcarsTypes.BookingStatus.Void) {
+      res.status(409).send('TEMP_BOOKING: This is a temporary checkout booking; release it through the checkout flow instead of marking it as a no-show.')
+      return
+    }
+    if (booking.status === bookcarsTypes.BookingStatus.Cancelled) {
+      res.status(409).send(`ALREADY_CANCELLED: Booking ${booking._id.toString()} is already cancelled.`)
+      return
+    }
+    // A missing lifecycle reads as Draft (the Mongoose default on
+    // create); only a booking that has not been handed over can
+    // no-show — Active means the car was collected.
+    const lifecycle = booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft
+    if (![bookcarsTypes.ContractLifecycle.Draft, bookcarsTypes.ContractLifecycle.Confirmed].includes(lifecycle)) {
+      res.status(409).send('NO_SHOW_INVALID_STATE: Only a booking that has not been handed over can be marked as a no-show. The car has already been collected or the contract has moved on; settle it through the return flow instead.')
+      return
+    }
+    if (Date.now() <= new Date(booking.from).getTime()) {
+      res.status(409).send('NO_SHOW_TOO_EARLY: The scheduled pickup time has not passed yet.')
+      return
+    }
+    booking.status = bookcarsTypes.BookingStatus.Cancelled
+    booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
+    booking.noShowAt = new Date()
+    booking.noShowBy = new mongoose.Types.ObjectId(scope.sessionUser._id.toString())
+    booking.cancelRequest = false
+    booking.cancelRequestAt = undefined
+    booking.cancelRequestBy = undefined
+    // Cancelled reserves nothing, so the availability save only frees
+    // the dates (and bumps the reservation version for any concurrent
+    // check) — the same shape as executeStaffCancel.
+    await saveBookingWithAvailability(booking)
+    try {
+      await notifyDriver(booking)
+    } catch (err) {
+      logger.error(`[booking.markNoShow] Driver notification failed for no-show booking ${booking._id}`, err)
+    }
+    res.json(booking)
+  } catch (err) {
+    logger.error(`[booking.markNoShow] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F4 / W1 #7 — the overdue (late-return) list: `Active` bookings whose
+ * scheduled return `to` has passed, most overdue first. Read-model only
+ * (same rule as isBookingOverdue, expressed as the Mongo filter) — no
+ * status is written. Same response shape and agency scoping as the
+ * cancel-request queue (F3 / W1 #9).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getOverdueBookings = async (req: Request, res: Response) => {
+  try {
+    const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+    let suppliers = (body.suppliers || []).map((supplierId) => new mongoose.Types.ObjectId(supplierId))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.getOverdueBookings] Unauthorized attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot get booking information')
+      return
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      suppliers = [new mongoose.Types.ObjectId(supplierId)]
+    }
+
+    const now = new Date()
+    const filter: mongoose.QueryFilter<env.Booking> = {
+      supplier: { $in: suppliers },
+      lifecycle: bookcarsTypes.ContractLifecycle.Active,
+      to: { $lt: now },
+      status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+      deletedAt: null,
+    }
+    const totalRecords = await Booking.countDocuments(filter)
+    const rows = await Booking.find(filter)
+      .populate<{ supplier: env.UserInfo }>('supplier', '_id fullName avatar')
+      .populate<{ car: env.CarInfo }>('car', '_id name')
+      .populate<{ driver: env.UserInfo }>('driver', '_id fullName avatar')
+      .sort({ to: 1, _id: 1 })
+      .skip((page - 1) * size)
+      .limit(size)
+      .lean()
+
+    const resultData: bookcarsTypes.OverdueBookingRow[] = []
+    for (const row of rows) {
+      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot'>)
+      const r = row as unknown as Record<string, unknown>
+      delete r.signingNonce
+      resultData.push({
+        booking: row as unknown as bookcarsTypes.Booking,
+        currency: receivable.currency,
+        overdueSince: row.to,
+        overdueHours: bookcarsHelper.hours(row.to, now),
+      })
+    }
+
+    res.json([{ resultData, pageInfo: [{ totalRecords }] }])
+  } catch (err) {
+    logger.error(`[booking.getOverdueBookings] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

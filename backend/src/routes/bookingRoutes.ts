@@ -2,14 +2,18 @@ import express from 'express'
 import routeNames from '../config/bookingRoutes.config'
 import authJwt from '../middlewares/authJwt'
 import agencyAuth from '../middlewares/agencyAuth'
+import { checkoutRateLimiter } from '../middlewares/rateLimiter'
 import * as bookingController from '../controllers/bookingController'
 import * as bookingAmendmentController from '../controllers/bookingAmendmentController'
 
 const routes = express.Router()
 
 routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.create)
-routes.route(routeNames.checkout).post(bookingController.checkout)
-routes.route(routeNames.confirmPaymentIntent).post(bookingController.confirmPaymentIntent)
+// F4 / W1 #8 (= W4 GAP-01) — the public checkout surface gets its
+// rate limiter back (own 'checkout' bucket; anonymous-capable, no
+// auth middleware — checkout identity comes from the body).
+routes.route(routeNames.checkout).post(checkoutRateLimiter, bookingController.checkout)
+routes.route(routeNames.confirmPaymentIntent).post(checkoutRateLimiter, bookingController.confirmPaymentIntent)
 routes.route(routeNames.update).put(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.update)
 routes.route(routeNames.updateStatus).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.updateStatus)
 routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.deleteBookings)
@@ -32,5 +36,9 @@ routes.route(routeNames.getCancelRequests).post(authJwt.verifyToken, agencyAuth.
 routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.decideCancelRequest)
 routes.route(routeNames.confirmManualPayment).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmManualPayment)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)
+// F4 / W1 #7 — no-show marking + overdue list (ManageBookings, same
+// capability as the cancel workflow they sit beside).
+routes.route(routeNames.markNoShow).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.markNoShow)
+routes.route(routeNames.getOverdueBookings).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getOverdueBookings)
 
 export default routes

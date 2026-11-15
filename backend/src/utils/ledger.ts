@@ -331,14 +331,24 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   if (!target || receivable.outstandingBalance > 0 || (!moneyPosted && totalDue > 0)) {
     return { status: booking.status, updated: false, ...base, conflict: false }
   }
+  // F4 / W1 #5 — the pay-later half of the lifecycle middle: a
+  // manual/cash confirmation that derives Paid/PaidInFull from the
+  // ledger also moves the lifecycle Draft -> Confirmed, mirroring
+  // the provider-finalisation producer. A zero-total booking
+  // confirms the same way (nothing outstanding, nothing posted).
   const previousStatus = booking.status
+  const previousLifecycle = booking.lifecycle
   booking.status = target
+  if (!booking.lifecycle || booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
+    booking.lifecycle = bookcarsTypes.ContractLifecycle.Confirmed
+  }
   try {
     // Paid/PaidInFull reserve the car (Pending does not), so this
     // re-checks availability: a conflicting booking refuses the flip.
     await saveBookingWithAvailability(booking)
   } catch (err) {
     booking.status = previousStatus
+    booking.lifecycle = previousLifecycle
     if (err instanceof BookingConflictError) {
       logger.error(`[ledger.refreshBookingPaymentStatus] Booking ${booking._id.toString()} cannot be confirmed: the car is no longer available for the dates`, err)
       return { status: previousStatus, updated: false, ...base, conflict: true }

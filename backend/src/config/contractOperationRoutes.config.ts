@@ -9,6 +9,11 @@ const routes = {
   getFile: '/api/contract-operations/:bookingId/files/:filename',
   charges: '/api/contract-operations/:bookingId/charges',
   decideCharge: '/api/contract-operations/:bookingId/charges/:chargeId/decide',
+  // F4 / W1 #7 — dispute raise/resolve on charges and inspections.
+  disputeCharge: '/api/contract-operations/:bookingId/charges/:chargeId/dispute',
+  resolveChargeDispute: '/api/contract-operations/:bookingId/charges/:chargeId/dispute/resolve',
+  disputeInspection: '/api/contract-operations/:bookingId/inspections/:inspectionId/dispute',
+  resolveInspectionDispute: '/api/contract-operations/:bookingId/inspections/:inspectionId/dispute/resolve',
   snapshot: '/api/contract-operations/:bookingId/snapshots',
   snapshotFile: '/api/contract-operations/:bookingId/snapshots/:filename',
 }
