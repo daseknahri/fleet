@@ -11,9 +11,14 @@ import {
   Button,
   Drawer,
   List,
+  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
-  ListItem
+  Divider,
+  Collapse,
+  TextField,
+  InputAdornment,
 } from '@mui/material'
 import {
   Delete as TrashIcon,
@@ -30,6 +35,7 @@ import {
   EventNote as BookingsIcon,
   Build as MaintenanceIcon,
   People as UsersIcon,
+  Contacts as ClientsIcon,
   InfoTwoTone as AboutIcon,
   DescriptionTwoTone as TosIcon,
   ExitToApp as SignoutIcon,
@@ -43,14 +49,21 @@ import {
   Receipt as InvoicesIcon,
   SupportAgent as AgentsIcon,
   NotificationsActive as RemindersIcon,
+  UploadFile as ImportsIcon,
   Groups as TeamIcon,
   Assessment as ReportsIcon,
+  Close as CloseIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import * as bookcarsTypes from ':bookcars-types'
 import env from '@/config/env.config'
 import { strings } from '@/lang/header'
 import { strings as commonStrings } from '@/lang/common'
+import { strings as globalSearchStrings } from '@/lang/global-search'
 import * as UserService from '@/services/UserService'
 import * as BankDetailsService from '@/services/BankDetailsService'
 import Avatar from './Avatar'
@@ -68,21 +81,47 @@ interface HeaderProps {
   hidden?: boolean
 }
 
+// B-C1 (B-A-04): session key for the collapsed drawer sections.
+const DRAWER_COLLAPSED_KEY = 'ga:drawer-collapsed'
+
+// B-C1 (B-A-08): accent-insensitive match so typing "parametres" finds
+// "Paramètres" (and Arabic / case variants match as-is).
+const normalizeText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+interface DrawerNavItem {
+  path: string
+  label: string
+  icon: React.ReactNode
+  visible: boolean
+  badge?: number
+}
+
+interface DrawerNavSection {
+  key: string
+  label: string
+  items: DrawerNavItem[]
+}
+
 const Header = ({
   hidden,
 }: HeaderProps) => {
   const navigate = useNavigate()
+  const location = useLocation()
 
   const { user } = useUserContext() as UserContextType
   const { notificationCount } = useNotificationContext() as NotificationContextType
   const agencyPermissions = useAgencyPermissions()
-  const showInvoices = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadInvoices)
-  const showAgents = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadAgents)
-  const showReminders = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ReadReminders)
-  const showImports = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings)
+  // B-C1 (B-A-06): gated items render only once permissions are loaded.
+  // The old `!loaded || can(...)` showed every gated item on first open
+  // and then made it vanish once the permissions resolved (layout shift).
+  // The permission model itself is unchanged.
+  const showInvoices = !!agencyPermissions?.loaded && agencyPermissions.can(AgencyPermission.ReadInvoices)
+  const showAgents = !!agencyPermissions?.loaded && agencyPermissions.can(AgencyPermission.ReadAgents)
+  const showReminders = !!agencyPermissions?.loaded && agencyPermissions.can(AgencyPermission.ReadReminders)
+  const showImports = !!agencyPermissions?.loaded && (agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings))
   // GA-PAR-22: the trash tab needs a Manage* capability (Read* alone
   // must not see deleted records' reasons/actors — §6).
-  const showTrash = !agencyPermissions?.loaded || agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings)
+  const showTrash = !!agencyPermissions?.loaded && (agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings))
 
   const [currentUser, setCurrentUser] = useState<bookcarsTypes.User>()
   const [lang, setLang] = useState(helper.getLanguage(env.DEFAULT_LANGUAGE))
@@ -93,6 +132,20 @@ const Header = ({
   const [isSignedIn, setIsSignedIn] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
   const [bankDetails, setBankDetails] = useState<bookcarsTypes.BankDetails | null>(null)
+  // B-C1 (B-A-13): mobile search row toggle.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  // B-C1 (B-A-08): in-drawer filter over the nav items.
+  const [drawerFilter, setDrawerFilter] = useState('')
+  // B-C1 (B-A-04): collapsed sections, remembered for the session.
+  const [collapsedSections, setCollapsedSections] = useState<string[]>(() => {
+    try {
+      const saved = window.sessionStorage.getItem(DRAWER_COLLAPSED_KEY)
+      return saved ? (JSON.parse(saved) as string[]) : []
+    } catch {
+      // Session storage unavailable — all sections start expanded.
+      return []
+    }
+  })
 
   const isMenuOpen = Boolean(anchorEl)
   const isMobileMenuOpen = Boolean(mobileMoreAnchorEl)
@@ -114,7 +167,9 @@ const Header = ({
       flexGrow: 1,
     },
     menuButton: {
-      marginRight: 2,
+      // B-C1 (B-A-34): logical margin so the gap stays on the correct
+      // side of the hamburger in RTL.
+      marginInlineEnd: 2,
     },
   }
 
@@ -202,6 +257,20 @@ const Header = ({
 
   const handleSideMenuClose = () => {
     setSideAnchorEl(null)
+    setDrawerFilter('')
+  }
+
+  const toggleSection = (key: string) => {
+    const next = collapsedSections.includes(key)
+      ? collapsedSections.filter((k) => k !== key)
+      : [...collapsedSections, key]
+    setCollapsedSections(next)
+    try {
+      window.sessionStorage.setItem(DRAWER_COLLAPSED_KEY, JSON.stringify(next))
+    } catch {
+      // Session storage unavailable — the collapse still applies for
+      // this drawer opening.
+    }
   }
 
   const handleNotificationsClick = () => {
@@ -246,6 +315,83 @@ const Header = ({
 
     init()
   }, [hidden, currentUser])
+
+  // B-C1 (B-A-13): navigating from a mobile search hit closes the
+  // mobile search row again.
+  useEffect(() => {
+    setMobileSearchOpen(false)
+  }, [location.pathname])
+
+  // B-C1 (B-A-01/02/04/05/07/09): the drawer is now data-driven —
+  // ListItemButton items (keyboard-operable, with a `selected` active
+  // state), grouped into collapsible sections, with distinct icons for
+  // Imports (B-A-03) and Clients (B-A-05) and a Notifications entry
+  // (B-A-09). About / ToS / Contact live inside the System section
+  // (B-A-07). No navigation logic changed: every item still navigates
+  // and then closes the drawer.
+  const navSections: DrawerNavSection[] = [
+    {
+      key: 'operations',
+      label: strings.SECTION_OPERATIONS,
+      items: [
+        { path: '/', label: strings.DASHBOARD, icon: <DashboardIcon />, visible: true },
+        { path: '/calendar', label: strings.SCHEDULER, icon: <SchedulerIcon />, visible: true },
+        { path: '/bookings', label: strings.BOOKINGS, icon: <BookingsIcon />, visible: true },
+        { path: '/approbations', label: strings.APPROVALS, icon: <ApprovalsIcon />, visible: true },
+        { path: '/reports', label: strings.REPORTS, icon: <ReportsIcon />, visible: true },
+      ],
+    },
+    {
+      key: 'finance',
+      label: strings.SECTION_FINANCE,
+      items: [
+        { path: '/payments', label: strings.PAYMENTS, icon: <PaymentsIcon />, visible: true },
+        { path: '/invoices', label: strings.INVOICES, icon: <InvoicesIcon />, visible: showInvoices },
+        { path: '/caisse', label: strings.CASH_JOURNAL, icon: <CashJournalIcon />, visible: true },
+        { path: '/pricing', label: strings.PRICING, icon: <PricingIcon />, visible: true },
+        { path: '/bank-details', label: strings.BANK_DETAILS, icon: <BankDetailsIcon />, visible: !!bankDetails?.showBankDetailsPage },
+      ],
+    },
+    {
+      key: 'fleet',
+      label: strings.SECTION_FLEET,
+      items: [
+        { path: '/cars', label: strings.CARS, icon: <CarsIcon />, visible: true },
+        { path: '/suppliers', label: strings.COMPANIES, icon: <SuppliersIcon />, visible: true },
+        { path: '/countries', label: strings.COUNTRIES, icon: <CountriesIcon />, visible: true },
+        { path: '/locations', label: strings.LOCATIONS, icon: <LocationsIcon />, visible: true },
+        { path: '/maintenance', label: strings.MAINTENANCE, icon: <MaintenanceIcon />, visible: true },
+        { path: '/imports', label: strings.IMPORTS, icon: <ImportsIcon />, visible: showImports },
+      ],
+    },
+    {
+      key: 'people',
+      label: strings.SECTION_PEOPLE,
+      items: [
+        { path: '/users', label: strings.USERS, icon: <UsersIcon />, visible: true },
+        { path: '/clients', label: strings.CLIENTS, icon: <ClientsIcon />, visible: true },
+        { path: '/agents', label: strings.AGENTS, icon: <AgentsIcon />, visible: showAgents },
+        { path: '/team', label: strings.TEAM, icon: <TeamIcon />, visible: true },
+        { path: '/reminders', label: strings.REMINDERS, icon: <RemindersIcon />, visible: showReminders },
+      ],
+    },
+    {
+      key: 'system',
+      label: strings.SECTION_SYSTEM,
+      items: [
+        { path: '/notifications', label: strings.NOTIFICATIONS, icon: <NotificationsIcon />, visible: true, badge: notificationCount > 0 ? notificationCount : undefined },
+        { path: '/trash', label: strings.TRASH, icon: <TrashIcon />, visible: showTrash },
+        { path: '/settings', label: strings.SETTINGS, icon: <SettingsIcon />, visible: true },
+        { path: '/about', label: strings.ABOUT, icon: <AboutIcon />, visible: true },
+        { path: '/tos', label: strings.TOS, icon: <TosIcon />, visible: true },
+        { path: '/contact', label: strings.CONTACT, icon: <MailIcon />, visible: true },
+      ],
+    },
+  ]
+
+  const normalizedFilter = normalizeText(drawerFilter.trim())
+  const isFiltering = normalizedFilter.length > 0
+  const navItemMatches = (label: string) => !isFiltering || normalizeText(label).includes(normalizedFilter)
 
   const menuId = 'primary-account-menu'
   const renderMenu = (
@@ -330,254 +476,96 @@ const Header = ({
           )}
           <>
             <Drawer open={isSideMenuOpen} onClose={handleSideMenuClose} className="menu  side-menu">
-              <List sx={classes.list}>
-                <ListItem
-                  onClick={() => {
-                    navigate('/')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><DashboardIcon /></ListItemIcon>
-                  <ListItemText primary={strings.DASHBOARD} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/calendar')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><SchedulerIcon /></ListItemIcon>
-                  <ListItemText primary={strings.SCHEDULER} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/bookings')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><BookingsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.BOOKINGS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/payments')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><PaymentsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.PAYMENTS} />
-                </ListItem>
-                {showInvoices && (
-                <ListItem
-                  onClick={() => {
-                    navigate('/invoices')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><InvoicesIcon /></ListItemIcon>
-                  <ListItemText primary={strings.INVOICES} />
-                </ListItem>
+              <div className="drawer-panel" style={classes.list}>
+                <div className="drawer-header">
+                  <span className="drawer-brand">{env.WEBSITE_NAME}</span>
+                  <IconButton aria-label={commonStrings.CLOSE} onClick={handleSideMenuClose} size="small" color="inherit">
+                    <CloseIcon />
+                  </IconButton>
+                </div>
+                {currentUser && (
+                  <div className="drawer-identity">
+                    <Avatar record={currentUser} type={currentUser.type} size="small" readonly />
+                    <div className="drawer-identity-text">
+                      <span className="drawer-identity-name">{currentUser.fullName}</span>
+                      <span className="drawer-identity-email">{currentUser.email}</span>
+                    </div>
+                  </div>
                 )}
-                {showAgents && (
-                <ListItem
-                  onClick={() => {
-                    navigate('/agents')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><AgentsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.AGENTS} />
-                </ListItem>
-                )}
-                {showReminders && (
-                <ListItem
-                  onClick={() => {
-                    navigate('/reminders')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><RemindersIcon /></ListItemIcon>
-                  <ListItemText primary={strings.REMINDERS} />
-                </ListItem>
-                )}
-                {showImports && (
-                <ListItem
-                  onClick={() => {
-                    navigate('/imports')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><RemindersIcon /></ListItemIcon>
-                  <ListItemText primary={strings.IMPORTS} />
-                </ListItem>
-                )}
-                <ListItem
-                  onClick={() => {
-                    navigate('/caisse')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><CashJournalIcon /></ListItemIcon>
-                  <ListItemText primary={strings.CASH_JOURNAL} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/reports')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><ReportsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.REPORTS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/approbations')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><ApprovalsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.APPROVALS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/suppliers')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><SuppliersIcon /></ListItemIcon>
-                  <ListItemText primary={strings.COMPANIES} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/countries')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><CountriesIcon /></ListItemIcon>
-                  <ListItemText primary={strings.COUNTRIES} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/locations')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><LocationsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.LOCATIONS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/cars')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><CarsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.CARS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/users')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><UsersIcon /></ListItemIcon>
-                  <ListItemText primary={strings.USERS} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/clients')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><UsersIcon /></ListItemIcon>
-                  <ListItemText primary={strings.CLIENTS} />
-                </ListItem>
-                {showTrash && (
-                <ListItem
-                  onClick={() => {
-                    navigate('/trash')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><TrashIcon /></ListItemIcon>
-                  <ListItemText primary={strings.TRASH} />
-                </ListItem>
-                )}
-                <ListItem
-                  onClick={() => {
-                    navigate('/maintenance')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><MaintenanceIcon /></ListItemIcon>
-                  <ListItemText primary={strings.MAINTENANCE} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/team')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><TeamIcon /></ListItemIcon>
-                  <ListItemText primary={strings.TEAM} />
-                </ListItem>
-                <ListItem
-                  onClick={() => {
-                    navigate('/pricing')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><PricingIcon /></ListItemIcon>
-                  <ListItemText primary={strings.PRICING} />
-                </ListItem>
-                {bankDetails?.showBankDetailsPage && (
-                  <ListItem
-                    onClick={() => {
-                      navigate('/bank-details')
-                      handleSideMenuClose()
+                <div className="drawer-filter">
+                  <TextField
+                    size="small"
+                    fullWidth
+                    value={drawerFilter}
+                    onChange={(event) => setDrawerFilter(event.target.value)}
+                    placeholder={strings.FILTER_NAV}
+                    aria-label={strings.FILTER_NAV}
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        ),
+                        endAdornment: drawerFilter ? (
+                          <InputAdornment position="end">
+                            <IconButton size="small" aria-label={commonStrings.CLEAR} onClick={() => setDrawerFilter('')}>
+                              <ClearIcon fontSize="small" />
+                            </IconButton>
+                          </InputAdornment>
+                        ) : undefined,
+                      },
                     }}
-                  >
-                    <ListItemIcon><BankDetailsIcon /></ListItemIcon>
-                    <ListItemText primary={strings.BANK_DETAILS} />
-                  </ListItem>
-                )}
-                <ListItem
-                  onClick={() => {
-                    navigate('/settings')
-                    handleSideMenuClose()
-                  }}
-                >
-                  <ListItemIcon><SettingsIcon /></ListItemIcon>
-                  <ListItemText primary={strings.SETTINGS} />
-                </ListItem>
-              </List>
-              <ListItem
-                onClick={() => {
-                  navigate('/about')
-                  handleSideMenuClose()
-                }}
-              >
-                <ListItemIcon><AboutIcon /></ListItemIcon>
-                <ListItemText primary={strings.ABOUT} />
-              </ListItem>
-              <ListItem
-                onClick={() => {
-                  navigate('/tos')
-                  handleSideMenuClose()
-                }}
-              >
-                <ListItemIcon><TosIcon /></ListItemIcon>
-                <ListItemText primary={strings.TOS} />
-              </ListItem>
-              <ListItem
-                onClick={() => {
-                  navigate('/contact')
-                  handleSideMenuClose()
-                }}
-              >
-                <ListItemIcon><MailIcon /></ListItemIcon>
-                <ListItemText primary={strings.CONTACT} />
-              </ListItem>
+                  />
+                </div>
+                <Divider />
+                <List disablePadding>
+                  {navSections.map((section) => {
+                    const visibleItems = section.items.filter((item) => item.visible && navItemMatches(item.label))
+                    if (visibleItems.length === 0) {
+                      return null
+                    }
+                    // While filtering, every section with a match stays
+                    // expanded so the match is visible.
+                    const expanded = isFiltering || !collapsedSections.includes(section.key)
+                    return (
+                      <React.Fragment key={section.key}>
+                        <ListItem disablePadding>
+                          <ListItemButton onClick={() => toggleSection(section.key)} aria-expanded={expanded} className="drawer-section-header">
+                            <ListItemText primary={section.label} />
+                            {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                          </ListItemButton>
+                        </ListItem>
+                        <Collapse in={expanded} timeout="auto" unmountOnExit>
+                          <List disablePadding>
+                            {visibleItems.map((item) => (
+                              <ListItem disablePadding key={item.path}>
+                                <ListItemButton
+                                  selected={location.pathname === item.path}
+                                  onClick={() => {
+                                    navigate(item.path)
+                                    handleSideMenuClose()
+                                  }}
+                                >
+                                  <ListItemIcon>
+                                    {item.badge ? (
+                                      <Badge badgeContent={item.badge} color="error">
+                                        {item.icon}
+                                      </Badge>
+                                    ) : item.icon}
+                                  </ListItemIcon>
+                                  <ListItemText primary={item.label} />
+                                </ListItemButton>
+                              </ListItem>
+                            ))}
+                          </List>
+                        </Collapse>
+                        <Divider />
+                      </React.Fragment>
+                    )
+                  })}
+                </List>
+              </div>
             </Drawer>
           </>
           <div style={classes.grow} />
@@ -613,6 +601,14 @@ const Header = ({
               </Button>
             )}
             {isSignedIn && (
+              <IconButton aria-label={globalSearchStrings.SEARCH_LABEL} aria-expanded={mobileSearchOpen} aria-controls="header-mobile-search" color="inherit" onClick={() => setMobileSearchOpen((prev) => !prev)}>
+                <SearchIcon />
+              </IconButton>
+            )}
+            {isSignedIn && (
+              <QuickCreate />
+            )}
+            {isSignedIn && (
               <IconButton aria-label={notificationCount > 0 ? `${strings.NOTIFICATIONS} ${notificationCount}` : strings.NOTIFICATIONS} color="inherit" onClick={handleNotificationsClick}>
                 <Badge badgeContent={notificationCount > 0 ? notificationCount : null} color="error">
                   <NotificationsIcon />
@@ -626,6 +622,11 @@ const Header = ({
             )}
           </div>
         </Toolbar>
+        {isSignedIn && mobileSearchOpen && (
+          <div className="header-mobile-search" id="header-mobile-search">
+            <GlobalSearch />
+          </div>
+        )}
       </AppBar>
 
       {renderMobileMenu}

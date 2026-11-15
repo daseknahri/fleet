@@ -10,12 +10,92 @@
   z-index: 1401 !important;
 }
 
-.side-menu li {
-  cursor: pointer;
+/* B-C1 (B-A-01/02): drawer items are ListItemButtons — keyboard-focusable
+   with a visible focus ring, and the current page is highlighted. The old
+   `.side-menu li` rules targeted plain ListItems; the buttons render the
+   hover / selected / focus states now. */
+/* stylelint-disable-next-line selector-class-pattern -- MUI's own class name. */
+.side-menu .MuiListItemButton-root:hover {
+  background-color: #f1f1f1;
 }
 
-.side-menu li:hover {
-  background-color: #f1f1f1;
+/* stylelint-disable-next-line selector-class-pattern -- MUI's own class name. */
+.side-menu .MuiListItemButton-root:focus-visible {
+  outline: 2px solid #121212;
+  outline-offset: -2px;
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- MUI's own class names. */
+.side-menu .MuiListItemButton-root.Mui-selected {
+  background-color: #e9e9e9;
+  border-inline-start: 3px solid #121212;
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- MUI's own class names. */
+.side-menu .MuiListItemButton-root.Mui-selected:hover {
+  background-color: #e0e0e0;
+}
+
+/* B-C1 (B-A-08): drawer header (brand + close), signed-in identity row
+   and in-drawer filter. Badges are a later step — none added here. */
+.drawer-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.drawer-brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.drawer-identity-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.drawer-identity-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-identity-email {
+  font-size: 0.8rem;
+  color: #616161;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-filter {
+  padding: 12px 16px;
+}
+
+/* B-C1 (B-A-04): collapsible section headers. */
+/* stylelint-disable-next-line selector-class-pattern -- MUI's own class name. */
+.drawer-section-header .MuiListItemText-primary {
+  font-weight: 600;
 }
 
 .header-action {
@@ -31,6 +111,12 @@
   margin-inline-end: -13px;
 }
 
+/* B-C1 (B-A-13): mobile search row — hidden by default, shown below
+   960px when the search toggle opens it. */
+.header-mobile-search {
+  display: none;
+}
+
 /* Device width is less than or equal to 960px */
 
 @media only screen and (width <=960px) {
@@ -40,6 +126,17 @@
 
   .toolbar {
     min-height: 56px !important;
+  }
+
+  .header-mobile-search {
+    display: block;
+    padding: 0 16px 12px;
+  }
+
+  .header-mobile-search .global-search {
+    width: 100%;
+    max-width: none;
+    margin-inline-end: 0;
   }
 }
 
@@ -63,7 +160,8 @@
   }
 }
 
-/* GA-Q4-2 (#52): global search in the top bar (desktop only). */
+/* GA-Q4-2 (#52): global search in the top bar (desktop; B-C1 adds the
+   mobile search row below 960px, same component). */
 
 .global-search {
   position: relative;
@@ -112,7 +210,8 @@
   font-weight: 600;
   background-color: #f5f5f5;
 }
-/* GA-Q4-3 (#53): quick-create "+" menu in the top bar (desktop only). */
+/* GA-Q4-3 (#53): quick-create "+" menu in the top bar (desktop; B-C1
+   renders the same component in the mobile header too). */
 
 .quick-create {
   display: flex;
