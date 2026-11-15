@@ -1,5 +1,5 @@
 import React, { useCallback, useId, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import Layout from '@/components/Layout'
@@ -379,7 +379,8 @@ const Reports = () => {
           {builderLoading ? (
             <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /><Typography>{strings.LOADING}</Typography></Box>
           ) : !builderResult ? <Typography sx={{ p: 2 }}>{strings.BUILDER_EMPTY}</Typography> : (
-            <Table size="small" sx={{ mt: 2 }}>
+            <TableContainer sx={{ overflowX: 'auto', mt: 2 }}>
+              <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>{strings.COL_KEY}</TableCell>
@@ -440,6 +441,7 @@ const Reports = () => {
                 </TableRow>
               </TableBody>
             </Table>
+            </TableContainer>
           )}
           {builderResult?.comparison && (
             <Box sx={{ mt: 2 }}>

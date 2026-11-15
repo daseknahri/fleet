@@ -24,7 +24,8 @@ section.supplier-list article {
   font-size: 12px;
   padding: 25px;
   margin-bottom: 15px;
-  height: 85px;
+  height: auto;
+  min-height: 85px;
   width: 100%;
 }
 
@@ -70,6 +71,17 @@ section.supplier-list article .supplier-actions button {
 }
 
 /* Device width is greater than or equal to 960px */
+
+/* B-A-19: let the title wrap to two lines on narrow screens instead of
+   clipping it to one ellipsised line inside a fixed-height card. */
+@media only screen and (width <=960px) {
+  section.supplier-list article .supplier-item .supplier-item-title {
+    white-space: normal;
+    text-overflow: clip;
+    overflow: visible;
+    line-height: 1.25;
+  }
+}
 
 @media only screen and (width >=960px) {
   section.supplier-list article {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useMediaQuery } from '@mui/material'
 import { fr, enUS, es, arMA } from 'date-fns/locale'
 import { Scheduler } from '@/components/scheduler/index'
 import {
@@ -31,6 +32,11 @@ const VehicleScheduler = (
   const [init, setInit] = useState(true)
 
   const schedulerRef = React.useRef<SchedulerRef>(null)
+
+  // B-A-18: phones open on the single-day view — the month grid is only
+  // horizontal scroll at 360px. The view prop is initial-only in the
+  // vendored scheduler, so this is the mount-time default.
+  const isMobileView = useMediaQuery('(max-width:767px)')
 
   useEffect(() => {
     setFilter(filterFromProps)
@@ -189,7 +195,7 @@ const VehicleScheduler = (
         },
         moreEvents: 'Más...',
         noDataToDisplay: 'Sin datos para mostrar',
-        loading: 'Cargando...'
+        loading: 'Cargando...',
       }
     }
 
@@ -290,7 +296,7 @@ const VehicleScheduler = (
   return (
     <Scheduler
       ref={schedulerRef}
-      view="month"
+      view={isMobileView ? 'day' : 'month'}
       locale={language === 'fr' ? fr : language === 'es' ? es : language === 'ar' ? arMA : enUS}
       direction={language === 'ar' ? 'rtl' : 'ltr'}
       disableViewer

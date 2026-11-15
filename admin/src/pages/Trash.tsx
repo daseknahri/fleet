@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import {
   Button,
   Dialog,
+  useMediaQuery,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -13,9 +14,11 @@ import {
   Typography,
 } from '@mui/material'
 import { Restore as RestoreIcon, DeleteForever as PurgeIcon } from '@mui/icons-material'
+import { useTheme } from '@mui/material/styles'
 import {
   DataGrid,
   GridColDef,
+  GridColumnVisibilityModel,
   GridPaginationModel,
   GridRenderCellParams,
 } from '@mui/x-data-grid'
@@ -57,8 +60,26 @@ const Trash = () => {
   const trashDenied = !!agencyPermissions?.loaded && !canManageBookings && !canManageClients && !canManageFleet
 
   const [user, setUser] = useState<bookcarsTypes.User>()
+  const theme = useTheme()
+  // B-A-17: phones keep only the identifying columns + trashed-at + actions;
+  // the audit trail (who / why) stays one tap away in the column menu.
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>({})
+
   const [suppliers, setSuppliers] = useState<string[]>()
   const [tab, setTab] = useState<TrashTab>('bookings')
+
+  useEffect(() => {
+    if (!isSmallScreen) {
+      setColumnVisibilityModel({})
+    } else if (tab === 'bookings') {
+      setColumnVisibilityModel({ driver: false, moneyFlags: false, deletedByName: false, deleteReason: false })
+    } else if (tab === 'clients') {
+      setColumnVisibilityModel({ email: false, phone: false, deletedByName: false, deleteReason: false })
+    } else {
+      setColumnVisibilityModel({ deletedByName: false, deleteReason: false })
+    }
+  }, [isSmallScreen, tab])
   const [keyword, setKeyword] = useState('')
   const [rows, setRows] = useState<(bookcarsTypes.Booking | bookcarsTypes.User | bookcarsTypes.Car)[]>([])
   const [rowCount, setRowCount] = useState(0)
@@ -361,6 +382,8 @@ const Trash = () => {
             }}
             localeText={{ noRowsLabel: strings.EMPTY_LIST }}
             disableRowSelectionOnClick
+            columnVisibilityModel={columnVisibilityModel}
+            onColumnVisibilityModelChange={setColumnVisibilityModel}
           />
         </div>
       )}

@@ -27,7 +27,7 @@ div.settings {
 
 @media only screen and (width <=960px) {
   .settings-form {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
     padding: 30px;
   }
 
@@ -36,7 +36,7 @@ div.settings {
   }
 
   .settings-net {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
     padding: 30px;
   }
 }

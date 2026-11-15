@@ -23,7 +23,7 @@ div.update-location {
 
 @media only screen and (width <=960px) {
   .location-form {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
     padding: 30px;
   }
 }

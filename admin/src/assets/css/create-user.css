@@ -25,7 +25,7 @@ div.create-user .driver-license-field {
 
 @media only screen and (width <=960px) {
   .user-form {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
     padding: 30px;
   }
 }

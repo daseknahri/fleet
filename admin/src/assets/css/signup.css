@@ -29,7 +29,7 @@ div.signup {
 
 @media only screen and (width <=960px) {
   .signup-form {
-    width: 350px;
+    width: min(350px, calc(100vw - 32px));
     padding: 30px;
   }
 

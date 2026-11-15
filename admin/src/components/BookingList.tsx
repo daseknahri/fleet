@@ -5,6 +5,7 @@ import {
   DataGrid,
   GridPaginationModel,
   GridColDef,
+  GridColumnVisibilityModel,
   GridRowId,
   GridRenderCellParams,
   GridLocaleText,
@@ -12,6 +13,7 @@ import {
 import {
   Tooltip,
   IconButton,
+  useMediaQuery,
   Link,
   Dialog,
   DialogTitle,
@@ -81,6 +83,15 @@ const BookingList = ({
   const agencyPermissions = useAgencyPermissions()
   const canManageBookings = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageBookings)
   const theme = useTheme()
+  // B-A-17: narrow desktop widths hide the low-value columns instead of
+  // squeezing all seven flex columns (the grid itself only renders on
+  // desktop — phones already get the card list below).
+  const isNarrowGrid = useMediaQuery(theme.breakpoints.down('lg'))
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>({})
+
+  useEffect(() => {
+    setColumnVisibilityModel(isNarrowGrid ? { to: false, supplier: false } : {})
+  }, [isNarrowGrid])
   // MUI X takes a localeText prop as a wholesale replacement of the theme's
   // MuiDataGrid localeText (the per-language locale wired in main.tsx), so the
   // theme locale is merged back in here and only the empty-list label is
@@ -753,6 +764,8 @@ const BookingList = ({
             disableRowSelectionOnClick
             localeText={gridLocaleText}
             className="booking-grid"
+            columnVisibilityModel={columnVisibilityModel}
+            onColumnVisibilityModelChange={setColumnVisibilityModel}
           />
         ))}
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openUpdateDialog}>

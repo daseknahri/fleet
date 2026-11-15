@@ -10,13 +10,13 @@ div.users {
 @media only screen and (width <= 960px) {
   div.users {
     top: 56px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
 
   div.users div.col-1 {
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
+    position: static;
     padding: 10px;
     display: flex;
     justify-content: center;
@@ -27,8 +27,12 @@ div.users {
     max-width: 480px;
   }
 
+  /* B-A-14: the user-type filter stays visible on mobile as a full-width
+     row under the search box, instead of being removed entirely. */
   div.users div.col-1 .user-type-filter {
-    display: none;
+    display: block;
+    width: 100%;
+    margin: 10px 0 0;
   }
 
   div.users div.col-1 .search,
@@ -37,8 +41,11 @@ div.users {
   }
 
   div.users div.col-2 {
-    position: absolute;
-    inset: 90px 0 0;
+    position: relative;
+    inset: auto;
+    height: 60vh;
+    min-height: 420px;
+    flex: none;
   }
 }
 

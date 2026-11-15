@@ -46,7 +46,7 @@ ul.pricing-plan-features li {
   }
 
   .pricing-plan {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
     min-height: 300px;
   }
 

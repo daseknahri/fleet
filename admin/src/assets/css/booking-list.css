@@ -29,9 +29,10 @@ div.bs-list a.cell-supplier img {
 }
 
 div.bs-update-status {
-  width: 444px;
-  height: 70px;
-  overflow: hidden;
+  width: 100%;
+  max-width: 444px;
+  height: auto;
+  min-height: 70px;
 }
 
 div.bs-list span.bp {

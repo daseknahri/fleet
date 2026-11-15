@@ -4,6 +4,7 @@ import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissi
 import {
   DataGrid,
   GridColDef,
+  GridColumnVisibilityModel,
   GridRenderCellParams,
   GridRowId,
   GridLocaleText,
@@ -12,6 +13,7 @@ import {
   Tooltip,
   IconButton,
   Link,
+  useMediaQuery,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -67,6 +69,17 @@ const UserList = ({
   const agencyPermissions = useAgencyPermissions()
   const canManageClients = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageClients)
   const theme = useTheme()
+  // B-A-17: live breakpoint model — same columns hideDesktopColumns drops
+  // at load time (email / phone / type, plus balance / documents in client
+  // mode), so resizing a desktop load down to phone width behaves the same.
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>({})
+
+  useEffect(() => {
+    setColumnVisibilityModel(isSmallScreen ? {
+      email: false, phone: false, type: false, balanceDue: false, clientDocuments: false,
+    } : {})
+  }, [isSmallScreen])
   // MUI X takes a localeText prop as a wholesale replacement of the theme's
   // MuiDataGrid localeText (the per-language locale wired in main.tsx), so the
   // theme locale is merged back in here and only the empty-list label is
@@ -519,6 +532,8 @@ const UserList = ({
             setReloadColumns(true)
           }}
           localeText={gridLocaleText}
+          columnVisibilityModel={columnVisibilityModel}
+          onColumnVisibilityModelChange={setColumnVisibilityModel}
           getRowClassName={(params: any) => (params.row.blacklisted ? 'us-blacklisted' : '')}
           disableRowSelectionOnClick
         />

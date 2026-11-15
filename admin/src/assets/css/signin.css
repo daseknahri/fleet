@@ -54,7 +54,7 @@ div.signin div.forgot-password {
     align-items: center;
     justify-content: center;
     display: flex;
-    width: 350px;
+    width: min(350px, calc(100vw - 32px));
     border: 1px solid rgb(0 0 0 / 12%);
     padding: 15px;
   }

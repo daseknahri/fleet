@@ -23,7 +23,7 @@ div.bank-details {
 
 @media only screen and (width <=960px) {
   .bank-details-form {
-    width: 360px;
+    width: min(360px, calc(100vw - 32px));
   }
 }
 
