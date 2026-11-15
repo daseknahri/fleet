@@ -1175,6 +1175,8 @@ export interface RentalPayment extends Document {
   confirmedBy?: Types.ObjectId
   confirmedAt?: Date
   reversedFrom?: Types.ObjectId
+  refundProviderReference?: string
+  refundedAt?: Date
   settledAt?: Date
   reference?: string
   note?: string

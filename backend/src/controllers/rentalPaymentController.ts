@@ -153,6 +153,12 @@ export const reverse = async (req: Request, res: Response) => {
     res.status(201).json(reversal)
   } catch (err) {
     if (err instanceof LedgerError) {
+      // F1 / W3 P-5: a provider refund that could not be completed refuses
+      // the reversal — 502, nothing was written to the books.
+      if (err.code === 'REFUND_FAILED') {
+        res.status(502).send(err.message)
+        return
+      }
       res.status(err.code === 'INVALID_REVERSAL' ? 400 : 409).send(err.message)
       return
     }

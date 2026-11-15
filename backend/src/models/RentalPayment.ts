@@ -20,6 +20,8 @@ const rentalPaymentSchema = new Schema<env.RentalPayment>(
     confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     confirmedAt: { type: Date },
     reversedFrom: { type: Schema.Types.ObjectId, ref: 'RentalPayment' },
+    refundProviderReference: { type: String, maxlength: 200, trim: true },
+    refundedAt: { type: Date },
     settledAt: { type: Date },
     reference: { type: String, maxlength: 160, trim: true },
     note: { type: String, maxlength: 1000, trim: true },

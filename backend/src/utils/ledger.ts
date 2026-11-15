@@ -8,7 +8,7 @@ import Invoice from '../models/Invoice'
 import { recomputeInvoicePayment } from './invoicePayment'
 
 export class LedgerError extends Error {
-  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION' | 'TRASHED', message: string) {
+  constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION' | 'REFUND_FAILED' | 'TRASHED', message: string) {
     super(message)
     this.name = 'LedgerError'
   }
@@ -64,7 +64,7 @@ bookingLocks.delete(bookingId)
   }
 }
 
-const supportsTransactions = () => {
+export const supportsTransactions = () => {
   const client = mongoose.connection.getClient() as any
   const topologyType = client?.topology?.description?.type
   return !!topologyType && topologyType !== 'Single' && topologyType !== 'Unknown'
@@ -255,6 +255,47 @@ export const postProviderPayment = (input: Omit<PostRentalPaymentInput, 'method'
   })
 
 
+/**
+ * F1 / W3 P-5 — refund a provider payment at its provider before the books
+ * are reversed, so the ledger and the provider agree. Stripe: the provider
+ * reference is the PaymentIntent id. PayPal: the provider reference is the
+ * order id, so the completed capture is resolved from the order first.
+ * The idempotency key is stable per payment, so a retry after a crash
+ * replays the same refund instead of refunding twice.
+ *
+ * @param {env.RentalPayment} original
+ * @returns {Promise<string>} provider refund reference (refund id / capture id)
+ */
+const refundProviderPayment = async (original: env.RentalPayment): Promise<string> => {
+  if (!original.providerReference) {
+    throw new LedgerError('INVALID_REVERSAL', 'Provider payment has no provider reference; refund it in the provider dashboard first')
+  }
+  const refundKey = `refund-reversal-${original._id.toString()}`
+  try {
+    if (original.source === bookcarsTypes.RentalPaymentSource.Stripe) {
+      const stripeAPI = (await import('../payment/stripe.js')).default
+      const refund = await stripeAPI.refunds.create(
+        { payment_intent: original.providerReference },
+        { idempotencyKey: refundKey },
+      )
+      return refund.id
+    }
+    const paypal = await import('../payment/paypal.js')
+    const order = await paypal.getOrder(original.providerReference)
+    const capture = order?.purchase_units?.[0]?.payments?.captures?.find((c: { status?: string, id?: string }) => c?.status === 'COMPLETED' && c?.id)
+    if (!capture) {
+      throw new LedgerError('REFUND_FAILED', 'No completed PayPal capture found for this payment; refund it in the PayPal dashboard first')
+    }
+    await paypal.refundCapture(capture.id, refundKey)
+    return capture.id
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      throw err
+    }
+    throw new LedgerError('REFUND_FAILED', `Provider refund failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+  }
+}
+
 export const reverseRentalPayment = async (input: {
   paymentId: mongoose.Types.ObjectId | string
   actorId?: mongoose.Types.ObjectId | string
@@ -288,6 +329,17 @@ return existing
       throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
     }
     const reversalDate = input.date || new Date()
+    // F1 / W3 P-5: reversing a Stripe/PayPal payment refunds the money at
+    // the provider first. Without this the books net to zero while the
+    // provider still holds the customer's money. A failed provider refund
+    // refuses the reversal (REFUND_FAILED) — nothing is written.
+    let refundProviderReference: string | undefined
+    let refundedAt: Date | undefined
+    if (original.source === bookcarsTypes.RentalPaymentSource.Stripe
+      || original.source === bookcarsTypes.RentalPaymentSource.PayPal) {
+      refundProviderReference = await refundProviderPayment(original)
+      refundedAt = reversalDate
+    }
     const reversal = new RentalPayment({
       supplier: original.supplier,
       booking: original.booking,
@@ -310,6 +362,8 @@ return existing
       idempotencyKey: input.idempotencyKey,
       actor: input.actorId,
       reversedFrom: original._id,
+      refundProviderReference,
+      refundedAt,
       settledAt: reversalDate,
       note: input.note || `Reversal of ${original._id.toString()}`,
     })
