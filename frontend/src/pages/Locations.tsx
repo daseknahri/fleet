@@ -5,6 +5,7 @@ import env from '@/config/env.config'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import * as LocationService from '@/services/LocationService'
+import { strings as headerStrings } from '@/lang/header'
 import Layout from '@/components/Layout'
 import Map from '@/components/Map'
 import SearchForm from '@/components/SearchForm'
@@ -22,6 +23,11 @@ const Locations = () => {
     setLocations(_locations)
   }
 
+  const handleSelectPickupLocation = async (locationId: string) => {
+    setPickupLocation(locationId)
+    setOpenSearchFormDialog(true)
+  }
+
   return (
     <Layout onLoad={onLoad} strict={false}>
       <div className="locations">
@@ -29,11 +35,21 @@ const Locations = () => {
           position={new L.LatLng(env.MAP_LATITUDE, env.MAP_LONGITUDE)}
           initialZoom={env.MAP_ZOOM}
           locations={locations}
-          onSelelectPickUpLocation={async (locationId) => {
-            setPickupLocation(locationId)
-            setOpenSearchFormDialog(true)
-          }}
+          onSelelectPickUpLocation={handleSelectPickupLocation}
         />
+      </div>
+
+      <div className="locations-list">
+        <h1>{headerStrings.LOCATIONS}</h1>
+        <ul>
+          {locations.map((location) => (
+            <li key={location._id}>
+              <button type="button" onClick={() => handleSelectPickupLocation(location._id)}>
+                {location.name}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <Dialog

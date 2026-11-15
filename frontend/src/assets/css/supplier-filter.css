@@ -25,7 +25,7 @@ div.supplier-filter ul.supplier-list li {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  height: 32px;
+  min-height: 44px;
 }
 
 div.supplier-filter ul.supplier-list li span.supplier {

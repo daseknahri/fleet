@@ -225,34 +225,22 @@ const SignUp = () => {
                 />
 
                 <div className="signup-tos">
-                  <table>
-                    <tbody>
-                      <tr>
-                        <td aria-label="tos">
-                          <Checkbox
-                            {...register('tos')}
-                            color="primary"
-                            inputProps={{ 'aria-label': commonStrings.TOS }}
-                            onChange={() => {
-                              if (errors.tos) {
-                                clearErrors('tos')
-                              }
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <Link href="/tos" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} sx={{ display: 'block' }}>
-                            {commonStrings.TOS}
-                          </Link>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td colSpan={2}>
-                          <FormHelperText error={!!errors.tos}>{errors.tos?.message || ''}</FormHelperText>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <div className="signup-tos-row">
+                    <Checkbox
+                      {...register('tos')}
+                      color="primary"
+                      inputProps={{ 'aria-label': commonStrings.TOS }}
+                      onChange={() => {
+                        if (errors.tos) {
+                          clearErrors('tos')
+                        }
+                      }}
+                    />
+                    <Link href="/tos" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} sx={{ display: 'block' }}>
+                      {commonStrings.TOS}
+                    </Link>
+                  </div>
+                  <FormHelperText error={!!errors.tos}>{errors.tos?.message || ''}</FormHelperText>
                 </div>
 
                 <SocialLogin redirectToHomepage />

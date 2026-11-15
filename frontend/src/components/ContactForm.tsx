@@ -52,7 +52,6 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
 
   const onSubmit = async (data: FormFields) => {
     try {
-      console.log('boo')
       let recaptchaToken = ''
       if (reCaptchaLoaded) {
         recaptchaToken = await generateReCaptchaToken()
@@ -146,7 +145,7 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
         </FormControl>
 
         <div className="buttons">
-          <Button type="submit" variant="contained" className="btn-primary btn-margin-bottom btn" aria-label="Send" disabled={isSubmitting}>
+          <Button type="submit" variant="contained" className="btn-primary btn-margin-bottom btn" aria-label={strings.SEND} disabled={isSubmitting}>
             {
               isSubmitting
                 ? <CircularProgress color="inherit" size={24} />

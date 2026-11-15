@@ -82,7 +82,6 @@ const SocialLogin = ({
   }
 
   const loginError = (err: any) => {
-    console.log(err)
     if (onError) {
       onError(err)
     }

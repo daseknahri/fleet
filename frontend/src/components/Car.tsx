@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Button,
+  Skeleton,
   Tooltip,
 } from '@mui/material'
 import {
@@ -162,8 +163,21 @@ const Car = ({
         : <InfoIcon className="extra-info" />
   }
 
+  // B-F-30: same-height skeleton instead of a blank pop-in while the
+  // per-card price/extras fetch resolves.
   if (loading || !language || (!hidePrice && (!days || !totalPrice))) {
-    return null
+    return (
+      <div className="car-container">
+        <article>
+          <div style={{ width: '100%' }}>
+            <Skeleton variant="rectangular" width="100%" height={180} />
+            <Skeleton variant="text" width="60%" height={32} sx={{ marginTop: 1 }} />
+            <Skeleton variant="text" width="90%" />
+            <Skeleton variant="text" width="75%" />
+          </div>
+        </article>
+      </div>
+    )
   }
   // console.log('car')
 
@@ -179,7 +193,7 @@ const Car = ({
           </div>
           {distance && (
             <div className="distance">
-              <img alt="Distance" src={DistanceIcon} />
+              <img alt={strings.DISTANCE} src={DistanceIcon} />
               <Badge backgroundColor="#D8EDF9" color="#000" text={`${distance} ${strings.FROM_YOU}`} />
             </div>
           )}
@@ -202,7 +216,7 @@ const Car = ({
                 {car.rating && car.rating >= 1 && (
                   <>
                     <span className="value">{car.rating.toFixed(2)}</span>
-                    <img alt="Rating" src={RatingIcon} />
+                    <img alt={strings.RATING} src={RatingIcon} />
                   </>
                 )}
                 {car.trips >= 10 && <span className="trips">{`(${car.trips} ${strings.TRIPS})`}</span>}
@@ -250,7 +264,7 @@ const Car = ({
           <ul className="car-info-list">
             {car.type !== bookcarsTypes.CarType.Unknown && (
               <li className="car-type">
-                <Tooltip title={helper.getCarTypeTooltip(car.type)} placement="top">
+                <Tooltip title={helper.getCarTypeTooltip(car.type)} placement="top" enterTouchDelay={0}>
                   <div className="car-info-list-item">
                     <CarTypeIcon />
                     <span className="car-info-list-text">{helper.getCarTypeShort(car.type)}</span>
@@ -259,7 +273,7 @@ const Car = ({
               </li>
             )}
             <li className="gearbox">
-              <Tooltip title={helper.getGearboxTooltip(car.gearbox)} placement="top">
+              <Tooltip title={helper.getGearboxTooltip(car.gearbox)} placement="top" enterTouchDelay={0}>
                 <div className="car-info-list-item">
                   <GearboxIcon />
                   <span className="car-info-list-text">{helper.getGearboxTypeShort(car.gearbox)}</span>
@@ -268,7 +282,7 @@ const Car = ({
             </li>
             {car.seats > 0 && (
               <li className="seats">
-                <Tooltip title={helper.getSeatsTooltip(car.seats)} placement="top">
+                <Tooltip title={helper.getSeatsTooltip(car.seats)} placement="top" enterTouchDelay={0}>
                   <div className="car-info-list-item">
                     <SeatsIcon />
                     <span className="car-info-list-text">{car.seats}</span>
@@ -278,7 +292,7 @@ const Car = ({
             )}
             {car.doors > 0 && (
               <li className="doors">
-                <Tooltip title={helper.getDoorsTooltip(car.doors)} placement="top">
+                <Tooltip title={helper.getDoorsTooltip(car.doors)} placement="top" enterTouchDelay={0}>
                   <div className="car-info-list-item">
                     <img src={DoorsIcon} alt="" className="car-doors" />
                     <span className="car-info-list-text">{car.doors}</span>
@@ -288,9 +302,10 @@ const Car = ({
             )}
             {car.aircon && (
               <li className="aircon">
-                <Tooltip title={strings.AIRCON_TOOLTIP} placement="top">
+                <Tooltip title={strings.AIRCON_TOOLTIP} placement="top" enterTouchDelay={0}>
                   <div className="car-info-list-item" role="img">
                     <AirconIcon />
+                    <span className="car-info-list-text">{strings.AIRCON}</span>
                   </div>
                 </Tooltip>
               </li>

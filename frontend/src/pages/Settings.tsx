@@ -45,6 +45,8 @@ const Settings = () => {
   const birthDate = useWatch({ control, name: 'birthDate' })
 
   const handleEmailNotificationsChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // B-F-28: snapshot so a failed save rolls the switch back.
+    const previous = enableEmailNotifications
     try {
       if (user && user._id) {
         const _user = bookcarsHelper.clone(user) as bookcarsTypes.User
@@ -61,11 +63,15 @@ const Settings = () => {
         if (status === 200) {
           setUser(_user)
           helper.info(strings.SETTINGS_UPDATED)
+        } else {
+          setEnableEmailNotifications(previous)
+          helper.error()
         }
       } else {
         helper.error()
       }
     } catch (err) {
+      setEnableEmailNotifications(previous)
       helper.error(err)
     }
   }
@@ -88,6 +94,8 @@ const Settings = () => {
   ]
 
   const handleEmailCategoryChange = (key: keyof bookcarsTypes.EmailNotificationCategories) => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // B-F-28: snapshot so a failed save rolls the switch back.
+    const previous = emailCategories
     try {
       if (user) {
         const next = { ...emailCategories, [key]: e.target.checked }
@@ -103,12 +111,14 @@ const Settings = () => {
           setUser(_user)
           helper.info(strings.SETTINGS_UPDATED)
         } else {
+          setEmailCategories(previous)
           helper.error()
         }
       } else {
         helper.error()
       }
     } catch (err) {
+      setEmailCategories(previous)
       helper.error(err)
     }
   }
@@ -181,6 +191,7 @@ const Settings = () => {
       {visible && user && (
         <>
           <div className="settings">
+            <h1 className="settings-form-title">{strings.TITLE}</h1>
 
             <Paper className="settings-form settings-form-wrapper" elevation={10}>
               <form onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -247,8 +258,9 @@ const Settings = () => {
                 </FormControl>
                 <div className="buttons">
                   <Button
-                    variant="contained"
-                    className="btn-primary btn-margin btn-margin-bottom"
+                    variant="outlined"
+                    color="primary"
+                    className="btn-margin btn-margin-bottom"
                     disabled={isSubmitting}
                     onClick={(e) => {
                       e.preventDefault()
@@ -276,12 +288,12 @@ const Settings = () => {
             </Paper>
 
             <Paper className="settings-form settings-form-wrapper" elevation={10}>
-              <h1 className="settings-form-title">{commonStrings.DRIVER_LICENSE}</h1>
+              <h2 className="settings-form-title">{commonStrings.DRIVER_LICENSE}</h2>
               <DriverLicense user={user} />
             </Paper>
 
             <Paper className="settings-net settings-net-wrapper" elevation={10}>
-              <h1 className="settings-form-title">{strings.NETWORK_SETTINGS}</h1>
+              <h2 className="settings-form-title">{strings.NETWORK_SETTINGS}</h2>
               <FormControl component="fieldset">
                 <FormControlLabel control={<Switch checked={enableEmailNotifications} onChange={handleEmailNotificationsChange} />} label={strings.SETTINGS_EMAIL_NOTIFICATIONS} />
                 {emailCategoryRows.map((row) => (

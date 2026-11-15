@@ -3,6 +3,7 @@ import * as langHelper from '@/utils/langHelper'
 
 const strings = new LocalizedStrings({
   fr: {
+    TITLE: 'Paramètres',
     SETTINGS_UPDATED: 'Paramètres modifiés avec succès.',
     NETWORK_SETTINGS: 'Paramètres Réseau',
     SETTINGS_EMAIL_NOTIFICATIONS: 'Activer les notifications par email',
@@ -14,6 +15,7 @@ const strings = new LocalizedStrings({
     SETTINGS_EMAIL_NEWS: 'Actualités',
   },
   en: {
+    TITLE: 'Settings',
     SETTINGS_UPDATED: 'Settings updated successfully.',
     NETWORK_SETTINGS: 'Network settings',
     SETTINGS_EMAIL_NOTIFICATIONS: 'Enable email notifications',
@@ -25,6 +27,7 @@ const strings = new LocalizedStrings({
     SETTINGS_EMAIL_NEWS: 'News',
   },
   ar: {
+    TITLE: 'الإعدادات',
     SETTINGS_UPDATED: 'تم تحديث الإعدادات بنجاح.',
     NETWORK_SETTINGS: 'إعدادات الشبكة',
     SETTINGS_EMAIL_NOTIFICATIONS: 'تفعيل إشعارات البريد الإلكتروني',
@@ -36,6 +39,7 @@ const strings = new LocalizedStrings({
     SETTINGS_EMAIL_NEWS: 'الأخبار',
   },
   es: {
+    TITLE: 'Configuración',
     SETTINGS_UPDATED: 'Configuración actualizada correctamente.',
     NETWORK_SETTINGS: 'Configuración de red',
     SETTINGS_EMAIL_NOTIFICATIONS: 'Habilitar notificaciones por correo electrónico',

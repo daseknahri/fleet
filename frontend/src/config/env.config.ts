@@ -77,7 +77,13 @@ const getPaymentGateway = () => {
 const PAYMENT_GATEWAY = getPaymentGateway()
 
 const env = {
-  isMobile: window.innerWidth <= 960,
+  // B-F-15: live viewport flag — read on every access instead of once at
+  // module load, so resize/rotate across the 960px breakpoint is picked
+  // up by any component that re-renders. Components that must re-render
+  // on the crossing itself (Header) subscribe via matchMedia.
+  get isMobile() {
+    return window.innerWidth <= 960
+  },
   isProduction: import.meta.env.VITE_NODE_ENV === 'production',
   isSafari: /^((?!chrome|android).)*safari/i.test(navigator.userAgent),
 

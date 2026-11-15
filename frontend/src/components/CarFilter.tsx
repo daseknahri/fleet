@@ -14,6 +14,7 @@ import Accordion from './Accordion'
 import { schema, FormFields, LocationField } from '@/models/SearchForm'
 import * as LocationService from '@/services/LocationService'
 import { useSetting } from '@/context/SettingContext'
+import Progress from '@/components/Progress'
 
 import '@/assets/css/car-filter.css'
 
@@ -190,8 +191,9 @@ const CarFilter = ({
   }, [from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Guard against using `minDate` before it's ready
+  // B-F-29: spinner instead of an empty filter column while settings load.
   if (!settings || !minDate || !fromMinDate || !minTime || !maxTime) {
-    return null
+    return <Progress />
   }
 
   const handleSameLocationChange = (e: React.ChangeEvent<HTMLInputElement>) => {

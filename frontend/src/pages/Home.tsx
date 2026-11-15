@@ -120,8 +120,6 @@ const Home = () => {
     const video = document.getElementById('cover') as HTMLVideoElement
     if (video) {
       observer.observe(video)
-    } else {
-      console.error('Cover video not found')
     }
   }
 
@@ -153,7 +151,7 @@ const Home = () => {
             )}
           </div>
 
-          <div className="home-title">{strings.TITLE}</div>
+          <h1 className="home-title">{strings.TITLE}</h1>
           <div className="home-cover">{strings.COVER}</div>
           {/* <div className="home-subtitle">{strings.SUBTITLE}</div> */}
 
@@ -217,7 +215,7 @@ const Home = () => {
 
         <div className="services">
 
-          <h1>{strings.SERVICES_TITLE}</h1>
+          <h2>{strings.SERVICES_TITLE}</h2>
 
           <div className="services-boxes">
 
@@ -287,7 +285,7 @@ const Home = () => {
         <div className="home-suppliers" style={suppliers.length < 4 ? { margin: 0 } : undefined}>
           {suppliers.length > 3 && (
             <>
-              <h1>{strings.SUPPLIERS_TITLE}</h1>
+              <h2>{strings.SUPPLIERS_TITLE}</h2>
               <SupplierCarrousel suppliers={suppliers} />
             </>
           )}
@@ -295,16 +293,20 @@ const Home = () => {
 
         {countries.length > 0 && (
           <div className="destinations">
-            <h1>{strings.DESTINATIONS_TITLE}</h1>
+            <h2>{strings.DESTINATIONS_TITLE}</h2>
             <div className="tabs">
               <Tabs
                 value={tabValue}
                 onChange={handleTabChange}
                 aria-label={strings.DESTINATIONS_TITLE}
-                TabIndicatorProps={{ sx: { display: env.isMobile ? 'none' : null } }}
+                TabIndicatorProps={{ sx: { height: 2 } }}
                 sx={{
                   '& .MuiTabs-flexContainer': {
                     flexWrap: 'wrap',
+                  },
+                  '& .MuiTab-root.Mui-selected': {
+                    fontWeight: 700,
+                    color: '#1a1a1a',
                   },
                 }}
               >
@@ -333,7 +335,7 @@ const Home = () => {
         )}
 
         <div className="car-size">
-          <h1>{strings.CAR_SIZE_TITLE}</h1>
+          <h2>{strings.CAR_SIZE_TITLE}</h2>
           <p>{strings.CAR_SIZE_TEXT}</p>
           <div className="boxes">
             <div className="box">
@@ -362,11 +364,11 @@ const Home = () => {
                 <ul>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(miniPricePhr, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · phr</span>
+                    <span className="unit">{strings.PER_HOUR}</span>
                   </li>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(miniPricePday, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · pday</span>
+                    <span className="unit">{strings.PER_DAY}</span>
                   </li>
                 </ul>
               </div>
@@ -411,11 +413,11 @@ const Home = () => {
                 <ul>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(midiPricePhr, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · phr</span>
+                    <span className="unit">{strings.PER_HOUR}</span>
                   </li>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(midiPricePday, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · pday</span>
+                    <span className="unit">{strings.PER_DAY}</span>
                   </li>
                 </ul>
               </div>
@@ -459,11 +461,11 @@ const Home = () => {
                 <ul>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(maxiPricePhr, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · phr</span>
+                    <span className="unit">{strings.PER_HOUR}</span>
                   </li>
                   <li>
                     <span className="price">{bookcarsHelper.formatPrice(maxiPricePday, commonStrings.CURRENCY, language)}</span>
-                    <span className="unit"> · pday</span>
+                    <span className="unit">{strings.PER_DAY}</span>
                   </li>
                 </ul>
               </div>
@@ -524,7 +526,7 @@ const Home = () => {
         <div className="customer-care">
           <div className="customer-care-wrapper">
             <div className="customer-care-text">
-              <h1>{strings.CUSTOMER_CARE_TITLE}</h1>
+              <h2>{strings.CUSTOMER_CARE_TITLE}</h2>
               <h2>{strings.CUSTOMER_CARE_SUBTITLE}</h2>
               <div className="customer-care-content">{strings.CUSTOMER_CARE_TEXT}</div>
               <div className="customer-care-boxes">

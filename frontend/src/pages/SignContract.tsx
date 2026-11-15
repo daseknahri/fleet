@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Paper } from '@mui/material'
+import { Button, Paper, TextField } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as SigningService from '@/services/SigningService'
 import { strings } from '@/lang/sign-contract'
@@ -31,6 +31,7 @@ const SignContract = () => {
   const [summary, setSummary] = useState<bookcarsTypes.SigningSummary>()
   const [submitting, setSubmitting] = useState(false)
   const [signatureMissing, setSignatureMissing] = useState(false)
+  const [typedName, setTypedName] = useState('')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawingRef = useRef(false)
   const drawnRef = useRef(false)
@@ -139,6 +140,28 @@ const SignContract = () => {
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     drawnRef.current = false
+  }
+
+  // B-F-39: typed-signature fallback — draw the typed name onto the
+  // canvas so keyboard-only users (or anyone who cannot draw) can sign.
+  // No API change: the canvas bitmap is submitted exactly as before.
+  const applyTypedSignature = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+    const name = typedName.trim()
+    if (!canvas || !ctx || !name) {
+      return
+    }
+    const ratio = window.devicePixelRatio || 1
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#1a1a2e'
+    ctx.font = `${48 * ratio}px "Segoe Script", "Brush Script MT", cursive`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(name, canvas.width / 2, canvas.height / 2)
+    drawnRef.current = true
+    setSignatureMissing(false)
   }
 
   const handleSubmit = async () => {
@@ -251,6 +274,8 @@ const SignContract = () => {
             <canvas
               ref={canvasRef}
               className="sign-contract-canvas"
+              role="img"
+              aria-label={strings.SIGN_HERE}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={stopDrawing}
@@ -258,6 +283,20 @@ const SignContract = () => {
               onPointerCancel={stopDrawing}
             />
             {signatureMissing && <p className="sign-contract-error">{strings.SIGNATURE_REQUIRED}</p>}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
+              <TextField
+                label={strings.TYPE_NAME}
+                value={typedName}
+                onChange={(e) => setTypedName(e.target.value)}
+                size="small"
+                fullWidth
+                disabled={submitting}
+              />
+              <Button variant="outlined" onClick={applyTypedSignature} disabled={!typedName.trim() || submitting} sx={{ whiteSpace: 'nowrap' }}>
+                {strings.USE_TYPED_SIGNATURE}
+              </Button>
+            </div>
 
             <div className="sign-contract-buttons">
               <Button variant="outlined" onClick={handleClear} disabled={submitting}>

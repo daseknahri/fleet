@@ -1,12 +1,8 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { IconButton, Link } from '@mui/material'
+import { Link } from '@mui/material'
 import {
   MailOutline,
-  FacebookTwoTone as FacebookIcon,
-  X,
-  LinkedIn,
-  Instagram,
 } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
 import { strings } from '@/lang/footer'
@@ -22,6 +18,12 @@ const SecurePayment = env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.Strip
 const Footer = () => {
   const navigate = useNavigate()
 
+  // B-F-13: footer links are real links; keep SPA navigation.
+  const go = (path: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    navigate(path)
+  }
+
   return (
     <div className="footer">
       <div className="header">{env.WEBSITE_NAME}</div>
@@ -29,35 +31,32 @@ const Footer = () => {
         <div className="main-section">
           <div className="title">{strings.CORPORATE}</div>
           <ul className="links">
-            <li><Link href="/about" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/about') }}>{strings.ABOUT}</Link></li>
-            <li><Link href="/cookie-policy" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/cookie-policy') }}>{strings.COOKIE_POLICY}</Link></li>
-            <li><Link href="/privacy" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/privacy') }}>{strings.PRIVACY_POLICY}</Link></li>
-            <li><Link href="/tos" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/tos') }}>{strings.TOS}</Link></li>
+            <li><Link href="/about" underline="hover" color="inherit" onClick={go('/about')}>{strings.ABOUT}</Link></li>
+            <li><Link href="/cookie-policy" underline="hover" color="inherit" onClick={go('/cookie-policy')}>{strings.COOKIE_POLICY}</Link></li>
+            <li><Link href="/privacy" underline="hover" color="inherit" onClick={go('/privacy')}>{strings.PRIVACY_POLICY}</Link></li>
+            <li><Link href="/tos" underline="hover" color="inherit" onClick={go('/tos')}>{strings.TOS}</Link></li>
           </ul>
         </div>
         <div className="main-section">
           <div className="title">{strings.RENT}</div>
           <ul className="links">
-            {!env.HIDE_SUPPLIERS && <li><Link href="/suppliers" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/suppliers') }}>{strings.SUPPLIERS}</Link></li>}
-            <li><Link href="/locations" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/locations') }}>{strings.LOCATIONS}</Link></li>
+            {!env.HIDE_SUPPLIERS && <li><Link href="/suppliers" underline="hover" color="inherit" onClick={go('/suppliers')}>{strings.SUPPLIERS}</Link></li>}
+            <li><Link href="/locations" underline="hover" color="inherit" onClick={go('/locations')}>{strings.LOCATIONS}</Link></li>
           </ul>
         </div>
         <div className="main-section">
           <div className="title">{strings.SUPPORT}</div>
           <ul className="links">
-            <li><Link href="/contact" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/contact') }}>{strings.CONTACT}</Link></li>
-            <li><Link href="/faq" underline="hover" color="inherit" onClick={(e) => { e.preventDefault(); navigate('/faq') }}>{strings.FAQ}</Link></li>
+            <li><Link href="/contact" underline="hover" color="inherit" onClick={go('/contact')}>{strings.CONTACT}</Link></li>
+            <li><Link href="/faq" underline="hover" color="inherit" onClick={go('/faq')}>{strings.FAQ}</Link></li>
           </ul>
           <div className="footer-contact">
             <MailOutline className="icon" />
             <a href={`mailto:${env.CONTACT_EMAIL}`}>{env.CONTACT_EMAIL}</a>
           </div>
-          <div className="footer-contact">
-            <IconButton href="https://www.facebook.com/" target="_blank" aria-label="Facebook" className="social-icon"><FacebookIcon /></IconButton>
-            <IconButton href="https://x.com/" target="_blank" aria-label="X" className="social-icon"><X /></IconButton>
-            <IconButton href="https://www.linkedin.com/" target="_blank" aria-label="LinkedIn" className="social-icon"><LinkedIn /></IconButton>
-            <IconButton href="https://www.instagram.com/" target="_blank" aria-label="Instagram" className="social-icon"><Instagram /></IconButton>
-          </div>
+          {/* B-F-43: social icons removed — they linked to the platforms'
+              homepages, not the business's profiles, and no real profile
+              URLs exist in the repo or config. */}
           <div className="newsletter">
             <NewsletterForm />
           </div>
@@ -66,7 +65,7 @@ const Footer = () => {
       <section className="payment">
         <div
           className="payment-text"
-          style={{ margin: env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.PayPal ? '0 20px' : '-25px 10px 0 0' }}
+          style={env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.PayPal ? { margin: '0 20px' } : { margin: '-25px 0 0', marginInlineEnd: '10px' }}
         >
           {strings.SECURE_PAYMENT}
         </div>

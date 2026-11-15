@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   AppBar,
   Toolbar,
@@ -65,6 +65,7 @@ const Header = ({
   headerTitle,
 }: HeaderProps) => {
   const navigate = useNavigate()
+  const location = useLocation()
 
   const { user } = useUserContext() as UserContextType
   const { notificationCount } = useNotificationContext() as NotificationContextType
@@ -357,13 +358,15 @@ const Header = ({
 
                 <Button onClick={() => navigate('/')} className="logo">{env.WEBSITE_NAME}</Button>
 
-                {!isMobile && headerTitle && <div className="header-title">{headerTitle}</div>}
+                {!isMobile && headerTitle && <div className="header-title" style={{ fontSize: 18, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerTitle}</div>}
               </>
             )}
 
             <Drawer open={isSideMenuOpen} onClose={handleSideMenuClose} className="menu side-menu">
               <List sx={classes.list}>
                 <ListItemButton
+                  selected={location.pathname === '/'}
+                  aria-current={location.pathname === '/' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/')
                     handleSideMenuClose()
@@ -374,6 +377,8 @@ const Header = ({
                 </ListItemButton>
                 {isSignedIn && (
                   <ListItemButton
+                    selected={location.pathname === '/bookings'}
+                    aria-current={location.pathname === '/bookings' ? 'page' : undefined}
                     onClick={() => {
                       navigate('/bookings')
                       handleSideMenuClose()
@@ -385,6 +390,8 @@ const Header = ({
                 )}
                 {!env.HIDE_SUPPLIERS && (
                   <ListItemButton
+                    selected={location.pathname === '/suppliers'}
+                    aria-current={location.pathname === '/suppliers' ? 'page' : undefined}
                     onClick={() => {
                       navigate('/suppliers')
                       handleSideMenuClose()
@@ -395,6 +402,8 @@ const Header = ({
                   </ListItemButton>
                 )}
                 <ListItemButton
+                  selected={location.pathname === '/locations'}
+                  aria-current={location.pathname === '/locations' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/locations')
                     handleSideMenuClose()
@@ -404,6 +413,8 @@ const Header = ({
                   <ListItemText primary={strings.LOCATIONS} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/about'}
+                  aria-current={location.pathname === '/about' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/about')
                     handleSideMenuClose()
@@ -413,6 +424,8 @@ const Header = ({
                   <ListItemText primary={strings.ABOUT} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/cookie-policy'}
+                  aria-current={location.pathname === '/cookie-policy' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/cookie-policy')
                     handleSideMenuClose()
@@ -422,6 +435,8 @@ const Header = ({
                   <ListItemText primary={strings.COOKIE_POLICY} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/privacy'}
+                  aria-current={location.pathname === '/privacy' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/privacy')
                     handleSideMenuClose()
@@ -431,6 +446,8 @@ const Header = ({
                   <ListItemText primary={strings.PRIVACY_POLICY} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/tos'}
+                  aria-current={location.pathname === '/tos' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/tos')
                     handleSideMenuClose()
@@ -440,6 +457,8 @@ const Header = ({
                   <ListItemText primary={strings.TOS} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/faq'}
+                  aria-current={location.pathname === '/faq' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/faq')
                     handleSideMenuClose()
@@ -449,6 +468,8 @@ const Header = ({
                   <ListItemText primary={strings.FAQ} />
                 </ListItemButton>
                 <ListItemButton
+                  selected={location.pathname === '/contact'}
+                  aria-current={location.pathname === '/contact' ? 'page' : undefined}
                   onClick={() => {
                     navigate('/contact')
                     handleSideMenuClose()
@@ -460,6 +481,8 @@ const Header = ({
                 {isMobile && !hideSignin && !isSignedIn && isLoaded && (
                   <>
                     <ListItemButton
+                      selected={location.pathname === '/sign-in'}
+                      aria-current={location.pathname === '/sign-in' ? 'page' : undefined}
                       onClick={() => {
                         navigate('/sign-in')
                         handleSideMenuClose()
@@ -469,6 +492,8 @@ const Header = ({
                       <ListItemText primary={strings.SIGN_IN} />
                     </ListItemButton>
                     <ListItemButton
+                      selected={location.pathname === '/sign-up'}
+                      aria-current={location.pathname === '/sign-up' ? 'page' : undefined}
                       onClick={() => {
                         navigate(`/sign-up?d=${Date.now()}`)
                         handleSideMenuClose()

@@ -46,7 +46,7 @@ const NewsletterForm = () => {
       const payload: bookcarsTypes.SendEmailPayload = {
         from: email,
         to: env.CONTACT_EMAIL,
-        subject: 'New Newsletter Subscription',
+        subject: strings.NEWSLETTER_SUBJECT,
         message: '',
         isContactForm: false,
       }
@@ -65,7 +65,7 @@ const NewsletterForm = () => {
 
   return (
     <form className="newsletter-form" onSubmit={handleSubmit(onSubmit)} noValidate>
-      <h1>{strings.TITLE}</h1>
+      <h2>{strings.TITLE}</h2>
       <p>{strings.SUB_TITLE}</p>
 
       <div className="form">

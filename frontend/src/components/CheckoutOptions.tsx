@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   FormControl,
   FormControlLabel,
+  Skeleton,
   Switch,
 } from '@mui/material'
 import {
@@ -96,8 +97,17 @@ const CheckoutOptions = ({
     }
   }, [car])
 
+  // B-F-30: same-height skeleton instead of an invisible options block
+  // while the six option prices resolve.
   if (loading) {
-    return null
+    return (
+      <div className="checkout-options-container">
+        <Skeleton variant="text" width={180} height={32} />
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} variant="rectangular" width="100%" height={40} sx={{ marginBottom: 1 }} />
+        ))}
+      </div>
+    )
   }
 
   const handleCancellationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

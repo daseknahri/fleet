@@ -14,7 +14,8 @@
 
   .contact-form .recaptcha {
     margin-top: 25px;
-    margin-inline-start: -10px;
+    transform: scale(0.95);
+    transform-origin: center top;
   }
 }
 
@@ -25,8 +26,8 @@
   }
 
   .contact-form .recaptcha {
-    margin-top: 25px;
-    margin-inline-start: 85px;
+    margin: 25px auto 0;
+    width: fit-content;
   }
 
   .contact-form .btn {

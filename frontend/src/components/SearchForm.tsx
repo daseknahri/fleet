@@ -20,6 +20,7 @@ import LocationSelectList from '@/components/LocationSelectList'
 import DateTimePicker from '@/components/DateTimePicker'
 import { schema, FormFields, LocationField } from '@/models/SearchForm'
 import { useSetting } from '@/context/SettingContext'
+import Progress from '@/components/Progress'
 
 import '@/assets/css/search-form.css'
 
@@ -234,8 +235,9 @@ const SearchForm = ({
   }, [from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Guard against using `minDate` before it's ready
+  // B-F-29: spinner instead of an empty hero card while settings load.
   if (!settings || !minDate || !fromMinDate || !minTime || !maxTime) {
-    return null
+    return <Progress />
   }
 
   const handlePickupLocationChange = async (values: bookcarsTypes.Option[]) => {
@@ -392,6 +394,19 @@ const SearchForm = ({
         <FormControl className="drop-off-location">
           <LocationSelectList
             {...register('dropOffLocation')}
+            label={commonStrings.DROP_OFF_LOCATION}
+            hidePopupIcon
+            // customOpen={env.isMobile}
+            // init={!env.isMobile}
+            init
+            value={dropOffLocation as bookcarsTypes.Location}
+            required
+            variant="outlined"
+            onChange={handleDropOffLocationChange}
+          />
+          <FormHelperText error={!!errors.dropOffLocation}>{errors.dropOffLocation?.message || (errors.dropOffLocation ? strings.DROP_OFF_LOCATION_REQUIRED : '')}</FormHelperText>
+        </FormControl>
+      )}
       <FormControl className="chk-same-location">
         <FormControlLabel control={<Checkbox checked={sameLocation} onChange={handleSameLocationChange} />} label={strings.DROP_OFF} />
       </FormControl>
