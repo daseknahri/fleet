@@ -34,13 +34,14 @@ import Quote from '../models/Quote'
 import ContractSnapshot from '../models/ContractSnapshot'
 import ContractInspection from '../models/ContractInspection'
 import AgentSettlement from '../models/AgentSettlement'
-import { postProviderPayment } from '../utils/ledger'
+import { postProviderPayment, supportsTransactions } from '../utils/ledger'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
 import { agencySupplierId, getAgencyContext } from '../utils/agencyAuthorization'
 import { nextBookingReference } from '../utils/bookingReference'
 import { publicOnlineSignature } from '../utils/bookingSigning'
 import { ensureDraftInvoice } from '../utils/invoiceCreation'
+import { resolveLocationTranslation } from '../utils/locationHelper'
 import { resolveBookingAgentSnapshot } from '../utils/agentCommission'
 
 /**
@@ -349,7 +350,11 @@ export const notify = async (driver: env.User, bookingId: string, user: env.User
  */
 export const confirm = async (user: env.User, supplier: env.User, booking: env.Booking, payLater: boolean) => {
   const { language } = user
-  const locale = language === 'fr' ? 'fr-FR' : 'en-US'
+  // F1 / W1 #2: upstream's 7-locale map, plus `ar` (Gestion Auto added an
+  // Arabic UI but location values are conventionally en/fr/es — a bare
+  // `fr ? fr-FR : en-US` map formats every other language as US English).
+  const locales: Record<string, string> = { fr: 'fr-FR', de: 'de-DE', es: 'es-ES', pt: 'pt-PT', it: 'it-IT', zh: 'zh-CN', ja: 'ja-JP', ar: 'ar-MA' }
+  const locale = locales[language] || 'en-US'
   const options: Intl.DateTimeFormatOptions = {
     weekday: 'long',
     month: 'long',
@@ -372,13 +377,13 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
     return false
   }
 
-  const pickupLocationName = pickupLocation.values.filter((value) => value.language === language)[0].value
+  const pickupLocationName = resolveLocationTranslation(pickupLocation.values, language)
   const dropOffLocation = await Location.findById(booking.dropOffLocation).populate<{ values: env.LocationValue[] }>('values')
   if (!dropOffLocation) {
     logger.info(`Drop-off location ${booking.pickupLocation} not found`)
     return false
   }
-  const dropOffLocationName = dropOffLocation.values.filter((value) => value.language === language)[0].value
+  const dropOffLocationName = resolveLocationTranslation(dropOffLocation.values, language)
 
   let contractFile: string | null = null
   if (supplier.contracts && supplier.contracts.length > 0) {
@@ -420,6 +425,31 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
   return true
 }
 
+/**
+ * F1 / W3 P-2 — split a verified provider checkout into its rent and deposit
+ * legs, per ADR-001's deposit separation. Posting the whole `amountDueNow`
+ * as Rent threw OVERPAYMENT in Full mode (rent cap is `rentalTotal`) and
+ * misclassified the deposit as rent in Deposit mode. Each leg posts under
+ * its own purpose with its own idempotency key.
+ *
+ * @param {env.BookingFinancialSnapshot} snapshot
+ * @returns {{ rent: number, deposit: number }}
+ */
+const splitProviderCheckoutAmounts = (snapshot: bookcarsTypes.BookingFinancialSnapshot) => {
+  const amountDueNow = snapshot.amountDueNow
+  const rentalTotal = snapshot.rentalTotal
+  if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit) {
+    return { rent: 0, deposit: amountDueNow }
+  }
+  if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full) {
+    if (amountDueNow < rentalTotal) {
+      throw new Error('Snapshot amountDueNow is below the rental total in Full mode')
+    }
+    return { rent: rentalTotal, deposit: amountDueNow - rentalTotal }
+  }
+  return { rent: amountDueNow, deposit: 0 }
+}
+
 /** Finalize a booking only after an external provider has verified payment. */
 export const finalizePaidCheckoutBooking = async (
   booking: env.Booking,
@@ -430,44 +460,113 @@ export const finalizePaidCheckoutBooking = async (
   if (!snapshot || !reference) {
     throw new Error('Verified payment requires a booking snapshot and provider reference')
   }
+  const { rent: rentAmount, deposit: depositAmount } = splitProviderCheckoutAmounts(snapshot)
 
-  const session = await mongoose.startSession()
+  const originalStatus = booking.status
+  const originalExpireAt = booking.expireAt
   let saved = false
-  try {
-    await session.withTransaction(async () => {
-      if (provider === 'stripe') booking.paymentIntentId = reference
-      else booking.paypalOrderId = reference
-      booking.expireAt = undefined
-      booking.status = snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit
-        ? bookcarsTypes.BookingStatus.Deposit
-        : snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full
-          ? bookcarsTypes.BookingStatus.PaidInFull
-          : bookcarsTypes.BookingStatus.Paid
 
-      saved = await saveBookingWithAvailability(booking, {
-        expectedStatus: bookcarsTypes.BookingStatus.Void,
-        requireExpireAt: true,
-        session,
-      })
-      if (!saved) return
+  const runFinalization = async (session?: mongoose.ClientSession) => {
+    if (provider === 'stripe') booking.paymentIntentId = reference
+    else booking.paypalOrderId = reference
+    booking.expireAt = undefined
+    booking.status = snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit
+      ? bookcarsTypes.BookingStatus.Deposit
+      : snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full
+        ? bookcarsTypes.BookingStatus.PaidInFull
+        : bookcarsTypes.BookingStatus.Paid
 
-      if (snapshot.amountDueNow > 0) {
-        await postProviderPayment({
-          bookingId: booking._id.toString(),
-          date: new Date(),
-          amount: snapshot.amountDueNow,
-          currency: snapshot.baseCurrency,
-          provider,
-          providerReference: reference,
-          actorId: booking.driver?.toString(),
-          note: `Verified ${provider} checkout payment`,
-          idempotencyKey: `${provider}-checkout-${reference}`,
-          session,
-        })
-      }
+    saved = await saveBookingWithAvailability(booking, {
+      expectedStatus: bookcarsTypes.BookingStatus.Void,
+      requireExpireAt: true,
+      ...(session ? { session } : {}),
     })
-  } finally {
-    await session.endSession()
+    if (!saved) return
+
+    // F1 / W3 P-2: one ledger posting per purpose, same transaction (or
+    // same non-transactional run). A Full-mode checkout posts the rent leg
+    // against the rent cap and the deposit leg against the deposit cap, so
+    // it no longer throws OVERPAYMENT; a Deposit-mode checkout posts the
+    // deposit as Deposit, not Rent.
+    const postLeg = async (purpose: bookcarsTypes.RentalPaymentPurpose, amount: number) => {
+      await postProviderPayment({
+        bookingId: booking._id.toString(),
+        date: new Date(),
+        amount,
+        currency: snapshot.baseCurrency,
+        provider,
+        providerReference: reference,
+        actorId: booking.driver?.toString(),
+        note: `Verified ${provider} checkout payment`,
+        idempotencyKey: `${provider}-checkout-${reference}-${purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? 'deposit' : 'rent'}`,
+        purpose,
+        ...(session ? { session } : {}),
+      })
+    }
+    if (rentAmount > 0) {
+      await postLeg(bookcarsTypes.RentalPaymentPurpose.Rent, rentAmount)
+    }
+    if (depositAmount > 0) {
+      await postLeg(bookcarsTypes.RentalPaymentPurpose.Deposit, depositAmount)
+    }
+
+    // F1 / W4 GAP-06: the trip count and the guest-account expiry are part
+    // of the paid finalisation, so they move inside the same transaction
+    // (or non-transactional run) as the status + ledger post. Previously
+    // they ran after `confirm()` and were skipped whenever the email
+    // failed, leaving a paid guest's account TTL-deletable.
+    const carQuery = Car.findById(booking.car)
+    if (session) {
+      carQuery.session(session)
+    }
+    const car = await carQuery
+    if (!car) {
+      throw new Error(`Car ${booking.car} not found`)
+    }
+    car.trips += 1
+    await car.save(session ? { session } : undefined)
+
+    const userQuery = User.findById(booking.driver)
+    if (session) {
+      userQuery.session(session)
+    }
+    const user = await userQuery
+    if (!user) {
+      throw new Error(`Driver ${booking.driver} not found`)
+    }
+    user.expireAt = undefined
+    await user.save(session ? { session } : undefined)
+  }
+
+  // F1 / W4 GAP-07: `withTransaction` unconditionally fails on a standalone
+  // mongod (no replica set) — every paid checkout threw after the money was
+  // taken. Reuse the ledger's `supportsTransactions()` guard: transaction
+  // when available, else the locked non-transactional path. Without a
+  // transaction the booking status is already flipped when the ledger post
+  // runs, so a post failure restores Void + expireAt (compensating
+  // rollback) before the error reaches the caller, which refunds.
+  if (supportsTransactions()) {
+    const session = await mongoose.startSession()
+    try {
+      await session.withTransaction(() => runFinalization(session))
+    } finally {
+      await session.endSession()
+    }
+  } else {
+    try {
+      await runFinalization()
+    } catch (err) {
+      if (saved) {
+        try {
+          booking.status = originalStatus
+          booking.expireAt = originalExpireAt
+          await booking.save()
+        } catch (rollbackError) {
+          logger.error('[booking.finalizePaidCheckoutBooking] Failed to roll back booking after ledger failure', rollbackError)
+        }
+      }
+      throw err
+    }
   }
 
   if (!saved) return false
@@ -477,37 +576,35 @@ export const finalizePaidCheckoutBooking = async (
   // so a replayed finalisation still yields exactly one draft.
   await ensureDraftInvoice(booking)
 
-  const car = await Car.findById(booking.car)
-  if (!car) {
-    throw new Error(`Car ${booking.car} not found`)
-  }
-  car.trips += 1
-  await car.save()
-
+  // F1 / W4 GAP-06: the confirmation email and the notifications must
+  // never fail a paid booking. The money is settled and the ledger posted
+  // at this point; a failing mailer is logged, not thrown (upstream
+  // behaviour). The customer keeps a paid booking even if the email fails.
   const supplier = await User.findById(booking.supplier)
-  if (!supplier) {
-    throw new Error(`Agency ${booking.supplier} not found`)
-  }
   const user = await User.findById(booking.driver)
-  if (!user) {
-    throw new Error(`Driver ${booking.driver} not found`)
-  }
-  user.expireAt = undefined
-  await user.save()
+  if (!supplier || !user) {
+    logger.error(`[booking.finalizePaidCheckoutBooking] Supplier or driver not found for paid booking ${booking._id}`)
+  } else {
+    try {
+      if (!(await confirm(user, supplier, booking, false))) {
+        logger.error(`[booking.finalizePaidCheckoutBooking] Confirmation email could not be sent for paid booking ${booking._id}`)
+      }
+    } catch (err) {
+      logger.error(`[booking.finalizePaidCheckoutBooking] Confirmation email failed for paid booking ${booking._id}; booking stays paid`, err)
+    }
+    try {
+      i18n.locale = supplier.language
+      const message = i18n.t('BOOKING_PAID_NOTIFICATION')
+      await notify(user, booking._id.toString(), supplier, message)
 
-  if (!(await confirm(user, supplier, booking, false))) {
-    throw new Error('Booking confirmation could not be sent')
-  }
-
-  i18n.locale = supplier.language
-  let message = i18n.t('BOOKING_PAID_NOTIFICATION')
-  await notify(user, booking._id.toString(), supplier, message)
-
-  const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
-  if (admin) {
-    i18n.locale = admin.language
-    message = i18n.t('BOOKING_PAID_NOTIFICATION')
-    await notify(user, booking._id.toString(), admin, message)
+      const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
+      if (admin) {
+        i18n.locale = admin.language
+        await notify(user, booking._id.toString(), admin, i18n.t('BOOKING_PAID_NOTIFICATION'))
+      }
+    } catch (err) {
+      logger.error(`[booking.finalizePaidCheckoutBooking] Post-payment notification failed for paid booking ${booking._id}; booking stays paid`, err)
+    }
   }
 
   return true
@@ -576,6 +673,24 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
       || paymentIntent.metadata.bookingId !== booking._id.toString()
       || paymentIntent.currency.toUpperCase() !== snapshot.paymentCurrency.toUpperCase()
       || paymentIntent.amount_received !== toMinorUnits(snapshot.amountDueNowInPaymentCurrency, snapshot.paymentCurrency)) {
+      // F1 / W4 GAP-05: the intent already succeeded at Stripe, so a
+      // verification mismatch must not keep the money. Refund it first and
+      // return a distinct manual-review code.
+      if (paymentIntent.status === 'succeeded') {
+        try {
+          await stripeAPI.refunds.create(
+            { payment_intent: paymentIntent.id },
+            { idempotencyKey: `refund-${paymentIntent.id}-mismatch` },
+          )
+          logger.error(`[booking.confirmPaymentIntent] Payment verification failed for booking ${booking._id}: expected ${snapshot.amountDueNowInPaymentCurrency} ${snapshot.paymentCurrency}, got ${paymentIntent.amount_received} ${paymentIntent.currency}; payment refunded`)
+          res.status(409).send('Payment verification failed; the payment was refunded. Support review is required.')
+          return
+        } catch (refundError) {
+          logger.error('[booking.confirmPaymentIntent] Failed to refund payment after verification mismatch', refundError)
+          res.status(500).send('Payment verification failed. Payment refund requires support review.')
+          return
+        }
+      }
       res.status(400).send('Payment verification failed')
       return
     }
@@ -614,6 +729,35 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[booking.confirmPaymentIntent] ${i18n.t('ERROR')}`, err instanceof Error ? err.message : 'Unknown error')
+    // F1 / W3 P-2a + W4 GAP-05: finalisation can throw after the provider
+    // payment succeeded (e.g. a ledger OVERPAYMENT). Never return a bare
+    // 400 with the money taken: if the booking did finalise despite the
+    // throw, report success; otherwise refund the succeeded intent first.
+    if (verifiedPaymentIntentId) {
+      try {
+        const { bookingId: confirmBookingId } = req.body as { bookingId?: string }
+        const paidBooking = mongoose.isValidObjectId(confirmBookingId)
+          ? await Booking.findOne({ _id: confirmBookingId, paymentIntentId: verifiedPaymentIntentId, status: { $ne: bookcarsTypes.BookingStatus.Void } })
+          : null
+        if (paidBooking) {
+          res.sendStatus(200)
+          return
+        }
+        const failedIntent = await stripeAPI.paymentIntents.retrieve(verifiedPaymentIntentId)
+        if (failedIntent.status === 'succeeded') {
+          await stripeAPI.refunds.create(
+            { payment_intent: verifiedPaymentIntentId },
+            { idempotencyKey: `refund-${verifiedPaymentIntentId}-mismatch` },
+          )
+          res.status(409).send('Booking finalisation failed; the payment was refunded. Support review is required.')
+          return
+        }
+      } catch (refundError) {
+        logger.error('[booking.confirmPaymentIntent] Failed to refund payment after finalisation failure', refundError)
+        res.status(500).send('Booking finalisation failed. Payment refund requires support review.')
+        return
+      }
+    }
     res.status(400).send(i18n.t('ERROR'))
   }
 }
@@ -981,23 +1125,34 @@ export const checkout = async (req: Request, res: Response) => {
       //   await Car.updateOne({ _id: booking.car }, { fullyBooked: false })
       // }
 
-      // Send confirmation email to customer
-      if (!(await confirm(user, supplier, booking, true))) {
-        res.sendStatus(400)
-        return
+      // Send confirmation email to customer.
+      // F1 / W4 GAP-06: the pay-later booking is already saved as Pending;
+      // a failing mailer must not turn the checkout into a 400. Log and
+      // continue, as in finalizePaidCheckoutBooking.
+      try {
+        if (!(await confirm(user, supplier, booking, true))) {
+          logger.error(`[booking.checkout] Confirmation email could not be sent for pay-later booking ${booking._id}`)
+        }
+      } catch (err) {
+        logger.error(`[booking.checkout] Confirmation email failed for pay-later booking ${booking._id}`, err)
       }
 
-      // Notify supplier
-      i18n.locale = supplier.language
-      let message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
-      await notify(user, booking._id.toString(), supplier, message)
+      // Notify supplier + admin. F1 / W4 GAP-06: same log-and-continue rule
+      // as the confirmation email — the booking is already saved.
+      try {
+        i18n.locale = supplier.language
+        let message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
+        await notify(user, booking._id.toString(), supplier, message)
 
-      // Notify admin
-      const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
-      if (admin) {
-        i18n.locale = admin.language
-        message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
-        await notify(user, booking._id.toString(), admin, message)
+        // Notify admin
+        const admin = !!env.ADMIN_EMAIL && (await User.findOne({ email: env.ADMIN_EMAIL, type: bookcarsTypes.UserType.Admin }))
+        if (admin) {
+          i18n.locale = admin.language
+          message = i18n.t('BOOKING_PAY_LATER_NOTIFICATION')
+          await notify(user, booking._id.toString(), admin, message)
+        }
+      } catch (err) {
+        logger.error(`[booking.checkout] Pay-later notification failed for booking ${booking._id}`, err)
       }
     }
 
@@ -1775,8 +1930,8 @@ export const getBooking = async (req: Request, res: Response) => {
         priceChangeRate: booking.car.supplier.priceChangeRate,
       }
 
-      booking.pickupLocation.name = booking.pickupLocation.values.filter((value) => value.language === language)[0].value
-      booking.dropOffLocation.name = booking.dropOffLocation.values.filter((value) => value.language === language)[0].value
+      booking.pickupLocation.name = resolveLocationTranslation(booking.pickupLocation.values, language)
+      booking.dropOffLocation.name = resolveLocationTranslation(booking.dropOffLocation.values, language)
 
       // GA-PAR-12: signing secrets never leave the server. The nonce is
       // `select: false` (absent here by construction) and is deleted
