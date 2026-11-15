@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 import Stripe from 'stripe'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
-import * as bookingController from './bookingController'
+import * as bookingController from '../controllers/bookingController'
 import * as logger from './logger'
 import { currencyExponent, formatProviderAmount, toMinorUnits } from './paymentAmount'
 
