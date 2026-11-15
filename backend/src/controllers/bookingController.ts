@@ -3028,6 +3028,21 @@ export const markNoShow = async (req: Request, res: Response) => {
       res.status(409).send('NO_SHOW_INVALID_STATE: Only a booking that has not been handed over can be marked as a no-show. The car has already been collected or the contract has moved on; settle it through the return flow instead.')
       return
     }
+    // F4-2 / W1 #7 — a paid booking is never no-showed here. Marking
+    // it no-show would cancel it with no refund decision and no
+    // cancellationRecord, bypassing the F3 cancel workflow's
+    // explicit-refund-decision rule for paid cancels: the money would
+    // stay Posted against a Cancelled booking with no audit trail of
+    // its disposition, and any retain decision is ADR-001-gated. Staff
+    // must cancel through POST /api/bookings/:id/cancel instead, where
+    // the decision is recorded. The no-show path therefore covers
+    // exactly the unpaid bookings the gap sketch names. Placed after
+    // the lifecycle check on purpose, so a handed-over paid booking
+    // still answers NO_SHOW_INVALID_STATE.
+    if ([bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(booking.status)) {
+      res.status(409).send('NO_SHOW_PAID_BOOKING: This booking has money collected; cancel it through the staff cancel workflow with an explicit refund decision instead of marking it as a no-show.')
+      return
+    }
     if (Date.now() <= new Date(booking.from).getTime()) {
       res.status(409).send('NO_SHOW_TOO_EARLY: The scheduled pickup time has not passed yet.')
       return

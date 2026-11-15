@@ -426,6 +426,36 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
     expect(invalid.status).toBe(409)
     expect(invalid.text).toContain('NO_SHOW_INVALID_STATE')
   })
+
+  it('refuses to mark a paid booking as a no-show and leaves it untouched', async () => {
+    // Confirmed + Paid: the normal post-F4 state of a paid booking
+    // awaiting pickup. The money disposition belongs to the staff
+    // cancel workflow (explicit refund decision), not to no-show.
+    const paid = await makeFixture('no-show-paid', {
+      status: bookcarsTypes.BookingStatus.Paid,
+      lifecycle: bookcarsTypes.ContractLifecycle.Confirmed,
+      fromOffsetDays: -1, toOffsetDays: 2,
+    })
+    const refused = await request(app).post(`/api/bookings/${paid.booking._id.toString()}/mark-no-show`)
+      .set('Cookie', [adminCookie()])
+    expect(refused.status).toBe(409)
+    expect(refused.text).toContain('NO_SHOW_PAID_BOOKING')
+    const untouched = await Booking.findById(paid.booking._id).lean()
+    expect(untouched!.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(untouched!.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
+    expect(untouched!.noShowAt).toBeFalsy()
+    expect(untouched!.cancellationRecord).toBeFalsy()
+    // Legacy shape: Draft lifecycle with money already collected.
+    const legacy = await makeFixture('no-show-paid-legacy', {
+      status: bookcarsTypes.BookingStatus.Paid,
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      fromOffsetDays: -1, toOffsetDays: 2,
+    })
+    const refusedLegacy = await request(app).post(`/api/bookings/${legacy.booking._id.toString()}/mark-no-show`)
+      .set('Cookie', [adminCookie()])
+    expect(refusedLegacy.status).toBe(409)
+    expect(refusedLegacy.text).toContain('NO_SHOW_PAID_BOOKING')
+  })
 })
 
 describe('F4 / W1 #7 — disputes block completion until resolved', () => {

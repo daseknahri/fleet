@@ -212,6 +212,31 @@ describe('F4 / W1 #4 — back-to-back rentals do not conflict', () => {
       .send(payload(new Date(aTo.getTime() - 3600000), new Date(Date.now() + 5 * DAY)))
     expect(overlapping.status).toBe(409)
   })
+
+  it('still lists the car in search for a pickup exactly at the previous return, and hides it for a real overlap', async () => {
+    const fixture = await makeFixture('search-touching')
+    const aFrom = new Date(Date.now() + DAY)
+    const aTo = new Date(Date.now() + 3 * DAY)
+    await makeBooking(fixture, { from: aFrom, to: aTo })
+    // getFrontendCars is a public POST; the car is blockOnPay, so the
+    // search $lookup is what decides whether it is listed.
+    const search = (from: Date, to: Date) => request(app).post('/api/frontend-cars/1/10').send({
+      suppliers: [fixture.supplier._id.toString()],
+      pickupLocation: fixture.location._id.toString(),
+      carType: [bookcarsTypes.CarType.Diesel],
+      gearbox: [bookcarsTypes.GearboxType.Automatic],
+      from: from.toISOString(), to: to.toISOString(),
+    })
+    const listedIds = (res: any) => ((res.body[0]?.resultData ?? []) as any[]).map((c: any) => c._id.toString())
+    // Touching: pickup exactly at the previous return (same-day turnaround).
+    const touching = await search(aTo, new Date(Date.now() + 5 * DAY))
+    expect(touching.status).toBe(200)
+    expect(listedIds(touching)).toContain(fixture.car._id.toString())
+    // Real overlap: pickup one hour before the previous return.
+    const overlapping = await search(new Date(aTo.getTime() - 3600000), new Date(Date.now() + 5 * DAY))
+    expect(overlapping.status).toBe(200)
+    expect(listedIds(overlapping)).not.toContain(fixture.car._id.toString())
+  })
 })
 
 describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {

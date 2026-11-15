@@ -1131,15 +1131,17 @@ const validateBookings = async (
 
     if (rowErrors.length === 0 && car && driver && from && to && status === bookcarsTypes.BookingStatus.Reserved) {
       // Read-only availability pre-check mirroring the reservation
-      // helper's conflict definition (the authoritative check runs
-      // again inside bookingController.create at commit time).
+      // helper's strict conflict definition: touching bookings do
+      // not conflict (a pickup exactly at the previous return is a
+      // back-to-back rental). The authoritative check runs again
+      // inside bookingController.create at commit time.
       const now = new Date()
       const conflict = await Booking.findOne({
         car: car._id,
         // GA-PAR-22: a trashed booking does not reserve its car.
         deletedAt: null,
-        from: { $lte: to },
-        to: { $gte: from },
+        from: { $lt: to },
+        to: { $gt: from },
         $or: [
           { status: { $in: BOOKING_RESERVATION_STATUSES } },
           { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },

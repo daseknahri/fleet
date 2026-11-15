@@ -2835,10 +2835,11 @@ export const getFrontendCars = async (req: Request, res: Response) => {
                         $not: [
                           {
                             $or: [
-                              // Booking ends before the requested rental period starts → no overlap
-                              { $lt: ['$to', new Date(from)] },
-                              // Booking starts after the requested rental period ends → no overlap
-                              { $gt: ['$from', new Date(to)] }
+                              // Booking ends at or before the requested rental period starts → no overlap
+                              // (a pickup exactly at the previous return is a back-to-back rental)
+                              { $lte: ['$to', new Date(from)] },
+                              // Booking starts at or after the requested rental period ends → no overlap
+                              { $gte: ['$from', new Date(to)] }
                             ]
                           }
                         ]
