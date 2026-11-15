@@ -45,6 +45,7 @@ section.car-list div.title div.car-count {
 
 @media only screen and (width >=960px) {
   section.car-list div.title {
-    min-width: 800px;
+    width: 100%;
+    max-width: 800px;
   }
 }

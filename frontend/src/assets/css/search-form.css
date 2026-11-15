@@ -77,39 +77,62 @@ form.home-search-form .chk-same-location input[type='checkbox'] {
 
 @media only screen and (width >=960px) {
   form.home-search-form {
-    display: table;
+    display: grid;
+    grid-template-columns: minmax(200px, 350px) minmax(150px, 235px) minmax(150px, 235px) auto auto;
+    column-gap: 4px;
     width: 100%;
+    max-width: 100%;
+    align-items: start;
   }
 
   form.home-search-form .pickup-location {
-    display: table-cell;
-    width: 350px;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
     padding-inline-end: 2px;
     padding-bottom: 10px;
   }
 
   form.home-search-form .drop-off-location {
-    display: table-row;
-    width: 350px;
-    height: 66px;
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
   }
 
   form.home-search-form .drop-off-location>.multiple-select {
-    width: 348px;
+    width: 100%;
+    max-width: 348px;
   }
 
-  form.home-search-form .from,
+  form.home-search-form .from {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    padding: 0 2px;
+  }
+
   form.home-search-form .to {
-    display: table-cell;
-    width: 235px;
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
     padding: 0 2px;
   }
 
   form.home-search-form .btn-search {
+    grid-column: 4;
+    grid-row: 1;
     margin: 0 4px;
   }
 
   form.home-search-form .btn-cancel {
+    grid-column: 5;
+    grid-row: 1;
     margin: 0 2px;
+  }
+
+  form.home-search-form .chk-same-location {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: block;
   }
 }

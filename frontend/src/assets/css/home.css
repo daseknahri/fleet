@@ -187,14 +187,18 @@ div.home div.services h1 {
 
 div.home div.services div.services-boxes {
   display: grid;
-  grid-template-columns: auto auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: 1320px;
+  justify-content: center;
 }
 
 div.home div.services div.services-boxes div.services-box {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 400px;
+  width: auto;
+  max-width: 400px;
   margin: 20px;
   background-color: #F9F9F9;
   padding: 25px;
@@ -348,14 +352,15 @@ div.home div.customer-care {
 }
 
 div.home div.customer-care div.customer-care-wrapper {
-  width: 1200px;
+  width: 100%;
+  max-width: 1200px;
   display: flex;
   flex-direction: row;
 }
 
 div.home div.customer-care div.customer-care-text {
   padding: 0 160px;
-  width: 900px;
+  max-width: 900px;
 }
 
 div.home div.customer-care div.customer-care-text div.customer-care-content {
