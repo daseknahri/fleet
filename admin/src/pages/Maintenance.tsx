@@ -853,7 +853,7 @@ return
 
           <div className="agency-maintenance__section-heading"><Typography component="h2">{strings.CATEGORY_REPORT}</Typography><strong>{report ? formatAmount(report.total) : '—'}</strong></div>
 
-          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
+          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS} · {strings.PAID} {formatAmount(row.paidTotal ?? 0)}{row.untracked ? ` (${row.untracked} ${strings.UNPAID})` : ''}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
 
         </section>
 

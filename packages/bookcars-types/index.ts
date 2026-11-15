@@ -1604,6 +1604,11 @@ export interface Invoice {
   subtotal: number
   taxAmount: number
   taxRate?: number | null
+  /** F7 / W3 B-3 — true when the tax was set by an explicit override
+   * (manual taxAmount, or a quote's verbatim tax) rather than computed
+   * from the supplier's configured VAT rate. The HT-vs-TTC basis is
+   * still an open ADR-001 decision; the flag only records provenance. */
+  taxOverride?: boolean
   total: number
   paidAmount?: number
   paymentStatus?: 'unpaid' | 'partial' | 'paid'
@@ -1905,7 +1910,9 @@ export interface UpdateReportViewPayload {
   config?: ReportViewConfig
 }
 
-/** GA-PAR-14 — one reports-builder result row. */
+/** GA-PAR-14 — one reports-builder result row.
+ * F7 / W3 R-7 — `net` is CASH-basis (collected − paidExpenses);
+ * `netAccrued` is the accrual figure (collected − expenses). */
 export interface ReportBuilderRow {
   key: string
   carId?: string
@@ -1913,7 +1920,10 @@ export interface ReportBuilderRow {
   collected: number
   remaining: number
   expenses: number
+  /** F7 / W3 R-7 — Σ MaintenanceExpense.paidAmount for the row. */
+  paidExpenses: number
   net: number
+  netAccrued: number
   bookingsCount: number
   occupancyPct?: number
 }
@@ -1923,7 +1933,13 @@ export interface ReportBuilderTotals {
   collected: number
   remaining: number
   expenses: number
+  /** F7 / W3 R-7 — Σ MaintenanceExpense.paidAmount for the period. */
+  paidExpenses: number
   net: number
+  netAccrued: number
+  /** F7 / W3 R-7 — expenses whose paidAmount is null (untracked). */
+  untrackedExpenses: number
+  untrackedExpenseAmount: number
   bookingsCount: number
   occupancyPct?: number
 }

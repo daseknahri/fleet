@@ -11,6 +11,11 @@ const schema = new Schema<env.Invoice>({
   subtotal: { type: Number, required: true, min: 0 },
   taxAmount: { type: Number, required: true, min: 0 },
   taxRate: { type: Number, min: 0, max: 100, default: null },
+  // F7 / W3 B-3 — true when the tax was set by an explicit override
+  // (manual taxAmount, or a quote's verbatim tax) rather than computed
+  // from the supplier's configured VAT rate. The HT-vs-TTC basis is
+  // still an open ADR-001 decision; the flag only records provenance.
+  taxOverride: { type: Boolean, default: false },
   total: { type: Number, required: true, min: 0 },
   paidAmount: { type: Number, required: true, min: 0, default: 0 },
   paymentStatus: { type: String, required: true, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid', index: true },

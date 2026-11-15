@@ -10,25 +10,31 @@ import Invoice from '../models/Invoice'
 import Car from '../models/Car'
 import User from '../models/User'
 import ReportView from '../models/ReportView'
+import { getContractReceivable } from '../utils/contractReceivable'
 import { renderCarPdf } from '../utils/carPdf'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import * as logger from '../utils/logger'
 
 /*
- * METRIC DICTIONARY — v2026-11-15.1 (F6 / W3 P-3; previous v2026-11-11.2
+ * METRIC DICTIONARY — v2026-11-16.1 (F7 / W3 R-2 + R-7; previous v2026-11-15.1
  * GA-PAR-14; roadmap Phase 7 rule: dictionary first, then builders on
  * top of it).
  *
- * Established definitions (v2026-11-02.1, unchanged semantics — the
- * summary endpoint below keeps computing exactly these):
+ * Established definitions (v2026-11-02.1 — receivable and net moved to
+ * the shared definition / cash basis in v2026-11-16.1 below; the rest
+ * keeps computing exactly as established):
  * - Date ranges are inclusive and use Africa/Casablanca; a date-only
  *   bound covers that whole Casablanca local day.
  * - collected (summary scope) = posted RentalPayments only, signed by
  *   direction (debit negative), split by purpose; deposits are NEVER
  *   revenue and are never netted against rent.
- * - receivable (summary scope) = Σ financialSnapshot.rentalTotal
- *   (fallback `price`) over period-intersecting non-Void/non-Cancelled
- *   bookings − posted rent payments dated in the period.
+ * - receivable (summary scope) = the shared outstanding definition
+ *   (v2026-11-16.1 below): Σ per-booking outstanding over the
+ *   period-intersecting bookings. The previous period-dated
+ *   definition now lives as `periodReceivable` (legacy).
+ * - expenses = Σ MaintenanceExpense.amount for the agency (and the
+ *   car, when car-scoped) with expense `date` inside the period;
+ *   paidExpenses = Σ paidAmount over the same expenses (v2026-11-16.1).
  *
  * NEW definitions (v2026-11-11.1) for the reports builder, the builder
  * CSV, drill-down and the dashboard aggregate (GA-PAR-09 Phase B).
@@ -53,7 +59,9 @@ import * as logger from '../utils/logger'
  *   car, when car-scoped) with expense `date` inside the period.
  * - net = collected − expenses (NEW metric `netCollected` for builder
  *   rows/totals; the summary's estimatedMargin keeps its own
- *   established definition and is not this metric).
+ *   established definition and is not this metric) — SUPERSEDED in
+ *   v2026-11-16.1: net is now cash-basis (collected − paidExpenses)
+ *   and this accrual figure survives as `netAccrued` / `accruedMargin`.
  * - per-car revenue = Σ contractAmount of the car's
  *   period-intersecting bookings; per-car collected / remaining are
  *   the same sums over the car's bookings; per-car expenses as above.
@@ -131,9 +139,34 @@ import * as logger from '../utils/logger'
  *   Completed lifecycle, else the rental end (`to`). No known due
  *   date → the balance is outstanding, never overdue.
  * - overdue = outstanding > 0 AND dueAt has passed.
+ *
+ * NEW definitions (v2026-11-16.1, F7 / W3 R-2 + R-7) — the summary
+ * joins the shared definition, and net/margin settle on ONE basis:
+ * - receivable (summary scope) = Σ per-booking outstanding over the
+ *   period-intersecting bookings, where per-booking outstanding is
+ *   the shared definition above (rentalTotal + APPROVED charges −
+ *   posted rent over ALL dates, clamped at 0 per booking) — the same
+ *   number the builder calls `remaining` and the collections summary
+ *   calls `remaining`, summed over the summary's own universe. The
+ *   old period-dated figure survives as `periodReceivable` (legacy:
+ *   Σ rentalTotal − posted rent dated in the period, no charges) for
+ *   migration only; it is not the headline receivable.
+ * - net / estimatedMargin are CASH-basis, the basis the ledger
+ *   already uses (collected = posted payments only): net =
+ *   collected − paidExpenses, where paidExpenses = Σ
+ *   MaintenanceExpense.paidAmount for the period (null = untracked,
+ *   counted as 0 paid, and reported separately as
+ *   untrackedExpenses / untrackedExpenseAmount so an unpaid bill is
+ *   never silently counted as spent OR as unspent). The accrual
+ *   figures survive as `accruedMargin` (summary) / `netAccrued`
+ *   (builder): collected − expenses (full amounts). `expenses`
+ *   itself is unchanged (full accrued amounts).
+ * - paidAmount backing (F7 / W3 M-2): on expenses with payment
+ *   records, paidAmount is the sum of those records; legacy rows
+ *   keep their declared value until a payment is recorded for them.
  */
 
-export const METRIC_DICTIONARY_VERSION = '2026-11-15.1'
+export const METRIC_DICTIONARY_VERSION = '2026-11-16.1'
 
 const round = (n: number) => Number(n.toFixed(2))
 const date = (value: unknown, fallback: Date) => {
@@ -190,8 +223,12 @@ const build = async (req: Request) => {
   const { from, to } = resolveRange(req.query)
   const [payments, expenses, bookings, fleet, invoices] = await Promise.all([
     RentalPayment.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to }, status: types.RentalPaymentStatus.Posted } }, { $group: { _id: '$purpose', total: { $sum: { $cond: [{ $eq: ['$direction', types.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } }]),
-    MaintenanceExpense.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }]),
-    Booking.find({ supplier, from: { $lt: to }, to: { $gt: from }, status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] }, deletedAt: null }).select('_id from to price financialSnapshot').lean(),
+    // F7 / W3 R-7 — the expense aggregate also sums paidAmount
+    // (null = untracked, counted as 0 paid) and counts the untracked
+    // rows separately, so an unpaid bill is never silently counted
+    // as spent or as unspent.
+    MaintenanceExpense.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$amount' }, paidTotal: { $sum: { $ifNull: ['$paidAmount', 0] } }, untrackedCount: { $sum: { $cond: [{ $eq: ['$paidAmount', null] }, 1, 0] } }, untrackedAmount: { $sum: { $cond: [{ $eq: ['$paidAmount', null] }, '$amount', 0] } }, count: { $sum: 1 } } }]),
+    Booking.find({ supplier, from: { $lt: to }, to: { $gt: from }, status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] }, deletedAt: null }).select('_id from to price financialSnapshot lifecycle').lean(),
     // GA-PAR-22: the fleet figure behind the old summary counts live cars only.
     Car.countDocuments({ supplier, deletedAt: null }),
     Invoice.aggregate([{ $match: { supplier, status: { $ne: types.InvoiceStatus.Voided }, createdAt: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$total' }, paid: { $sum: '$paidAmount' }, count: { $sum: 1 } } }]),
@@ -199,12 +236,25 @@ const build = async (req: Request) => {
   const rent = Number(payments.find((x) => x._id === types.RentalPaymentPurpose.Rent)?.total || 0)
   const deposit = Number(payments.find((x) => x._id === types.RentalPaymentPurpose.Deposit)?.total || 0)
   const expense = Number(expenses[0]?.total || 0)
+  const paidExpenses = round(Number(expenses[0]?.paidTotal || 0))
+  const untrackedExpenses = Number(expenses[0]?.untrackedCount || 0)
+  const untrackedExpenseAmount = round(Number(expenses[0]?.untrackedAmount || 0))
   const rentalTotal = bookings.reduce((s, b) => s + Number(b.financialSnapshot?.rentalTotal || b.price || 0), 0)
-  const receivable = Math.max(0, rentalTotal - rent)
+  // F7 / W3 R-2 — the headline receivable is the SHARED definition
+  // (utils/contractReceivable.ts): per-booking outstanding, charges
+  // included, all payment dates, clamped at 0 per booking — the same
+  // number the builder calls `remaining`. The old period-dated figure
+  // survives as `periodReceivable` (legacy, migration only).
+  const receivables = await Promise.all(bookings.map((b) => getContractReceivable(b as never)))
+  const receivable = round(receivables.reduce((s, r) => s + r.outstandingBalance, 0))
+  const periodReceivable = Math.max(0, rentalTotal - rent)
   const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86400000))
   const bookedDays = bookings.reduce((s, b) => s + Math.max(0, Math.ceil((Math.min(to.getTime(), new Date(b.to).getTime()) - Math.max(from.getTime(), new Date(b.from).getTime())) / 86400000)), 0)
   const capacity = Math.max(1, fleet * days)
-  const metrics = { contracts: bookings.length, fleetVehicles: fleet, revenueCollected: round(rent), depositsCollected: round(deposit), expenses: round(expense), receivable: round(receivable), bookedVehicleDays: bookedDays, fleetCapacityDays: capacity, utilizationPercent: round(bookedDays / capacity * 100), invoiceCount: invoices[0]?.count || 0, invoicedTotal: round(invoices[0]?.total || 0), invoicedPaid: round(invoices[0]?.paid || 0), estimatedMargin: round(rent - expense) }
+  // F7 / W3 R-7 — net/margin on ONE basis, the ledger's cash basis:
+  // estimatedMargin = collected rent − paidExpenses. The accrual
+  // figure (rent − full expenses) survives as accruedMargin.
+  const metrics = { contracts: bookings.length, fleetVehicles: fleet, revenueCollected: round(rent), depositsCollected: round(deposit), expenses: round(expense), paidExpenses, untrackedExpenses, untrackedExpenseAmount, receivable, periodReceivable: round(periodReceivable), bookedVehicleDays: bookedDays, fleetCapacityDays: capacity, utilizationPercent: round(bookedDays / capacity * 100), invoiceCount: invoices[0]?.count || 0, invoicedTotal: round(invoices[0]?.total || 0), invoicedPaid: round(invoices[0]?.paid || 0), estimatedMargin: round(rent - paidExpenses), accruedMargin: round(rent - expense) }
   return { metricDictionaryVersion: METRIC_DICTIONARY_VERSION, currency: env.BASE_CURRENCY.toUpperCase(), timezone: env.TIMEZONE, from, to, metrics }
 }
 
@@ -265,13 +315,16 @@ interface ExpenseFigure {
   carId: string | null
   date: Date
   amount: number
+  // F7 / W3 R-7 — null = untracked (counts as 0 paid, reported
+  // separately as untrackedExpenses / untrackedExpenseAmount).
+  paidAmount: number | null
 }
 
 interface PeriodData {
   bookings: BookingFigure[]
   expenses: ExpenseFigure[]
   periodDays: number
-  totals: { contractAmount: number, collected: number, remaining: number, expenses: number, net: number, bookingsCount: number }
+  totals: { contractAmount: number, collected: number, remaining: number, expenses: number, paidExpenses: number, net: number, netAccrued: number, untrackedExpenses: number, untrackedExpenseAmount: number, bookingsCount: number }
 }
 
 const localDateParts = (d: Date) => {
@@ -376,7 +429,7 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
       supplier,
       date: { $gte: from, $lte: to },
       ...(carObjectId ? { car: carObjectId } : {}),
-    }).select('_id car date amount').lean(),
+    }).select('_id car date amount paidAmount').lean(),
   ])
 
   const rentByBooking = new Map<string, number>()
@@ -424,6 +477,8 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     carId: e.car ? e.car.toString() : null,
     date: new Date(e.date),
     amount: round(Number(e.amount || 0)),
+    // F7 / W3 R-7 — the paid leg of the cash-basis net.
+    paidAmount: e.paidAmount === undefined || e.paidAmount === null ? null : round(Number(e.paidAmount)),
   }))
   // GA-PAR-22 (§2.5): the trashed bookings' posted rent stays in
   // `collected` (money actually received). `remaining` is the live-only
@@ -431,15 +486,25 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
   // bookings' collected amount — accepted semantics, surfaced by the
   // trash confirm dialog (§5.7).
   const trashedCollected = round(trashedBookingIds.reduce((s, id) => s + (rentByBooking.get(id.toString()) || 0), 0))
+  const collectedTotal = round(figures.reduce((s, b) => s + b.collected, 0) + trashedCollected)
+  const expenseTotal = round(expenses.reduce((s, e) => s + e.amount, 0))
+  const paidExpenseTotal = round(expenses.reduce((s, e) => s + (e.paidAmount ?? 0), 0))
+  const untrackedExpenseRows = expenses.filter((e) => e.paidAmount === null)
   const totals = {
     contractAmount: round(figures.reduce((s, b) => s + b.contractAmount, 0)),
-    collected: round(figures.reduce((s, b) => s + b.collected, 0) + trashedCollected),
+    collected: collectedTotal,
     remaining: round(figures.reduce((s, b) => s + b.remaining, 0)),
-    expenses: round(expenses.reduce((s, e) => s + e.amount, 0)),
-    net: 0,
+    expenses: expenseTotal,
+    paidExpenses: paidExpenseTotal,
+    // F7 / W3 R-7 — net on ONE basis, the ledger's cash basis
+    // (collected − paidExpenses); the accrual figure survives as
+    // netAccrued (collected − full expenses).
+    net: round(collectedTotal - paidExpenseTotal),
+    netAccrued: round(collectedTotal - expenseTotal),
+    untrackedExpenses: untrackedExpenseRows.length,
+    untrackedExpenseAmount: round(untrackedExpenseRows.reduce((s, e) => s + e.amount, 0)),
     bookingsCount: figures.length,
   }
-  totals.net = round(totals.collected - totals.expenses)
   return { bookings: figures, expenses, periodDays, totals }
 }
 
@@ -450,7 +515,10 @@ interface BuilderRow {
   collected: number
   remaining: number
   expenses: number
+  // F7 / W3 R-7 — Σ paidAmount for the row; net is cash-basis.
+  paidExpenses: number
   net: number
+  netAccrued: number
   bookingsCount: number
   occupancyPct?: number
 }
@@ -475,7 +543,7 @@ const buildRows = (data: PeriodData, from: Date, to: Date, groupBy: GroupBy, car
       row = {
         key,
         ...(rowCarId ? { carId: rowCarId } : {}),
-        contractAmount: 0, collected: 0, remaining: 0, expenses: 0, net: 0, bookingsCount: 0, days: 0, bucketDays: bucketDaysFor(key),
+        contractAmount: 0, collected: 0, remaining: 0, expenses: 0, paidExpenses: 0, net: 0, netAccrued: 0, bookingsCount: 0, days: 0, bucketDays: bucketDaysFor(key),
       }
       rows.set(key, row)
     }
@@ -510,12 +578,16 @@ const buildRows = (data: PeriodData, from: Date, to: Date, groupBy: GroupBy, car
     const key = groupBy === 'car' ? (e.carId as string) : bucketKeyFor(e.date, groupBy)
     const row = ensure(key, groupBy === 'car' ? (e.carId as string) : (carScoped && e.carId ? e.carId : undefined))
     row.expenses = round(row.expenses + e.amount)
+    // F7 / W3 R-7 — the paid leg travels with the accrued leg.
+    row.paidExpenses = round(row.paidExpenses + (e.paidAmount ?? 0))
   }
   return [...rows.values()].sort((a, b) => a.key.localeCompare(b.key)).map((row) => {
     const { days, bucketDays, ...rest } = row
     return {
       ...rest,
-      net: round(rest.collected - rest.expenses),
+      // F7 / W3 R-7 — net is cash-basis; netAccrued keeps the old figure.
+      net: round(rest.collected - rest.paidExpenses),
+      netAccrued: round(rest.collected - rest.expenses),
       ...((groupBy === 'car' || carScoped) ? { occupancyPct: round((days / bucketDays) * 100) } : {}),
     }
   })
@@ -568,7 +640,8 @@ const runBuilder = async (req: Request) => {
     const prevTo = from
     const prevFrom = new Date(from.getTime() - length)
     const prev = await computePeriod(supplier, prevFrom, prevTo, carId, scope)
-    const metrics = ['contractAmount', 'collected', 'remaining', 'expenses', 'net', 'bookingsCount'] as const
+    // F7 / W3 R-7 — the comparison covers the new cash-basis figures too.
+    const metrics = ['contractAmount', 'collected', 'remaining', 'expenses', 'paidExpenses', 'net', 'netAccrued', 'bookingsCount'] as const
     const deltas: Record<string, { current: number, previous: number, delta: number, deltaPct: number | null }> = {}
     for (const metric of metrics) {
       const current = Number(totals[metric] || 0)
@@ -629,7 +702,9 @@ export const builderCsv = async (req: Request, res: Response) => {
       collected: row.collected,
       remaining: row.remaining,
       expenses: row.expenses,
+      paidExpenses: row.paidExpenses,
       net: row.net,
+      netAccrued: row.netAccrued,
       bookingsCount: row.bookingsCount,
       occupancyPct: row.occupancyPct ?? '',
       scope: result.scope,
@@ -646,7 +721,9 @@ export const builderCsv = async (req: Request, res: Response) => {
       collected: result.totals.collected,
       remaining: result.totals.remaining,
       expenses: result.totals.expenses,
+      paidExpenses: result.totals.paidExpenses,
       net: result.totals.net,
+      netAccrued: result.totals.netAccrued,
       bookingsCount: result.totals.bookingsCount,
       occupancyPct: result.totals.occupancyPct ?? '',
       scope: result.scope,

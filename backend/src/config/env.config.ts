@@ -1120,6 +1120,11 @@ export interface Invoice extends Document {
   subtotal: number
   taxAmount: number
   taxRate?: number | null
+  // F7 / W3 B-3 — true when the tax was set by an explicit override
+  // (manual taxAmount, or a quote's verbatim tax) rather than computed
+  // from the supplier's configured VAT rate. The HT-vs-TTC basis is
+  // still an open ADR-001 decision; the flag only records provenance.
+  taxOverride?: boolean
   total: number
   paidAmount: number
   paymentStatus: 'unpaid' | 'partial' | 'paid'

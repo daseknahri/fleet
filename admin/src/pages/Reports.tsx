@@ -311,7 +311,7 @@ const Reports = () => {
               <Card><CardContent><Typography color="text.secondary">{strings.UTILIZATION}</Typography><Typography variant="h5" component="h2">{value('utilizationPercent').toFixed(2)}%</Typography></CardContent></Card>
             </Box>
             <Box sx={{ width: '100%' }}>
-              <Typography>{strings.CONTRACTS}: {value('contracts')} · {strings.INVOICES}: {value('invoiceCount')} · {report.timezone} · v{report.metricDictionaryVersion}</Typography>
+              <Typography>{strings.CONTRACTS}: {value('contracts')} · {strings.INVOICES}: {value('invoiceCount')} · {strings.PAID_EXPENSES}: {money(value('paidExpenses'))} · {strings.NET_ACCRUED}: {money(value('accruedMargin'))} · {report.timezone} · v{report.metricDictionaryVersion}</Typography>
             </Box>
           </Box>
         )}
@@ -440,6 +440,11 @@ const Reports = () => {
                 </TableRow>
               </TableBody>
             </Table>
+          )}
+          {builderResult && (
+            <Typography sx={{ mt: 1 }}>
+              {strings.PAID_EXPENSES}: {bMoney(builderResult.totals.paidExpenses)} · {strings.NET_ACCRUED}: {bMoney(builderResult.totals.netAccrued)}
+            </Typography>
           )}
           {builderResult?.comparison && (
             <Box sx={{ mt: 2 }}>

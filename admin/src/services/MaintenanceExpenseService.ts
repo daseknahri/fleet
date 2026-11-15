@@ -28,5 +28,5 @@ export const uploadReceipt = (file: File): Promise<{ filename: string }> => {
   return axiosInstance.post('/api/maintenance-expenses/receipts', data, { withCredentials: true }).then((res) => res.data)
 }
 
-export const report = (from?: string, to?: string): Promise<{ currency: string; total: number; categories: Array<{ category: string; count: number; total: number; receipts: number }> }> =>
+export const report = (from?: string, to?: string): Promise<{ currency: string; total: number; paidTotal: number; untrackedCount: number; categories: Array<{ category: string; count: number; total: number; paidTotal: number; untracked: number; receipts: number }> }> =>
   axiosInstance.get('/api/maintenance-expenses/report', { params: { from, to }, withCredentials: true }).then((res) => res.data)

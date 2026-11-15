@@ -341,7 +341,10 @@ describe('F6 / W3 P-3 — one shared outstanding / receivable definition', () =>
   it('overdue endpoint uses the shared charges-included definition', async () => {
     const res = await get(ownerToken, '/api/rental-payments/overdue')
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-15.1')
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.1')
+    // F7 — the pin tracks the dictionary version (bumped for the shared
+    // receivable + cash-basis net). The outstanding figures below are
+    // unchanged.
     const rows = res.body.rows as Array<{ booking: { _id: string }, outstandingBalance: number, depositHeld: number, dueAt?: string, overdue: boolean }>
     const byId = new Map(rows.map((row) => [row.booking._id, row]))
     // booking1: 500 - 300 posted rent = 200 outstanding, due tomorrow.

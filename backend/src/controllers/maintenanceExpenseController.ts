@@ -388,11 +388,15 @@ match.car = new mongoose.Types.ObjectId(String(req.query.car))
 }
     const rows = await MaintenanceExpense.aggregate([
       { $match: match },
-      { $group: { _id: '$type', count: { $sum: 1 }, total: { $sum: '$amount' }, receipts: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$receipt', null] }, null] }, 1, 0] } } } },
+      { $group: { _id: '$type', count: { $sum: 1 }, total: { $sum: '$amount' }, paidTotal: { $sum: { $ifNull: ['$paidAmount', 0] } }, untracked: { $sum: { $cond: [{ $eq: ['$paidAmount', null] }, 1, 0] } }, receipts: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$receipt', null] }, null] }, 1, 0] } } } },
       { $sort: { total: -1, _id: 1 } },
     ])
-    const categories = rows.map((row) => ({ category: row._id, count: row.count, total: Number(Number(row.total).toFixed(2)), receipts: row.receipts }))
-    res.json({ currency: env.BASE_CURRENCY.toUpperCase(), from, to, total: Number(categories.reduce((sum, row) => sum + row.total, 0).toFixed(2)), categories })
+    // F7 / W3 R-7 — the category report carries the same cash/accrual
+    // split as the reports builder: `total` is the full accrued
+    // amount, `paidTotal` is what was actually paid (null paidAmount
+    // counts as 0 paid, and `untracked` says how many rows those are).
+    const categories = rows.map((row) => ({ category: row._id, count: row.count, total: Number(Number(row.total).toFixed(2)), paidTotal: Number(Number(row.paidTotal || 0).toFixed(2)), untracked: row.untracked, receipts: row.receipts }))
+    res.json({ currency: env.BASE_CURRENCY.toUpperCase(), from, to, total: Number(categories.reduce((sum, row) => sum + row.total, 0).toFixed(2)), paidTotal: Number(categories.reduce((sum, row) => sum + row.paidTotal, 0).toFixed(2)), untrackedCount: categories.reduce((sum, row) => sum + row.untracked, 0), categories })
   } catch (err) {
  logger.error('[maintenanceExpense.report]', err); res.status(400).send(i18n.t('ERROR')) 
 }
