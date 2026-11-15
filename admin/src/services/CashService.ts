@@ -3,6 +3,10 @@ import axiosInstance from './axiosInstance'
 
 export const listSessions = (supplier?: string): Promise<bookcarsTypes.CashSession[]> => axiosInstance.get('/api/cash/sessions', { params: supplier ? { supplier } : undefined, withCredentials: true }).then((res) => res.data)
 export const current = (account = bookcarsTypes.CashAccountType.Cash, supplier?: string): Promise<bookcarsTypes.CashSession | null> => axiosInstance.get('/api/cash/sessions/current', { params: { account, ...(supplier ? { supplier } : {}) }, withCredentials: true }).then((res) => res.data)
+
+// F6 / W3 C-1 — the previous counted close for the open-session
+// dialog: the chained opening balance (null on a first session).
+export const previousClose = (account = bookcarsTypes.CashAccountType.Cash, supplier?: string): Promise<{ sessionId: string, countedClosingBalance: number, closedAt: string, currency: string } | null> => axiosInstance.get('/api/cash/sessions/previous-close', { params: { account, ...(supplier ? { supplier } : {}) }, withCredentials: true }).then((res) => res.data)
 export const open = (data: bookcarsTypes.OpenCashSessionPayload): Promise<bookcarsTypes.CashSession> => axiosInstance.post('/api/cash/sessions', data, { withCredentials: true }).then((res) => res.data)
 export const movements = (sessionId: string, supplier?: string): Promise<bookcarsTypes.CashMovement[]> => axiosInstance.get(`/api/cash/sessions/${encodeURIComponent(sessionId)}/movements`, { params: supplier ? { supplier } : undefined, withCredentials: true }).then((res) => res.data)
 export const createMovement = (sessionId: string, data: bookcarsTypes.CreateCashMovementPayload, supplier?: string): Promise<bookcarsTypes.CashMovement> => axiosInstance.post(`/api/cash/sessions/${encodeURIComponent(sessionId)}/movements`, { ...data, ...(supplier ? { supplier } : {}) }, { withCredentials: true }).then((res) => res.data)

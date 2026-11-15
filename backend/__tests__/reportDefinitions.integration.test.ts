@@ -117,11 +117,14 @@ afterAll(async () => {
   await databaseHelper.close()
 })
 
-describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-02.1 verification', () => {
+describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-15.1 verification', () => {
   it('matches every hand-computed metric for the date-only range the UI sends', async () => {
     const res = await request(app).get('/api/reports/summary?from=2026-11-10&to=2026-11-19').set(env.X_ACCESS_TOKEN, token)
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-02.1')
+    // F6 / W3 P-3 — the pin tracks the dictionary version; the
+    // dictionary bumped to 2026-11-15.1 for the shared outstanding /
+    // receivable definition. The metric values below are unchanged.
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-15.1')
     expect(res.body.currency).toBe(env.BASE_CURRENCY.toUpperCase())
     expect(res.body.timezone).toBe('Africa/Casablanca')
     // Casablanca day boundaries for the selected local days, then every

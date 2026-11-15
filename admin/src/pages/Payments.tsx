@@ -74,6 +74,9 @@ const Payments = () => {
   const [bookings, setBookings] = useState<bookcarsTypes.Booking[]>([])
   const [payments, setPayments] = useState<bookcarsTypes.RentalPayment[]>([])
   const [collections, setCollections] = useState<bookcarsTypes.CollectionsSummary | null>(null)
+  // F6 / W3 P-3 — the receivables table from the server's shared
+  // outstanding definition (null until the endpoint answers).
+  const [serverOverdue, setServerOverdue] = useState<bookcarsTypes.OverdueReceivableResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -105,12 +108,20 @@ const Payments = () => {
       ])
       setBookings(bookingResult?.[0]?.resultData || [])
       setPayments(paymentRows || [])
-      // GA-PAR-17 — collections KPI (dictionary v2026-11-11.2). A failure
+      // GA-PAR-17 — collections KPI (dictionary v2026-11-15.1). A failure
       // degrades this card only, never the page.
       try {
         setCollections(await RentalPaymentService.collectionsSummary())
       } catch {
         setCollections(null)
+      }
+      // F6 / W3 P-3 — shared outstanding/receivable table. A failure
+      // falls back to the client-side computation below (which omits
+      // approved charges), never the page.
+      try {
+        setServerOverdue(await RentalPaymentService.overdue())
+      } catch {
+        setServerOverdue(null)
       }
     } catch (error) {
       setLoadError(true)
@@ -141,9 +152,14 @@ const Payments = () => {
     return totals
   }, {}), [payments])
 
-  // A receivable is overdue when the rental end has passed and the rental balance is not fully posted.
-  // Refundable deposits are deliberately excluded: they are not rental receivable.
-  const overdueRows = useMemo(() => bookings
+  // F6 / W3 P-3 — the receivables table comes from the server's shared
+  // outstanding definition (dictionary v2026-11-15.1): rentalTotal +
+  // APPROVED charges − posted rent, overdue per the shared due rule.
+  // The client-side computation below is ONLY the fallback when the
+  // endpoint fails — it omits approved charges, so it can understate
+  // the outstanding balance. Refundable deposits are deliberately
+  // excluded from the receivable: they are held, not owed.
+  const clientOverdueRows = useMemo(() => bookings
     .filter((booking) => {
       const id = bookingIdOf(booking)
       if (!id || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
@@ -160,11 +176,29 @@ const Payments = () => {
         booking,
         outstanding: Math.max(0, rentalTotal - (paymentTotals[id]?.rent || 0)),
         depositHeld: Math.max(0, Number(booking.financialSnapshot?.depositAmount || 0) - (paymentTotals[id]?.deposit || 0)),
+        dueAt: undefined as Date | undefined,
+        // The fallback filter already keeps only rows whose rental end
+        // has passed, so every fallback row is overdue by construction.
+        overdue: true,
       }
     })
     .sort((a, b) => b.outstanding - a.outstanding), [bookings, paymentTotals])
 
-  const overdueTotal = overdueRows.reduce((sum, row) => sum + row.outstanding, 0)
+  const overdueRows = serverOverdue
+    ? serverOverdue.rows.map((row) => ({
+      booking: row.booking,
+      outstanding: row.outstandingBalance,
+      depositHeld: row.depositHeld,
+      dueAt: row.dueAt ? new Date(row.dueAt) : undefined,
+      overdue: row.overdue,
+    }))
+    : clientOverdueRows
+
+  // The OVERDUE card sums only the rows whose due date has passed;
+  // the table itself lists every outstanding receivable.
+  const overdueTotal = serverOverdue
+    ? serverOverdue.overdueTotal
+    : clientOverdueRows.reduce((sum, row) => sum + row.outstanding, 0)
   const postedNetTotal = payments.reduce((sum, payment) => {
     if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
       return sum
@@ -323,7 +357,7 @@ const Payments = () => {
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstanding)}</strong>
               <span data-label={strings.DEPOSIT}>{formatAmount(row.depositHeld)}</span>
-              <span data-label={strings.DATE}>{formatDate(row.booking.to)}</span>
+              <span data-label={strings.DATE}>{formatDate(row.dueAt ?? row.booking.to)}</span>
             </div>
           ))}
         </section>

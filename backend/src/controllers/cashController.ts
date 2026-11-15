@@ -64,9 +64,32 @@ export const open = async (req: Request, res: Response) => {
  res.status(403).send('Agency membership is required'); return 
 }
     const account = req.body?.account || bookcarsTypes.CashAccountType.Cash
-    const openingBalance = normalizeLedgerAmount(Number(req.body?.openingBalance), currency())
-    if (!Object.values(bookcarsTypes.CashAccountType).includes(account) || !Number.isFinite(openingBalance) || openingBalance < 0) {
+    if (!Object.values(bookcarsTypes.CashAccountType).includes(account)) {
       res.status(400).send('Invalid cash session'); return
+    }
+    // F6 / W3 C-1 — the opening balance chains from the previous counted
+    // close of the same (supplier, account): cash can no longer appear
+    // or vanish between sessions unnoticed. Omitted means "chain": the
+    // previous countedClosingBalance (0 on a first session). An explicit
+    // value that differs from the chained balance requires a recorded
+    // opening difference reason (>= 3 chars); an explicit value equal to
+    // the chain, or a first session, needs none. The chained value and
+    // the reason (when given) are stored on the session for the audit
+    // trail. A previous close in another currency never chains.
+    const previous = await CashSession.findOne({ supplier: supplierId, account, status: bookcarsTypes.CashSessionStatus.Closed }).sort({ closedAt: -1 })
+    const chained = previous && previous.currency === currency() && previous.countedClosingBalance !== undefined
+      ? normalizeLedgerAmount(previous.countedClosingBalance, currency())
+      : undefined
+    const hasExplicitOpening = req.body?.openingBalance !== undefined && req.body?.openingBalance !== null && req.body?.openingBalance !== ''
+    const openingBalance = hasExplicitOpening
+      ? normalizeLedgerAmount(Number(req.body?.openingBalance), currency())
+      : (chained ?? 0)
+    if (!Number.isFinite(openingBalance) || openingBalance < 0) {
+      res.status(400).send('Invalid cash session'); return
+    }
+    const openingDifferenceReason = String(req.body?.openingDifferenceReason || '').trim()
+    if (hasExplicitOpening && chained !== undefined && openingBalance !== chained && openingDifferenceReason.length < 3) {
+      res.status(400).send('Opening balance differs from the previous counted close; an opening difference reason is required'); return
     }
     const existing = await CashSession.findOne({ supplier: supplierId, account, status: bookcarsTypes.CashSessionStatus.Open })
     if (existing) {
@@ -79,12 +102,43 @@ export const open = async (req: Request, res: Response) => {
       openedAt: new Date(),
       openedBy: user._id,
       openingBalance,
+      previousClosingBalance: chained,
+      openingDifferenceReason: openingDifferenceReason || undefined,
       status: bookcarsTypes.CashSessionStatus.Open,
     })
     res.status(201).json(session)
   } catch (err) {
  logger.error('[cash.open]', err); res.status(400).send(i18n.t('ERROR')) 
 }
+}
+
+// F6 / W3 C-1 — the chained opening for the open-session dialog: the
+// previous closed session's counted balance for this (supplier,
+// account), or null on a first session. ReadCash, like the session
+// reads; the operator sees the chain before opening.
+export const previousClose = async (req: Request, res: Response) => {
+  try {
+    const supplierId = effectiveSupplierId(req)
+    if (!supplierId) {
+      res.status(403).send('Agency membership is required'); return
+    }
+    const account = String(req.query.account || bookcarsTypes.CashAccountType.Cash) as bookcarsTypes.CashAccountType
+    if (!Object.values(bookcarsTypes.CashAccountType).includes(account)) {
+      res.status(400).send('Invalid cash account'); return
+    }
+    const previous = await CashSession.findOne({ supplier: supplierId, account, status: bookcarsTypes.CashSessionStatus.Closed }).sort({ closedAt: -1 })
+    if (!previous || previous.currency !== currency() || previous.countedClosingBalance === undefined) {
+      res.json(null); return
+    }
+    res.json({
+      sessionId: previous._id,
+      closedAt: previous.closedAt,
+      countedClosingBalance: normalizeLedgerAmount(previous.countedClosingBalance, currency()),
+      currency: previous.currency,
+    })
+  } catch (err) {
+    logger.error('[cash.previousClose]', err); res.status(400).send(i18n.t('ERROR'))
+  }
 }
 
 export const listMovements = async (req: Request, res: Response) => {
@@ -399,6 +453,23 @@ export const confirmMovement = async (req: Request, res: Response) => {
       fresh.confirmedBy = new mongoose.Types.ObjectId(user._id)
       fresh.confirmedAt = new Date()
       await fresh.save()
+      // F6 / W3 C-4 (b) — a pending entry confirmed AFTER its session
+      // closed used to desync the stored figures from the Z-report
+      // (which recomputes from movements). Restamp the closed session's
+      // expected/discrepancy from the now-confirmed movements; the
+      // counted balance stands as counted. The pending-carry figures
+      // recorded at close stay as the close-time snapshot.
+      const closedSession = await CashSession.findOne({ _id: req.params.sessionId, supplier: supplierId, status: bookcarsTypes.CashSessionStatus.Closed })
+      if (closedSession) {
+        const all = await CashMovement.find({ session: closedSession._id }).lean()
+        const expected = normalizeLedgerAmount(all.filter((movement) => !movement.status || movement.status === 'confirmed').reduce((sum, movement) => {
+          const value = movement.amount
+          return movement.direction === bookcarsTypes.CashMovementDirection.In ? sum + value : sum - value
+        }, closedSession.openingBalance), closedSession.currency)
+        closedSession.expectedClosingBalance = expected
+        closedSession.discrepancy = normalizeLedgerAmount((closedSession.countedClosingBalance ?? 0) - expected, closedSession.currency)
+        await closedSession.save()
+      }
       return fresh
     })
     res.json(confirmed)
@@ -434,21 +505,70 @@ export const close = async (req: Request, res: Response) => {
     if (!Number.isFinite(counted) || counted < 0) {
  res.status(400).send('Invalid counted balance'); return 
 }
-    const movements = await CashMovement.find({ session: session._id }).lean()
-    const expected = movements.filter((movement) => !movement.status || movement.status === 'confirmed').reduce((sum, movement) => {
-      const value = movement.amount
-      return movement.direction === bookcarsTypes.CashMovementDirection.In ? sum + value : sum - value
-    }, session.openingBalance)
-    session.status = bookcarsTypes.CashSessionStatus.Closed
-    session.closedAt = new Date()
-    session.closedBy = new mongoose.Types.ObjectId(user._id)
-    session.expectedClosingBalance = normalizeLedgerAmount(expected, session.currency)
-    session.countedClosingBalance = counted
-    session.discrepancy = normalizeLedgerAmount(counted - expected, session.currency)
-    session.closingNote = String(req.body?.closingNote || '').trim()
-    await session.save()
-    res.json(session)
+    // F6 / W3 C-4 — the close runs under the per-session lock so no
+    // movement can land between the balance read and the save.
+    const closed = await withCashLock(session._id.toString(), async () => {
+      const movements = await CashMovement.find({ session: session._id }).lean()
+      const confirmed = movements.filter((movement) => !movement.status || movement.status === 'confirmed')
+      const pending = movements.filter((movement) => movement.status === 'pending')
+      const expected = normalizeLedgerAmount(confirmed.reduce((sum, movement) => {
+        const value = movement.amount
+        return movement.direction === bookcarsTypes.CashMovementDirection.In ? sum + value : sum - value
+      }, session.openingBalance), session.currency)
+      const discrepancy = normalizeLedgerAmount(counted - expected, session.currency)
+      // (a) Pending entries are surfaced, never silently ignored: the
+      // close is refused (409, with the pending figures named) until
+      // every pending entry is resolved — or the operator explicitly
+      // carries them with a recorded reason. Carried entries stay
+      // pending on the closed session and can still be confirmed
+      // afterwards; confirming one restamps the stored figures (see
+      // confirmMovement), so the Z-report never desyncs from them.
+      const pendingIn = normalizeLedgerAmount(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In).reduce((sum, movement) => sum + Number(movement.amount || 0), 0), session.currency)
+      const pendingOut = normalizeLedgerAmount(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out).reduce((sum, movement) => sum + Number(movement.amount || 0), 0), session.currency)
+      const acknowledgePending = req.body?.acknowledgePending === true
+      const pendingCarryReason = String(req.body?.pendingCarryReason || '').trim()
+      if (pending.length > 0 && (!acknowledgePending || pendingCarryReason.length < 3)) {
+        throw new Error(`Cannot close: ${pending.length} pending entries (in ${pendingIn.toFixed(2)}, out ${pendingOut.toFixed(2)} ${session.currency}) must be resolved or explicitly carried with a reason`)
+      }
+      // (c) Discrepancy approval — tolerance is ZERO by design (the
+      // task fixes it; no amount is invented): any nonzero discrepancy
+      // needs an explicit approval + reason, recorded on the session
+      // with the approver and time. The close() schema validation
+      // itself (expectedClosingBalance min 0) is untouched.
+      const discrepancyApproved = req.body?.discrepancyApproved === true
+      const discrepancyReason = String(req.body?.discrepancyReason || '').trim()
+      if (discrepancy !== 0 && (!discrepancyApproved || discrepancyReason.length < 3)) {
+        throw new Error(`Closing discrepancy of ${discrepancy.toFixed(2)} ${session.currency} requires approval with a reason`)
+      }
+      session.status = bookcarsTypes.CashSessionStatus.Closed
+      session.closedAt = new Date()
+      session.closedBy = new mongoose.Types.ObjectId(user._id)
+      session.expectedClosingBalance = expected
+      session.countedClosingBalance = counted
+      session.discrepancy = discrepancy
+      session.closingNote = String(req.body?.closingNote || '').trim()
+      if (pending.length > 0) {
+        session.pendingCarriedCount = pending.length
+        session.pendingCarriedIn = pendingIn
+        session.pendingCarriedOut = pendingOut
+        session.pendingCarryReason = pendingCarryReason
+      }
+      if (discrepancy !== 0) {
+        session.discrepancyReason = discrepancyReason
+        session.discrepancyApprovedBy = new mongoose.Types.ObjectId(user._id)
+        session.discrepancyApprovedAt = new Date()
+      }
+      await session.save()
+      return session
+    })
+    res.json(closed)
   } catch (err) {
+    // The 409s above carry the actionable message; everything else is
+    // the generic error, as before.
+    if (err instanceof Error && (err.message.startsWith('Cannot close:') || err.message.startsWith('Closing discrepancy'))) {
+      res.status(409).send(err.message)
+      return
+    }
  logger.error('[cash.close]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }

@@ -4,8 +4,11 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import RentalPayment from '../models/RentalPayment'
 import Booking from '../models/Booking'
+import CashSession from '../models/CashSession'
+import CashMovement from '../models/CashMovement'
 import ContractCharge from '../models/ContractCharge'
-import { LedgerError, confirmRentalPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
+import { LedgerError, confirmRentalPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
+import { getContractReceivable } from '../utils/contractReceivable'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
 import * as logger from '../utils/logger'
@@ -186,7 +189,7 @@ export const reverse = async (req: Request, res: Response) => {
 // Both mirror the payments list's gating exactly (ReadPayments, the
 // list route's permission) and its agency scoping (getScope above).
 //
-// collectionsSummary: the dictionary v2026-11-11.2 collections
+// collectionsSummary: the dictionary v2026-11-15.1 collections
 // universe — ALL of the agency's bookings excluding Void/Cancelled
 // and unexpired checkout placeholders (expireAt set), no period
 // window. contractAmount / collected / remaining use the PAR-14
@@ -198,6 +201,108 @@ export const reverse = async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------
 
 const round2 = (n: number) => Number(n.toFixed(2))
+
+// ---------------------------------------------------------------------
+// F6 / W3 P-3 — the shared outstanding/receivable table (CROSS-4 with
+// F8). One row per live booking with an outstanding balance, computed
+// with getContractReceivable — the SAME definition the collections
+// summary and the client balances use: outstanding = max(0, rentalTotal
+// + APPROVED charges − posted rent), overdue only once the due date
+// (rental end / completion) has passed, deposits held never netted.
+// This replaces the Payments page's client-side overdue table, which
+// omitted approved charges and used its own overdue rule — the third
+// of the three disagreeing figures. The dashboard (F8) applies this
+// same definition; it does not compute its own.
+// ---------------------------------------------------------------------
+
+export const overdue = async (req: Request, res: Response) => {
+  try {
+    const bookings = await Booking.find({
+      ...getScope(req),
+      status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+      expireAt: null,
+      deletedAt: null,
+    })
+      .select('_id reference price financialSnapshot to lifecycle car driver')
+      .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
+      .sort({ to: 1 })
+      .lean()
+    const rows: bookcarsTypes.OverdueReceivableRow[] = []
+    for (const booking of bookings) {
+      const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
+      if (receivable.outstandingBalance <= 0) {
+        continue
+      }
+      rows.push({
+        booking: booking as unknown as bookcarsTypes.Booking,
+        outstandingBalance: receivable.outstandingBalance,
+        depositHeld: Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments)),
+        dueAt: receivable.dueAt,
+        overdue: receivable.overdue,
+        currency: receivable.currency,
+      })
+    }
+    rows.sort((a, b) => b.outstandingBalance - a.outstandingBalance)
+    res.json({
+      metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
+      rows,
+      outstandingTotal: round2(rows.reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      overdueTotal: round2(rows.filter((row) => row.overdue).reduce((sum, row) => sum + row.outstandingBalance, 0)),
+    })
+  } catch (err) {
+    logger.error(`[rentalPayment.overdue] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// F6 / W3 C-7 — manually link a posted cash payment into a chosen open
+// cash session: the repair path for payments posted while no session
+// was open, or before the linkage existed. A payment that already has
+// a drawer movement is refused (409) — the link is single, never
+// duplicated. Non-cash or non-posted payments cannot link (409).
+export const linkCashSession = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const sessionId = typeof req.body?.cashSessionId === 'string' ? req.body.cashSessionId : ''
+    if (!user || !mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(sessionId)) {
+      res.status(400).send('Invalid cash session link')
+      return
+    }
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) })
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.method !== bookcarsTypes.RentalPaymentMethod.Cash || payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+      res.status(409).send('Only a posted cash payment can be linked to a cash session')
+      return
+    }
+    const existing = await CashMovement.findOne({ rentalPayment: payment._id }).select('_id session')
+    if (existing) {
+      res.status(409).send('This payment is already linked to a cash session')
+      return
+    }
+    const session = await CashSession.findOne({ _id: sessionId, supplier: payment.supplier, account: bookcarsTypes.CashAccountType.Cash, status: bookcarsTypes.CashSessionStatus.Open })
+    if (!session) {
+      res.status(404).send('Open cash session not found')
+      return
+    }
+    if (session.currency !== payment.currency) {
+      res.status(409).send('Cash session currency does not match the payment currency')
+      return
+    }
+    const movement = await linkLedgerCashPayment(payment, undefined, session._id)
+    if (!movement) {
+      res.status(409).send('Cash payment could not be linked to the cash session')
+      return
+    }
+    await payment.populate(populatedPaths)
+    res.json({ payment, movement })
+  } catch (err) {
+    logger.error(`[rentalPayment.linkCashSession] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
 
 export const collectionsSummary = async (req: Request, res: Response) => {
   try {

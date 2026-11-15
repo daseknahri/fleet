@@ -15,7 +15,7 @@ import { agencySupplierId } from '../utils/agencyAuthorization'
 import * as logger from '../utils/logger'
 
 /*
- * METRIC DICTIONARY — v2026-11-11.2 (GA-PAR-17; previous v2026-11-11.1
+ * METRIC DICTIONARY — v2026-11-15.1 (F6 / W3 P-3; previous v2026-11-11.2
  * GA-PAR-14; roadmap Phase 7 rule: dictionary first, then builders on
  * top of it).
  *
@@ -84,11 +84,13 @@ import * as logger from '../utils/logger'
  * - Collections universe (Payments page summary): ALL of the agency's
  *   bookings excluding Void/Cancelled and unexpired checkout
  *   placeholders (expireAt set) — no period window; collections are a
- *   stock figure, not a period figure. (The Payments page's own
- *   receivables TABLE is a narrower overdue-only subset whose
- *   outstanding omits APPROVED charges; the collections summary is
- *   deliberately the full receivable universe under the dictionary
- *   definitions, matching contractReceivable / the builder.)
+ *   stock figure, not a period figure. (The Payments page's receivables
+ *   TABLE is the same shared outstanding definition as the collections
+ *   summary — outstanding = rentalTotal + APPROVED charges − posted
+ *   rent, per booking, clamped at 0; see utils/contractReceivable.ts
+ *   (F6 / W3 P-3). Before v2026-11-15.1 the table was a narrower
+ *   overdue-only subset whose outstanding omitted APPROVED charges;
+ *   that fork is closed.)
  * - collectionRate = collected ÷ contractAmount × 100 over the
  *   collections universe (contractAmount and collected as defined in
  *   v2026-11-11.1: contractAmount = snapshot rentalTotal, fallback
@@ -117,9 +119,21 @@ import * as logger from '../utils/logger'
  *   collected, remaining, expenses, netCollected, bookingsCount,
  *   occupancyPct) — no second maths path; the document is rendered
  *   on demand and never stored.
+ *
+ * NEW definitions (v2026-11-15.1, F6 / W3 P-3) — one shared
+ * outstanding / receivable definition (utils/contractReceivable.ts),
+ * used by the Payments receivables table, the collections summary,
+ * the client balances and (by the F8 cluster) the dashboard:
+ * - outstanding(booking) = max(0, rentalTotal + APPROVED charges −
+ *   posted rent), clamped per booking in minor units. Deposits are
+ *   held separately and NEVER netted against rent.
+ * - dueAt = the completion time when one is given, else now for a
+ *   Completed lifecycle, else the rental end (`to`). No known due
+ *   date → the balance is outstanding, never overdue.
+ * - overdue = outstanding > 0 AND dueAt has passed.
  */
 
-export const METRIC_DICTIONARY_VERSION = '2026-11-11.2'
+export const METRIC_DICTIONARY_VERSION = '2026-11-15.1'
 
 const round = (n: number) => Number(n.toFixed(2))
 const date = (value: unknown, fallback: Date) => {

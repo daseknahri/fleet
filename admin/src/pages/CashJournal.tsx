@@ -75,6 +75,13 @@ const CashJournal = () => {
   const [openingBalance, setOpeningBalance] = useState('0')
   const [countedBalance, setCountedBalance] = useState('0')
   const [closingNote, setClosingNote] = useState('')
+  // F6 / W3 C-1 — chained opening from the previous counted close.
+  const [previousCloseBalance, setPreviousCloseBalance] = useState<number | null>(null)
+  const [openingDifferenceReason, setOpeningDifferenceReason] = useState('')
+  // F6 / W3 C-4 — close-time pending carry + discrepancy approval.
+  const [closePreview, setClosePreview] = useState<{ pendingCount: number, pendingIn: number, pendingOut: number, expectedBalance: number } | null>(null)
+  const [pendingCarryReason, setPendingCarryReason] = useState('')
+  const [discrepancyReason, setDiscrepancyReason] = useState('')
   const [sessionError, setSessionError] = useState(false)
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
   const [movementDirection, setMovementDirection] = useState<bookcarsTypes.CashMovementDirection>(bookcarsTypes.CashMovementDirection.In)
@@ -285,9 +292,35 @@ const CashJournal = () => {
         return
       }
       if (sessionDialog === 'open') {
-        await CashService.open({ account: openAccount, openingBalance: Number(openingBalance), supplier: supplierScope })
+        // F6 / W3 C-1 — a blank opening chains from the previous counted
+        // close (the server defaults it); a value that differs from the
+        // chain needs a recorded reason. The server enforces both.
+        const entered = openingBalance.trim() === '' ? undefined : Number(openingBalance)
+        if (previousCloseBalance !== null && entered !== undefined && entered !== previousCloseBalance && openingDifferenceReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.OPENING_DIFFERENCE_REASON_REQUIRED)
+          return
+        }
+        await CashService.open({ account: openAccount, openingBalance: entered, openingDifferenceReason: openingDifferenceReason.trim() || undefined, supplier: supplierScope })
       } else if (sessionDialog === 'close' && session?._id) {
-        await CashService.close(session._id, { countedClosingBalance: Number(countedBalance), closingNote }, supplierScope)
+        // F6 / W3 C-4 — pending entries are carried only with a reason,
+        // and any discrepancy needs an approved reason (tolerance is
+        // ZERO). The server re-checks both against the live session.
+        const counted = Number(countedBalance)
+        const expected = closePreview?.expectedBalance ?? session.expectedClosingBalance ?? counted
+        const discrepancy = Number((counted - expected).toFixed(2))
+        const pendingCount = closePreview?.pendingCount ?? 0
+        if (pendingCount > 0 && pendingCarryReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.PENDING_CARRY_REASON_REQUIRED)
+          return
+        }
+        if (discrepancy !== 0 && discrepancyReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.DISCREPANCY_REASON_REQUIRED)
+          return
+        }
+        await CashService.close(session._id, { countedClosingBalance: counted, closingNote, acknowledgePending: pendingCount > 0, pendingCarryReason: pendingCarryReason.trim() || undefined, discrepancyApproved: discrepancy !== 0, discrepancyReason: discrepancyReason.trim() || undefined }, supplierScope)
       }
       setSessionDialog(null)
       await onLoad(UserService.getCurrentUser() || undefined)
@@ -334,11 +367,52 @@ const CashJournal = () => {
   const otherAccount = accountFocus === bookcarsTypes.CashAccountType.Cash ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
   const otherCurrent = currentByAccount[otherAccount]
 
-  const openSessionDialog = () => {
+  // F6 / W3 C-1 — prefill the opening balance from the previous
+  // counted close of the chosen account (null on a first session).
+  const loadPreviousClose = async (account: bookcarsTypes.CashAccountType) => {
+    try {
+      const prev = await CashService.previousClose(account, supplierScope)
+      setPreviousCloseBalance(prev ? prev.countedClosingBalance : null)
+      setOpeningBalance(prev ? String(prev.countedClosingBalance) : '0')
+      setOpeningDifferenceReason('')
+    } catch {
+      setPreviousCloseBalance(null)
+    }
+  }
+
+  const openSessionDialog = async () => {
     // Default the dialog to the focused account, or to the other account when
     // the focused one already has an open session.
-    setOpenAccount(!currentByAccount[accountFocus] ? accountFocus : (!otherCurrent ? otherAccount : accountFocus))
+    const account = !currentByAccount[accountFocus] ? accountFocus : (!otherCurrent ? otherAccount : accountFocus)
+    setOpenAccount(account)
     setSessionDialog('open')
+    await loadPreviousClose(account)
+  }
+
+  // F6 / W3 C-4 — the close dialog previews the whole session's pending
+  // entries and the expected balance (unfiltered: the journal table
+  // itself may be date-filtered), so the closer sees what will be
+  // carried and what discrepancy they are approving.
+  const openCloseDialog = async () => {
+    setSessionDialog('close')
+    setPendingCarryReason('')
+    setDiscrepancyReason('')
+    setClosePreview(null)
+    if (!session?._id) {
+      return
+    }
+    try {
+      const journal = await CashService.journal(session._id, supplierScope)
+      const pending = (journal.rows || []).filter((row) => row.status === 'pending')
+      setClosePreview({
+        pendingCount: pending.length,
+        pendingIn: pending.filter((row) => row.direction === bookcarsTypes.CashMovementDirection.In).reduce((sum, row) => sum + row.amount, 0),
+        pendingOut: pending.filter((row) => row.direction === bookcarsTypes.CashMovementDirection.Out).reduce((sum, row) => sum + row.amount, 0),
+        expectedBalance: journal.totals.expectedBalance,
+      })
+    } catch {
+      setClosePreview(null)
+    }
   }
 
   // F6 / W3 C-5 — journal CSV export (same filters + server totals as
@@ -380,7 +454,7 @@ const CashJournal = () => {
             {otherCurrent ? <span>{`${accountName(otherAccount)} · ${strings.SESSION_OPEN}`}</span> : null}
             <span>{session ? `${accountName(session.account)} · ${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
             {session && <span className="agency-cash__session-balances">{strings.OPENING_BALANCE}: {formatAmount(session.openingBalance)} · {strings.EXPECTED}: {session.expectedClosingBalance === undefined ? '—' : formatAmount(session.expectedClosingBalance)} · {strings.COUNTED_BALANCE}: {session.countedClosingBalance === undefined ? '—' : formatAmount(session.countedClosingBalance)} · {strings.DISCREPANCY}: {session.discrepancy === undefined ? '—' : formatAmount(session.discrepancy)}</span>}
-            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <span className="agency-cash__session-actions"><Button disabled={!canMutateCash} variant="outlined" onClick={downloadZReport}>{strings.Z_REPORT}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button></span>}
+            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openCloseDialog}>{strings.CLOSE_SESSION}</Button></span> : <span className="agency-cash__session-actions"><Button disabled={!canMutateCash} variant="outlined" onClick={downloadZReport}>{strings.Z_REPORT}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button></span>}
           </div>
         </div>
         {loadError && <Alert severity="error" className="agency-cash__alert">{strings.LOAD_ERROR}</Alert>}
@@ -416,7 +490,7 @@ const CashJournal = () => {
         <Dialog open={sessionDialog !== null} onClose={() => setSessionDialog(null)} fullWidth maxWidth="xs">
           <DialogTitle>{sessionDialog === 'open' ? strings.OPEN_SESSION : sessionDialog === 'close' ? strings.CLOSE_SESSION : strings.ADD_MOVEMENT}</DialogTitle>
           <DialogContent className="agency-cash__dialog">
-            {sessionDialog === 'open' ? <><TextField select label={strings.ACCOUNT} value={openAccount} onChange={(event) => setOpenAccount(event.target.value as bookcarsTypes.CashAccountType)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashAccountType.Cash} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Cash]}>{strings.CASH}</option><option value={bookcarsTypes.CashAccountType.Bank} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Bank]}>{strings.BANK_ACCOUNT}</option></TextField><TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /></> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} /></> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
+            {sessionDialog === 'open' ? <><TextField select label={strings.ACCOUNT} value={openAccount} onChange={(event) => { const account = event.target.value as bookcarsTypes.CashAccountType; setOpenAccount(account); loadPreviousClose(account) }} SelectProps={{ native: true }}><option value={bookcarsTypes.CashAccountType.Cash} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Cash]}>{strings.CASH}</option><option value={bookcarsTypes.CashAccountType.Bank} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Bank]}>{strings.BANK_ACCOUNT}</option></TextField><TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} />{previousCloseBalance !== null && <Typography variant="body2">{strings.OPENING_CHAINED}: {formatAmount(previousCloseBalance)}</Typography>}{previousCloseBalance !== null && openingBalance !== '' && Number(openingBalance) !== previousCloseBalance && <TextField label={strings.OPENING_DIFFERENCE_REASON} value={openingDifferenceReason} onChange={(event) => setOpeningDifferenceReason(event.target.value)} multiline minRows={2} />}</> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} />{closePreview && closePreview.pendingCount > 0 && <Typography variant="body2">{strings.CLOSE_PENDING_WARNING}: {closePreview.pendingCount} ({formatAmount(closePreview.pendingIn)} / {formatAmount(closePreview.pendingOut)})</Typography>}{closePreview && closePreview.pendingCount > 0 && <TextField label={strings.PENDING_CARRY_REASON} value={pendingCarryReason} onChange={(event) => setPendingCarryReason(event.target.value)} multiline minRows={2} />}{closePreview && Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)) !== 0 && <Typography variant="body2">{strings.CLOSE_DISCREPANCY_WARNING}: {formatAmount(Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)))}</Typography>}{closePreview && Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)) !== 0 && <TextField label={strings.DISCREPANCY_REASON} value={discrepancyReason} onChange={(event) => setDiscrepancyReason(event.target.value)} multiline minRows={2} />}</> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
           </DialogContent>
           <DialogActions><Button onClick={() => setSessionDialog(null)}>{strings.CANCEL}</Button><Button variant="contained" onClick={sessionDialog === 'movement' ? saveMovement : saveSession}>{strings.SAVE}</Button></DialogActions>
         </Dialog>

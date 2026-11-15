@@ -18,8 +18,50 @@ export interface ContractReceivable {
   overdue: boolean
 }
 
+// ---------------------------------------------------------------------
+// F6 / W3 P-3 — THE shared outstanding / receivable definition
+// (CROSS-4 with F8; the dashboard applies this same definition, it
+// does not invent its own — see the note for F8 in F6-REPORT.md).
+//
+// Before this fix three surfaces disagreed: getContractReceivable
+// called any unpaid balance "overdue" (dueAt = completionAt || now);
+// the Payments page's overdue table omitted APPROVED charges and used
+// rental-end as the due date; the collections summary included charges
+// with a per-booking clamp. One definition now governs all three:
+//   - outstandingBalance = max(0, rentalTotal + APPROVED charges
+//     − posted rent), clamped per booking in minor units. Deposits are
+//     held separately and NEVER netted against rent.
+//   - dueAt = the completion time when one is given (contract
+//     completion), else now for a Completed lifecycle (the rental is
+//     done, the money is due), else the rental end (`to`). No due date
+//     is known → dueAt is undefined and the balance is not overdue.
+//   - overdue = outstandingBalance > 0 AND dueAt has passed.
+// The collections summary's `remaining` already used the
+// per-booking-clamped, charges-included arithmetic; it is the same
+// number summed over the collections universe. The metric dictionary
+// (reportController, v2026-11-15.1) records this definition.
+// ---------------------------------------------------------------------
+
+export const resolveDueAt = (
+  booking: { to?: Date | string | null, lifecycle?: bookcarsTypes.ContractLifecycle | string | null },
+  completionAt?: Date,
+  now = new Date(),
+): Date | undefined => {
+  if (completionAt) {
+    return completionAt
+  }
+  if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Completed) {
+    return now
+  }
+  const to = booking.to ? new Date(booking.to) : undefined
+  return to && !Number.isNaN(to.getTime()) ? to : undefined
+}
+
+export const isOverdue = (outstandingBalance: number, dueAt: Date | undefined, now = new Date()): boolean =>
+  outstandingBalance > 0 && !!dueAt && dueAt.getTime() <= now.getTime()
+
 export const getContractReceivable = async (
-  booking: Pick<env.Booking, '_id' | 'price' | 'financialSnapshot'>,
+  booking: Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>,
   completionAt?: Date,
 ): Promise<ContractReceivable> => {
   const currency = (booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
@@ -74,7 +116,10 @@ export const getContractReceivable = async (
   )
 
   const outstandingBalance = outstandingMinor / (10 ** exponent)
-  const dueAt = outstandingBalance > 0 ? (completionAt || new Date()) : undefined
+  // F6 / W3 P-3 — the shared due-date rule (see above): overdue only
+  // once the due date has passed. A balance with no known due date is
+  // outstanding, never overdue.
+  const dueAt = outstandingBalance > 0 ? resolveDueAt(booking, completionAt) : undefined
 
   return {
     currency,
@@ -85,7 +130,7 @@ export const getContractReceivable = async (
     depositPayments: Number(depositPayments.toFixed(exponent)),
     outstandingBalance,
     dueAt,
-    overdue: outstandingBalance > 0,
+    overdue: isOverdue(outstandingBalance, dueAt),
   }
 }
 
@@ -194,8 +239,12 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
       toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency),
     )
     const outstanding = outstandingMinor / (10 ** exponent)
-    const isOverdue = outstanding > 0
-      && (booking.lifecycle === bookcarsTypes.ContractLifecycle.Completed || (!!booking.to && booking.to < now))
+    // F6 / W3 P-3 — the same shared overdue rule as
+    // getContractReceivable above (due = completion, else rental end).
+    const dueAt = outstanding > 0
+      ? resolveDueAt({ to: booking.to, lifecycle: booking.lifecycle }, undefined, now)
+      : undefined
+    const isOverdueRow = isOverdue(outstanding, dueAt, now)
 
     const row = result.get(driverId) || {
       driver: driverId,
@@ -206,7 +255,7 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
       bookings: 0,
     }
     row.outstanding = Number((row.outstanding + outstanding).toFixed(exponent))
-    if (isOverdue) {
+    if (isOverdueRow) {
       row.overdue = Number((row.overdue + outstanding).toFixed(exponent))
     }
     row.depositHeld = Number((row.depositHeld + depositPayments).toFixed(exponent))

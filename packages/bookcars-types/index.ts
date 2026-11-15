@@ -2407,6 +2407,13 @@ export interface OverdueReceivableRow {
   currency: string
 }
 
+export interface OverdueReceivableResponse {
+  metricDictionaryVersion: string
+  rows: OverdueReceivableRow[]
+  outstandingTotal: number
+  overdueTotal: number
+}
+
 export interface Data<T> {
   rows: T[]
   rowCount: number

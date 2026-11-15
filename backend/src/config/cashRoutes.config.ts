@@ -11,5 +11,7 @@ const routes = {
   // scope and one set of figures per session.
   journal: '/api/cash/journal',
   journalCsv: '/api/cash/journal.csv',
+  // F6 / W3 C-1 — the chained opening for the open-session dialog.
+  previousClose: '/api/cash/sessions/previous-close',
 }
 export default routes
