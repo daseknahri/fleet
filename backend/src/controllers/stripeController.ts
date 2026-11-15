@@ -10,6 +10,60 @@ import { BookingConflictError } from '../utils/bookingReservationHelper'
 import { toMinorUnits } from '../utils/paymentAmount'
 
 /**
+ * F1 / W4 GAP-05 — refund a succeeded PaymentIntent after a verification
+ * mismatch, before any error is returned. Returns `'refunded'` when the
+ * money was returned, `'not-paid'` when the intent never succeeded (so
+ * there is nothing to refund), and `'failed'` when the refund itself could
+ * not be completed (caller must return a manual-review code).
+ *
+ * @param {Stripe} stripeAPI
+ * @param {string} paymentIntentId
+ * @returns {Promise<'refunded' | 'not-paid' | 'failed'>}
+ */
+const refundSucceededIntent = async (
+  stripeAPI: Stripe,
+  paymentIntentId: string,
+): Promise<'refunded' | 'not-paid' | 'failed'> => {
+  try {
+    const intent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+    if (!intent || intent.status !== 'succeeded') {
+      return 'not-paid'
+    }
+    await stripeAPI.refunds.create(
+      { payment_intent: intent.id },
+      { idempotencyKey: `refund-${intent.id}-mismatch` },
+    )
+    return 'refunded'
+  } catch (err) {
+    logger.error(`[stripe.checkCheckoutSession] Mismatch refund failed for ${paymentIntentId}`, err)
+    return 'failed'
+  }
+}
+
+/**
+ * F1 / W4 GAP-05 — map a mismatch-refund outcome to the response. A
+ * refunded payment is a 409 manual-review case, never a bare 400: the
+ * customer must know the money was returned and staff must review why the
+ * verification disagreed with the provider.
+ *
+ * @param {Response} res
+ * @param {'refunded' | 'not-paid' | 'failed'} outcome
+ * @param {string} detail
+ * @returns {boolean} true when a response was sent
+ */
+const respondMismatch = (res: Response, outcome: 'refunded' | 'not-paid' | 'failed', detail: string) => {
+  if (outcome === 'refunded') {
+    res.status(409).send(`${detail}; the payment was refunded. Support review is required.`)
+    return true
+  }
+  if (outcome === 'failed') {
+    res.status(500).send(`${detail}. Payment refund requires support review.`)
+    return true
+  }
+  return false
+}
+
+/**
  * Create Checkout Session.
  *
  * @async
@@ -98,6 +152,15 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       if (session.currency?.toLowerCase() !== financialSnapshot.paymentCurrency.toLowerCase()) {
         const message = `Payment currency mismatch: expected ${financialSnapshot.paymentCurrency}, got ${session.currency}`
         logger.error(`[stripe.checkCheckoutSession] ${message}`)
+        // F1 / W4 GAP-05: the session is paid — refund the succeeded intent
+        // before returning, instead of keeping the money on a 400.
+        const mismatchIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+        if (mismatchIntentId) {
+          stripePaymentIntentId = mismatchIntentId
+          if (respondMismatch(res, await refundSucceededIntent(stripeAPI, mismatchIntentId), message)) {
+            return
+          }
+        }
         res.status(400).send(message)
         return
       }
@@ -105,6 +168,15 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       if (session.amount_total !== expectedAmountCents) {
         const message = `Payment amount mismatch: expected ${expectedAmountCents}, got ${session.amount_total}`
         logger.error(`[stripe.checkCheckoutSession] ${message}`)
+        // F1 / W4 GAP-05: the session is paid — refund the succeeded intent
+        // before returning, instead of keeping the money on a 400.
+        const mismatchIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+        if (mismatchIntentId) {
+          stripePaymentIntentId = mismatchIntentId
+          if (respondMismatch(res, await refundSucceededIntent(stripeAPI, mismatchIntentId), message)) {
+            return
+          }
+        }
         res.status(400).send(message)
         return
       }
@@ -120,6 +192,16 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
         || verifiedIntent.metadata.bookingId !== booking._id.toString()
         || verifiedIntent.currency.toUpperCase() !== financialSnapshot.paymentCurrency.toUpperCase()
         || verifiedIntent.amount_received !== expectedAmountCents) {
+        // F1 / W4 GAP-05: a succeeded intent that disagrees with the
+        // snapshot is refunded, not kept on a 400. An intent that never
+        // succeeded took no money, so the plain 400 stands.
+        if (verifiedIntent.status === 'succeeded') {
+          const message = 'Payment intent does not match the booking snapshot'
+          logger.error(`[stripe.checkCheckoutSession] ${message}: intent ${verifiedIntent.id}, expected ${expectedAmountCents} ${financialSnapshot.paymentCurrency}, got ${verifiedIntent.amount_received} ${verifiedIntent.currency}`)
+          if (respondMismatch(res, await refundSucceededIntent(stripeAPI, stripePaymentIntentId), message)) {
+            return
+          }
+        }
         res.status(400).send('Payment intent does not match the booking snapshot')
         return
       }
@@ -171,6 +253,27 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
       return
     }
     logger.error(`[stripe.checkCheckoutSession] ${i18n.t('ERROR')}`, err)
+    // F1 / W3 P-2a + W4 GAP-05: finalisation can throw after the provider
+    // payment succeeded (e.g. a ledger OVERPAYMENT). Never return a bare
+    // 400 with the money taken: if the booking did finalise despite the
+    // throw, report success; otherwise refund the succeeded intent first.
+    if (stripePaymentIntentId) {
+      try {
+        const paidBooking = await Booking.findOne({ sessionId: req.params.sessionId, paymentIntentId: stripePaymentIntentId, status: { $ne: bookcarsTypes.BookingStatus.Void } })
+        if (paidBooking) {
+          res.sendStatus(200)
+          return
+        }
+        const stripeAPI = (await import('../payment/stripe.js')).default
+        if (respondMismatch(res, await refundSucceededIntent(stripeAPI, stripePaymentIntentId), 'Booking finalisation failed')) {
+          return
+        }
+      } catch (refundError) {
+        logger.error('[stripe.checkCheckoutSession] Failed to refund payment after finalisation failure', refundError)
+        res.status(500).send('Booking finalisation failed. Payment refund requires support review.')
+        return
+      }
+    }
     res.status(400).send(i18n.t('ERROR'))
   }
 }

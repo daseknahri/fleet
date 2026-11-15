@@ -124,7 +124,7 @@ afterEach(async () => {
   fixtureLocationIds.length = 0
   fixtureLocationValueIds.length = 0
   fixtureUserIds.length = 0
-  jest.clearAllMocks()
+  jest.resetAllMocks()
 })
 
 describe('current server-priced provider callback contract', () => {
@@ -244,15 +244,18 @@ describe('current server-priced provider callback contract', () => {
     expect(await Booking.exists({ _id: fixture.booking._id, status: bookcarsTypes.BookingStatus.Void })).toBeTruthy()
   })
 
-  it('rejects a PayPal callback whose order is not linked to the booking', async () => {
+  it('refunds a PayPal callback whose order is not linked to the booking', async () => {
+    // F1 / W4 GAP-05: the order carries a COMPLETED capture, so the money
+    // was taken — an unlinked order is refunded, not kept on a bare 400.
     const booking = await makeBooking({ paypalOrderId: 'order-current-linked' })
     paypalGetOrder.mockResolvedValue({
       id: 'order-current-unlinked', status: 'COMPLETED',
       purchase_units: [{ invoice_id: booking._id.toString(), amount: { currency_code: 'MAD', value: '1000.00' }, payments: { captures: [{ id: 'cap-current', status: 'COMPLETED', amount: { currency_code: 'MAD', value: '1000.00' } }] } }],
     })
     const response = await request(app).post(`/api/check-paypal-order/${booking._id}/${'order-current-unlinked'}`)
-    expect(response.status).toBe(400)
-    expect(paypalRefundCapture).not.toHaveBeenCalled()
+    expect(response.status).toBe(409)
+    expect(response.text).toContain('refunded')
+    expect(paypalRefundCapture).toHaveBeenCalledWith('cap-current', 'refund-cap-current-mismatch')
   })
 })
 
