@@ -27,7 +27,9 @@ import CarRangeFilter from '@/components/CarRangeFilter'
 import CarMultimediaFilter from '@/components/CarMultimediaFilter'
 import CarSeatsFilter from '@/components/CarSeatsFilter'
 import Map from '@/components/Map'
-// import Progress from '@/components/Progress'
+import Progress from '@/components/Progress'
+import Error from '@/components/Error'
+import { strings as commonStrings } from '@/lang/common'
 import ViewOnMapButton from '@/components/ViewOnMapButton'
 import MapDialog from '@/components/MapDialog'
 
@@ -47,6 +49,7 @@ const Search = () => {
   const [suppliers, setSuppliers] = useState<bookcarsTypes.User[]>([])
   const [supplierIds, setSupplierIds] = useState<string[]>()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [carSpecs, setCarSpecs] = useState<bookcarsTypes.CarSpecs>({})
   const [carType, setCarType] = useState(bookcarsHelper.getAllCarTypes())
   const [gearbox, setGearbox] = useState([bookcarsTypes.GearboxType.Automatic, bookcarsTypes.GearboxType.Manual])
@@ -245,6 +248,8 @@ const Search = () => {
       }
     } catch (err) {
       helper.error(err)
+      setLoading(false)
+      setError(true)
     }
   }
 
@@ -348,9 +353,11 @@ const Search = () => {
         />
 
         {noMatch && <NoMatch hideHeader />}
+
+        {error && <Error message={commonStrings.GENERIC_ERROR} />}
       </Layout>
 
-      {/* {loadingPage && !noMatch && <Progress />} */}
+      {loading && !noMatch && <Progress />}
     </>
   )
 }

@@ -96,6 +96,7 @@ const Checkout = () => {
   const [amountDueNow, setAmountDueNow] = useState<number>()
   const [success, setSuccess] = useState(false)
   const [loadingPage, setLoadingPage] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [recaptchaError, setRecaptchaError] = useState(false)
   const adRequired = true
   const [adManuallyChecked, setAdManuallyChecked] = useState(false)
@@ -364,6 +365,8 @@ const Checkout = () => {
       setVisible(true)
     } catch (err) {
       helper.error(err)
+      setLoadingPage(false)
+      setLoadError(true)
     }
   }
 
@@ -476,18 +479,18 @@ const Checkout = () => {
                               label={commonStrings.FULL_NAME}
                               required
                               error={!!errors.fullName}
-                              autoComplete="off"
+                              autoComplete="name"
                             />
                           </FormControl>
                           <FormControl fullWidth margin="dense">
                             <InputLabel className="required" htmlFor="checkout-email">{commonStrings.EMAIL}</InputLabel>
                             <OutlinedInput id="checkout-email"
                               // {...register('email')}
-                              type="text"
+                              type="email"
                               label={commonStrings.EMAIL}
                               error={!!errors.email}
                               required
-                              autoComplete="off"
+                              autoComplete="email"
                               onChange={(e) => {
                                 if (errors.email) {
                                   clearErrors('email')
@@ -509,11 +512,11 @@ const Checkout = () => {
                             <InputLabel className="required" htmlFor="checkout-phone">{commonStrings.PHONE}</InputLabel>
                             <OutlinedInput id="checkout-phone"
                               // {...register('phone')}
-                              type="text"
+                              type="tel"
                               label={commonStrings.PHONE}
                               error={!!errors.phone}
                               required
-                              autoComplete="off"
+                              autoComplete="tel"
                               onChange={(e) => {
                                 if (errors.phone) {
                                   clearErrors('phone')
@@ -556,34 +559,26 @@ const Checkout = () => {
                           </FormControl>
 
                           <div className="checkout-tos">
-                            <table>
-                              <tbody>
-                                <tr>
-                                  <td aria-label="tos">
-                                    <Checkbox
-                                      {...register('tos')}
-                                      onChange={(e) => {
-                                        if (e.target.checked && errors.tos) {
-                                          clearErrors('tos')
-                                        }
-                                      }}
-                                      color="primary"
-                                      inputProps={{ 'aria-label': commonStrings.TOS }}
-                                    />
-                                  </td>
-                                  <td>
-                                    <Link href="/tos" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} sx={{ display: 'block' }}>
-                                      {commonStrings.TOS}
-                                    </Link>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td colSpan={2}>
-                                    <FormHelperText error={!!errors.tos}>{errors.tos?.message || ''}</FormHelperText>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <FormControlLabel
+                              control={(
+                                <Checkbox
+                                  {...register('tos')}
+                                  onChange={(e) => {
+                                    if (e.target.checked && errors.tos) {
+                                      clearErrors('tos')
+                                    }
+                                  }}
+                                  color="primary"
+                                  inputProps={{ 'aria-label': commonStrings.TOS }}
+                                />
+                              )}
+                              label={(
+                                <Link href="/tos" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                                  {commonStrings.TOS}
+                                </Link>
+                              )}
+                            />
+                            <FormHelperText error={!!errors.tos}>{errors.tos?.message || ''}</FormHelperText>
                           </div>
 
                           <SocialLogin reloadPage />
@@ -633,7 +628,7 @@ const Checkout = () => {
                               type="text"
                               label={commonStrings.FULL_NAME}
                               required={adRequired}
-                              autoComplete="off"
+                              autoComplete="name"
                             />
                           </FormControl>
                           <FormControl fullWidth margin="dense">
@@ -642,11 +637,11 @@ const Checkout = () => {
                               // {...register('additionalDriverEmail')}
                               inputRef={additionalDriverEmailRef}
                               value={additionalDriverEmail}
-                              type="text"
+                              type="email"
                               label={commonStrings.EMAIL}
                               error={!!errors.additionalDriverEmail}
                               required={adRequired}
-                              autoComplete="off"
+                              autoComplete="email"
                               onChange={(e) => {
                                 if (errors.additionalDriverEmail) {
                                   clearErrors('additionalDriverEmail')
@@ -667,11 +662,11 @@ const Checkout = () => {
                               // {...register('additionalDriverPhone')}
                               inputRef={additionalDriverPhoneRef}
                               value={additionalDriverPhone}
-                              type="text"
+                              type="tel"
                               label={commonStrings.PHONE}
                               error={!!errors.additionalDriverPhone}
                               required={adRequired}
-                              autoComplete="off"
+                              autoComplete="tel"
                               onChange={(e) => {
                                 if (errors.additionalDriverPhone) {
                                   clearErrors('additionalDriverPhone')
@@ -952,6 +947,8 @@ const Checkout = () => {
         {user?.blacklisted && <Unauthorized />}
 
         {noMatch && <NoMatch hideHeader />}
+
+        {loadError && <Error message={commonStrings.GENERIC_ERROR} />}
 
         {success && bookingId && (
           <CheckoutStatus

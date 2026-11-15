@@ -13,6 +13,7 @@ import { strings as commonStrings } from '@/lang/common'
 import { strings as checkoutStrings } from '@/lang/checkout'
 import Toast from '@/components/Toast'
 import Error from '@/components/Error'
+import Progress from '@/components/Progress'
 
 import '@/assets/css/checkout-status.css'
 
@@ -38,6 +39,7 @@ const CheckoutStatus = (
   const [booking, setBooking] = useState<bookcarsTypes.Booking>()
   const [price, setPrice] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const { sessionId: sessionIdFromUrl } = useParams<{ sessionId: string }>()
   const [sessionIdMismatch, setSessionIdMismatch] = useState(false)
 
@@ -46,14 +48,21 @@ const CheckoutStatus = (
       // If accessed via a route with :sessionId, verify matching URL param
       if (sessionIdFromUrl && sessionId !== sessionIdFromUrl) {
         setSessionIdMismatch(true)
+        setLoading(false)
         return
       }
 
       // Pass sessionId to getBooking so backend verifyTokenOptional approves the unauthenticated request
-      const _booking = await BookingService.getBooking(bookingId, sessionId)
-      setBooking(_booking)
-      setPrice(await PaymentService.convertPrice(_booking.price!))
-      setLoading(false)
+      try {
+        const _booking = await BookingService.getBooking(bookingId, sessionId)
+        setBooking(_booking)
+        setPrice(await PaymentService.convertPrice(_booking.price!))
+      } catch (err) {
+        helper.error(err)
+        setError(true)
+      } finally {
+        setLoading(false)
+      }
     }
 
     if (bookingId) {
@@ -62,7 +71,21 @@ const CheckoutStatus = (
   }, [bookingId, sessionId, sessionIdFromUrl])
 
   if (loading) {
-    return null
+    return <Progress />
+  }
+
+  if (error) {
+    return <Error message={commonStrings.GENERIC_ERROR} />
+  }
+
+  if (sessionIdMismatch) {
+    return (
+      <div className={`checkout-status ${className || ''}`}>
+        <div className="session-id-mismatch">
+          <Error message={strings.SESSION_ID_MISMATCH} />
+        </div>
+      </div>
+    )
   }
 
   const _fr = language === 'fr'
@@ -82,12 +105,6 @@ const CheckoutStatus = (
           : strings.ERROR}
         status={status}
       />
-
-      {sessionIdMismatch && (
-        <div className="session-id-mismatch">
-          <Error message={strings.SESSION_ID_MISMATCH} />
-        </div>
-      )}
 
       {success && (
         <div className="details">

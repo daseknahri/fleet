@@ -44,6 +44,7 @@ const NotificationList = ({ user }: NotificationListProps) => {
   const { setNotificationCount } = useNotificationContext() as NotificationContextType
 
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [page, setPage] = useState(1)
   const [rows, setRows] = useState<bookcarsTypes.Notification[]>([])
   const [rowCount, setRowCount] = useState(-1)
@@ -62,6 +63,7 @@ const NotificationList = ({ user }: NotificationListProps) => {
     if (user && user._id) {
       try {
         setLoading(true)
+        setError(false)
         const data = await NotificationService.getNotifications(user._id, page)
         const _data = data && data.length > 0 ? data[0] : { pageInfo: { totalRecord: 0 }, resultData: [] }
         if (!_data) {
@@ -79,9 +81,11 @@ const NotificationList = ({ user }: NotificationListProps) => {
         if (notificationsListRef.current) {
           notificationsListRef.current.scrollTo(0, 0)
         }
-        setLoading(false)
       } catch (err) {
         helper.error(err)
+        setError(true)
+      } finally {
+        setLoading(false)
       }
     }
   }, [user, page])
@@ -101,6 +105,14 @@ const NotificationList = ({ user }: NotificationListProps) => {
           <Card variant="outlined" className="empty-list">
             <CardContent>
               <Typography color="textSecondary">{strings.EMPTY_LIST}</Typography>
+            </CardContent>
+          </Card>
+        )}
+
+        {error && !loading && (
+          <Card variant="outlined" className="empty-list">
+            <CardContent>
+              <Typography color="textSecondary">{commonStrings.GENERIC_ERROR}</Typography>
             </CardContent>
           </Card>
         )}

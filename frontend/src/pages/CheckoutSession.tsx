@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { strings } from '@/lang/checkout'
+import { strings as commonStrings } from '@/lang/common'
 import Layout from '@/components/Layout'
 import NoMatch from './NoMatch'
 import * as StripeService from '@/services/StripeService'
 import * as BookingService from '@/services/BookingService'
 import * as UserService from '@/services/UserService'
 import Info from './Info'
+import Error from '@/components/Error'
 import CheckoutStatus from '@/components/CheckoutStatus'
 
 import '@/assets/css/checkout-session.css'
@@ -19,32 +21,32 @@ const CheckoutSession = () => {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState(false)
 
-  if (!sessionId) {
-    setNoMatch(true)
-  }
-
   useEffect(() => {
-    if (sessionId) {
-      const checkSession = async () => {
-        try {
-          setLoading(true)
-          const status = await StripeService.checkCheckoutSession(sessionId)
-
-          const _bookingId = await BookingService.getBookingId(sessionId)
-          setBookingId(_bookingId)
-
-          setNoMatch(status === 204)
-          setSuccess(status === 200)
-        } catch {
-          setSuccess(false)
-          setError(true)
-        } finally {
-          setLoading(false)
-        }
-      }
-
-      checkSession()
+    if (!sessionId) {
+      setNoMatch(true)
+      setLoading(false)
+      return
     }
+
+    const checkSession = async () => {
+      try {
+        setLoading(true)
+        const status = await StripeService.checkCheckoutSession(sessionId)
+
+        const _bookingId = await BookingService.getBookingId(sessionId)
+        setBookingId(_bookingId)
+
+        setNoMatch(status === 204)
+        setSuccess(status === 200)
+      } catch {
+        setSuccess(false)
+        setError(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkSession()
   }, [sessionId])
 
   return (
@@ -59,7 +61,7 @@ const CheckoutSession = () => {
                 : error
                   ? <Info message={strings.PAYMENT_FAILED} hideLink />
                 : (
-                  success && bookingId && (
+                  success && bookingId ? (
                     <CheckoutStatus
                       bookingId={bookingId}
                       sessionId={sessionId}
@@ -67,6 +69,8 @@ const CheckoutSession = () => {
                       status={success ? 'success' : 'error'}
                       className="status"
                     />
+                  ) : (
+                    <Error message={commonStrings.GENERIC_ERROR} homeLink />
                   )
                 )
             )
