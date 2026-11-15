@@ -19,7 +19,7 @@ const About = () => {
         <h2>{strings.SUBTITLE1}</h2>
         <p>{strings.CONTENT1}</p>
 
-        <h1>{strings.TITLE2}</h1>
+        <h2>{strings.TITLE2}</h2>
         <h2>{strings.SUBTITLE2}</h2>
         <p>{strings.CONTENT2}</p>
 
