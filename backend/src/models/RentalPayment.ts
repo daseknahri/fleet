@@ -33,6 +33,9 @@ const rentalPaymentSchema = new Schema<env.RentalPayment>(
     fxRate: { type: Number, min: 0 },
     fxSource: { type: String, maxlength: 50, trim: true },
     fxAt: { type: Date },
+    // F6 / W3 C-7 — the cash session this cash-method payment is linked
+    // into (unset while no open cash session exists at posting time).
+    cashSession: { type: Schema.Types.ObjectId, ref: 'CashSession', index: true },
     reference: { type: String, maxlength: 160, trim: true },
     note: { type: String, maxlength: 1000, trim: true },
   },

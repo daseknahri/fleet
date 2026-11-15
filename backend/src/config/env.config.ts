@@ -1174,6 +1174,18 @@ export interface CashSession extends Document {
   countedClosingBalance?: number
   discrepancy?: number
   closingNote?: string
+  // F6 / W3 C-1 — previous counted close this opening chained from.
+  previousClosingBalance?: number
+  openingDifferenceReason?: string
+  // F6 / W3 C-4 — pending entries carried through a close + discrepancy
+  // approval (tolerance is zero).
+  pendingCarriedCount?: number
+  pendingCarriedIn?: number
+  pendingCarriedOut?: number
+  pendingCarryReason?: string
+  discrepancyReason?: string
+  discrepancyApprovedBy?: Types.ObjectId
+  discrepancyApprovedAt?: Date
 }
 
 /** Cash movement document. */
@@ -1191,6 +1203,10 @@ export interface CashMovement extends Document {
   confirmedAt?: Date
   idempotencyKey?: string
   transferId?: Types.ObjectId
+  // F6 / W3 C-7 — the ledger cash payment this movement was created
+  // from, and that payment's purpose (deposit cash is held, never income).
+  rentalPayment?: Types.ObjectId
+  purpose?: bookcarsTypes.RentalPaymentPurpose
   reference?: string
   note?: string
   actor?: Types.ObjectId
@@ -1277,6 +1293,9 @@ export interface RentalPayment extends Document {
   fxRate?: number
   fxSource?: string
   fxAt?: Date
+  // F6 / W3 C-7 — the cash session this cash-method payment is linked
+  // into (unset while no open cash session exists at posting time).
+  cashSession?: Types.ObjectId
   reference?: string
   note?: string
 }

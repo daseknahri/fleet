@@ -20,6 +20,12 @@ const schema = new Schema<env.CashMovement>({
   confirmedAt: Date,
   idempotencyKey: { type: String, maxlength: 200, trim: true },
   transferId: { type: Schema.Types.ObjectId, ref: 'CashMovement', index: true },
+  // F6 / W3 C-7 — the ledger cash payment this movement was created
+  // from, and that payment's purpose: deposit-purpose cash is drawer
+  // cash held as a liability, never income. Manual movements carry no
+  // purpose and no link.
+  rentalPayment: { type: Schema.Types.ObjectId, ref: 'RentalPayment', index: true },
+  purpose: { type: String, enum: Object.values(bookcarsTypes.RentalPaymentPurpose) },
   reference: { type: String, maxlength: 160, trim: true },
   note: { type: String, maxlength: 1000, trim: true },
   actor: { type: Schema.Types.ObjectId, ref: 'User' },

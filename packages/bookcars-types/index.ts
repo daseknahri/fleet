@@ -188,6 +188,9 @@ export enum CashMovementSource {
   Manual = 'manual',
   Transfer = 'transfer',
   Adjustment = 'adjustment',
+  // F6 / W3 C-7 — a movement created automatically from a ledger cash
+  // payment (RentalPayment with method cash), linked to that payment.
+  RentalPayment = 'rentalPayment',
 }
 
 export enum InvoiceStatus {
@@ -2034,6 +2037,22 @@ export interface CashSession {
   countedClosingBalance?: number
   discrepancy?: number
   closingNote?: string
+  // F6 / W3 C-1 — the previous closed session's counted balance this
+  // opening was chained from (undefined on a first session), and the
+  // operator's recorded reason when the opening differs from it.
+  previousClosingBalance?: number
+  openingDifferenceReason?: string
+  // F6 / W3 C-4 — pending entries explicitly carried through a close
+  // (counts/totals at close time + the recorded carry reason), and the
+  // discrepancy approval (tolerance is zero: any discrepancy needs an
+  // explicit approval + reason recorded here).
+  pendingCarriedCount?: number
+  pendingCarriedIn?: number
+  pendingCarriedOut?: number
+  pendingCarryReason?: string
+  discrepancyReason?: string
+  discrepancyApprovedBy?: string | User
+  discrepancyApprovedAt?: Date
   createdAt?: Date
   updatedAt?: Date
 }
@@ -2048,6 +2067,18 @@ export interface CashMovement {
   direction: CashMovementDirection
   amount: number
   source: CashMovementSource
+  // F6 / W3 C-4 — counter-agent entries stay 'pending' until confirmed
+  // (owner decision 1.5); movements written before the status field
+  // existed carry no status and count as confirmed.
+  status?: 'pending' | 'confirmed'
+  confirmedBy?: string | User
+  confirmedAt?: Date
+  // F6 / W3 C-7 — the ledger cash payment this movement was created
+  // from (cash-method RentalPayment), and that payment's purpose: a
+  // deposit-purpose movement is drawer cash held as a liability, never
+  // income. Manual movements carry no purpose.
+  rentalPayment?: string | RentalPayment
+  purpose?: RentalPaymentPurpose
   idempotencyKey?: string
   transferId?: string
   reference?: string
@@ -2060,7 +2091,11 @@ export interface OpenCashSessionPayload {
   supplier?: string
   account: CashAccountType
   currency?: string
-  openingBalance: number
+  // F6 / W3 C-1 — optional: omitted means "chain from the previous
+  // closed session's counted balance". An explicit value that differs
+  // from the chained balance requires openingDifferenceReason.
+  openingBalance?: number
+  openingDifferenceReason?: string
 }
 
 export interface CreateCashMovementPayload {
@@ -2077,6 +2112,14 @@ export interface CreateCashMovementPayload {
 export interface CloseCashSessionPayload {
   countedClosingBalance: number
   closingNote?: string
+  // F6 / W3 C-4 — closing with pending entries requires an explicit
+  // acknowledgement + carry reason (they are carried, never silently
+  // ignored); any nonzero discrepancy requires an explicit approval +
+  // reason (tolerance is zero).
+  acknowledgePending?: boolean
+  pendingCarryReason?: string
+  discrepancyApproved?: boolean
+  discrepancyReason?: string
 }
 
 export interface CreateCashTransferPayload {
@@ -2235,6 +2278,12 @@ export interface RentalPayment {
   actor?: string | User
   reversedFrom?: string | RentalPayment
   settledAt?: Date
+  // F6 / W3 C-7 — the cash session this cash-method payment was linked
+  // into (the drawer movement created for it, if any). Unset when no
+  // open cash session existed at posting/confirmation time; the payment
+  // is then listed as unlinked by the journal reconciliation until an
+  // operator links it.
+  cashSession?: string | CashSession
   reference?: string
   note?: string
   createdAt?: Date
@@ -2248,10 +2297,114 @@ export interface CreateRentalPaymentPayload {
   currency?: string
   method: RentalPaymentMethod
   purpose?: RentalPaymentPurpose
+  // F6 / W3 P-8 — an explicit 'debit' records a manual debit /
+  // standalone refund entry (ledger only, source forced to Adjustment,
+  // accountant-or-above only, reason required). Omitted means credit.
+  direction?: RentalPaymentDirection
+  reason?: string
   idempotencyKey?: string
   providerReference?: string
   reference?: string
   note?: string
+}
+
+// F6 / W3 P-8 — edit of a stuck Pending ledger entry (never-posted
+// money only): the fields an operator may correct before the entry can
+// confirm. Posted/Reversed entries are append-only and cannot be edited.
+export interface UpdateRentalPaymentPayload {
+  date?: Date
+  amount?: number
+  method?: RentalPaymentMethod
+  purpose?: RentalPaymentPurpose
+  reference?: string
+  note?: string
+}
+
+// F6 / W3 X-1 — server-side pagination envelope for the finance list
+// endpoints (payments, invoices, expenses, cash sessions/movements).
+// `total` is the full filtered count, not the page size.
+export interface PagedResult<T> {
+  rows: T[]
+  total: number
+  page: number
+  size: number
+}
+
+// F6 / W3 C-5 — one cash-journal row: a session movement (confirmed or
+// pending), enriched with its linked ledger payment when the movement
+// was created from one (C-7). Deposits are identified by `purpose`, so
+// the journal can keep them out of income.
+export interface CashJournalRow {
+  id: string
+  date: Date
+  direction: CashMovementDirection
+  source: CashMovementSource
+  status: 'pending' | 'confirmed'
+  purpose?: RentalPaymentPurpose
+  reference?: string
+  note?: string
+  amount: number
+  rentalPayment?: string
+  bookingReference?: string
+}
+
+// F6 / W3 C-5 — journal headline figures, all computed server-side from
+// the session's movements under one scope. Only settled/confirmed
+// movements count: pending entries are reported separately and never in
+// income/expenses; deposit-purpose cash is held as a liability, never
+// income; net = income − expenses (deposits excluded). expectedBalance
+// is the drawer's expected close (opening + income + deposits −
+// expenses) under the same confirmed-only rule close() uses.
+export interface CashJournalTotals {
+  openingBalance: number
+  income: number
+  expenses: number
+  deposits: number
+  net: number
+  pendingIn: number
+  pendingOut: number
+  expectedBalance: number
+  currency: string
+}
+
+// F6 / W3 C-7 — a cash-method ledger payment with no drawer movement
+// (posted while no cash session was open, or before the linkage
+// existed). Listed by the journal reconciliation so the two books'
+// difference is visible, never silently dropped.
+export interface UnlinkedCashPaymentRow {
+  id: string
+  date: Date
+  bookingReference?: string
+  purpose: RentalPaymentPurpose
+  direction: RentalPaymentDirection
+  status: RentalPaymentStatus
+  amount: number
+  currency: string
+}
+
+export interface CashJournalResponse {
+  session: CashSession
+  rows: CashJournalRow[]
+  totals: CashJournalTotals
+  unlinkedCashPayments: UnlinkedCashPaymentRow[]
+  unlinkedCashTotal: number
+  total: number
+  page: number
+  size: number
+}
+
+// F6 / W3 P-3 — one row of the shared outstanding/receivable table:
+// the same definition every surface uses (see
+// utils/contractReceivable.ts): outstanding = max(0, rentalTotal +
+// APPROVED charges − posted rent), overdue only once the due date
+// (rental end) has passed. Deposits are held, never netted.
+export interface OverdueReceivableRow {
+  booking: Booking
+  outstandingBalance: number
+  depositHeld: number
+  dueAt?: Date
+  overdue: boolean
+  currency: string
 }
 
 export interface Data<T> {

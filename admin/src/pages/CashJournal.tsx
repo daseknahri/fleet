@@ -5,8 +5,6 @@ import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
 import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import AccessDenied from '@/components/AccessDenied'
-import * as MaintenanceExpenseService from '@/services/MaintenanceExpenseService'
-import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as CashService from '@/services/CashService'
 import * as UserService from '@/services/UserService'
 import * as SupplierService from '@/services/SupplierService'
@@ -25,28 +23,12 @@ interface JournalRow {
   method: string
   amount: number
   searchText: string
-}
-
-const vehicleName = (car: string | bookcarsTypes.Car | null | undefined) => {
-  // The expense API can return a null car when the referenced vehicle no
-  // longer resolves; rendering must degrade to a placeholder, not throw.
-  if (!car || typeof car === 'string') {
-    return '—'
-  }
-  return `${car.name}${car.licensePlate ? ` · ${car.licensePlate}` : ''}`
-}
-
-const getCustomer = (booking?: bookcarsTypes.Booking) => (
-  booking?.driver && typeof booking.driver !== 'string' ? booking.driver.fullName || booking.driver.email || '' : ''
-)
-
-const methodName = (method: bookcarsTypes.RentalPaymentMethod) => {
-  switch (method) {
-    case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK
-    case bookcarsTypes.RentalPaymentMethod.Card: return strings.CARD
-    case bookcarsTypes.RentalPaymentMethod.Other: return strings.OTHER
-    default: return strings.CASH
-  }
+  // F6 / W3 C-5 — server-computed journal rows carry the movement's
+  // status and ledger purpose: pending entries are shown, never
+  // counted; deposit-purpose cash is held, never income.
+  status?: 'pending' | 'confirmed'
+  purpose?: bookcarsTypes.RentalPaymentPurpose
+  rentalPayment?: string
 }
 
 const uiLocale = () => {
@@ -69,6 +51,9 @@ const CashJournal = () => {
   const [agencies, setAgencies] = useState<bookcarsTypes.User[]>([])
   const [agencyId, setAgencyId] = useState('')
   const [rows, setRows] = useState<JournalRow[]>([])
+  const [journalTotals, setJournalTotals] = useState<bookcarsTypes.CashJournalTotals | null>(null)
+  const [unlinkedCashPayments, setUnlinkedCashPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
+  const [unlinkedCashTotal, setUnlinkedCashTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -132,9 +117,7 @@ const CashJournal = () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [payments, expenses, listedSessions, currentCash, currentBank] = await Promise.all([
-        RentalPaymentService.list(),
-        MaintenanceExpenseService.list(),
+      const [listedSessions, currentCash, currentBank] = await Promise.all([
         CashService.listSessions(scope),
         CashService.current(bookcarsTypes.CashAccountType.Cash, scope),
         CashService.current(bookcarsTypes.CashAccountType.Bank, scope),
@@ -151,55 +134,46 @@ const CashJournal = () => {
       if (selectedSession) {
         setCountedBalance(String(selectedSession.countedClosingBalance ?? selectedSession.openingBalance))
       }
-      const movementRows: JournalRow[] = selectedSession?._id
-        ? (await CashService.movements(selectedSession._id, scope)).map((movement) => ({
-          id: `movement-${movement._id}`,
-          date: new Date(movement.date),
-          direction: movement.direction,
-          reason: movement.source === bookcarsTypes.CashMovementSource.Transfer ? strings.TRANSFER : strings.MANUAL_MOVEMENT,
-          context: [movement.reference, movement.note].filter(Boolean).join(' · ') || '—',
-          method: selectedSession.account === bookcarsTypes.CashAccountType.Bank ? strings.BANK : strings.CASH,
-          amount: movement.amount,
-          searchText: `${movement.reference || ''} ${movement.note || ''} ${movement.source}`.toLocaleLowerCase(),
-        })) : []
-      const paymentRows: JournalRow[] = (payments || []).map((payment) => {
-        const booking = typeof payment.booking === 'string' ? undefined : payment.booking
-        const car = booking?.car
-        const vehicle = car ? vehicleName(car) : ''
-        const customer = getCustomer(booking)
-        const contractId = booking?._id || (typeof payment.booking === 'string' ? payment.booking : '')
-        return {
-          id: `payment-${payment._id}`,
-          date: new Date(payment.date),
-          direction: 'in',
-          reason: strings.PAYMENT,
-          context: [contractId ? contractId.slice(-8).toUpperCase() : '', vehicle, customer].filter(Boolean).join(' · ') || '—',
-          method: methodName(payment.method),
-          amount: payment.amount,
-          searchText: `${strings.PAYMENT} ${contractId} ${vehicle} ${customer} ${payment.reference || ''} ${payment.note || ''}`.toLocaleLowerCase(),
-        }
-      })
-      const expenseRows: JournalRow[] = (expenses || []).map((expense) => {
-        const vehicle = vehicleName(expense.car)
-        const reason = expense.vendor || expense.note || strings.MAINTENANCE
-        return {
-          id: `expense-${expense._id}`,
-          date: new Date(expense.date),
-          direction: 'out',
-          reason,
-          context: vehicle,
-          method: strings.MAINTENANCE,
-          amount: expense.amount,
-          searchText: `${strings.MAINTENANCE} ${reason} ${vehicle} ${expense.type}`.toLocaleLowerCase(),
-        }
-      })
-      setRows([...movementRows, ...paymentRows, ...expenseRows].sort((a, b) => b.date.getTime() - a.date.getTime()))
+      // F6 / W3 C-5 — the journal is computed server-side from the
+      // selected session's movements under one scope (confirmed-only
+      // income/expenses, deposits held separately, pending listed, never
+      // counted). The page no longer merges all agency payments and all
+      // expenses client-side: that merge counted reversed/pending/deposit
+      // payments as income and unpaid expenses as outflows, and its scope
+      // could not reconcile to any session. Maintenance expenses are not
+      // drawer movements and stay on Maintenance + Reports.
+      const journal = selectedSession?._id
+        ? await CashService.journal(selectedSession._id, scope, { from: from || undefined, to: to || undefined })
+        : null
+      setJournalTotals(journal?.totals || null)
+      setUnlinkedCashPayments(journal?.unlinkedCashPayments || [])
+      setUnlinkedCashTotal(journal?.unlinkedCashTotal || 0)
+      const movementRows: JournalRow[] = (journal?.rows || []).map((row) => ({
+        id: row.id,
+        date: new Date(row.date),
+        direction: row.direction,
+        reason: row.source === bookcarsTypes.CashMovementSource.Transfer
+          ? strings.TRANSFER
+          : row.rentalPayment
+            ? strings.PAYMENT
+            : strings.MANUAL_MOVEMENT,
+        context: [row.bookingReference, row.reference, row.note].filter(Boolean).join(' · ') || '—',
+        method: row.rentalPayment
+          ? strings.CASH
+          : selectedSession?.account === bookcarsTypes.CashAccountType.Bank ? strings.BANK : strings.CASH,
+        amount: row.amount,
+        searchText: `${row.reference || ''} ${row.note || ''} ${row.source} ${row.bookingReference || ''}`.toLocaleLowerCase(),
+        status: row.status,
+        purpose: row.purpose,
+        rentalPayment: row.rentalPayment,
+      }))
+      setRows(movementRows.sort((a, b) => b.date.getTime() - a.date.getTime()))
     } catch (error) {
  setLoadError(true); helper.error(error) 
 } finally {
  setLoading(false) 
 }
-  }, [agencies.length, agencyId, accountFocus])
+  }, [agencies.length, agencyId, accountFocus, from, to])
 
   useEffect(() => {
     if (user?.type === bookcarsTypes.RecordType.Admin && agencyId) {
@@ -322,6 +296,17 @@ const CashJournal = () => {
 }
   }
 
+  // F6 / W3 C-5 — headline figures come from the server-side journal
+  // totals (one scope, confirmed-only, deposits held separately).
+  // They are never re-summed from the rendered rows: a reversed,
+  // pending or deposit row must not leak back into income/expenses.
+  const income = journalTotals?.income ?? 0
+  const expenses = journalTotals?.expenses ?? 0
+  const net = journalTotals?.net ?? 0
+  const deposits = journalTotals?.deposits ?? 0
+  const pendingIn = journalTotals?.pendingIn ?? 0
+  const pendingOut = journalTotals?.pendingOut ?? 0
+
   // GA-PAR-24 — on-demand Z-report PDF for the closed focused session.
   // Same blob-download pattern as the Reports car PDF; the button renders
   // only for a closed session and shares the close action's gating.
@@ -356,9 +341,28 @@ const CashJournal = () => {
     setSessionDialog('open')
   }
 
-  const income = filtered.reduce((sum, row) => sum + (row.direction === 'in' ? row.amount : 0), 0)
-  const expenses = filtered.reduce((sum, row) => sum + (row.direction === 'out' ? row.amount : 0), 0)
-  const net = income - expenses
+  // F6 / W3 C-5 — journal CSV export (same filters + server totals as
+  // the page). Same blob-download pattern as the Z-report.
+  const downloadJournalCsv = async () => {
+    if (!session?._id) {
+      return
+    }
+    try {
+      setSessionError(false)
+      setSessionErrorMessage('')
+      const blob = await CashService.journalCsv(session._id, supplierScope, { from: from || undefined, to: to || undefined })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `gestion-auto-cash-journal-${session._id}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setSessionError(true)
+      setSessionErrorMessage(helper.getErrorMessage(error, strings.JOURNAL_EXPORT_ERROR))
+      helper.error(error, helper.getErrorMessage(error, strings.JOURNAL_EXPORT_ERROR))
+    }
+  }
 
   return (
     <Layout strict onLoad={onLoad}>
@@ -386,12 +390,16 @@ const CashJournal = () => {
           <Card><CardContent><span className="agency-cash__summary-icon"><AccountBalanceWalletRoundedIcon /></span><small>{strings.INCOME}</small><strong>{loading ? '—' : formatAmount(income)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--out">−</span><small>{strings.EXPENSES}</small><strong>{loading ? '—' : formatAmount(expenses)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--net">{strings.ENTRIES.slice(0, 1)}</span><small>{strings.NET}</small><strong>{loading ? '—' : formatAmount(net)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-cash__summary-icon">D</span><small>{strings.DEPOSITS}</small><strong>{loading ? '—' : formatAmount(deposits)}</strong></CardContent></Card>
         </div>
+        {!loading && (pendingIn > 0 || pendingOut > 0) && <Typography variant="caption" className="agency-cash__pending">{strings.PENDING}: +{formatAmount(pendingIn)} / −{formatAmount(pendingOut)}</Typography>}
+        {!loading && unlinkedCashTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashPayments.length})</Alert>}
         <section className="agency-cash__panel">
           <div className="agency-cash__toolbar">
             <TextField size="small" placeholder={strings.SEARCH} slotProps={{ htmlInput: { 'aria-label': strings.SEARCH } }} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
             <TextField size="small" type="date" label={strings.FROM} value={from} onChange={(event) => setFrom(event.target.value)} InputLabelProps={{ shrink: true }} />
             <TextField size="small" type="date" label={strings.TO} value={to} onChange={(event) => setTo(event.target.value)} InputLabelProps={{ shrink: true }} />
+            <Button variant="outlined" disabled={!session} onClick={downloadJournalCsv}>{strings.EXPORT_CSV}</Button>
           </div>
           <div className="agency-cash__table-head"><span>{strings.DATE}</span><span>{strings.TYPE}</span><span>{strings.REASON}</span><span>{strings.CONTEXT}</span><span>{strings.METHOD}</span><span>{strings.AMOUNT}</span></div>
           {loading ? <div className="agency-cash__empty">…</div> : filtered.length === 0 ? (
@@ -399,8 +407,8 @@ const CashJournal = () => {
           ) : filtered.map((row) => (
             <div className="agency-cash__row" key={row.id}>
               <span>{formatDate(row.date)}</span>
-              <span><span className={`agency-cash__kind ${row.direction === 'out' ? 'agency-cash__kind--out' : ''}`}>{row.direction === 'in' ? strings.INCOMING : strings.OUTGOING}</span></span>
-              <strong>{row.reason}</strong><span>{row.context}</span><span>{row.method}</span>
+              <span><span className={`agency-cash__kind ${row.direction === 'out' ? 'agency-cash__kind--out' : ''}`}>{row.direction === 'in' ? strings.INCOMING : strings.OUTGOING}{row.status === 'pending' ? ` · ${strings.PENDING}` : ''}</span></span>
+              <strong>{row.reason}{row.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? ` · ${strings.DEPOSIT}` : ''}</strong><span>{row.context}</span><span>{row.method}</span>
               <strong className={row.direction === 'out' ? 'agency-cash__amount--out' : ''}>{row.direction === 'out' ? '−' : '+'}{formatAmount(row.amount)}</strong>
             </div>
           ))}

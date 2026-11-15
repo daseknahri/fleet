@@ -3,11 +3,13 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import CashSession from '../models/CashSession'
 import CashMovement from '../models/CashMovement'
+import RentalPayment from '../models/RentalPayment'
 import User from '../models/User'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { normalizeLedgerAmount } from '../utils/ledger'
+import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { renderCashSessionPdf } from '../utils/cashSessionPdf'
 import * as env from '../config/env.config'
 
@@ -297,7 +299,10 @@ export const createMovement = async (req: Request, res: Response) => {
     if (Number.isNaN(date.getTime()) || !Number.isFinite(amount) || amount <= 0
       || !Object.values(bookcarsTypes.CashMovementDirection).includes(direction)
       || !Object.values(bookcarsTypes.CashMovementSource).includes(source)
-      || reference.length > 160 || note.length > 1000) {
+      || reference.length > 160 || note.length > 1000
+      // F6 / W3 C-2 — a movement is dated inside the session it belongs
+      // to: never before the session opened.
+      || date.getTime() < new Date(session.openedAt).getTime()) {
       res.status(400).send('Invalid cash movement'); return
     }
     if (idempotencyKey) {
@@ -309,23 +314,47 @@ export const createMovement = async (req: Request, res: Response) => {
     // Owner decision 1.5: counter-agent entries are recorded pending and
     // do not count toward the session balance until confirmed.
     const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent
-    const movement = await CashMovement.create({
-      supplier: supplierId,
-      session: session._id,
-      account: session.account,
-      currency: session.currency,
-      date,
-      direction,
-      amount,
-      source,
-      status: pendingEntry ? 'pending' : 'confirmed',
-      idempotencyKey,
-      reference,
-      note,
-      actor: user._id,
+    // F6 / W3 C-2 — a manual Out must never drive the expected balance
+    // negative: close() cannot store a negative expected balance (schema
+    // min 0), so an unchecked Out bricks the session — closable only by
+    // inventing cash. The check runs under the per-session lock, against
+    // the same confirmed-only balance close() and transfer() use, and
+    // names the balance in the refusal. Pending counter-agent entries do
+    // not count yet, so their check happens at confirmation time instead
+    // (see confirmMovement); linked ledger movements are created by the
+    // ledger itself and record money that already moved (see
+    // utils/ledger.ts linkLedgerCashPayment).
+    const movement = await withCashLock(session._id.toString(), async () => {
+      if (!pendingEntry && direction === bookcarsTypes.CashMovementDirection.Out) {
+        const expectedBalance = normalizeLedgerAmount(session.openingBalance + await sessionBalance(session._id), session.currency)
+        if (amount > expectedBalance + 0.000001) {
+          throw new Error(`Cash movement exceeds the session balance (expected balance ${expectedBalance.toFixed(2)} ${session.currency})`)
+        }
+      }
+      return CashMovement.create({
+        supplier: supplierId,
+        session: session._id,
+        account: session.account,
+        currency: session.currency,
+        date,
+        direction,
+        amount,
+        source,
+        status: pendingEntry ? 'pending' : 'confirmed',
+        idempotencyKey,
+        reference,
+        note,
+        actor: user._id,
+      })
     })
     res.status(201).json(movement)
   } catch (err) {
+    // F6 / W3 C-2 — the balance refusal is a conflict with a named
+    // balance, not a generic validation error.
+    if (err instanceof Error && err.message.startsWith('Cash movement exceeds the session balance')) {
+      res.status(409).send(err.message)
+      return
+    }
  logger.error('[cash.createMovement]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }
@@ -344,12 +373,48 @@ export const confirmMovement = async (req: Request, res: Response) => {
     if (movement.status !== 'pending') {
  res.status(409).send('Only a pending cash entry can be confirmed'); return 
 }
-    movement.status = 'confirmed'
-    movement.confirmedBy = new mongoose.Types.ObjectId(user._id)
-    movement.confirmedAt = new Date()
-    await movement.save()
-    res.json(movement)
+    // F6 / W3 C-2 — a pending Out never counted toward the balance when
+    // recorded, so confirmation is where its balance check belongs: a
+    // confirmation that would drive the expected balance negative stays
+    // pending, and the session can still be closed with the entry
+    // explicitly carried (see the pending-carry rules in close(), C-4).
+    // The check runs under the per-session lock, against the same
+    // confirmed-only balance as createMovement.
+    const confirmed = await withCashLock(req.params.sessionId, async () => {
+      const fresh = await CashMovement.findOne({ _id: movement._id, session: req.params.sessionId, supplier: supplierId })
+      if (!fresh || fresh.status !== 'pending') {
+        throw new Error('Only a pending cash entry can be confirmed')
+      }
+      if (fresh.direction === bookcarsTypes.CashMovementDirection.Out) {
+        const session = await CashSession.findOne({ _id: req.params.sessionId, supplier: supplierId })
+        if (!session) {
+          throw new Error('Cash session not found')
+        }
+        const expectedBalance = normalizeLedgerAmount(session.openingBalance + await sessionBalance(session._id), session.currency)
+        if (fresh.amount > expectedBalance + 0.000001) {
+          throw new Error(`Cash movement exceeds the session balance (expected balance ${expectedBalance.toFixed(2)} ${session.currency})`)
+        }
+      }
+      fresh.status = 'confirmed'
+      fresh.confirmedBy = new mongoose.Types.ObjectId(user._id)
+      fresh.confirmedAt = new Date()
+      await fresh.save()
+      return fresh
+    })
+    res.json(confirmed)
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Cash movement exceeds the session balance')) {
+      res.status(409).send(err.message)
+      return
+    }
+    if (err instanceof Error && err.message === 'Only a pending cash entry can be confirmed') {
+      res.status(409).send(err.message)
+      return
+    }
+    if (err instanceof Error && err.message === 'Cash session not found') {
+      res.status(404).send(err.message)
+      return
+    }
  logger.error('[cash.confirmMovement]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }
@@ -386,6 +451,237 @@ export const close = async (req: Request, res: Response) => {
   } catch (err) {
  logger.error('[cash.close]', err); res.status(400).send(i18n.t('ERROR')) 
 }
+}
+
+// ---------------------------------------------------------------------
+// F6 / W3 C-5 — server-side cash journal (one scope, one set of
+// figures). The old page merged three sources client-side — movements
+// of the selected session only, plus ALL agency payments and ALL
+// expenses (any date, any session/account) — then summed the merged
+// list with payment direction hardcoded to 'in' and no status filter,
+// so Reversed/Pending/Deposit payments counted as income and unpaid
+// expenses as outflows, and the totals could not reconcile to any
+// session. The journal is now the selected session's drawer, computed
+// server-side from that session's movements under one scope:
+//   - income: confirmed In movements whose purpose is not Deposit
+//     (linked rent collections + manual ins);
+//   - expenses: confirmed Out movements whose purpose is not Deposit
+//     (manual outs + linked cash refunds/debits);
+//   - deposits: confirmed In movements with purpose Deposit — drawer
+//     cash held as a liability, NEVER income (the ledger's own
+//     treatment: deposits are never revenue and never netted);
+//   - pendingIn/pendingOut: pending entries, listed separately and
+//     never counted (owner decision 1.5);
+//   - net = income − expenses; expectedBalance = opening + income +
+//     deposits − expenses, under the same confirmed-only rule close()
+//     uses, so the journal reconciles to the session and to the Z-report.
+// Maintenance expenses are NOT journal rows: an expense has no session
+// attribution (its paidAmount is self-declared and unbacked, W3 M-2),
+// so attributing it to a drawer would invent the link the Z-report
+// honestly refuses to invent. Expenses stay on Maintenance + Reports.
+// Linked ledger payments reach the journal as movements (C-7): a
+// cash-method posting creates a linked movement in the open session,
+// so the drawer and the ledger agree by construction. A posted cash
+// payment with no movement (no open session at posting time, or posted
+// before the linkage existed) is listed under `unlinkedCashPayments`
+// with its total, so the two books' difference stays visible.
+// ---------------------------------------------------------------------
+
+const JOURNAL_UNLINKED_CAP = 100
+
+const buildJournal = async (req: Request) => {
+  const sessionId = req.query.sessionId
+  if (typeof sessionId !== 'string' || !mongoose.isValidObjectId(sessionId)) {
+    throw new Error('Invalid cash session')
+  }
+  const session = await CashSession.findOne({ _id: sessionId, ...getScope(req) })
+  if (!session) {
+    throw new Error('Cash session not found')
+  }
+  const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
+  const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
+  if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    throw new Error('Invalid journal date filter')
+  }
+  const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim().toLocaleLowerCase() : ''
+  const movementFilter: Record<string, unknown> = { session: session._id }
+  if (from || to) {
+    movementFilter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
+  }
+  const movements = await CashMovement.find(movementFilter)
+    .sort({ date: -1, createdAt: -1 })
+    .populate({ path: 'rentalPayment', select: 'booking purpose direction status', populate: { path: 'booking', select: 'reference' } })
+    .lean()
+  const filtered = keyword
+    ? movements.filter((movement) => `${movement.reference || ''} ${movement.note || ''} ${movement.source || ''}`.toLocaleLowerCase().includes(keyword))
+    : movements
+  const isConfirmed = (movement: (typeof movements)[number]) => !movement.status || movement.status === 'confirmed'
+  const isDeposit = (movement: (typeof movements)[number]) => movement.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+  const sum = (rows: typeof filtered) => normalizeLedgerAmount(rows.reduce((total, row) => total + Number(row.amount || 0), 0), session.currency)
+  const confirmed = filtered.filter(isConfirmed)
+  const pending = filtered.filter((movement) => movement.status === 'pending')
+  const income = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && !isDeposit(movement)))
+  const expenses = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out && !isDeposit(movement)))
+  const deposits = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && isDeposit(movement)))
+  const pendingIn = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In))
+  const pendingOut = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out))
+  const totals: bookcarsTypes.CashJournalTotals = {
+    openingBalance: normalizeLedgerAmount(session.openingBalance, session.currency),
+    income,
+    expenses,
+    deposits,
+    net: normalizeLedgerAmount(income - expenses, session.currency),
+    pendingIn,
+    pendingOut,
+    expectedBalance: normalizeLedgerAmount(session.openingBalance + income + deposits - expenses, session.currency),
+    currency: session.currency,
+  }
+  // C-7 reconciliation: posted cash payments of this agency with no
+  // drawer movement (no open session when posted, or pre-linkage).
+  // Pending payments are not money yet and never listed here.
+  const unlinkedFilter: Record<string, unknown> = {
+    supplier: session.supplier,
+    method: bookcarsTypes.RentalPaymentMethod.Cash,
+    status: bookcarsTypes.RentalPaymentStatus.Posted,
+    $or: [{ cashSession: { $exists: false } }, { cashSession: null }],
+  }
+  if (from || to) {
+    unlinkedFilter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
+  }
+  const [unlinkedRows, unlinkedTotalRows] = await Promise.all([
+    RentalPayment.find(unlinkedFilter).sort({ date: -1 }).limit(JOURNAL_UNLINKED_CAP)
+      .populate({ path: 'booking', select: 'reference' }).lean(),
+    RentalPayment.aggregate([
+      { $match: unlinkedFilter },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+  ])
+  const unlinkedCashPayments: bookcarsTypes.UnlinkedCashPaymentRow[] = unlinkedRows.map((payment) => ({
+    id: payment._id.toString(),
+    date: payment.date,
+    bookingReference: (payment.booking && typeof payment.booking === 'object' ? (payment.booking as { reference?: string }).reference : undefined) || '',
+    purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+    direction: payment.direction || bookcarsTypes.RentalPaymentDirection.Credit,
+    status: payment.status || bookcarsTypes.RentalPaymentStatus.Posted,
+    amount: Number(payment.amount || 0),
+    currency: payment.currency || session.currency,
+  }))
+  return {
+    session,
+    movements: filtered,
+    totals,
+    unlinkedCashPayments,
+    unlinkedCashTotal: normalizeLedgerAmount(Number(unlinkedTotalRows[0]?.total || 0), session.currency),
+  }
+}
+
+const journalRowOf = (movement: Awaited<ReturnType<typeof buildJournal>>['movements'][number]): bookcarsTypes.CashJournalRow => {
+  const linked = movement.rentalPayment && typeof movement.rentalPayment === 'object' ? movement.rentalPayment as { _id?: unknown, booking?: unknown } : null
+  const booking = linked?.booking && typeof linked.booking === 'object' ? linked.booking as { reference?: string, _id?: unknown } : null
+  return {
+    id: movement._id.toString(),
+    date: movement.date,
+    direction: movement.direction,
+    source: movement.source,
+    status: (movement.status || 'confirmed') as 'pending' | 'confirmed',
+    purpose: movement.purpose,
+    reference: movement.reference,
+    note: movement.note,
+    amount: Number(movement.amount || 0),
+    rentalPayment: linked?._id ? String(linked._id) : undefined,
+    bookingReference: booking?.reference || (booking?._id ? String(booking._id).slice(-8).toUpperCase() : undefined),
+  }
+}
+
+export const journal = async (req: Request, res: Response) => {
+  try {
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
+      return
+    }
+    const built = await buildJournal(req)
+    const rows = built.movements.map(journalRowOf)
+    if (!parsed.pagination) {
+      res.json({
+        session: built.session,
+        rows,
+        totals: built.totals,
+        unlinkedCashPayments: built.unlinkedCashPayments,
+        unlinkedCashTotal: built.unlinkedCashTotal,
+        total: rows.length,
+        page: 1,
+        size: rows.length,
+      } satisfies bookcarsTypes.CashJournalResponse)
+      return
+    }
+    const start = paginationSkip(parsed.pagination)
+    const page = pagedResponse(rows.slice(start, start + parsed.pagination.size), rows.length, parsed.pagination)
+    res.json({
+      session: built.session,
+      rows: page.rows,
+      totals: built.totals,
+      unlinkedCashPayments: built.unlinkedCashPayments,
+      unlinkedCashTotal: built.unlinkedCashTotal,
+      total: page.total,
+      page: page.page,
+      size: page.size,
+    } satisfies bookcarsTypes.CashJournalResponse)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Cash journal failed'
+    if (message === 'Cash session not found') {
+      res.status(404).send(message)
+      return
+    }
+    logger.error('[cash.journal]', err)
+    res.status(400).send(message === 'Invalid cash session' || message === 'Invalid journal date filter' ? message : i18n.t('ERROR'))
+  }
+}
+
+const escapeCsv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+
+export const journalCsv = async (req: Request, res: Response) => {
+  try {
+    const built = await buildJournal(req)
+    const header = 'date,direction,source,status,purpose,reference,note,amount,currency,linkedPayment,bookingReference'
+    const lines = built.movements.map(journalRowOf).map((row) => [
+      row.date ? new Date(row.date).toISOString() : '',
+      row.direction,
+      row.source,
+      row.status,
+      row.purpose || '',
+      row.reference || '',
+      row.note || '',
+      Number(row.amount || 0).toFixed(2),
+      built.totals.currency,
+      row.rentalPayment || '',
+      row.bookingReference || '',
+    ].map(escapeCsv).join(','))
+    const t = built.totals
+    const summary = [
+      '',
+      ['summary', 'openingBalance', t.openingBalance.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'income', t.income.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'expenses', t.expenses.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'deposits', t.deposits.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'net', t.net.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'pendingIn', t.pendingIn.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'pendingOut', t.pendingOut.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'expectedBalance', t.expectedBalance.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'unlinkedCashTotal', built.unlinkedCashTotal.toFixed(2), t.currency].map(escapeCsv).join(','),
+    ]
+    res.type('text/csv')
+      .set('Content-Disposition', `attachment; filename="gestion-auto-cash-journal-${built.session._id}.csv"`)
+      .send([header, ...lines, ...summary].join('\r\n') + '\r\n')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Cash journal export failed'
+    if (message === 'Cash session not found') {
+      res.status(404).send(message)
+      return
+    }
+    logger.error('[cash.journalCsv]', err)
+    res.status(400).send(message === 'Invalid cash session' || message === 'Invalid journal date filter' ? message : i18n.t('ERROR'))
+  }
 }
 
 
