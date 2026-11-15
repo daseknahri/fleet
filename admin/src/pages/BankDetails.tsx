@@ -1,10 +1,12 @@
 import React, { useState } from 'react'
-import { FormControl, Input, InputLabel, Paper } from '@mui/material'
+import { Button, FormControl, Input, InputLabel, Paper, Typography } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as helper from '@/utils/helper'
 import * as BankDetailsService from '@/services/BankDetailsService'
 import { strings } from '@/lang/bank-details-form'
+import { strings as commonStrings } from '@/lang/common'
 import Layout from '@/components/Layout'
+import Backdrop from '@/components/SimpleBackdrop'
 import NoMatch from './NoMatch'
 
 import '@/assets/css/bank-details.css'
@@ -12,8 +14,12 @@ import '@/assets/css/bank-details.css'
 const BankDetails = () => {
   const [bankDetails, setBankDetails] = useState<bookcarsTypes.BankDetails | null>(null)
   const [noMatch, setNoMatch] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   const onLoad = async () => {
+    setLoading(true)
+    setLoadError(false)
     try {
       const _bankDetails = await BankDetailsService.getBankDetails()
       setBankDetails(_bankDetails)
@@ -21,13 +27,26 @@ const BankDetails = () => {
         setNoMatch(true)
       }
     } catch (err) {
+      setLoadError(true)
       helper.error(err)
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
     <Layout onLoad={onLoad} strict>
       <div className="bank-details">
+
+        {loading && <Backdrop progress text={commonStrings.LOADING} />}
+
+        {!loading && loadError && (
+          <Paper className="bank-details-form bank-details-form-wrapper" elevation={10} sx={{ textAlign: 'center' }}>
+            <h1 className="bank-details-form-title">{strings.BANK_DETAILS}</h1>
+            <Typography color="error">{strings.LOAD_ERROR}</Typography>
+            <Button variant="contained" className="btn-primary" sx={{ mt: 2 }} onClick={onLoad}>{strings.RETRY}</Button>
+          </Paper>
+        )}
 
         {bankDetails && !noMatch && (
           <Paper className="bank-details-form bank-details-form-wrapper" elevation={10}>

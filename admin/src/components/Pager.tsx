@@ -35,11 +35,11 @@ const Pager = ({
           <div className="row-count">{`${(page - 1) * pageSize + 1}-${rowCount} ${commonStrings.OF} ${totalRecords}`}</div>
 
           <div className="actions">
-            <IconButton onClick={onPrevious} disabled={page === 1}>
+            <IconButton onClick={onPrevious} disabled={page === 1} aria-label={commonStrings.PREVIOUS_PAGE}>
               {isAr ? <NextPageIcon className="icon" /> : <PreviousPageIcon className="icon" />}
             </IconButton>
 
-            <IconButton onClick={onNext} disabled={rowCount >= totalRecords}>
+            <IconButton onClick={onNext} disabled={rowCount >= totalRecords} aria-label={commonStrings.NEXT_PAGE}>
               {isAr ? <PreviousPageIcon className="icon" /> : <NextPageIcon className="icon" />}
             </IconButton>
           </div>

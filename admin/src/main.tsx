@@ -107,6 +107,9 @@ const dataGridLocale = isFr
 
 const theme = createTheme(
   {
+    // B-A-33: without a theme direction the Drawer stays left-anchored
+    // and menus don't mirror in Arabic (document.dir alone is not enough).
+    direction: isAr ? 'rtl' : 'ltr',
     palette: {
       primary: {
         main: '#1a1a1a',

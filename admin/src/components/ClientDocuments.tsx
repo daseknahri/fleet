@@ -129,6 +129,7 @@ const ClientDocuments = ({ user, className, onChange }: ClientDocumentsProps) =>
             />
             <IconButton
               size="small"
+              aria-label={commonStrings.VIEW_DOCUMENT}
               onClick={() => {
                 const url = `${env.API_HOST.replace(/\/$/, '')}/api/client-document/${user._id}/${encodeURIComponent(doc.file)}`
                 helper.downloadURI(url)
@@ -136,7 +137,7 @@ const ClientDocuments = ({ user, className, onChange }: ClientDocumentsProps) =>
             >
               <ViewIcon className="icon" />
             </IconButton>
-            <IconButton size="small" onClick={() => handleDelete(doc)}>
+            <IconButton size="small" aria-label={commonStrings.DELETE_DOCUMENT} onClick={() => handleDelete(doc)}>
               <DeleteIcon className="icon" />
             </IconButton>
           </ListItem>
@@ -155,7 +156,7 @@ const ClientDocuments = ({ user, className, onChange }: ClientDocumentsProps) =>
           <MenuItem value={bookcarsTypes.ClientDocumentKind.License}>{commonStrings.DOCUMENT_KIND_LICENSE}</MenuItem>
           <MenuItem value={bookcarsTypes.ClientDocumentKind.Other}>{commonStrings.DOCUMENT_KIND_OTHER}</MenuItem>
         </Select>
-        <IconButton size="small" onClick={handleUploadClick} disabled={uploading} title={commonStrings.UPLOAD_DOCUMENT}>
+        <IconButton size="small" onClick={handleUploadClick} disabled={uploading} title={commonStrings.UPLOAD_DOCUMENT} aria-label={commonStrings.UPLOAD_DOCUMENT}>
           <UploadIcon className="icon" />
         </IconButton>
         <span className="client-documents-upload-label">{commonStrings.UPLOAD_DOCUMENT}</span>

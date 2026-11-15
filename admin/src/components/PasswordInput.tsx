@@ -14,6 +14,7 @@ import {
   FormControlProps,
 } from '@mui/material'
 import { Visibility, VisibilityOff } from '@mui/icons-material'
+import { strings as commonStrings } from '@/lang/common'
 
 type Variant = 'standard' | 'outlined' | 'filled'
 
@@ -52,7 +53,7 @@ const PasswordInput: React.FC<CombinedProps> = ({
           onClick={toggleVisibility}
           edge="end"
           size="small"
-          tabIndex={-1}
+          aria-label={showPassword ? commonStrings.HIDE_PASSWORD : commonStrings.SHOW_PASSWORD}
         >
           {showPassword ? <VisibilityOff /> : <Visibility />}
         </IconButton>

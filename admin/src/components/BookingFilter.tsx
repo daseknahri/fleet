@@ -135,6 +135,7 @@ const BookingFilter = ({
                 endAdornment: keyword ? (
                   <IconButton
                     size="small"
+                    aria-label={commonStrings.CLEAR}
                     onClick={() => {
                       setValue('keyword', '')
                       inputRef.current?.focus()

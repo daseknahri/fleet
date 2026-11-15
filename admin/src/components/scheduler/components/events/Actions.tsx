@@ -32,12 +32,12 @@ const EventActions = ({ event, onDelete, onEdit }: Props) => {
       <Grow in={!deleteConfirm} exit={false} timeout={400} unmountOnExit>
         <div>
           {canEdit && (
-            <IconButton size="small" onClick={onEdit}>
+            <IconButton size="small" onClick={onEdit} aria-label={translations.form.editTitle}>
               <EditRounded />
             </IconButton>
           )}
           {canDelete && (
-            <IconButton size="small" onClick={handleDelete}>
+            <IconButton size="small" onClick={handleDelete} aria-label={translations.form.delete}>
               <DeleteRounded />
             </IconButton>
           )}

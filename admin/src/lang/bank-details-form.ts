@@ -9,6 +9,8 @@ const strings = new LocalizedStrings({
     IBAN: 'IBAN',
     SWIFT_BIC: 'SWIFT/BIC',
     SHOW_BANK_DETAILS_PAGE: 'Afficher la page des détails bancaires',
+    LOAD_ERROR: 'Impossible de charger les détails bancaires.',
+    RETRY: 'Réessayer',
   },
   en: {
     BANK_DETAILS: 'Bank Details',
@@ -17,6 +19,8 @@ const strings = new LocalizedStrings({
     IBAN: 'IBAN',
     SWIFT_BIC: 'SWIFT/BIC',
     SHOW_BANK_DETAILS_PAGE: 'Show Bank Details Page',
+    LOAD_ERROR: 'Could not load bank details.',
+    RETRY: 'Retry',
   },
   ar: {
     BANK_DETAILS: 'التفاصيل البنكية',
@@ -25,6 +29,8 @@ const strings = new LocalizedStrings({
     IBAN: 'IBAN',
     SWIFT_BIC: 'SWIFT/BIC',
     SHOW_BANK_DETAILS_PAGE: 'إظهار صفحة التفاصيل البنكية',
+    LOAD_ERROR: 'تعذّر تحميل التفاصيل البنكية.',
+    RETRY: 'إعادة المحاولة',
   },
   es: {
     BANK_DETAILS: 'Detalles bancarios',
@@ -33,6 +39,8 @@ const strings = new LocalizedStrings({
     IBAN: 'IBAN',
     SWIFT_BIC: 'SWIFT/BIC',
     SHOW_BANK_DETAILS_PAGE: 'Mostrar la página de detalles bancarios',
+    LOAD_ERROR: 'No se pudieron cargar los detalles bancarios.',
+    RETRY: 'Reintentar',
   },
 })
 

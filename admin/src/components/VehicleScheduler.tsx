@@ -149,6 +149,7 @@ const VehicleScheduler = (
         moreEvents: 'Plus...',
         noDataToDisplay: 'Aucune donnée à afficher',
         loading: 'Chargement...',
+        close: 'Fermer',
       }
     }
 
@@ -196,6 +197,7 @@ const VehicleScheduler = (
         moreEvents: 'Más...',
         noDataToDisplay: 'Sin datos para mostrar',
         loading: 'Cargando...',
+        close: 'Cerrar',
       }
     }
 
@@ -243,6 +245,7 @@ const VehicleScheduler = (
         moreEvents: 'المزيد...',
         noDataToDisplay: 'لا توجد بيانات لعرضها',
         loading: 'جار التحميل...',
+        close: 'إغلاق',
       }
     }
 
@@ -290,6 +293,7 @@ const VehicleScheduler = (
       moreEvents: 'More...',
       noDataToDisplay: 'No data to display',
       loading: 'Loading...',
+      close: 'Close',
     }
   }
 

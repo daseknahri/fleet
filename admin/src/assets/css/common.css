@@ -53,7 +53,7 @@
   text-decoration: underline !important;
   font-size: 16px !important;
   text-transform: none !important;
-  padding: 0 !important;
+  padding: 6px 2px !important;
 }
 
 .btn-lnk:hover {
@@ -75,7 +75,7 @@
 
 .form-error {
   clear: both;
-  height: 65px;
+  min-height: 0;
   padding-top: 10px;
   text-align: center;
 }
@@ -218,7 +218,7 @@
 }
 
 .info span {
-  color: #757575;
+  color: #616161;
   display: inline-block;
   font-size: 0.9em;
   line-height: 1em;
@@ -276,6 +276,20 @@
   font-weight: 400;
   font-size: 1rem;
   margin-bottom: 3px;
+}
+
+/* B-A-32: action controls in list/card/grid contexts get a 40px minimum
+   touch target — MUI size="small" buttons render at ~30px, and the old
+   pages never adopted the 44px bar the modern pages use. */
+div.bs-list .MuiButton-root,
+div.us-list .MuiButton-root,
+.MuiDataGrid-root .MuiButton-root,
+.MuiDataGrid-root .MuiIconButton-root {
+  min-height: 40px;
+}
+
+.MuiDataGrid-root .MuiIconButton-root {
+  min-width: 40px;
 }
 
 @media only screen and (width <=960px) {

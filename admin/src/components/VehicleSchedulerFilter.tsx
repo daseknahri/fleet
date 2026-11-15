@@ -98,6 +98,7 @@ const VehicleSchedulerFilter = ({
                 endAdornment: keyword ? (
                   <IconButton
                     size="small"
+                    aria-label={commonStrings.CLEAR}
                     onClick={() => {
                       setKeyword('')
                       inputRef.current?.focus()

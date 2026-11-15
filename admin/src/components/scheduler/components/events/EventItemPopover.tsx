@@ -100,6 +100,7 @@ const EventItemPopover = ({ anchorEl, event, onTriggerViewer }: Props) => {
               <div>
                 <IconButton
                   size="small"
+                  aria-label={translations.close ?? 'Close'}
                   onClick={() => {
                     onTriggerViewer()
                   }}

@@ -127,6 +127,7 @@ const Navigation = () => {
               color={agenda ? 'info' : 'default'}
               style={{ padding: 5 }}
               onClick={toggleAgenda}
+              aria-label={translations.navigation.agenda}
             >
               <ViewAgendaIcon />
             </IconButton>
@@ -154,6 +155,7 @@ const Navigation = () => {
                 onClick={(e) => {
                   toggleMoreMenu(e.currentTarget)
                 }}
+                aria-label={translations.moreEvents}
               >
                 <MoreVertIcon />
               </IconButton>

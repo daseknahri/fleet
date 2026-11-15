@@ -99,6 +99,7 @@ const DriverLicense = ({
         <IconButton
           size="small"
           onClick={handleClick}
+          aria-label={commonStrings.UPLOAD_DRIVER_LICENSE}
         >
           <UploadIcon className="icon" />
         </IconButton>
@@ -108,6 +109,7 @@ const DriverLicense = ({
             {user && (
               <IconButton
                 size="small"
+                aria-label={commonStrings.VIEW_DOCUMENT}
                 onClick={() => {
                   const url = `${env.API_HOST.replace(/\/$/, '')}/api/user-license/${user._id}/${encodeURIComponent(license)}`
                   helper.downloadURI(url)
@@ -118,6 +120,7 @@ const DriverLicense = ({
             )}
             <IconButton
               size="small"
+              aria-label={commonStrings.DELETE_DOCUMENT}
               onClick={async () => {
                 try {
                   let status = 0

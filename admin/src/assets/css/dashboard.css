@@ -218,7 +218,7 @@
   height: 25px;
   background: #e9f5ef;
   color: #287255;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -292,7 +292,7 @@
 
 .agency-dashboard__shortcut small {
   color: #697472;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .agency-dashboard__shortcut > svg {
@@ -426,7 +426,7 @@
   max-width: 100%;
   height: auto;
   min-height: 25px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   white-space: normal;
 }
@@ -441,7 +441,7 @@
   margin-bottom: 10px;
   background: #fbf1df;
   color: #a8751e;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 

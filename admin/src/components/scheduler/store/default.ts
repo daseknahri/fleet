@@ -68,6 +68,7 @@ const defaultTranslations = (trans: Partial<SchedulerProps['translations']> = {}
       moreEvents: 'More...',
       loading: 'Loading...',
       noDataToDisplay: 'No data to display',
+      close: 'Close',
       ...other
     }),
   }

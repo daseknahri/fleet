@@ -107,6 +107,8 @@ export interface Translations {
   moreEvents: string;
   noDataToDisplay: string;
   loading: string;
+  /** Accessible label for the event popover close button (optional; falls back to 'Close'). */
+  close?: string;
 }
 
 export type InputTypes = 'input' | 'date' | 'select' | 'hidden';
