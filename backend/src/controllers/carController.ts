@@ -441,6 +441,130 @@ export const invalidDateBasedPriceField = (dateBasedPrices: unknown, isUpdate = 
   }
   return null
 }
+
+// F5b (W2-09): price sanity. The schema carries no `min: 0` on the price
+// fields on purpose (a schema minimum would make ANY later save() of a
+// legacy negative-price car fail, including unrelated paths — the same
+// reason F5a kept the plate out of the schema as `required`). The
+// guarantee lives at the create/update boundary instead: every price /
+// deposit value present in the payload must be a finite number >= 0,
+// and every discounted tier must not exceed its base tier. Missing
+// values are NOT flagged here — the schema's `required` (dailyPrice,
+// deposit) still answers those. Returns the offending field path
+// (e.g. `discountedDailyPrice`) or null. Exported for reuse by the
+// importer if its columns ever gain discounted tiers.
+export const invalidPriceField = (payload: Record<string, unknown>): string | null => {
+  const PRICE_FIELDS = [
+    'dailyPrice', 'discountedDailyPrice',
+    'hourlyPrice', 'discountedHourlyPrice',
+    'biWeeklyPrice', 'discountedBiWeeklyPrice',
+    'weeklyPrice', 'discountedWeeklyPrice',
+    'monthlyPrice', 'discountedMonthlyPrice',
+    'deposit',
+  ] as const
+  const DISCOUNTED_BASE_PAIRS: [string, string][] = [
+    ['discountedDailyPrice', 'dailyPrice'],
+    ['discountedHourlyPrice', 'hourlyPrice'],
+    ['discountedBiWeeklyPrice', 'biWeeklyPrice'],
+    ['discountedWeeklyPrice', 'weeklyPrice'],
+    ['discountedMonthlyPrice', 'monthlyPrice'],
+  ]
+  const asPrice = (value: unknown): number | null => {
+    if (value === undefined || value === null) {
+      return null
+    }
+    if (typeof value === 'boolean' || typeof value === 'object') {
+      return Number.NaN
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      return Number.NaN
+    }
+    return Number(value)
+  }
+  for (const field of PRICE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, field)) {
+      continue
+    }
+    const price = asPrice(payload[field])
+    if (price === null) {
+      continue
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      return field
+    }
+  }
+  for (const [discounted, base] of DISCOUNTED_BASE_PAIRS) {
+    const discountedPrice = asPrice(payload[discounted])
+    const basePrice = asPrice(payload[base])
+    if (discountedPrice === null || basePrice === null) {
+      continue
+    }
+    if (Number.isFinite(discountedPrice) && Number.isFinite(basePrice) && discountedPrice > basePrice) {
+      return discounted
+    }
+  }
+  return null
+}
+
+// F5b (W2-10): seasonal-price SET rules, checked after the per-row
+// validation (invalidDateBasedPriceField) has already rejected malformed
+// rows, so the rows seen here are all valid. Two rules:
+//  - empty set: with the flag on, at least one valid row must exist
+//    (a flag with zero rows previously saved silently);
+//  - overlap: no two valid ranges may overlap (a later range starting
+//    on or before the previous range's end is rejected, naming the
+//    later row's startDate).
+// `requireNonEmpty` is true exactly when the flag is on: with the flag
+// off the rows are ignored entirely on create (F5a test 11 locks that
+// in), so there is nothing to check. Returns the offending field path
+// (e.g. `dateBasedPrices` or `dateBasedPrices[1].startDate`) or null.
+export const invalidSeasonalPriceSetField = (
+  dateBasedPrices: unknown,
+  requireNonEmpty: boolean,
+): string | null => {
+  const validRows = validDateBasedPrices(dateBasedPrices as bookcarsTypes.DateBasedPrice[] | undefined)
+  if (requireNonEmpty && validRows.length === 0) {
+    return 'dateBasedPrices'
+  }
+  const indexed = validRows
+    .map((row, filteredIndex) => {
+      const originalIndex = (dateBasedPrices as bookcarsTypes.DateBasedPrice[]).findIndex((r) => r === row)
+      return {
+        index: originalIndex === -1 ? filteredIndex : originalIndex,
+        start: new Date(row.startDate as string | number | Date).getTime(),
+        end: new Date(row.endDate as string | number | Date).getTime(),
+      }
+    })
+    .sort((a, b) => a.start - b.start)
+  for (let i = 1; i < indexed.length; i += 1) {
+    if (indexed[i].start <= indexed[i - 1].end) {
+      return `dateBasedPrices[${indexed[i].index}].startDate`
+    }
+  }
+  return null
+}
+
+// F5b (W2-08): `available: true` and `maintenance` / `stopped` are a
+// contradictory combination — the car would read as bookable while the
+// operator state says it is not. The combination is rejected (400)
+// instead of silently auto-clearing `available`: clearing would hide
+// the operator's intent, and the form already carries both controls.
+// The caller passes the MERGED values (payload value when present,
+// stored value otherwise) so a status-only edit cannot smuggle the
+// contradiction in either. Returns 'available' or null.
+export const invalidAvailableStatusField = (
+  available: unknown,
+  operationalStatus: unknown,
+): string | null => {
+  if (
+    available === true
+    && (operationalStatus === bookcarsTypes.CarOperationalStatus.Maintenance
+      || operationalStatus === bookcarsTypes.CarOperationalStatus.Stopped)
+  ) {
+    return 'available'
+  }
+  return null
+}
 /**
  * Create a Car.
  *
@@ -452,6 +576,21 @@ export const invalidDateBasedPriceField = (dateBasedPrices: unknown, isUpdate = 
  */
 export const create = async (req: Request, res: Response) => {
   const { body }: { body: bookcarsTypes.CreateCarPayload } = req
+
+  // F5b (F5a QA observation a): seasonal rows are saved BEFORE the car
+  // itself, so a save failure must not leave them orphaned. The ids are
+  // tracked here (outside the try, so the catch can see them) and
+  // `carSaved` records whether the car document ever persisted: rows
+  // are only cleaned up when the car never saved (a car that saved and
+  // later failed — e.g. the notification mail — keeps its rows).
+  const dateBasedPriceIds: string[] = []
+  let carSaved = false
+  const deleteCreatedCarAndRows = async (carId: mongoose.Types.ObjectId) => {
+    await Car.deleteOne({ _id: carId })
+    if (dateBasedPriceIds.length > 0) {
+      await DateBasedPrice.deleteMany({ _id: { $in: dateBasedPriceIds } })
+    }
+  }
 
   try {
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
@@ -499,6 +638,22 @@ export const create = async (req: Request, res: Response) => {
         res.status(400).send(`Invalid ${invalidSeasonalField}`)
         return
       }
+      // F5b (W2-10): a flag with zero valid rows, and overlapping
+      // ranges, are rejected — not silently accepted.
+      const invalidSeasonalSet = invalidSeasonalPriceSetField(body.dateBasedPrices, true)
+      if (invalidSeasonalSet) {
+        res.status(400).send(`Invalid ${invalidSeasonalSet}`)
+        return
+      }
+    }
+
+    // F5b (W2-09): price sanity — negative prices/deposit and
+    // discounted tiers above their base tier are rejected here (the
+    // schema deliberately carries no min: 0, see invalidPriceField).
+    const invalidPrice = invalidPriceField(body as unknown as Record<string, unknown>)
+    if (invalidPrice) {
+      res.status(400).send(`Invalid ${invalidPrice}`)
+      return
     }
 
     const invalidField = invalidFinancingOrDocumentField(body)
@@ -528,13 +683,20 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    // F5b (W2-08): an available car cannot be in maintenance or
+    // stopped — the combination is rejected, not silently repaired.
+    const invalidAvailableStatus = invalidAvailableStatusField(body.available, body.operationalStatus)
+    if (invalidAvailableStatus) {
+      res.status(400).send(`Invalid ${invalidAvailableStatus}`)
+      return
+    }
+
     if (!body.image) {
       throw new Error('Image not found in payload')
     }
 
     // date based price
     const { dateBasedPrices, ...carFields } = body
-    const dateBasedPriceIds: string[] = []
     if (body.isDateBasedPrice) {
       for (const dateBasePrice of validDateBasedPrices(dateBasedPrices)) {
         const dbp = new DateBasedPrice(dateBasePrice)
@@ -560,6 +722,7 @@ export const create = async (req: Request, res: Response) => {
       service: normalizeService(body.service),
     })
     await car.save()
+    carSaved = true
 
     // --------- image ---------
     // 1. Sanitize filename
@@ -567,7 +730,10 @@ export const create = async (req: Request, res: Response) => {
 
     // If basename modified it → traversal attempt
     if (safeImage !== body.image) {
-      await Car.deleteOne({ _id: car._id })
+      // F5b (QA-a): the failed create must not leave the seasonal rows
+      // behind either — deleteCreatedCarAndRows removes the car AND any
+      // rows saved for it (same in the four branches below).
+      await deleteCreatedCarAndRows(car._id)
       logger.warn(`[car.create] Directory traversal attempt (image): ${body.image}`)
       throw new Error('Invalid image filename')
     }
@@ -579,7 +745,7 @@ export const create = async (req: Request, res: Response) => {
 
     // 2. Ensure source stays inside temp directory
     if (!sourcePath.startsWith(tempDir + path.sep)) {
-      await Car.deleteOne({ _id: car._id })
+      await deleteCreatedCarAndRows(car._id)
       logger.warn(`[car.create] Source path escape attempt: ${sourcePath}`)
       throw new Error('Invalid image path')
     }
@@ -589,7 +755,7 @@ export const create = async (req: Request, res: Response) => {
 
       // 3. Restrict allowed extensions
       if (!env.allowedImageExtensions.includes(ext)) {
-        await Car.deleteOne({ _id: car._id })
+        await deleteCreatedCarAndRows(car._id)
         throw new Error('Invalid image type')
       }
 
@@ -598,7 +764,7 @@ export const create = async (req: Request, res: Response) => {
 
       // 4. Ensure destination stays inside cars directory
       if (!newPath.startsWith(carsDir + path.sep)) {
-        await Car.deleteOne({ _id: car._id })
+        await deleteCreatedCarAndRows(car._id)
         logger.warn(`[car.create] Destination path escape attempt: ${newPath}`)
         throw new Error('Invalid image destination')
       }
@@ -608,7 +774,7 @@ export const create = async (req: Request, res: Response) => {
       car.image = filename
       await car.save()
     } else {
-      await Car.deleteOne({ _id: car._id })
+      await deleteCreatedCarAndRows(car._id)
       throw new Error(`Image ${safeImage} not found`)
     }
     // --------- image ---------
@@ -666,6 +832,20 @@ ${i18n.t('REGARDS')}<br>
 
     res.json(car)
   } catch (err) {
+    // F5b (F5a QA observation a): a create that saved seasonal rows and
+    // then failed at car.save() (the E11000 race the explicit plate
+    // check could not see, or any other save error) must not leave
+    // those rows orphaned — delete them. Best-effort and silent on
+    // failure (logged): the cleanup must never mask the original
+    // error. Rows are only cleaned when the car never saved (carSaved
+    // is false); a car that saved keeps its rows.
+    if (!carSaved && dateBasedPriceIds.length > 0) {
+      try {
+        await DateBasedPrice.deleteMany({ _id: { $in: dateBasedPriceIds } })
+      } catch (cleanupErr) {
+        logger.warn(`[car.create] Failed to clean up orphaned seasonal rows after failed create: ${JSON.stringify(dateBasedPriceIds)}`, cleanupErr)
+      }
+    }
     // F5a (W2-01): a race the explicit check could not see surfaces as
     // E11000 from the unique index — answer the same 409, not a generic
     // 400. The plate is read from the payload, never from the error.
@@ -701,6 +881,21 @@ const createDateBasedPrice = async (dateBasedPrice: bookcarsTypes.DateBasedPrice
 export const update = async (req: Request, res: Response) => {
   const { body }: { body: bookcarsTypes.UpdateCarPayload } = req
   const { _id } = body
+
+  // F5b (F5a QA observation a): the seasonal delete/create/update loop
+  // below mutates DateBasedPrice rows BEFORE car.save(). If that save
+  // then throws (the E11000 plate race), the mutations must be undone:
+  // `seasonalSnapshot` holds the pre-mutation state (rows about to be
+  // deleted, rows about to be edited, ids of rows created in this
+  // request) and `seasonalMutated` records that the loop actually ran,
+  // so the catch can restore exactly what changed — best-effort, never
+  // masking the original error.
+  let seasonalMutated = false
+  let seasonalSnapshot: {
+    deleted: { _id: unknown, startDate: unknown, endDate: unknown, dailyPrice: unknown }[]
+    updated: { _id: unknown, startDate: unknown, endDate: unknown, dailyPrice: unknown }[]
+    created: string[]
+  } | null = null
 
   try {
     if (!helper.isValidObjectId(_id)) {
@@ -848,15 +1043,69 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
-      // F5a (W2-03): seasonal rows are validated BEFORE any stored row
-      // is deleted, created or updated — an invalid edit rejects the
-      // whole update and every stored row is preserved exactly. A row
-      // omitted from the payload is still deleted (the form's
-      // remove-row path); a row present but invalid is never deleted.
-      const invalidSeasonalField = invalidDateBasedPriceField(dateBasedPrices, true)
-      if (invalidSeasonalField) {
-        res.status(400).send(`Invalid ${invalidSeasonalField}`)
+      // F5b (W2-09): price sanity on update, same rule as create.
+      const invalidPrice = invalidPriceField(body as unknown as Record<string, unknown>)
+      if (invalidPrice) {
+        res.status(400).send(`Invalid ${invalidPrice}`)
         return
+      }
+
+      // F5b (W2-08): the contradiction is judged on the MERGED values
+      // (payload when present, stored otherwise) — a status-only edit
+      // to maintenance must not leave available: true behind, and an
+      // available-only edit must not re-enable a stopped car.
+      const nextAvailable = available !== undefined ? available : car.available
+      const nextStatus = operationalStatus !== undefined ? operationalStatus : car.operationalStatus
+      const invalidAvailableStatus = invalidAvailableStatusField(nextAvailable, nextStatus)
+      if (invalidAvailableStatus) {
+        res.status(400).send(`Invalid ${invalidAvailableStatus}`)
+        return
+      }
+
+      // F5a (W2-03) + F5b (W2-10/W2-11): seasonal rows are validated
+      // BEFORE any stored row is deleted, created or updated — an
+      // invalid edit rejects the whole update and every stored row is
+      // preserved exactly. A row omitted from the payload is still
+      // deleted (the form's remove-row path); a row present but invalid
+      // is never deleted. A payload that OMITS the array entirely
+      // preserves the stored rows and flag (F5a §7 edge — the old code
+      // cleared every stored row on an omitted array).
+      if (dateBasedPrices !== undefined) {
+        const invalidSeasonalField = invalidDateBasedPriceField(dateBasedPrices, true)
+        if (invalidSeasonalField) {
+          res.status(400).send(`Invalid ${invalidSeasonalField}`)
+          return
+        }
+        // F5b (W2-11): a row id in the payload must belong to THIS car —
+        // a crafted payload must not overwrite another car's row.
+        const ownedRowIds = new Set(car.dateBasedPrices.map((id) => id.toString()))
+        if (Array.isArray(dateBasedPrices)) {
+          for (let i = 0; i < dateBasedPrices.length; i += 1) {
+            const row = dateBasedPrices[i] as { _id?: unknown } | null | undefined
+            if (row && typeof row === 'object' && row._id && !ownedRowIds.has(String(row._id))) {
+              res.status(400).send(`Invalid dateBasedPrices[${i}]._id`)
+              return
+            }
+          }
+        }
+        // F5b (W2-10): empty set (flag on, zero valid rows) and
+        // overlapping ranges are rejected on update as well. Overlap is
+        // checked whenever rows are supplied — the update loop stores
+        // them regardless of the flag. The one exception is an EXPLICIT
+        // empty array: that is the operator removing seasonal pricing
+        // outright, so it is accepted and the flag is normalised off
+        // below instead of rejected (the form's remove-all path sends
+        // exactly this). A flag-on payload of only blank draft rows is
+        // NOT an explicit clear — it is an unfinished edit and is
+        // rejected by the set check.
+        const isExplicitClear = Array.isArray(dateBasedPrices) && dateBasedPrices.length === 0
+        if (!isExplicitClear) {
+          const invalidSeasonalSet = invalidSeasonalPriceSetField(dateBasedPrices, isDateBasedPrice === true)
+          if (invalidSeasonalSet) {
+            res.status(400).send(`Invalid ${invalidSeasonalSet}`)
+            return
+          }
+        }
       }
 
       car.supplier = new mongoose.Types.ObjectId(targetSupplier)
@@ -1003,45 +1252,85 @@ export const update = async (req: Request, res: Response) => {
           }
         }
       }
-      car.isDateBasedPrice = isDateBasedPrice
       car.blockOnPay = blockOnPay
 
       //
       // Date based prices
       //
+      // F5b (F5a §7 edge): an omitted array preserves the stored rows
+      // and flag — only a supplied array (including an explicit empty
+      // one, which clears all rows) drives the loop below.
+      if (dateBasedPrices !== undefined) {
+        // F5b (W2-10): an explicit empty array removes seasonal pricing
+        // outright — the flag follows the rows (false), so the stored
+        // state can never be "flag on, zero rows" through this path.
+        car.isDateBasedPrice = Array.isArray(dateBasedPrices) && dateBasedPrices.length === 0
+          ? false
+          : isDateBasedPrice
 
-      // Ignore incomplete draft rows from the admin editor. The form can submit an
-      // empty row when a user starts adding a seasonal price but does not finish it.
-      // Persisting that row makes DateBasedPrice schema validation fail and blocks
-      // saving the otherwise valid vehicle.
-      const normalizedDateBasedPrices = validDateBasedPrices(dateBasedPrices)
+        // Ignore incomplete draft rows from the admin editor. The form can submit an
+        // empty row when a user starts adding a seasonal price but does not finish it.
+        // Persisting that row makes DateBasedPrice schema validation fail and blocks
+        // saving the otherwise valid vehicle.
+        const normalizedDateBasedPrices = validDateBasedPrices(dateBasedPrices)
 
-      // Remove all date based prices not in the valid body.dateBasedPrices rows.
-      const dateBasedPriceIds = normalizedDateBasedPrices.filter((dbp) => !!dbp._id).map((dbp) => dbp._id)
-      const dateBasedPriceIdsToDelete = car.dateBasedPrices.filter((id) => !dateBasedPriceIds.includes(id.toString()))
-      if (dateBasedPriceIdsToDelete.length > 0) {
-        for (const dbpId of dateBasedPriceIdsToDelete) {
-          car.dateBasedPrices.splice(car.dateBasedPrices.indexOf(dbpId), 1)
+        // Remove all date based prices not in the valid body.dateBasedPrices rows.
+        const dateBasedPriceIds = normalizedDateBasedPrices.filter((dbp) => !!dbp._id).map((dbp) => dbp._id)
+        const dateBasedPriceIdsToDelete = car.dateBasedPrices.filter((id) => !dateBasedPriceIds.includes(id.toString()))
+
+        // F5b (F5a QA observation a): snapshot the rows this loop is
+        // about to change BEFORE mutating anything, so a later
+        // car.save() failure (E11000 plate race) can be rolled back by
+        // the catch. The snapshot is taken even when nothing is about
+        // to be deleted — the update loop below also edits rows.
+        const rowsToDeleteDocs = dateBasedPriceIdsToDelete.length > 0
+          ? await DateBasedPrice.find({ _id: { $in: dateBasedPriceIdsToDelete } }).lean()
+          : []
+        const rowsToUpdateDocs = dateBasedPriceIds.length > 0
+          ? await DateBasedPrice.find({ _id: { $in: dateBasedPriceIds } }).lean()
+          : []
+        seasonalSnapshot = {
+          deleted: rowsToDeleteDocs.map((doc) => ({
+            _id: doc._id,
+            startDate: doc.startDate,
+            endDate: doc.endDate,
+            dailyPrice: doc.dailyPrice,
+          })),
+          updated: rowsToUpdateDocs.map((doc) => ({
+            _id: doc._id,
+            startDate: doc.startDate,
+            endDate: doc.endDate,
+            dailyPrice: doc.dailyPrice,
+          })),
+          created: [],
+        }
+        seasonalMutated = true
+
+        if (dateBasedPriceIdsToDelete.length > 0) {
+          for (const dbpId of dateBasedPriceIdsToDelete) {
+            car.dateBasedPrices.splice(car.dateBasedPrices.indexOf(dbpId), 1)
+          }
+
+          await DateBasedPrice.deleteMany({ _id: { $in: dateBasedPriceIdsToDelete } })
         }
 
-        await DateBasedPrice.deleteMany({ _id: { $in: dateBasedPriceIdsToDelete } })
-      }
+        // Add all new date based prices
+        for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => dbp._id === undefined)) {
+          const dbpId = await createDateBasedPrice(dateBasedPrice)
+          seasonalSnapshot.created.push(dbpId)
+          car.dateBasedPrices.push(new mongoose.Types.ObjectId(dbpId))
+        }
 
-      // Add all new date based prices
-      for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => dbp._id === undefined)) {
-        const dbpId = await createDateBasedPrice(dateBasedPrice)
-        car.dateBasedPrices.push(new mongoose.Types.ObjectId(dbpId))
-      }
+        // Update existing date based prices
+        for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => !!dbp._id)) {
+          const dbp = await DateBasedPrice.findById(dateBasedPrice._id)
+          if (dbp) {
+            dbp.startDate = new Date(dateBasedPrice.startDate!)
+            dbp.endDate = new Date(dateBasedPrice.endDate!)
+            dbp.dailyPrice = Number(dateBasedPrice.dailyPrice)
 
-      // Update existing date based prices
-      for (const dateBasedPrice of normalizedDateBasedPrices.filter((dbp) => !!dbp._id)) {
-        const dbp = await DateBasedPrice.findById(dateBasedPrice._id)
-        if (dbp) {
-          dbp.startDate = new Date(dateBasedPrice.startDate!)
-          dbp.endDate = new Date(dateBasedPrice.endDate!)
-          dbp.dailyPrice = Number(dateBasedPrice.dailyPrice)
-
-          await dbp.save()
+            await dbp.save()
+          }
         }
       }
 
@@ -1054,6 +1343,42 @@ export const update = async (req: Request, res: Response) => {
     logger.error('[car.update] Car not found:', _id)
     res.sendStatus(204)
   } catch (err) {
+    // F5b (F5a QA observation a): if the seasonal loop above mutated
+    // DateBasedPrice rows and car.save() then threw (the E11000 plate
+    // race), undo exactly what the loop did — re-insert deleted rows,
+    // restore edited rows to their pre-update values, delete rows
+    // created in this request. Best-effort and silent on failure
+    // (logged): the restore must never mask the original error, and
+    // the in-memory car (with its spliced dateBasedPrices array) is
+    // discarded with the request — the stored car document was never
+    // saved, so its references stay valid once the rows are back.
+    if (seasonalMutated && seasonalSnapshot) {
+      try {
+        const snapshot = seasonalSnapshot
+        if (snapshot.created.length > 0) {
+          await DateBasedPrice.deleteMany({ _id: { $in: snapshot.created } })
+        }
+        for (const doc of snapshot.deleted) {
+          const exists = await DateBasedPrice.exists({ _id: doc._id as mongoose.Types.ObjectId })
+          if (!exists) {
+            await new DateBasedPrice({
+              _id: doc._id as mongoose.Types.ObjectId,
+              startDate: doc.startDate as Date,
+              endDate: doc.endDate as Date,
+              dailyPrice: doc.dailyPrice as number,
+            }).save()
+          }
+        }
+        for (const doc of snapshot.updated) {
+          await DateBasedPrice.updateOne(
+            { _id: doc._id as mongoose.Types.ObjectId },
+            { $set: { startDate: doc.startDate as Date, endDate: doc.endDate as Date, dailyPrice: doc.dailyPrice as number } },
+          )
+        }
+      } catch (restoreErr) {
+        logger.warn(`[car.update] Failed to roll back seasonal rows after failed update of car ${_id}`, restoreErr)
+      }
+    }
     // F5a (W2-01): a race the explicit check could not see surfaces as
     // E11000 from the unique index — answer the same 409, not a generic
     // 400. The plate is read from the payload, never from the error.
@@ -1134,6 +1459,17 @@ export const validateLicensePlate = async (req: Request, res: Response) => {
         return
       }
       filter.supplier = supplierId
+    } else {
+      // F5b (F5a §7 edge): the server rule is per-agency, but the
+      // admin pre-flight used to be global — an admin was warned (204)
+      // for a cross-agency plate the server would accept. The admin UI
+      // now passes the selected supplier (?supplier=<id>) and the
+      // pre-flight scopes to it; without the parameter the check stays
+      // global (advisory, unchanged) so older callers keep working.
+      const supplierParam = req.query.supplier
+      if (typeof supplierParam === 'string' && mongoose.isValidObjectId(supplierParam)) {
+        filter.supplier = new mongoose.Types.ObjectId(supplierParam)
+      }
     }
     const car = await Car.findOne(filter)
     if (car) {
@@ -1170,6 +1506,14 @@ export const validateCarLicensePlate = async (req: Request, res: Response) => {
         return
       }
       filter.supplier = supplierId
+    } else {
+      // F5b (F5a §7 edge): same per-agency scoping as
+      // validateLicensePlate above — the admin UI passes the target
+      // supplier (?supplier=<id>); without it the check stays global.
+      const supplierParam = req.query.supplier
+      if (typeof supplierParam === 'string' && mongoose.isValidObjectId(supplierParam)) {
+        filter.supplier = new mongoose.Types.ObjectId(supplierParam)
+      }
     }
     const car = await Car.findOne(filter)
     if (car) {
@@ -1640,7 +1984,12 @@ export const getCars = async (req: Request, res: Response) => {
 
     if (Array.isArray(availability)) {
       if (availability.length === 1 && availability[0] === bookcarsTypes.Availablity.Available) {
-        $match.$and!.push({ available: true })
+        // F5b (W2-08): the legacy "Available" filter keyed off the raw
+        // `available` boolean alone, so a maintenance/stopped car with
+        // available: true leaked into "Available" results. The derived
+        // fleet-status filter already excludes them (see the 'available'
+        // branch below); the legacy filter now applies the same rule.
+        $match.$and!.push({ available: true, operationalStatus: { $in: [bookcarsTypes.CarOperationalStatus.InService, null] } })
       } else if (availability.length === 1
         && availability[0] === bookcarsTypes.Availablity.Unavailable) {
         $match.$and!.push({ available: false })
@@ -2314,13 +2663,17 @@ export const trashCar = async (req: Request, res: Response) => {
 export const restoreCar = async (req: Request, res: Response) => {
   const { id } = req.params
 
+  // F5b (F5a QA observation b): hoisted so the catch can name the plate
+  // in the E11000 → 409 mapping below.
+  let car: Awaited<ReturnType<typeof Car.findById>> = null
+
   try {
     const reason = (req.body as { reason?: unknown } | undefined)?.reason
     if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length > 1000)) {
       res.status(400).send('RESTORE_REASON: A restore reason must be at most 1000 characters.')
       return
     }
-    const car = await Car.findById(id)
+    car = await Car.findById(id)
     if (!car) {
       res.sendStatus(204)
       return
@@ -2372,6 +2725,15 @@ export const restoreCar = async (req: Request, res: Response) => {
     await car.save()
     res.sendStatus(200)
   } catch (err) {
+    // F5b (F5a QA observation b): the exact-match plate-clash check
+    // above misses a case-variant clash, which then fails at save()
+    // on the strength-2 unique index — answer the same 409
+    // PLATE_IN_USE as the exact-match path, not a generic 400.
+    if (isDuplicatePlateError(err)) {
+      const plate = car?.licensePlate || ''
+      res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${plate}.`)
+      return
+    }
     logger.error(`[car.restoreCar] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }

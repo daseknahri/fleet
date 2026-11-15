@@ -213,7 +213,9 @@ const CreateCar = () => {
       }
 
       if (data.licensePlate) {
-        const res = await CarService.validateLicensePlate(data.licensePlate)
+        // F5b (F5a §7 edge): scope the pre-flight to the selected
+        // supplier — the server rule is per-agency.
+        const res = await CarService.validateLicensePlate(data.licensePlate, data.supplier?._id)
         if (res === 204) {
           helper.error(null, strings.LICENSE_PLATE_ALREADY_EXISTS)
           return

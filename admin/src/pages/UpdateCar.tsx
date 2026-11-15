@@ -214,7 +214,9 @@ const UpdateCar = () => {
       }
 
       if (data.licensePlate && data.licensePlate !== car.licensePlate) {
-        const res = await CarService.validateCarLicensePlate(car._id!, data.licensePlate)
+        // F5b (F5a §7 edge): scope the pre-flight to the target
+        // supplier — the server rule is per-agency.
+        const res = await CarService.validateCarLicensePlate(car._id!, data.licensePlate, supplier._id)
         if (res === 204) {
           helper.error(null, strings.LICENSE_PLATE_ALREADY_EXISTS)
           return

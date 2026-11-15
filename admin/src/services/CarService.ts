@@ -49,13 +49,19 @@ export const check = (id: string): Promise<number> =>
 /**
  * Validate a Car license plate.
  *
- * @param {string} id
+ * F5b (F5a §7 edge): the server rule is per-agency, so the admin
+ * pre-flight accepts the target supplier and scopes to it; without it
+ * the check stays global (advisory). Agency callers are scoped by the
+ * server from the session and the parameter is ignored for them.
+ *
+ * @param {string} licensePlate
+ * @param {string} [supplierId]
  * @returns {Promise<number>}
  */
-export const validateLicensePlate = (licensePlate: string): Promise<number> =>
+export const validateLicensePlate = (licensePlate: string, supplierId?: string): Promise<number> =>
   axiosInstance
     .get(
-      `/api/validate-license-plate/${encodeURIComponent(licensePlate)}`,
+      `/api/validate-license-plate/${encodeURIComponent(licensePlate)}${supplierId ? `?supplier=${encodeURIComponent(supplierId)}` : ''}`,
       { withCredentials: true }
     )
     .then((res) => res.status)
@@ -63,13 +69,15 @@ export const validateLicensePlate = (licensePlate: string): Promise<number> =>
 /**
  * Validate a Car license plate for update.
  *
- * @param {string} id
+ * @param {string} carId
+ * @param {string} licensePlate
+ * @param {string} [supplierId]
  * @returns {Promise<number>}
  */
-export const validateCarLicensePlate = (carId: string, licensePlate: string): Promise<number> =>
+export const validateCarLicensePlate = (carId: string, licensePlate: string, supplierId?: string): Promise<number> =>
   axiosInstance
     .get(
-      `/api/validate-license-plate/${carId}/${encodeURIComponent(licensePlate)}`,
+      `/api/validate-license-plate/${carId}/${encodeURIComponent(licensePlate)}${supplierId ? `?supplier=${encodeURIComponent(supplierId)}` : ''}`,
       { withCredentials: true }
     )
     .then((res) => res.status)
