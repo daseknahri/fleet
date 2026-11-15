@@ -333,6 +333,114 @@ const validDateBasedPrices = (dateBasedPrices: bookcarsTypes.DateBasedPrice[] | 
     return Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())
       && end >= start && Number.isFinite(daily) && daily > 0
   })
+
+// F5a (W2-01/W2-02): license-plate rules, enforced server-side in
+// create/update. The plate is the fleet identifier: it is required,
+// stored trimmed, and unique per agency among live cars — the same
+// scoping the Excel importer (importWorkbook.ts) and restoreCar
+// already use. Per-agency, not global: the same plate already exists
+// under different agencies in the local dev data (test leftovers),
+// and multi-agency is a gated decision (#48). The unique index on
+// Car backs the explicit check below against races; E11000 is mapped
+// to 409 in both handlers' catch blocks.
+const normalizeLicensePlate = (licensePlate: unknown): string | null => {
+  if (typeof licensePlate !== 'string') {
+    return null
+  }
+  const plate = licensePlate.trim()
+  return plate.length > 0 ? plate : null
+}
+
+// Returns the live car of this agency using the plate, or null.
+// Exact match on the trimmed plate — the same rule as
+// validateLicensePlate / restoreCar. (The unique index additionally
+// carries a strength-2 collation, so a case-variant duplicate that
+// slips past this check still fails at save with E11000 → 409.)
+const findLiveCarByPlate = async (licensePlate: string, supplierId: string, excludeCarId?: string) => {
+  const filter: Record<string, unknown> = {
+    supplier: new mongoose.Types.ObjectId(supplierId),
+    licensePlate,
+    deletedAt: null,
+  }
+  if (excludeCarId) {
+    filter._id = { $ne: new mongoose.Types.ObjectId(excludeCarId) }
+  }
+  return Car.findOne(filter).select('_id').lean()
+}
+
+// True when err is a duplicate-key error from the license-plate unique
+// index. The plate index is the only unique index on Car besides _id;
+// when the driver reports which key failed, require it to be the plate.
+const isDuplicatePlateError = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null || !('code' in err)) {
+    return false
+  }
+  const { code, keyPattern } = err as { code?: number, keyPattern?: Record<string, unknown> }
+  if (code !== 11000) {
+    return false
+  }
+  return !keyPattern || 'licensePlate' in keyPattern
+}
+
+// F5a (W2-03): seasonal-price row validation. A row is either entirely
+// blank (all three fields empty/missing — the admin editor's unfinished
+// draft row, ignored as before) or fully valid (parseable dates,
+// end >= start, dailyPrice a finite number > 0). Anything in between is
+// rejected with a 400 naming the row and field, BEFORE any row is saved
+// or deleted — an invalid edit to a stored row must never silently
+// delete that row (the old validDateBasedPrices filter did exactly that
+// on update). On update, an entirely-blank row that still carries an
+// _id is also rejected: blanking a stored row is not a delete request
+// (the form removes a row by omitting it from the payload, which keeps
+// working). Returns the offending field path
+// (e.g. `dateBasedPrices[1].dailyPrice`) or null when every row is
+// acceptable. Exported for reuse (same pattern as the financing /
+// garage / service validators above). Overlap and ownership checks are
+// P1 (W2-10/W2-11, F5b) and deliberately not done here.
+export const invalidDateBasedPriceField = (dateBasedPrices: unknown, isUpdate = false): string | null => {
+  if (dateBasedPrices === undefined || dateBasedPrices === null) {
+    return null
+  }
+  if (!Array.isArray(dateBasedPrices)) {
+    return 'dateBasedPrices'
+  }
+  for (let i = 0; i < dateBasedPrices.length; i += 1) {
+    const row = dateBasedPrices[i] as Record<string, unknown> | null | undefined
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return `dateBasedPrices[${i}]`
+    }
+    const startEmpty = isClearValue(row.startDate)
+    const endEmpty = isClearValue(row.endDate)
+    const priceEmpty = isClearValue(row.dailyPrice)
+    if (startEmpty && endEmpty && priceEmpty) {
+      // Entirely-blank row: a draft row on create (ignored), but on
+      // update a stored row blanked out — rejecting protects it.
+      if (isUpdate && !isClearValue(row._id)) {
+        return `dateBasedPrices[${i}]`
+      }
+      continue
+    }
+    if (startEmpty || !isValidDateValue(row.startDate)) {
+      return `dateBasedPrices[${i}].startDate`
+    }
+    if (endEmpty || !isValidDateValue(row.endDate)) {
+      return `dateBasedPrices[${i}].endDate`
+    }
+    const start = new Date(row.startDate as string | number | Date)
+    const end = new Date(row.endDate as string | number | Date)
+    if (end < start) {
+      return `dateBasedPrices[${i}].endDate`
+    }
+    if (priceEmpty || typeof row.dailyPrice === 'boolean' || typeof row.dailyPrice === 'object') {
+      return `dateBasedPrices[${i}].dailyPrice`
+    }
+    const daily = Number(row.dailyPrice)
+    if (!Number.isFinite(daily) || daily <= 0) {
+      return `dateBasedPrices[${i}].dailyPrice`
+    }
+  }
+  return null
+}
 /**
  * Create a Car.
  *
@@ -362,6 +470,35 @@ export const create = async (req: Request, res: Response) => {
     if (!(await validateLocationsForSupplier(body.locations, supplierId))) {
       res.status(400).send('Invalid locations for supplier')
       return
+    }
+
+    // F5a (W2-02): the plate is required — an empty or missing plate is
+    // rejected, not stored as ''.
+    const plate = normalizeLicensePlate(body.licensePlate)
+    if (!plate) {
+      res.status(400).send('Invalid licensePlate')
+      return
+    }
+
+    // F5a (W2-01): server-side uniqueness, per agency among live cars
+    // (a trashed car does not block reuse of its plate). The unique
+    // index on Car is the backstop for races; E11000 is mapped to 409
+    // in the catch below.
+    if (await findLiveCarByPlate(plate, supplierId)) {
+      res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${plate}.`)
+      return
+    }
+
+    // F5a (W2-03): seasonal rows are validated before anything is
+    // persisted — an invalid row rejects the create instead of being
+    // silently dropped. (Only when the flag is on: with the flag off
+    // the rows are ignored entirely, as before.)
+    if (body.isDateBasedPrice) {
+      const invalidSeasonalField = invalidDateBasedPriceField(body.dateBasedPrices)
+      if (invalidSeasonalField) {
+        res.status(400).send(`Invalid ${invalidSeasonalField}`)
+        return
+      }
     }
 
     const invalidField = invalidFinancingOrDocumentField(body)
@@ -408,6 +545,8 @@ export const create = async (req: Request, res: Response) => {
 
     const car = new Car({
       ...carFields,
+      // F5a (W2-02): store the trimmed plate, never the raw payload value.
+      licensePlate: plate,
       supplier: supplierId,
       locations: body.locations,
       dateBasedPrices: dateBasedPriceIds,
@@ -527,6 +666,14 @@ ${i18n.t('REGARDS')}<br>
 
     res.json(car)
   } catch (err) {
+    // F5a (W2-01): a race the explicit check could not see surfaces as
+    // E11000 from the unique index — answer the same 409, not a generic
+    // 400. The plate is read from the payload, never from the error.
+    if (isDuplicatePlateError(err)) {
+      const plate = normalizeLicensePlate(body.licensePlate) || ''
+      res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${plate}.`)
+      return
+    }
     logger.error(`[car.create] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
@@ -684,11 +831,40 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
+      // F5a (W2-02): the plate is required on update too — an empty or
+      // missing plate must not silently clear the stored plate (and
+      // with it the uniqueness guarantee).
+      const plate = normalizeLicensePlate(licensePlate)
+      if (!plate) {
+        res.status(400).send('Invalid licensePlate')
+        return
+      }
+
+      // F5a (W2-01): server-side uniqueness, per agency among live
+      // cars, excluding this car. The unique index on Car is the
+      // backstop for races; E11000 is mapped to 409 in the catch below.
+      if (await findLiveCarByPlate(plate, validatedSupplierId, car._id.toString())) {
+        res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${plate}.`)
+        return
+      }
+
+      // F5a (W2-03): seasonal rows are validated BEFORE any stored row
+      // is deleted, created or updated — an invalid edit rejects the
+      // whole update and every stored row is preserved exactly. A row
+      // omitted from the payload is still deleted (the form's
+      // remove-row path); a row present but invalid is never deleted.
+      const invalidSeasonalField = invalidDateBasedPriceField(dateBasedPrices, true)
+      if (invalidSeasonalField) {
+        res.status(400).send(`Invalid ${invalidSeasonalField}`)
+        return
+      }
+
       car.supplier = new mongoose.Types.ObjectId(targetSupplier)
       car.minimumAge = minimumAge
       car.locations = locations.map((l) => new mongoose.Types.ObjectId(l))
       car.name = name
-      car.licensePlate = licensePlate
+      // F5a (W2-02): store the trimmed plate, never the raw payload value.
+      car.licensePlate = plate
       car.available = available
       car.fullyBooked = fullyBooked
       car.comingSoon = comingSoon
@@ -878,6 +1054,14 @@ export const update = async (req: Request, res: Response) => {
     logger.error('[car.update] Car not found:', _id)
     res.sendStatus(204)
   } catch (err) {
+    // F5a (W2-01): a race the explicit check could not see surfaces as
+    // E11000 from the unique index — answer the same 409, not a generic
+    // 400. The plate is read from the payload, never from the error.
+    if (isDuplicatePlateError(err)) {
+      const plate = normalizeLicensePlate(body.licensePlate) || ''
+      res.status(409).send(`PLATE_IN_USE: Another live car of this agency already uses license plate ${plate}.`)
+      return
+    }
     logger.error(`[car.update] ${i18n.t('ERROR')} ${_id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }

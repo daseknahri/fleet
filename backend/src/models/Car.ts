@@ -382,6 +382,26 @@ carSchema.index({ updatedAt: -1, _id: 1 })
 // GA-PAR-22: serves both the live lists (`deletedAt: null`) and the
 // trash view (`deletedAt: { $ne: null }`) per agency.
 carSchema.index({ supplier: 1, deletedAt: 1 })
+// F5a (W2-01): per-agency license-plate uniqueness, backing the
+// server-side check in carController create/update (the check alone is
+// raceable). Partial: only live cars with a non-empty plate take part,
+// so legacy empty-plate rows and trashed cars never block index
+// creation and a trashed car's plate stays reusable (same rule as
+// validateLicensePlate / restoreCar). Case-insensitive (strength-2
+// collation) to match the importer's rule that the same plate in
+// another case is the same plate. Per-agency, not global: the same
+// plate already exists under different agencies in the local dev data
+// and multi-agency is gated (#48). Deploy precondition: the target
+// database must hold no live per-agency plate duplicate, or
+// initialize() fails and the server exits(1) — see F5A-REPORT.md.
+carSchema.index(
+  { supplier: 1, licensePlate: 1 },
+  {
+    unique: true,
+    collation: { locale: 'en', strength: 2 },
+    partialFilterExpression: { licensePlate: { $type: 'string', $ne: '' }, deletedAt: null },
+  },
+)
 // Fleet statuses (scorecard #15): serves the fleet-status counts and
 // the status filter in getCars.
 carSchema.index({ supplier: 1, operationalStatus: 1 })
