@@ -226,7 +226,7 @@ describe('F3 / W1 #1 — staff cancel of paid/deposit bookings', () => {
     expect(response.body.refund.refundedRent).toBe(1000)
     expect(stripeRefundCreate).toHaveBeenCalledWith(
       { payment_intent: 'pi_f3_paid_full' },
-      expect.objectContaining({ idempotencyKey: expect.stringContaining('cancel-refund-') }),
+      expect.objectContaining({ idempotencyKey: expect.stringContaining('refund-reversal-') }),
     )
     const payments = await paymentsOf(fixture.booking._id)
     expect(payments.filter((p) => p.status === bookcarsTypes.RentalPaymentStatus.Reversed)).toHaveLength(2)
