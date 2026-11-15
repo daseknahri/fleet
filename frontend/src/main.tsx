@@ -236,6 +236,12 @@ const dataGridLocale = isFr
 
 const theme = createTheme(
   {
+    // B-F-18: mirror MUI components (Drawer anchor, menus, popovers) in
+    // Arabic. NOTE: stylis-plugin-rtl is NOT installed (checked in
+    // package.json), so emotion-generated physical CSS is not flipped by
+    // a stylis plugin — full RTL mirroring still needs that dependency;
+    // not added here.
+    direction: isAr ? 'rtl' : 'ltr',
     palette: {
       primary: {
         main: '#1a1a1a',

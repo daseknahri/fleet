@@ -72,12 +72,12 @@ const NewsletterForm = () => {
         <FormControl fullWidth margin="normal" size="small" className="input" error={!!errors.email}>
           <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
           <OutlinedInput
-            type="text"
+            type="email"
             {...register('email')}
             label={commonStrings.EMAIL}
             size="small"
             required
-            autoComplete="off"
+            autoComplete="email"
             inputProps={{
               'aria-label': 'email',
             }}

@@ -70,6 +70,14 @@ const SupplierFilter = ({
     }
   }
 
+  // B-F-12: keyboard-operable role=button span — Enter/Space fire the same action.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.currentTarget.click()
+    }
+  }
+
   const handleUncheckAllChange = () => {
     if (allChecked) {
       // uncheck all
@@ -134,6 +142,7 @@ const SupplierFilter = ({
                   role="button"
                   tabIndex={0}
                   onClick={handleSupplierClick}
+                  onKeyDown={handleKeyDown}
                   className="supplier"
                 >
                   <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, supplier.avatar)} alt={supplier.fullName} title={supplier.fullName} />
@@ -145,6 +154,7 @@ const SupplierFilter = ({
           <div className="filter-actions">
             <span
               onClick={handleUncheckAllChange}
+              onKeyDown={handleKeyDown}
               className="uncheckall"
               role="button"
               tabIndex={0}

@@ -63,6 +63,14 @@ const StatusFilter = ({
     handleCheckStatusChange(event)
   }
 
+  // B-F-12: keyboard-operable role=button span — Enter/Space fire the same action.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.currentTarget.click()
+    }
+  }
+
   const handleUncheckAllChange = () => {
     if (allChecked) {
       // uncheck all
@@ -112,6 +120,7 @@ const StatusFilter = ({
         <div className="filter-actions">
           <span
             onClick={handleUncheckAllChange}
+            onKeyDown={handleKeyDown}
             className="uncheckall"
             role="button"
             tabIndex={0}

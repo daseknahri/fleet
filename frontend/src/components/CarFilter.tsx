@@ -331,11 +331,6 @@ const CarFilter = ({
           />
           <FormHelperText error={!!errors.to}>{errors.to?.message}</FormHelperText>
         </FormControl>
-        <FormControl fullWidth className="fc-search">
-          <Button type="submit" variant="contained" className="btn-primary btn-search" disabled={isSubmitting}>
-            {commonStrings.SEARCH}
-          </Button>
-        </FormControl>
         <FormControl fullWidth className="chk-same-location">
           <FormControlLabel
             control={<Checkbox
@@ -345,6 +340,11 @@ const CarFilter = ({
             />}
             label={strings.DROP_OFF}
           />
+        </FormControl>
+        <FormControl fullWidth className="fc-search">
+          <Button type="submit" variant="contained" className="btn-primary btn-search" disabled={isSubmitting}>
+            {commonStrings.SEARCH}
+          </Button>
         </FormControl>
       </form>
     </Accordion>

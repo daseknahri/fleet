@@ -196,21 +196,21 @@ const Settings = () => {
                 />
                 <FormControl fullWidth margin="dense" error={!!errors.fullName}>
                   <InputLabel className="required" htmlFor="settings-fullName">{commonStrings.FULL_NAME}</InputLabel>
-                  <Input id="settings-fullName" {...register('fullName')} type="text" required autoComplete="off" />
+                  <Input id="settings-fullName" {...register('fullName')} type="text" required autoComplete="name" />
                   <FormHelperText>{errors.fullName?.message || ''}</FormHelperText>
                 </FormControl>
                 <FormControl fullWidth margin="dense">
                   <InputLabel className="required" htmlFor="settings-email">{commonStrings.EMAIL}</InputLabel>
-                  <Input id="settings-email" {...register('email')} type="text" disabled />
+                  <Input id="settings-email" {...register('email')} type="email" disabled />
                 </FormControl>
                 <FormControl fullWidth margin="dense" error={!!errors.phone}>
                   <InputLabel className="required" htmlFor="settings-phone">{commonStrings.PHONE}</InputLabel>
                   <Input
                     id="settings-phone"
                     {...register('phone')}
-                    type="text"
+                    type="tel"
                     required
-                    autoComplete="off"
+                    autoComplete="tel"
                     onChange={() => {
                       if (errors.phone) {
                         clearErrors('phone')
@@ -239,11 +239,11 @@ const Settings = () => {
                 </FormControl>
                 <FormControl fullWidth margin="dense">
                   <InputLabel htmlFor="settings-location">{commonStrings.LOCATION}</InputLabel>
-                  <Input id="settings-location" {...register('location')} type="text" autoComplete="off" />
+                  <Input id="settings-location" {...register('location')} type="text" autoComplete="address-level2" />
                 </FormControl>
                 <FormControl fullWidth margin="dense">
                   <InputLabel htmlFor="settings-bio">{commonStrings.BIO}</InputLabel>
-                  <Input id="settings-bio" {...register('bio')} type="text" autoComplete="off" />
+                  <Input id="settings-bio" {...register('bio')} type="text" />
                 </FormControl>
                 <div className="buttons">
                   <Button

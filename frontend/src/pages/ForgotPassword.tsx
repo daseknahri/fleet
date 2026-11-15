@@ -69,9 +69,9 @@ const ForgotPassword = () => {
                       clearErrors('email')
                     }
                   }}
-                  type="text"
+                  type="email"
                   error={!!errors.email}
-                  autoComplete="off"
+                  autoComplete="email"
                   required
                 />
                 <FormHelperText error={!!errors.email}>

@@ -18,6 +18,13 @@ const Accordion = ({
   children
 }: AccordionProps) => {
   const accordionRef = useRef<HTMLSpanElement>(null)
+  // B-F-12: keyboard-operable role=button span — Enter/Space fire the same action.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.currentTarget.click()
+    }
+  }
 
   const handleAccordionClick = (e: React.MouseEvent<HTMLElement>) => {
     e.currentTarget.classList.toggle('accordion-active')
@@ -55,8 +62,10 @@ const Accordion = ({
         ref={accordionRef}
         className="accordion"
         onClick={handleAccordionClick}
+        onKeyDown={handleKeyDown}
         role="button"
         tabIndex={0}
+        style={{ minHeight: 44, padding: '9px 2px' }}
       >
         {title}
       </span>

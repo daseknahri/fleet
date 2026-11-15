@@ -388,6 +388,13 @@ const SearchForm = ({
         />
         <FormHelperText error={!!errors.to}>{errors.to?.message}</FormHelperText>
       </FormControl>
+      {!sameLocation && (
+        <FormControl className="drop-off-location">
+          <LocationSelectList
+            {...register('dropOffLocation')}
+      <FormControl className="chk-same-location">
+        <FormControlLabel control={<Checkbox checked={sameLocation} onChange={handleSameLocationChange} />} label={strings.DROP_OFF} />
+      </FormControl>
       <Button type="submit" variant="contained" className="btn-search" disabled={isSubmitting}>
         {commonStrings.SEARCH}
       </Button>
@@ -403,26 +410,6 @@ const SearchForm = ({
           {commonStrings.CANCEL}
         </Button>
       )}
-      {!sameLocation && (
-        <FormControl className="drop-off-location">
-          <LocationSelectList
-            {...register('dropOffLocation')}
-            label={commonStrings.DROP_OFF_LOCATION}
-            hidePopupIcon
-            // customOpen={env.isMobile}
-            // init={!env.isMobile}
-            init
-            value={dropOffLocation as bookcarsTypes.Location}
-            required
-            variant="outlined"
-            onChange={handleDropOffLocationChange}
-          />
-          <FormHelperText error={!!errors.dropOffLocation}>{errors.dropOffLocation?.message || (errors.dropOffLocation ? strings.DROP_OFF_LOCATION_REQUIRED : '')}</FormHelperText>
-        </FormControl>
-      )}
-      <FormControl className="chk-same-location">
-        <FormControlLabel control={<Checkbox checked={sameLocation} onChange={handleSameLocationChange} />} label={strings.DROP_OFF} />
-      </FormControl>
     </form>
   )
 }

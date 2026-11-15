@@ -95,11 +95,11 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
           <FormControl fullWidth margin="dense" error={!!errors.email}>
             <InputLabel className="required">{commonStrings.EMAIL}</InputLabel>
             <OutlinedInput
-              type="text"
+              type="email"
               {...register('email')}
               label={commonStrings.EMAIL}
               required
-              autoComplete="off"
+              autoComplete="email"
               onChange={() => {
                 if (errors.email) {
                   clearErrors('email')
@@ -117,7 +117,6 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
             {...register('subject')}
             label={strings.SUBJECT}
             required
-            autoComplete="off"
             onChange={() => {
               if (errors.subject) {
                 clearErrors('subject')
@@ -133,7 +132,6 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
             type="text"
             label={strings.MESSAGE}
             {...register('message')}
-            autoComplete="off"
             required
             multiline
             minRows={7}

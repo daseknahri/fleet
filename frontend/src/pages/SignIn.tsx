@@ -113,6 +113,7 @@ const SignIn = () => {
             <FormControl fullWidth margin="dense" error={!!errors.email}>
               <InputLabel htmlFor="signin-email">{commonStrings.EMAIL}</InputLabel>
               <Input id="signin-email"
+                type="email"
                 {...register('email')}
                 onChange={(e) => {
                   if (errors.email) {

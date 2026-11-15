@@ -127,7 +127,7 @@ const SignUp = () => {
                     type="text"
                     {...register('fullName')}
                     label={commonStrings.FULL_NAME}
-                    autoComplete="off"
+                    autoComplete="name"
                     required
                   />
                   <FormHelperText error={!!errors.fullName}>{errors.fullName?.message || ''}</FormHelperText>
@@ -135,10 +135,10 @@ const SignUp = () => {
                 <FormControl fullWidth margin="dense" error={!!errors.email}>
                   <InputLabel className="required" htmlFor="signup-email">{commonStrings.EMAIL}</InputLabel>
                   <OutlinedInput id="signup-email"
-                    type="text"
+                    type="email"
                     {...register('email')}
                     label={commonStrings.EMAIL}
-                    autoComplete="off"
+                    autoComplete="email"
                     onChange={() => {
                       if (errors.email) {
                         clearErrors('email')
@@ -151,10 +151,10 @@ const SignUp = () => {
                 <FormControl fullWidth margin="dense" error={!!errors.phone}>
                   <InputLabel className="required" htmlFor="signup-phone">{commonStrings.PHONE}</InputLabel>
                   <OutlinedInput id="signup-phone"
-                    type="text"
+                    type="tel"
                     {...register('phone')}
                     label={commonStrings.PHONE}
-                    autoComplete="off"
+                    autoComplete="tel"
                     onChange={() => {
                       if (errors.phone) {
                         clearErrors('phone')

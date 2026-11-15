@@ -79,6 +79,17 @@ const Header = ({
   const [sideAnchorEl, setSideAnchorEl] = useState<HTMLElement | null>(null)
   const [isSignedIn, setIsSignedIn] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
+  // B-F-15: live viewport flag — re-render the header when the window
+  // crosses the 960px breakpoint (resize/rotate), instead of trusting
+  // the load-time env.isMobile value.
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(width <= 960px)').matches)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(width <= 960px)')
+    const onChange = () => setIsMobile(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   const isMenuOpen = Boolean(anchorEl)
   const isMobileMenuOpen = Boolean(mobileMoreAnchorEl)
@@ -346,7 +357,7 @@ const Header = ({
 
                 <Button onClick={() => navigate('/')} className="logo">{env.WEBSITE_NAME}</Button>
 
-                {!env.isMobile && headerTitle && <div className="header-title">{headerTitle}</div>}
+                {!isMobile && headerTitle && <div className="header-title">{headerTitle}</div>}
               </>
             )}
 
@@ -446,7 +457,7 @@ const Header = ({
                   <ListItemIcon><MailIcon /></ListItemIcon>
                   <ListItemText primary={strings.CONTACT} />
                 </ListItemButton>
-                {env.isMobile && !hideSignin && !isSignedIn && isLoaded && (
+                {isMobile && !hideSignin && !isSignedIn && isLoaded && (
                   <>
                     <ListItemButton
                       onClick={() => {
@@ -471,7 +482,7 @@ const Header = ({
               </List>
             </Drawer>
 
-            {(env.isMobile || !headerTitle) && <div style={classes.grow} />}
+            {(isMobile || !headerTitle) && <div style={classes.grow} />}
             <div className="header-desktop">
               {isLoaded && (
                 <Button variant="contained" onClick={handleCurrencyMenuOpen} disableElevation className="btn bold">
