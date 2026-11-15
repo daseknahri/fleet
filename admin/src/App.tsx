@@ -58,6 +58,7 @@ const Agents = lazy(() => import('@/pages/Agents'))
 const Reminders = lazy(() => import('@/pages/Reminders'))
 const Imports = lazy(() => import('@/pages/Imports'))
 const Trash = lazy(() => import('@/pages/Trash'))
+const CancelRequests = lazy(() => import('@/pages/CancelRequests'))
 
 const AppLayout = () => {
   const location = useLocation()
@@ -111,6 +112,8 @@ const router = createBrowserRouter([
       { path: 'imports', element: <Imports /> },
       // GA-PAR-22: one trash page, three tabs (bookings / clients / cars).
       { path: 'trash', element: <Trash /> },
+      // F3 / W1 #9: cancel-request queue (approve executes the staff cancel).
+      { path: 'cancel-requests', element: <CancelRequests /> },
       { path: 'sign-in', element: <SignIn /> },
       { path: 'activate', element: <Activate /> },
       { path: 'forgot-password', element: <ForgotPassword /> },

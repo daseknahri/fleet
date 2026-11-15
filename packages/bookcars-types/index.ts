@@ -634,6 +634,12 @@ export interface Booking {
   additionalDriver?: boolean
   _additionalDriver?: string | AdditionalDriver
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request (server-stamped). */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request (server-stamped). */
+  cancelRequestBy?: string | User
+  /** F3 / W1 #1 — staff cancellation record (reason, refund decision, amounts at stake). */
+  cancellationRecord?: BookingCancellationRecord
   price?: number
   sessionId?: string
   paymentIntentId?: string
@@ -676,6 +682,84 @@ export interface Booking {
    * list responses — §3). */
   hadPayments?: boolean
   hadInvoices?: boolean
+}
+
+/**
+ * F3 / W1 #1 + #9 — the staff cancellation record written by the cancel
+ * workflow (never client-supplied). The refund amount is NEVER auto-decided
+ * by the code: `refundDecision` is the staff member's explicit choice at
+ * approval time (ADR-001 deposit release/retain/refund rules are an open
+ * owner decision — see GAPS.md §5). `full` reverses every posted payment
+ * (provider refund first, via the F1 reversal path); `none` keeps the money
+ * collected; `manual` cancels now and leaves the refund to staff in the
+ * provider dashboard (`refundStatus: 'pending'`). `rentPaid` /
+ * `depositPaid` are the computed amounts at stake at cancel time, so staff
+ * can see exactly what the decision covers. A partial refund is NOT
+ * executed by this workflow — it stays a `manual` (pending) step.
+ */
+export type CancelRefundDecision = 'full' | 'none' | 'manual'
+
+export type CancelRefundStatus = 'none' | 'refunded' | 'pending'
+
+export interface BookingCancellationRecord {
+  reason: string
+  cancelledBy: string
+  cancelledAt: Date
+  refundDecision: CancelRefundDecision
+  refundStatus: CancelRefundStatus
+  /** Posted rent collected at cancel time (base currency). */
+  rentPaid: number
+  /** Posted deposit collected at cancel time (base currency). */
+  depositPaid: number
+  /** Rent actually reversed (0 unless the decision executed a refund). */
+  refundedRent: number
+  /** Deposit actually reversed (0 unless the decision executed a refund). */
+  refundedDeposit: number
+  /** Provider refund references returned by executed reversals, if any. */
+  refundProviderReferences?: string[]
+  refundedAt?: Date
+  /** Who filed the customer cancel request this cancellation answers, if any. */
+  requestedBy?: string
+  requestedAt?: Date
+}
+
+/** F3 / W1 #1 — staff cancel payload (POST /api/bookings/:id/cancel). */
+export interface CancelBookingPayload {
+  reason: string
+  refundDecision: CancelRefundDecision
+}
+
+/** F3 / W1 #9 — cancel-request decision payload. */
+export interface DecideCancelRequestPayload {
+  decision: 'approve' | 'deny'
+  reason: string
+  /** Required when approving; ignored when denying. */
+  refundDecision?: CancelRefundDecision
+}
+
+/** F3 / W1 #3 — staff manual payment-confirmation payload. */
+export interface ConfirmManualPaymentPayload {
+  /** Cash (or other method) amount just collected. Omit to confirm from already-posted payments only. */
+  amount?: number
+  method?: RentalPaymentMethod
+  /** Purpose of a collected amount (default Rent — the amount due now is rent + approved charges). */
+  purpose?: RentalPaymentPurpose
+  currency?: string
+  note?: string
+  reference?: string
+}
+
+/** F3 / W1 #9 — one row of the cancel-request queue. */
+export interface CancelRequestRow {
+  booking: Booking
+  currency: string
+  /** Posted rent collected so far (base currency). */
+  rentPaid: number
+  /** Posted deposit collected so far (base currency). */
+  depositPaid: number
+  /** Rent + approved charges still outstanding (base currency). */
+  outstandingBalance: number
+  requestedAt?: Date
 }
 
 /**

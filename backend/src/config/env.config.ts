@@ -858,6 +858,26 @@ export interface Booking extends Document {
   additionalDriver?: boolean
   _additionalDriver?: Types.ObjectId
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request. */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request. */
+  cancelRequestBy?: Types.ObjectId
+  /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
+  cancellationRecord?: {
+    reason: string
+    cancelledBy?: Types.ObjectId
+    cancelledAt?: Date
+    refundDecision?: bookcarsTypes.CancelRefundDecision
+    refundStatus?: bookcarsTypes.CancelRefundStatus
+    rentPaid?: number
+    depositPaid?: number
+    refundedRent?: number
+    refundedDeposit?: number
+    refundProviderReferences?: string[]
+    refundedAt?: Date
+    requestedBy?: Types.ObjectId
+    requestedAt?: Date
+  }
   price: number
   sessionId?: string
   paymentIntentId?: string
@@ -1430,6 +1450,12 @@ export interface BookingInfo {
   additionalDriver?: boolean
   _additionalDriver?: Types.ObjectId
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request. */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request. */
+  cancelRequestBy?: Types.ObjectId
+  /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
+  cancellationRecord?: Booking['cancellationRecord']
   price: number
   /** GA-PAR-22: trash fields (lists carry the scalars, never the history). */
   deletedAt?: Date | null

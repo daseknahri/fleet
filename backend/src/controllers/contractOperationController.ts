@@ -86,6 +86,23 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
       if (booking!.deletedAt) {
  throw new Error('TRASHED') 
 }
+      // F3 / W1 #11 — handover payment gate: a Draft booking that is
+      // still Pending (an unpaid pay-later booking) cannot be handed
+      // over until the payment is confirmed (staff manual confirmation,
+      // W1 #3 — cash collected at the counter → Paid) or nothing is
+      // outstanding (a zero-total booking). The 409 names the
+      // outstanding balance so the UI shows the reason instead of a
+      // bare refusal. The same gate lives in inspectionTransition
+      // (Pending removed from the Draft-handover statuses); this
+      // pre-check is the branch that carries the amount.
+      let paymentConfirmed = false
+      if (type === bookcarsTypes.InspectionType.Handover && booking!.status === bookcarsTypes.BookingStatus.Pending) {
+        const receivable = await getContractReceivable(booking!)
+        paymentConfirmed = receivable.outstandingBalance <= 0
+        if (!paymentConfirmed && booking!.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
+          throw new Error(`PAYMENT_NOT_CONFIRMED: Payment must be confirmed before handover. Outstanding balance: ${receivable.outstandingBalance} ${receivable.currency}. Record the payment first.`)
+        }
+      }
       const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload)
       if (!payload) {
  throw new Error('INVALID_INSPECTION') 
@@ -108,7 +125,7 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
           throw new Error('MISSING_CONTRACT_FILE')
         }
       }
-      const nextLifecycle = inspectionTransition(booking!.lifecycle, type, booking!.status)
+      const nextLifecycle = inspectionTransition(booking!.lifecycle, type, booking!.status, paymentConfirmed)
       if (!nextLifecycle) {
 throw new Error('INVALID_CONTRACT_TRANSITION')
 }
@@ -138,6 +155,11 @@ throw new Error('CONTRACT_OPERATION_FAILED')
 }
     if (code === 'INVALID_CONTRACT_TRANSITION') {
  res.status(409).send('Invalid contract lifecycle transition'); return 
+}
+    // F3 / W1 #11 — handover refused until the payment is confirmed;
+    // the message carries the outstanding balance for the UI.
+    if (code.startsWith('PAYMENT_NOT_CONFIRMED')) {
+ res.status(409).send(code); return 
 }
     logger.error(`[contractOperations.${type}]`, err); res.status(400).send(i18n.t('ERROR'))
   } finally {

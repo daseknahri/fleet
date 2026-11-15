@@ -446,6 +446,12 @@ const BookingList = ({
     setStatus(_status)
   }
 
+  // F3 / W1 #18 — the bulk status dialog must not offer Cancelled for a
+  // paid/deposit booking: the backend refuses that flip
+  // (CANCEL_VIA_WORKFLOW) and the cancel workflow is the way instead.
+  const selectedHasPaymentStatus = rows.some((row) => row._id && selectedIds.includes(row._id)
+    && [bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(row.status))
+
   const handleConfirmUpdate = async () => {
     try {
       if (!status) {
@@ -470,7 +476,9 @@ const BookingList = ({
 
       setOpenUpdateDialog(false)
     } catch (err) {
-      helper.error(err)
+      // F3 / W1 #18 — surface the backend's reason (e.g. the
+      // CANCEL_VIA_WORKFLOW redirect) instead of a generic error toast.
+      helper.error(err, helper.getErrorMessage(err))
     }
   }
 
@@ -758,7 +766,7 @@ const BookingList = ({
       <Dialog disableEscapeKeyDown maxWidth="xs" open={openUpdateDialog}>
         <DialogTitle className="dialog-header">{strings.UPDATE_STATUS}</DialogTitle>
         <DialogContent className="bs-update-status">
-          <StatusList label={strings.NEW_STATUS} disablePaymentStatuses onChange={handleStatusChange} />
+          <StatusList label={strings.NEW_STATUS} disablePaymentStatuses disableCancelled={selectedHasPaymentStatus} cancelDisabledReason={selectedHasPaymentStatus ? strings.CANCEL_DISABLED_PAID : undefined} onChange={handleStatusChange} />
         </DialogContent>
         <DialogActions className="dialog-actions">
           <Button onClick={handleCancelUpdate} variant="contained" className="btn-secondary">

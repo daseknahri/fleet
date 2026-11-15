@@ -25,6 +25,12 @@ routes.route(routeNames.getBookingId).get(bookingController.getBookingId)
 routes.route(routeNames.getBookings).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), bookingController.getBookings)
 routes.route(routeNames.hasBookings).get(authJwt.verifyToken, bookingController.hasBookings)
 routes.route(routeNames.cancelBooking).post(authJwt.verifyToken, bookingController.cancelBooking)
+// F3 / W1 #1 + #9 + #3 — staff cancel workflow (ManageBookings, same
+// capability as update/updateStatus).
+routes.route(routeNames.cancelBookingStaff).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.cancelBookingStaff)
+routes.route(routeNames.getCancelRequests).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getCancelRequests)
+routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.decideCancelRequest)
+routes.route(routeNames.confirmManualPayment).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmManualPayment)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)
 
 export default routes

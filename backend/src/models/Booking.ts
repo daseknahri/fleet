@@ -105,6 +105,34 @@ const bookingSchema = new Schema<env.Booking>(
       type: Boolean,
       default: false,
     },
+    // F3 / W1 #9 — when the customer filed the cancel request
+    // (server-stamped by cancelBooking; cleared on decide/cancel).
+    cancelRequestAt: {
+      type: Date,
+    },
+    // F3 / W1 #9 — who filed the cancel request (server-stamped).
+    cancelRequestBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    // F3 / W1 #1 — staff cancellation record. The refund decision is
+    // the staff member's explicit choice at approval time; the code
+    // never auto-decides a refund amount (ADR-001 gated, GAPS.md §5).
+    cancellationRecord: {
+      reason: { type: String, maxlength: 1000 },
+      cancelledBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      cancelledAt: { type: Date },
+      refundDecision: { type: String, enum: ['full', 'none', 'manual'] },
+      refundStatus: { type: String, enum: ['none', 'refunded', 'pending'] },
+      rentPaid: { type: Number, min: 0 },
+      depositPaid: { type: Number, min: 0 },
+      refundedRent: { type: Number, min: 0 },
+      refundedDeposit: { type: Number, min: 0 },
+      refundProviderReferences: [{ type: String }],
+      refundedAt: { type: Date },
+      requestedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      requestedAt: { type: Date },
+    },
     sessionId: {
       type: String,
       index: true,

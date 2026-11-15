@@ -5,7 +5,7 @@ import * as env from '../config/env.config'
 import RentalPayment from '../models/RentalPayment'
 import Booking from '../models/Booking'
 import ContractCharge from '../models/ContractCharge'
-import { LedgerError, confirmRentalPayment, postRentalPayment, reverseRentalPayment } from '../utils/ledger'
+import { LedgerError, confirmRentalPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
 import * as logger from '../utils/logger'
@@ -74,6 +74,20 @@ export const create = async (req: Request, res: Response) => {
       reference,
       note,
     })
+    // F3 / W1 #3: a posted manual payment is a collection — the booking's
+    // payment status follows the ledger (Pending → Paid when nothing is
+    // outstanding). Best-effort: the payment already posted, so a sync
+    // failure (e.g. the car's dates are now taken) is logged, not thrown
+    // — staff can retry the confirmation from the booking. Pending
+    // entries (counter-agent) sync when an accountant confirms them
+    // (see ledger.confirmRentalPayment), not here.
+    if (!pendingEntry) {
+      try {
+        await refreshBookingPaymentStatus(payload.booking)
+      } catch (err) {
+        logger.error(`[rentalPayment.create] Payment ${payment._id.toString()} posted but booking payment status could not be refreshed`, err)
+      }
+    }
     await payment.populate(populatedPaths)
     res.status(201).json(payment)
   } catch (err) {

@@ -20,6 +20,7 @@ const strings = new LocalizedStrings({
     COST: 'Total',
     OVERLAP_EXCEPTION: 'Exception de chevauchement',
     SIGNED_ONLINE: 'Signé en ligne',
+    CANCEL_DISABLED_PAID: 'Une réservation payée ne peut pas être annulée par un changement de statut — utilisez l’action d’annulation sur la réservation (motif et décision de remboursement requis).',
   },
   ar: {
     REFERENCE: 'المرجع',
@@ -39,6 +40,7 @@ const strings = new LocalizedStrings({
     COST: 'الإجمالي',
     OVERLAP_EXCEPTION: 'استثناء التداخل',
     SIGNED_ONLINE: 'وُقّع عبر الإنترنت',
+    CANCEL_DISABLED_PAID: 'لا يمكن إلغاء حجز مدفوع بتغيير الحالة — استخدم إجراء الإلغاء في الحجز (يلزم سبب وقرار بشأن الاسترداد).',
   },
   en: {
     REFERENCE: 'Reference',
@@ -58,6 +60,7 @@ const strings = new LocalizedStrings({
     COST: 'COST',
     OVERLAP_EXCEPTION: 'Overlap exception',
     SIGNED_ONLINE: 'Signed online',
+    CANCEL_DISABLED_PAID: 'A paid booking cannot be cancelled by a status change — use the cancel action on the booking (reason and refund decision required).',
   },
   es: {
     REFERENCE: 'Referencia',
@@ -77,6 +80,7 @@ const strings = new LocalizedStrings({
     COST: 'Coste',
     OVERLAP_EXCEPTION: 'Excepción de solapamiento',
     SIGNED_ONLINE: 'Firmado en línea',
+    CANCEL_DISABLED_PAID: 'Una reserva pagada no se puede cancelar con un cambio de estado — usa la acción de cancelación de la reserva (se requieren motivo y decisión de reembolso).',
   },
 })
 

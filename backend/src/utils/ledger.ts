@@ -6,6 +6,9 @@ import RentalPayment from '../models/RentalPayment'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
 import Invoice from '../models/Invoice'
 import { recomputeInvoicePayment } from './invoicePayment'
+import { BookingConflictError, saveBookingWithAvailability } from './bookingReservationHelper'
+import { getContractReceivable } from './contractReceivable'
+import * as logger from './logger'
 
 export class LedgerError extends Error {
   constructor(public code: 'BOOKING_NOT_FOUND' | 'INVALID_CURRENCY' | 'DUPLICATE_IDEMPOTENCY_KEY' | 'OVERPAYMENT' | 'INVALID_REVERSAL' | 'INVALID_PURPOSE' | 'INVALID_CONFIRMATION' | 'REFUND_FAILED' | 'TRASHED', message: string) {
@@ -259,6 +262,17 @@ export const confirmRentalPayment = async (input: {
     for (const invoice of linkedInvoices) {
       await recomputeInvoicePayment(invoice._id)
     }
+    // F3 / W1 #3: confirming a pending entry is a manual/cash collection
+    // becoming posted money — the booking's payment status follows the
+    // ledger (Pending → Paid, Deposit → PaidInFull). Best-effort: the
+    // confirmation itself already succeeded, so a sync failure (e.g. the
+    // car's dates are now taken) is logged, not thrown — staff can retry
+    // the confirmation from the booking once the conflict is resolved.
+    try {
+      await refreshBookingPaymentStatus(payment.booking)
+    } catch (err) {
+      logger.error(`[ledger.confirmRentalPayment] Payment ${payment._id.toString()} confirmed but booking payment status could not be refreshed`, err)
+    }
     return payment
   })
 }
@@ -269,6 +283,70 @@ export const postProviderPayment = (input: Omit<PostRentalPaymentInput, 'method'
     method: bookcarsTypes.RentalPaymentMethod.Card,
     source: input.provider === 'stripe' ? bookcarsTypes.RentalPaymentSource.Stripe : bookcarsTypes.RentalPaymentSource.PayPal,
   })
+
+/**
+ * F3 / W1 #3 — derive the booking's payment status from the ledger.
+ *
+ * A pay-later / walk-in cash booking can never reach `Paid` through the
+ * payment-status lock (update/updateStatus refuse it, create refuses it),
+ * and posting a RentalPayment never touched `booking.status`. This is the
+ * ADR-001-compliant shape of the missing step: the status is DERIVED from
+ * posted collections, never trusted from an operator-supplied value.
+ * `Pending`/`Reserved` with nothing outstanding becomes `Paid`;
+ * `Deposit` with nothing outstanding becomes `PaidInFull`. A booking
+ * whose dates are now taken by another (reserving) booking cannot be
+ * confirmed into a reserving status: the conflict is reported
+ * (`conflict: true`) and the status is left untouched — the payment stays
+ * posted and staff can retry the confirmation after resolving the
+ * conflict. Provider finalisation never calls this (it sets the status
+ * itself inside its transaction); only the manual/cash paths do.
+ *
+ * @param {mongoose.Types.ObjectId | string} bookingId
+ * @returns {Promise<{ status: bookcarsTypes.BookingStatus, updated: boolean, outstandingBalance: number, currency: string, postedRent: number, depositPaid: number, conflict: boolean }>}
+ */
+export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.ObjectId | string) => {
+  const booking = await Booking.findById(bookingId)
+  if (!booking) {
+    throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
+  }
+  if (booking.deletedAt) {
+    throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
+  }
+  const receivable = await getContractReceivable(booking)
+  const base = {
+    outstandingBalance: receivable.outstandingBalance,
+    currency: receivable.currency,
+    postedRent: receivable.postedPayments,
+    depositPaid: receivable.depositPayments,
+  }
+  const target = booking.status === bookcarsTypes.BookingStatus.Deposit
+    ? bookcarsTypes.BookingStatus.PaidInFull
+    : [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Reserved].includes(booking.status)
+      ? bookcarsTypes.BookingStatus.Paid
+      : null
+  // Nothing outstanding, and either real money was posted or the contract
+  // total is zero (a genuinely free booking confirms with no payment).
+  const moneyPosted = receivable.postedPayments + receivable.depositPayments > 0
+  const totalDue = receivable.rentalTotal + receivable.approvedCharges
+  if (!target || receivable.outstandingBalance > 0 || (!moneyPosted && totalDue > 0)) {
+    return { status: booking.status, updated: false, ...base, conflict: false }
+  }
+  const previousStatus = booking.status
+  booking.status = target
+  try {
+    // Paid/PaidInFull reserve the car (Pending does not), so this
+    // re-checks availability: a conflicting booking refuses the flip.
+    await saveBookingWithAvailability(booking)
+  } catch (err) {
+    booking.status = previousStatus
+    if (err instanceof BookingConflictError) {
+      logger.error(`[ledger.refreshBookingPaymentStatus] Booking ${booking._id.toString()} cannot be confirmed: the car is no longer available for the dates`, err)
+      return { status: previousStatus, updated: false, ...base, conflict: true }
+    }
+    throw err
+  }
+  return { status: target, updated: true, ...base, conflict: false }
+}
 
 
 /**

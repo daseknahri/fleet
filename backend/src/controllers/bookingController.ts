@@ -34,7 +34,8 @@ import Quote from '../models/Quote'
 import ContractSnapshot from '../models/ContractSnapshot'
 import ContractInspection from '../models/ContractInspection'
 import AgentSettlement from '../models/AgentSettlement'
-import { postProviderPayment, supportsTransactions } from '../utils/ledger'
+import { postProviderPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions, LedgerError } from '../utils/ledger'
+import { getContractReceivable } from '../utils/contractReceivable'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
 import { agencySupplierId, getAgencyContext } from '../utils/agencyAuthorization'
@@ -1584,6 +1585,16 @@ export const update = async (req: Request, res: Response) => {
         bookcarsTypes.BookingStatus.PaidInFull,
       ])
       if (status !== previousStatus && (paymentStatuses.has(status) || paymentStatuses.has(previousStatus))) {
+        // F3 / W1 #18: a paid booking is not cancelled by flipping its
+        // status here — that dead-ended in a bare 400 with no in-UI
+        // explanation. It goes through the cancel workflow (reason +
+        // staff refund decision), which sets status + lifecycle
+        // together. Name the workflow in the refusal so the admin UI can
+        // surface the reason instead of a dead end.
+        if (status === bookcarsTypes.BookingStatus.Cancelled && paymentStatuses.has(previousStatus)) {
+          res.status(400).send('CANCEL_VIA_WORKFLOW: Paid and deposit bookings must be cancelled through the cancel workflow (reason and refund decision required); use the cancel action on the booking, not a status change.')
+          return
+        }
         res.status(400).send('Payment statuses can only be changed through a verified payment workflow')
         return
       }
@@ -1634,6 +1645,17 @@ export const update = async (req: Request, res: Response) => {
       booking.from = from
       booking.to = to
       booking.status = status
+      // F3 / W1 #1: cancellation sets the contract lifecycle together
+      // with the status — a cancelled booking previously kept lifecycle
+      // Draft/Active while only its status said Cancelled (the helper's
+      // `lifecycle: Cancelled` exclusion was dead code for
+      // cancellations). Reactivating a cancelled booking returns the
+      // lifecycle to Draft.
+      if (status === bookcarsTypes.BookingStatus.Cancelled && previousStatus !== bookcarsTypes.BookingStatus.Cancelled) {
+        booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
+      } else if (previousStatus === bookcarsTypes.BookingStatus.Cancelled && status !== bookcarsTypes.BookingStatus.Cancelled && booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled) {
+        booking.lifecycle = bookcarsTypes.ContractLifecycle.Draft
+      }
       booking.cancellation = cancellation
       booking.amendments = amendments
       booking.theftProtection = theftProtection
@@ -1804,6 +1826,14 @@ export const updateStatus = async (req: Request, res: Response) => {
       return
     }
 
+    if (status === bookcarsTypes.BookingStatus.Cancelled && bookings.some((booking) => paymentStatuses.has(booking.status))) {
+      // F3 / W1 #18: same workflow redirect as update() — a paid
+      // booking is cancelled through the cancel workflow, never by a
+      // bulk status flip. The whole request refuses; nothing mutates.
+      res.status(400).send('CANCEL_VIA_WORKFLOW: Paid and deposit bookings must be cancelled through the cancel workflow (reason and refund decision required); use the cancel action on the booking, not a status change.')
+      return
+    }
+
     if (paymentStatuses.has(status) || bookings.some((booking) => paymentStatuses.has(booking.status) && booking.status !== status)) {
       res.status(400).send('Payment statuses can only be changed through a verified payment workflow')
       return
@@ -1817,6 +1847,13 @@ export const updateStatus = async (req: Request, res: Response) => {
     const previousStatuses = bookings.map((booking) => booking.status)
     for (const booking of bookings) {
       booking.status = status as bookcarsTypes.BookingStatus
+      // F3 / W1 #1: lifecycle follows the status on cancellation (and
+      // back to Draft when a cancelled booking is reactivated).
+      if (status === bookcarsTypes.BookingStatus.Cancelled) {
+        booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
+      } else if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled) {
+        booking.lifecycle = bookcarsTypes.ContractLifecycle.Draft
+      }
     }
     await saveBookingsWithAvailability(bookings)
 
@@ -2462,6 +2499,12 @@ export const cancelBooking = async (req: Request, res: Response) => {
       }
 
       booking.cancelRequest = true
+      // F3 / W1 #9: stamp the request so the queue can order and display
+      // it (previously the flag was write-only with no time or author).
+      booking.cancelRequestAt = new Date()
+      if (sessionUserId && mongoose.isValidObjectId(sessionUserId)) {
+        booking.cancelRequestBy = new mongoose.Types.ObjectId(sessionUserId)
+      }
       await booking.save()
 
       // Notify supplier
@@ -2488,6 +2531,489 @@ export const cancelBooking = async (req: Request, res: Response) => {
     res.sendStatus(204)
   } catch (err) {
     logger.error(`[booking.cancelBooking] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F3 / W1 #1 + #9 + W4 GAP-11 — the staff cancel workflow.
+ *
+ * Paid/Deposit bookings could not be cancelled in-app at all: `update` /
+ * `updateStatus` refuse leaving a payment status and `cancelBooking`
+ * above only sets a flag nobody consumes. This is the replacement path:
+ * a reasoned staff cancel that (a) sets `status: Cancelled` +
+ * `lifecycle: Cancelled` in one save — the car is freed for the dates
+ * because `Cancelled` reserves nothing (bookingReservationHelper) —
+ * (b) executes the staff member's explicit refund decision, and (c)
+ * records the decision with the amounts at stake so the money is
+ * auditable.
+ *
+ * The refund amount is NEVER auto-decided here (ADR-001 deposit
+ * release/retain/refund rules are an open owner decision — GAPS.md §5):
+ * `full` reverses every posted payment through the F1 reversal path
+ * (`reverseRentalPayment` — provider refund first, then the ledger
+ * reversal row, same idempotent keys as the Payments page); `none`
+ * keeps the money collected; `manual` cancels now and leaves the refund
+ * to staff in the provider dashboard (`refundStatus: 'pending'`). A
+ * partial refund cannot be executed by this workflow — it stays a
+ * `manual` step. Refunds run BEFORE the status flip, so a failed
+ * provider refund (502) cancels nothing and a retry only reverses the
+ * legs that are still Posted.
+ */
+
+type StaffCancelResult =
+  | { ok: true, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[], refundStatus: bookcarsTypes.CancelRefundStatus }
+  | { ok: false, status: number, message: string }
+
+const isValidCancelReason = (reason: unknown): reason is string =>
+  typeof reason === 'string' && reason.trim().length >= 3 && reason.trim().length <= 1000
+
+const isValidRefundDecision = (decision: unknown): decision is bookcarsTypes.CancelRefundDecision =>
+  decision === 'full' || decision === 'none' || decision === 'manual'
+
+const authorizeStaffBooking = async (
+  req: Request,
+  booking: env.Booking,
+  action: string,
+): Promise<{ ok: true, sessionUser: env.User } | { ok: false, status: number, message: string }> => {
+  const sessionUserId = req.user?._id
+  const sessionUser = sessionUserId ? await User.findById(sessionUserId) : null
+  if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+    return { ok: false, status: 403, message: `Forbidden: You cannot ${action}` }
+  }
+  if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+    const sessionAgencyId = agencySupplierId(req)
+    if (!sessionAgencyId || sessionAgencyId !== booking.supplier?.toString()) {
+      return { ok: false, status: 403, message: `Forbidden: You cannot ${action} for another agency` }
+    }
+  }
+  return { ok: true, sessionUser }
+}
+
+const executeStaffCancel = async (
+  booking: env.Booking,
+  actorId: string,
+  reason: string,
+  refundDecision: bookcarsTypes.CancelRefundDecision,
+): Promise<StaffCancelResult> => {
+  // Guards — every refusal happens before any money moves.
+  if (booking.deletedAt) {
+    return { ok: false, status: 409, message: trashedMessage('booking') }
+  }
+  if (booking.status === bookcarsTypes.BookingStatus.Void) {
+    return { ok: false, status: 409, message: 'TEMP_BOOKING: This is a temporary checkout booking; release it through the checkout flow instead of cancelling it.' }
+  }
+  if (booking.status === bookcarsTypes.BookingStatus.Cancelled) {
+    return { ok: false, status: 409, message: `ALREADY_CANCELLED: Booking ${booking._id.toString()} is already cancelled.` }
+  }
+  if ([
+    bookcarsTypes.ContractLifecycle.Active,
+    bookcarsTypes.ContractLifecycle.ReturnReview,
+    bookcarsTypes.ContractLifecycle.Completed,
+  ].includes(booking.lifecycle as bookcarsTypes.ContractLifecycle)) {
+    return { ok: false, status: 409, message: 'CANCEL_AFTER_HANDOVER: The car has already been handed over; settle the contract through the return flow instead of cancelling it.' }
+  }
+  const pendingCharge = await ContractCharge.findOne({ booking: booking._id, status: bookcarsTypes.ApprovalDecision.Pending }).select('_id').lean()
+  if (pendingCharge) {
+    return { ok: false, status: 409, message: 'CANCEL_PENDING_CHARGES: This booking has pending contract charges. Decide them first, then cancel.' }
+  }
+
+  // Amounts at stake, from the same receivable the contract pages use
+  // (rent posted, deposit posted — the deposit is never netted).
+  const receivable = await getContractReceivable(booking)
+  const rentPaid = receivable.postedPayments
+  const depositPaid = receivable.depositPayments
+  const requestedBy = booking.cancelRequestBy
+  const requestedAt = booking.cancelRequestAt
+
+  let refundedRent = 0
+  let refundedDeposit = 0
+  const refundProviderReferences: string[] = []
+  let reversedCount = 0
+  if (refundDecision === 'full') {
+    const posted = await RentalPayment.find({
+      booking: booking._id,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+      direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
+    }).sort({ date: 1, _id: 1 }).lean()
+    for (const payment of posted) {
+      try {
+        const reversal = await reverseRentalPayment({
+          paymentId: payment._id,
+          actorId,
+          idempotencyKey: `cancel-refund-${booking._id.toString()}-${payment._id.toString()}`,
+          note: `Cancellation refund of booking ${booking.reference || booking._id.toString()}`,
+        })
+        reversedCount += 1
+        if ((payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent) === bookcarsTypes.RentalPaymentPurpose.Deposit) {
+          refundedDeposit += Number(payment.amount || 0)
+        } else {
+          refundedRent += Number(payment.amount || 0)
+        }
+        if (reversal.refundProviderReference) {
+          refundProviderReferences.push(reversal.refundProviderReference)
+        }
+      } catch (err) {
+        if (err instanceof LedgerError && err.code === 'REFUND_FAILED') {
+          return { ok: false, status: 502, message: `REFUND_FAILED: The provider refund could not be completed (${err.message}). Nothing was cancelled; retry the cancellation once the provider refund succeeds.` }
+        }
+        if (err instanceof LedgerError) {
+          return { ok: false, status: 409, message: err.message }
+        }
+        throw err
+      }
+    }
+  }
+
+  const refundStatus: bookcarsTypes.CancelRefundStatus = refundDecision === 'manual'
+    ? 'pending'
+    : reversedCount > 0 ? 'refunded' : 'none'
+  booking.status = bookcarsTypes.BookingStatus.Cancelled
+  booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
+  booking.cancelRequest = false
+  booking.cancelRequestAt = undefined
+  booking.cancelRequestBy = undefined
+  booking.cancellationRecord = {
+    reason: reason.trim(),
+    cancelledBy: new mongoose.Types.ObjectId(actorId),
+    cancelledAt: new Date(),
+    refundDecision,
+    refundStatus,
+    rentPaid,
+    depositPaid,
+    refundedRent,
+    refundedDeposit,
+    refundProviderReferences,
+    ...(refundStatus === 'refunded' ? { refundedAt: new Date() } : {}),
+    ...(requestedBy ? { requestedBy } : {}),
+    ...(requestedAt ? { requestedAt } : {}),
+  }
+  // Cancelled reserves nothing, so the availability save only frees the
+  // dates (and bumps the reservation version for any concurrent check).
+  await saveBookingWithAvailability(booking)
+
+  // The driver is told the booking was cancelled. A failing mailer must
+  // not fail a completed cancellation (F1 / W4 GAP-06 lesson).
+  try {
+    await notifyDriver(booking)
+  } catch (err) {
+    logger.error(`[booking.cancel] Cancellation notification failed for booking ${booking._id.toString()}; booking stays cancelled`, err)
+  }
+  return { ok: true, refundedRent, refundedDeposit, refundProviderReferences, refundStatus }
+}
+
+/**
+ * Staff cancel (F3 / W1 #1) — cancel any live booking with a reason and
+ * an explicit staff refund decision. The executable outcome behind the
+ * cancel-request queue (decideCancelRequest) and the direct cancel action.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const cancelBookingStaff = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { reason, refundDecision } = req.body as bookcarsTypes.CancelBookingPayload
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    if (!isValidCancelReason(reason)) {
+      res.status(400).send('CANCEL_REASON: Cancelling a booking requires a reason of 3 to 1000 characters.')
+      return
+    }
+    if (!isValidRefundDecision(refundDecision)) {
+      res.status(400).send('CANCEL_REFUND_DECISION: The refund decision is required: full (refund everything collected), none (keep the money collected), or manual (refund later in the provider dashboard). No partial refund is executed here.')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'cancel bookings')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    const result = await executeStaffCancel(booking, scope.sessionUser._id.toString(), reason, refundDecision)
+    if (!result.ok) {
+      res.status(result.status).send(result.message)
+      return
+    }
+    res.json({
+      booking,
+      refund: {
+        decision: refundDecision,
+        status: result.refundStatus,
+        rentPaid: booking.cancellationRecord?.rentPaid,
+        depositPaid: booking.cancellationRecord?.depositPaid,
+        refundedRent: result.refundedRent,
+        refundedDeposit: result.refundedDeposit,
+        refundProviderReferences: result.refundProviderReferences,
+      },
+    })
+  } catch (err) {
+    logger.error(`[booking.cancelBookingStaff] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F3 / W1 #9 — the cancel-request queue: pending customer cancel
+ * requests with the amounts at stake (rent paid, deposit paid,
+ * outstanding balance), so staff can decide each request with the money
+ * in view. Same response shape as getBookings / getTrashedBookings.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getCancelRequests = async (req: Request, res: Response) => {
+  try {
+    const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+    let suppliers = (body.suppliers || []).map((supplierId) => new mongoose.Types.ObjectId(supplierId))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.getCancelRequests] Unauthorized attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot get booking information')
+      return
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      suppliers = [new mongoose.Types.ObjectId(supplierId)]
+    }
+
+    const filter: mongoose.QueryFilter<env.Booking> = {
+      supplier: { $in: suppliers },
+      cancelRequest: true,
+      expireAt: null,
+      deletedAt: null,
+    }
+    const totalRecords = await Booking.countDocuments(filter)
+    const rows = await Booking.find(filter)
+      .populate<{ supplier: env.UserInfo }>('supplier', '_id fullName avatar')
+      .populate<{ car: env.CarInfo }>('car', '_id name')
+      .populate<{ driver: env.UserInfo }>('driver', '_id fullName avatar')
+      .sort({ cancelRequestAt: -1, _id: 1 })
+      .skip((page - 1) * size)
+      .limit(size)
+      .lean()
+
+    const resultData: bookcarsTypes.CancelRequestRow[] = []
+    for (const row of rows) {
+      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot'>)
+      const r = row as unknown as Record<string, unknown>
+      delete r.signingNonce
+      resultData.push({
+        booking: row as unknown as bookcarsTypes.Booking,
+        currency: receivable.currency,
+        rentPaid: receivable.postedPayments,
+        depositPaid: receivable.depositPayments,
+        outstandingBalance: receivable.outstandingBalance,
+        requestedAt: (r.cancelRequestAt as Date | undefined),
+      })
+    }
+
+    res.json([{ resultData, pageInfo: [{ totalRecords }] }])
+  } catch (err) {
+    logger.error(`[booking.getCancelRequests] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F3 / W1 #9 — decide a customer cancel request. Approve executes the
+ * staff cancel (same path as cancelBookingStaff, with the staff member's
+ * explicit refund decision); deny clears the flag with a reason and
+ * leaves the booking untouched.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const decideCancelRequest = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { decision, reason, refundDecision } = req.body as bookcarsTypes.DecideCancelRequestPayload
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    if (decision !== 'approve' && decision !== 'deny') {
+      res.status(400).send('Invalid cancel-request decision')
+      return
+    }
+    if (!isValidCancelReason(reason)) {
+      res.status(400).send('CANCEL_REASON: Deciding a cancel request requires a reason of 3 to 1000 characters.')
+      return
+    }
+    if (decision === 'approve' && !isValidRefundDecision(refundDecision)) {
+      res.status(400).send('CANCEL_REFUND_DECISION: Approving a cancel request requires a refund decision: full (refund everything collected), none (keep the money collected), or manual (refund later in the provider dashboard). No partial refund is executed here.')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'decide cancel requests')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    if (!booking.cancelRequest) {
+      res.status(409).send(`NO_CANCEL_REQUEST: Booking ${booking._id.toString()} has no pending cancel request.`)
+      return
+    }
+    if (decision === 'deny') {
+      booking.cancelRequest = false
+      booking.cancelRequestAt = undefined
+      booking.cancelRequestBy = undefined
+      await booking.save()
+      res.json(booking)
+      return
+    }
+    const result = await executeStaffCancel(booking, scope.sessionUser._id.toString(), reason, refundDecision!)
+    if (!result.ok) {
+      res.status(result.status).send(result.message)
+      return
+    }
+    res.json({
+      booking,
+      refund: {
+        decision: refundDecision,
+        status: result.refundStatus,
+        rentPaid: booking.cancellationRecord?.rentPaid,
+        depositPaid: booking.cancellationRecord?.depositPaid,
+        refundedRent: result.refundedRent,
+        refundedDeposit: result.refundedDeposit,
+        refundProviderReferences: result.refundProviderReferences,
+      },
+    })
+  } catch (err) {
+    logger.error(`[booking.decideCancelRequest] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F3 / W1 #3 — staff manual payment confirmation (cash at the counter,
+ * walk-in rentals, pay-later collections).
+ *
+ * Two shapes in one endpoint: with `amount` it posts the just-collected
+ * cash to the ledger first (Cash by default; any RentalPaymentMethod, any
+ * purpose — Rent by default) and then derives the status; without it, it
+ * derives the status from already-posted payments only (e.g. cash that
+ * was recorded on the Payments page). The status is always DERIVED from
+ * the ledger via refreshBookingPaymentStatus — Pending/Reserved with
+ * nothing outstanding becomes Paid, Deposit with nothing outstanding
+ * becomes PaidInFull — never trusted from the payload. A partial
+ * collection answers 200 with `updated: false` and the outstanding
+ * balance, so the counter can see what is still due; a booking whose
+ * dates were taken meanwhile answers 200 with `conflict: true` (the
+ * payment stays posted).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const confirmManualPayment = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const payload = req.body as bookcarsTypes.ConfirmManualPaymentPayload
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'confirm payments for bookings')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
+      return
+    }
+    if ([bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
+      res.status(409).send('PAYMENT_CONFIRM_CLOSED: This booking is closed and cannot have payments confirmed.')
+      return
+    }
+    if (payload?.amount !== undefined) {
+      const amount = Number(payload.amount)
+      const method = payload.method || bookcarsTypes.RentalPaymentMethod.Cash
+      const purpose = payload.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
+      const note = typeof payload.note === 'string' ? payload.note.trim() : ''
+      const reference = typeof payload.reference === 'string' ? payload.reference.trim() : ''
+      if (!Number.isFinite(amount) || amount <= 0
+        || !Object.values(bookcarsTypes.RentalPaymentMethod).includes(method)
+        || !Object.values(bookcarsTypes.RentalPaymentPurpose).includes(purpose)
+        || note.length > 1000 || reference.length > 160) {
+        res.status(400).send('Invalid manual payment')
+        return
+      }
+      try {
+        await postRentalPayment({
+          bookingId: booking._id,
+          supplierId: scope.sessionUser.type === bookcarsTypes.UserType.Admin ? undefined : agencySupplierId(req),
+          date: new Date(),
+          amount,
+          currency: payload.currency,
+          method,
+          purpose,
+          actorId: scope.sessionUser._id,
+          note: note || undefined,
+          reference: reference || undefined,
+        })
+      } catch (err) {
+        if (err instanceof LedgerError) {
+          const status = err.code === 'BOOKING_NOT_FOUND' ? 404
+            : err.code === 'DUPLICATE_IDEMPOTENCY_KEY' ? 409
+              : err.code === 'TRASHED' ? 409
+              : 400
+          res.status(status).send(err.message)
+          return
+        }
+        throw err
+      }
+    }
+    const refresh = await refreshBookingPaymentStatus(booking._id)
+    const updatedBooking = await Booking.findById(id)
+    res.json({
+      booking: updatedBooking,
+      status: refresh.status,
+      updated: refresh.updated,
+      outstandingBalance: refresh.outstandingBalance,
+      currency: refresh.currency,
+      postedRent: refresh.postedRent,
+      depositPaid: refresh.depositPaid,
+      conflict: refresh.conflict,
+      ...(refresh.conflict ? { message: 'PAYMENT_CONFLICT: The payment was recorded but the booking cannot be confirmed to Paid: the car is no longer available for the rental dates.' } : {}),
+    })
+  } catch (err) {
+    logger.error(`[booking.confirmManualPayment] ${i18n.t('ERROR')} ${req.params.id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

@@ -1,9 +1,22 @@
 import * as bookcarsTypes from ':bookcars-types'
 
+/**
+ * F3 / W1 #11 — handover has a payment-confirmation gate. A `Draft`
+ * booking with status `Pending` (an unpaid pay-later booking) can no
+ * longer be handed over: the operator must first confirm the payment
+ * (staff manual confirmation, W1 #3 — cash collected at the counter →
+ * `Paid`) or the booking must already carry a payment status
+ * (`Deposit`/`Paid`/`PaidInFull`/`Reserved`). The escape is
+ * `paymentConfirmed`: a Pending booking whose receivable shows nothing
+ * outstanding (e.g. a zero-total booking) may still be handed over.
+ * The controller computes that from the ledger and passes it in; the
+ * default (`false`) keeps the gate closed for every other caller.
+ */
 export const inspectionTransition = (
   lifecycle: bookcarsTypes.ContractLifecycle | undefined,
   type: bookcarsTypes.InspectionType,
   status?: bookcarsTypes.BookingStatus,
+  paymentConfirmed = false,
 ): bookcarsTypes.ContractLifecycle | null => {
   const current = lifecycle || bookcarsTypes.ContractLifecycle.Draft
   if (type === bookcarsTypes.InspectionType.Handover
@@ -11,12 +24,12 @@ export const inspectionTransition = (
     && (current !== bookcarsTypes.ContractLifecycle.Draft
       || !status
       || [
-        bookcarsTypes.BookingStatus.Pending,
         bookcarsTypes.BookingStatus.Deposit,
         bookcarsTypes.BookingStatus.Paid,
         bookcarsTypes.BookingStatus.PaidInFull,
         bookcarsTypes.BookingStatus.Reserved,
-      ].includes(status))) {
+      ].includes(status)
+      || paymentConfirmed)) {
     return bookcarsTypes.ContractLifecycle.Active
   }
   if (type === bookcarsTypes.InspectionType.Return && current === bookcarsTypes.ContractLifecycle.Active) {

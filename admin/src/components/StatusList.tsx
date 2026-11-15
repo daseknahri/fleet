@@ -20,6 +20,14 @@ interface StatusListProps {
   variant?: TextFieldVariants
   disabled?: boolean
   disablePaymentStatuses?: boolean
+  /**
+   * F3 / W1 #18 — disable the Cancelled option: a paid/deposit booking
+   * cannot be cancelled by a status change (the backend 400s
+   * CANCEL_VIA_WORKFLOW) — it goes through the cancel workflow
+   * instead. The parent passes the reason shown under the select.
+   */
+  disableCancelled?: boolean
+  cancelDisabledReason?: string
   style?: CSSProperties
   onChange?: (value: bookcarsTypes.BookingStatus) => void
 }
@@ -31,6 +39,8 @@ const StatusList = ({
   variant,
   disabled,
   disablePaymentStatuses,
+  disableCancelled,
+  cancelDisabledReason,
   style,
   onChange
 }: StatusListProps) => {
@@ -102,10 +112,11 @@ const StatusList = ({
             <MenuItem value={bookcarsTypes.BookingStatus.Reserved} className="bs-s bs-s-reserved">
               {commonStrings.BOOKING_STATUS_RESERVED}
             </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.Cancelled} className="bs-s bs-s-cancelled">
+            <MenuItem value={bookcarsTypes.BookingStatus.Cancelled} className="bs-s bs-s-cancelled" disabled={disableCancelled}>
               {commonStrings.BOOKING_STATUS_CANCELLED}
             </MenuItem>
           </Select>
+          {disableCancelled && cancelDisabledReason && <FormHelperText>{cancelDisabledReason}</FormHelperText>}
           {required && showRequiredError && !value && <FormHelperText error>{commonStrings.REQUIRED}</FormHelperText>}
         </>
       )}
