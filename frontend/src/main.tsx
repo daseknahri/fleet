@@ -2,6 +2,10 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ToastContainer } from 'react-toastify'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
+import { CacheProvider } from '@emotion/react'
+import createCache from '@emotion/cache'
+import { prefixer } from 'stylis'
+import rtlPlugin from '@mui/stylis-plugin-rtl'
 import CssBaseline from '@mui/material/CssBaseline'
 
 import { disableDevTools } from ':disable-react-devtools'
@@ -237,10 +241,9 @@ const dataGridLocale = isFr
 const theme = createTheme(
   {
     // B-F-18: mirror MUI components (Drawer anchor, menus, popovers) in
-    // Arabic. NOTE: stylis-plugin-rtl is NOT installed (checked in
-    // package.json), so emotion-generated physical CSS is not flipped by
-    // a stylis plugin — full RTL mirroring still needs that dependency;
-    // not added here.
+    // Arabic. Theme direction alone only flips components that read it;
+    // the emotion-generated physical CSS is flipped by the stylis RTL
+    // plugin via the emotion cache below (B-F-18 RTL completion).
     direction: isAr ? 'rtl' : 'ltr',
     palette: {
       primary: {
@@ -326,21 +329,34 @@ const theme = createTheme(
   coreLocale,
 )
 
+// B-F-18 (RTL completion): emotion cache with the stylis RTL plugin.
+// Theme `direction` alone does not flip emotion-generated physical CSS
+// (e.g. the MuiAutocomplete paddingRight override above); the plugin
+// does. LTR keeps the default 'css' key and prefixer only, so
+// non-Arabic rendering is unchanged. Language is fixed at boot
+// (theme built once), so one cache per boot is correct.
+const emotionCache = createCache({
+  key: isAr ? 'muirtl' : 'css',
+  stylisPlugins: isAr ? [prefixer, rtlPlugin] : [prefixer],
+})
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <ThemeProvider theme={theme}>
-    <CssBaseline>
-      <App />
-      <ToastContainer
-        position={isAr ? 'bottom-left' : 'bottom-right'}
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        pauseOnFocusLoss={false}
-        draggable={false}
-        pauseOnHover
-        theme="dark"
-      />
-    </CssBaseline>
-  </ThemeProvider>,
+  <CacheProvider value={emotionCache}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline>
+        <App />
+        <ToastContainer
+          position={isAr ? 'bottom-left' : 'bottom-right'}
+          autoClose={5000}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick
+          pauseOnFocusLoss={false}
+          draggable={false}
+          pauseOnHover
+          theme="dark"
+        />
+      </CssBaseline>
+    </ThemeProvider>
+  </CacheProvider>,
 )

@@ -1,6 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
+import { CacheProvider } from '@emotion/react'
+import createCache from '@emotion/cache'
+import { prefixer } from 'stylis'
+import rtlPlugin from '@mui/stylis-plugin-rtl'
 import CssBaseline from '@mui/material/CssBaseline'
 import { ToastContainer } from 'react-toastify'
 
@@ -109,6 +113,9 @@ const theme = createTheme(
   {
     // B-A-33: without a theme direction the Drawer stays left-anchored
     // and menus don't mirror in Arabic (document.dir alone is not enough).
+    // Theme direction alone only flips components that read it; the
+    // emotion-generated physical CSS is flipped by the stylis RTL plugin
+    // via the emotion cache below (B-A-33 RTL completion).
     direction: isAr ? 'rtl' : 'ltr',
     palette: {
       primary: {
@@ -146,21 +153,34 @@ const theme = createTheme(
   coreLocale,
 )
 
+// B-A-33 (RTL completion): emotion cache with the stylis RTL plugin.
+// Theme `direction` alone does not flip emotion-generated physical CSS
+// (e.g. the MuiAutocomplete paddingRight override above); the plugin
+// does. LTR keeps the default 'css' key and prefixer only, so
+// non-Arabic rendering is unchanged. Language is fixed at boot
+// (theme built once), so one cache per boot is correct.
+const emotionCache = createCache({
+  key: isAr ? 'muirtl' : 'css',
+  stylisPlugins: isAr ? [prefixer, rtlPlugin] : [prefixer],
+})
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <ThemeProvider theme={theme}>
-    <CssBaseline>
-      <App />
-      <ToastContainer
-        position={isAr ? 'bottom-left' : 'bottom-right'}
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        pauseOnFocusLoss={false}
-        draggable={false}
-        pauseOnHover
-        theme="dark"
-      />
-    </CssBaseline>
-  </ThemeProvider>,
+  <CacheProvider value={emotionCache}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline>
+        <App />
+        <ToastContainer
+          position={isAr ? 'bottom-left' : 'bottom-right'}
+          autoClose={5000}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick
+          pauseOnFocusLoss={false}
+          draggable={false}
+          pauseOnHover
+          theme="dark"
+        />
+      </CssBaseline>
+    </ThemeProvider>
+  </CacheProvider>,
 )
