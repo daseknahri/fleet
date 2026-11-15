@@ -608,7 +608,7 @@ export const getDays = (days: number) =>
  */
 export const getDaysShort = (days: number, language?: string) => {
   if (language === 'ar') {
-    return `${days} ${days === 1 ? 'يوم' : 'أيام'}`
+    return `${days} ${days === 1 ? strings.PRICE_DAYS_PART_2 : strings.PRICE_DAYS_PART_2_PLURAL}`
   }
   return `${days} ${strings.PRICE_DAYS_PART_2}${days > 1 ? 's' : ''}`
 }
