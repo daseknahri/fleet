@@ -21,6 +21,26 @@ export type DateBasedPrice = z.infer<typeof dateBasedPriceSchema>
 export const schema = z.object({
   name: z.string(),
   licensePlate: z.string().optional(),
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional).
+  make: z.string().optional(),
+  model: z.string().optional(),
+  year: z.string()
+    .refine((val) => !val || /^\d{4}$/.test(val), { message: strings.YEAR_NOT_VALID })
+    .refine(
+      (val) => {
+        if (!val) {
+          return true // if no value is provided, skip the validation
+        }
+        const year = Number.parseInt(val, 10)
+        return year >= 1900 && year <= new Date().getFullYear() + 1
+      },
+      { message: strings.YEAR_NOT_VALID }
+    )
+    .optional(),
+  odometerKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  insuranceProvider: z.string().optional(),
+  insurancePolicyNumber: z.string().optional(),
   supplier: supplierSchema.optional(),
   minimumAge: z.string()
     .refine((val) => !val || /^\d{2}$/.test(val), { message: commonStrings.FIELD_NOT_VALID })

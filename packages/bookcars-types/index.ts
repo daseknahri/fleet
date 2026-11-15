@@ -29,11 +29,33 @@ export enum ClientDocumentKind {
   Other = 'other',
 }
 
+/** F5b (W2-14): kinds of privately stored car documents. */
+export enum CarDocumentKind {
+  Insurance = 'insurance',
+  TechnicalInspection = 'technicalInspection',
+  Vignette = 'vignette',
+  Other = 'other',
+}
+
 /** GA-PAR-04: one privately stored client document (identity pack). */
 export interface ClientDocument {
   kind: ClientDocumentKind | string
   file: string
   originalName?: string
+  uploadedAt?: Date
+}
+
+/** F5b (W2-14): one privately stored car document. `expiryDate` is the
+ * document's own expiry (e.g. the insurance policy's end date) and is
+ * independent of the car's `insuranceExpiryDate` field — the operator
+ * may store the file without re-typing the date, or the other way
+ * round. The file itself lives in the private car-documents store;
+ * only the owning agency / admin can download it. */
+export interface CarDocument {
+  kind: CarDocumentKind | string
+  file: string
+  originalName?: string
+  expiryDate?: Date
   uploadedAt?: Date
 }
 
@@ -873,6 +895,15 @@ export interface CreateCarPayload {
   supplier: string
   minimumAge: number
   locations: string[]
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional; the gallery and the car documents are
+  // managed through their own endpoints, never through this payload).
+  make?: string
+  model?: string
+  year?: number | null
+  odometerKm?: number | null
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
 
   // price fields
   hourlyPrice: number | null
@@ -1220,6 +1251,20 @@ export interface Car {
   supplier: User
   minimumAge: number
   locations: Location[]
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional). `odometerKm` is the car's current odometer
+  // reading — NOT `mileage`, which is the km/day rental allowance.
+  make?: string
+  model?: string
+  year?: number
+  odometerKm?: number
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
+  // F5b (W2-14): additional gallery photos beyond the cover `image`
+  // (the cover stays `image` for backwards compatibility) and the
+  // privately stored car documents.
+  images?: string[]
+  documents?: CarDocument[]
 
   // price fields
   dailyPrice: number

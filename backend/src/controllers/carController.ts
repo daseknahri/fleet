@@ -544,6 +544,55 @@ export const invalidSeasonalPriceSetField = (
   return null
 }
 
+// F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+// policy shape. Per-field only: make/model/insurance strings are
+// trimmed strings (a whitespace-only value is rejected, maxlengths match
+// the schema); year is an integer 1900..(current year + 1); odometerKm
+// is a finite number >= 0 (same rule as the inspection odometer —
+// min: 0, no integer requirement). null / '' means "clear" and is
+// valid everywhere. Returns the offending field path or null.
+export const invalidCarIdentityField = (payload: Record<string, unknown>): string | null => {
+  const STRING_FIELDS: [string, number][] = [
+    ['make', 100],
+    ['model', 100],
+    ['insuranceProvider', 200],
+    ['insurancePolicyNumber', 100],
+  ]
+  for (const [field, max] of STRING_FIELDS) {
+    const value = payload[field]
+    if (isClearValue(value)) {
+      continue
+    }
+    if (typeof value !== 'string' || value.trim().length === 0 || value.trim().length > max) {
+      return field
+    }
+  }
+  const year = payload.year
+  if (!isClearValue(year)) {
+    if (typeof year === 'boolean' || typeof year === 'object') {
+      return 'year'
+    }
+    const yearNumber = Number(year)
+    if (!Number.isFinite(yearNumber) || !Number.isInteger(yearNumber) || yearNumber < 1900 || yearNumber > new Date().getFullYear() + 1) {
+      return 'year'
+    }
+  }
+  const odometerKm = payload.odometerKm
+  if (!isClearValue(odometerKm)) {
+    if (typeof odometerKm === 'boolean' || typeof odometerKm === 'object') {
+      return 'odometerKm'
+    }
+    const odometerNumber = Number(odometerKm)
+    if (!Number.isFinite(odometerNumber) || odometerNumber < 0) {
+      return 'odometerKm'
+    }
+  }
+  return null
+}
+
+// F5b (W2-14): gallery cap — additional photos beyond the cover image.
+const CAR_GALLERY_MAX_IMAGES = 8
+
 // F5b (W2-08): `available: true` and `maintenance` / `stopped` are a
 // contradictory combination — the car would read as bookable while the
 // operator state says it is not. The combination is rejected (400)
@@ -656,6 +705,14 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+    // policy shape.
+    const invalidIdentity = invalidCarIdentityField(body as unknown as Record<string, unknown>)
+    if (invalidIdentity) {
+      res.status(400).send(`Invalid ${invalidIdentity}`)
+      return
+    }
+
     const invalidField = invalidFinancingOrDocumentField(body)
     if (invalidField) {
       res.status(400).send(`Invalid ${invalidField}`)
@@ -697,6 +754,11 @@ export const create = async (req: Request, res: Response) => {
 
     // date based price
     const { dateBasedPrices, ...carFields } = body
+    // F5b (W2-14): the gallery and the car documents are managed through
+    // their own endpoints only — a payload carrying them must not store
+    // forged entries (e.g. filenames pointing at arbitrary files).
+    delete (carFields as Record<string, unknown>).images
+    delete (carFields as Record<string, unknown>).documents
     if (body.isDateBasedPrice) {
       for (const dateBasePrice of validDateBasedPrices(dateBasedPrices)) {
         const dbp = new DateBasedPrice(dateBasePrice)
@@ -922,6 +984,14 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
+      // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+      // policy shape.
+      const invalidIdentity = invalidCarIdentityField(body as unknown as Record<string, unknown>)
+      if (invalidIdentity) {
+        res.status(400).send(`Invalid ${invalidIdentity}`)
+        return
+      }
+
       const invalidField = invalidFinancingOrDocumentField(body)
       if (invalidField) {
         res.status(400).send(`Invalid ${invalidField}`)
@@ -967,6 +1037,11 @@ export const update = async (req: Request, res: Response) => {
         supplier,
         name,
         licensePlate,
+        // F5b (W2-12/W2-13): vehicle identity + odometer reading.
+        make,
+        model,
+        year,
+        odometerKm,
         minimumAge,
         available,
         fullyBooked,
@@ -1003,6 +1078,9 @@ export const update = async (req: Request, res: Response) => {
         co2,
         tankCapacityLitres,
         financing,
+        // F5b (W2-19): insurance policy data.
+        insuranceProvider,
+        insurancePolicyNumber,
         insuranceExpiryDate,
         technicalInspectionExpiryDate,
         vignetteExpiryDate,
@@ -1114,6 +1192,23 @@ export const update = async (req: Request, res: Response) => {
       car.name = name
       // F5a (W2-02): store the trimmed plate, never the raw payload value.
       car.licensePlate = plate
+      // F5b (W2-12/W2-13/W2-19): identity + odometer + insurance policy,
+      // following the tank-capacity discipline — absent leaves stored,
+      // null/''/whitespace-only clears exactly that field, any other
+      // value is assigned (trimmed for strings, Number() for year and
+      // odometerKm) so the schema validators reject bad values (400).
+      if (make !== undefined) {
+        car.make = isClearValue(make) || (typeof make === 'string' && make.trim().length === 0) ? undefined : (make as string).trim()
+      }
+      if (model !== undefined) {
+        car.model = isClearValue(model) || (typeof model === 'string' && model.trim().length === 0) ? undefined : (model as string).trim()
+      }
+      if (year !== undefined) {
+        car.year = isClearValue(year) ? undefined : Number(year)
+      }
+      if (odometerKm !== undefined) {
+        car.odometerKm = isClearValue(odometerKm) ? undefined : Number(odometerKm)
+      }
       car.available = available
       car.fullyBooked = fullyBooked
       car.comingSoon = comingSoon
@@ -1192,6 +1287,16 @@ export const update = async (req: Request, res: Response) => {
       }
       if (insuranceExpiryDate !== undefined) {
         car.insuranceExpiryDate = normalizeDocumentDate(insuranceExpiryDate)
+      }
+      if (insuranceProvider !== undefined) {
+        car.insuranceProvider = isClearValue(insuranceProvider) || (typeof insuranceProvider === 'string' && insuranceProvider.trim().length === 0)
+          ? undefined
+          : (insuranceProvider as string).trim()
+      }
+      if (insurancePolicyNumber !== undefined) {
+        car.insurancePolicyNumber = isClearValue(insurancePolicyNumber) || (typeof insurancePolicyNumber === 'string' && insurancePolicyNumber.trim().length === 0)
+          ? undefined
+          : (insurancePolicyNumber as string).trim()
       }
       if (technicalInspectionExpiryDate !== undefined) {
         car.technicalInspectionExpiryDate = normalizeDocumentDate(technicalInspectionExpiryDate)
@@ -1814,6 +1919,286 @@ export const deleteTempImage = async (req: Request, res: Response) => {
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[car.deleteTempImage] ${i18n.t('ERROR')} ${image}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// F5b (W2-14): the gallery / car-document gate — the platform admin, or
+// the agency that owns the car (staff resolve to their agency through
+// the session, exactly like the cover-image endpoints above).
+const canManageCar = async (req: Request, car: env.Car | null): Promise<boolean> => {
+  if (!car) {
+    return false
+  }
+  const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+  const sessionAgencyId = agencySupplierId(req)
+  return !!sessionUser && (sessionUser.type === bookcarsTypes.UserType.Admin || car.supplier?.toString() === sessionAgencyId)
+}
+
+/**
+ * Upload one gallery image for a Car (F5b, W2-14). The file is stored
+ * straight in the public cars store (the gallery is public imagery,
+ * like the cover) and its filename is appended to `car.images`
+ * (cap CAR_GALLERY_MAX_IMAGES). The cover `image` is untouched.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const uploadCarImage = async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('Car Id not valid')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    if (!(await canManageCar(req, car))) {
+      res.status(403).send('Forbidden: You cannot manage this car gallery')
+      return
+    }
+    // GA-PAR-22: a trashed car's gallery cannot change.
+    if (car.deletedAt) {
+      res.status(409).send(trashedMessage('car'))
+      return
+    }
+    if (!req.file) {
+      res.status(400).send('No file provided')
+      return
+    }
+
+    const ext = path.extname(req.file.originalname).toLowerCase()
+    if (!env.allowedImageExtensions.includes(ext)) {
+      res.status(400).send('Invalid car image file type')
+      return
+    }
+    if (!contentMatchesExtension(req.file.buffer, ext)) {
+      res.status(400).send('Invalid car image file type')
+      return
+    }
+
+    const images = car.images || []
+    if (images.length >= CAR_GALLERY_MAX_IMAGES) {
+      res.status(400).send(`Maximum ${CAR_GALLERY_MAX_IMAGES} gallery images`)
+      return
+    }
+
+    const filename = `${car._id}_gallery_${Date.now()}_${nanoid(8)}${ext}`
+    await asyncFs.writeFile(path.join(env.CDN_CARS, filename), req.file.buffer)
+    car.images = [...images, filename]
+    await car.save()
+    res.json(filename)
+  } catch (err) {
+    logger.error(`[car.uploadCarImage] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Delete exactly one gallery image of a Car (record + stored file).
+ * The cover `image` is NOT in `car.images`, so it cannot be deleted
+ * through this endpoint (deleteImage owns the cover).
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const deleteCarImage = async (req: Request, res: Response) => {
+  const { id, file } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id) || file !== path.basename(file)) {
+      res.status(400).send('Invalid gallery image reference')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    if (!(await canManageCar(req, car))) {
+      res.status(403).send('Forbidden: You cannot manage this car gallery')
+      return
+    }
+    // GA-PAR-22: a trashed car's gallery cannot change.
+    if (car.deletedAt) {
+      res.status(409).send(trashedMessage('car'))
+      return
+    }
+
+    const images = car.images || []
+    if (!images.includes(file)) {
+      res.sendStatus(404)
+      return
+    }
+
+    car.images = images.filter((image) => image !== file)
+    await car.save()
+
+    const filepath = path.join(env.CDN_CARS, file)
+    if (await helper.pathExists(filepath)) {
+      await asyncFs.unlink(filepath)
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[car.deleteCarImage] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Upload one car document into the private car-documents store
+ * (F5b, W2-14). Validation mirrors the client-document upload:
+ * extension allowlist (same list as licences) + content sniffing;
+ * anything else is a 400 and nothing is stored. The kind defaults to
+ * `other`; an optional `expiryDate` (the document's own expiry) may be
+ * supplied with the file.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const uploadCarDocument = async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { file } = req
+
+  try {
+    if (!helper.isValidObjectId(id)) {
+      res.status(400).send('Car Id not valid')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    if (!(await canManageCar(req, car))) {
+      res.status(403).send('Forbidden: You cannot manage this car\'s documents')
+      return
+    }
+    // GA-PAR-22: a trashed car's documents cannot change.
+    if (car.deletedAt) {
+      res.status(409).send(trashedMessage('car'))
+      return
+    }
+
+    if (!file) {
+      res.status(400).send('No file provided')
+      return
+    }
+    if (!file.originalname.includes('.')) {
+      res.status(400).send('Invalid car document file type')
+      return
+    }
+
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (!env.allowedLicenseExtensions.includes(ext)) {
+      res.status(400).send('Invalid car document file type')
+      return
+    }
+    if (!contentMatchesExtension(file.buffer, ext)) {
+      res.status(400).send('Invalid car document file type')
+      return
+    }
+
+    const rawKind = typeof req.body?.kind === 'string' ? req.body.kind.trim() : ''
+    const kind = (Object.values(bookcarsTypes.CarDocumentKind) as string[]).includes(rawKind)
+      ? rawKind
+      : bookcarsTypes.CarDocumentKind.Other
+
+    const rawExpiry = req.body?.expiryDate
+    let expiryDate: Date | undefined
+    if (rawExpiry !== undefined && rawExpiry !== null && rawExpiry !== '') {
+      const parsed = new Date(rawExpiry as string)
+      if (Number.isNaN(parsed.getTime())) {
+        res.status(400).send('Invalid expiryDate')
+        return
+      }
+      expiryDate = parsed
+    }
+
+    await asyncFs.mkdir(env.CDN_CAR_DOCUMENTS, { recursive: true })
+    const filename = `cardoc_${car._id.toString()}_${nanoid(12)}${ext}`
+    const filepath = path.join(env.CDN_CAR_DOCUMENTS, filename)
+    await asyncFs.writeFile(filepath, file.buffer)
+
+    const document: bookcarsTypes.CarDocument = {
+      kind,
+      file: filename,
+      originalName: path.basename(file.originalname).slice(0, 255),
+      expiryDate,
+      uploadedAt: new Date(),
+    }
+    car.documents = [...(car.documents || []), document]
+    await car.save()
+    res.json(document)
+  } catch (err) {
+    logger.error(`[car.uploadCarDocument] ${i18n.t('ERROR')} ${id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Delete exactly one car document (record + stored file); the car's
+ * other documents are untouched.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const deleteCarDocument = async (req: Request, res: Response) => {
+  const { id, file } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id) || file !== path.basename(file)) {
+      res.status(400).send('Invalid document reference')
+      return
+    }
+    const car = await Car.findById(id)
+    if (!car) {
+      res.sendStatus(204)
+      return
+    }
+    if (!(await canManageCar(req, car))) {
+      res.status(403).send('Forbidden: You cannot manage this car\'s documents')
+      return
+    }
+    // GA-PAR-22: a trashed car's documents cannot be deleted.
+    if (car.deletedAt) {
+      res.status(409).send(trashedMessage('car'))
+      return
+    }
+
+    const documents = car.documents || []
+    const target = documents.find((doc) => doc.file === file)
+    if (!target) {
+      res.sendStatus(404)
+      return
+    }
+
+    car.documents = documents.filter((doc) => doc.file !== file)
+    await car.save()
+
+    const filepath = path.join(env.CDN_CAR_DOCUMENTS, target.file)
+    if (await helper.pathExists(filepath)) {
+      await asyncFs.unlink(filepath)
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[car.deleteCarDocument] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

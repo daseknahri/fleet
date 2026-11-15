@@ -14,6 +14,13 @@ const routes = {
   updateImage: '/api/update-car-image/:id',
   deleteImage: '/api/delete-car-image/:id',
   deleteTempImage: '/api/delete-temp-car-image/:image',
+  // F5b (W2-14): gallery + car documents. The gallery lives in the
+  // public cars store (like the cover); the documents live in the
+  // private car-documents store (download via documentController).
+  uploadCarImage: '/api/upload-car-image/:id',
+  deleteCarImage: '/api/delete-car-gallery-image/:id/:file',
+  uploadCarDocument: '/api/upload-car-document/:id',
+  deleteCarDocument: '/api/delete-car-document/:id/:file',
   getCar: '/api/car/:id/:language',
   getCars: '/api/cars/:page/:size',
   getBookingCars: '/api/booking-cars/:page/:size',

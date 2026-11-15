@@ -376,6 +376,16 @@ export const CDN_TEMP_MAINTENANCE = __env__('BC_CDN_TEMP_MAINTENANCE', true)
 export const CDN_CLIENT_DOCUMENTS = path.join(path.dirname(CDN_LICENSES), 'client-documents')
 
 /**
+ * Private car-documents store (F5b, W2-14). Same pattern as
+ * CDN_CLIENT_DOCUMENTS: a sibling of the licenses store, so no new
+ * environment variable is required. The files in it are only delivered
+ * through the authenticated, agency-scoped documentController download.
+ *
+ * @type {string}
+ */
+export const CDN_CAR_DOCUMENTS = path.join(path.dirname(CDN_LICENSES), 'car-documents')
+
+/**
  * Allowed maintenance receipt extensions.
  *
  * @type {string[]}
@@ -1250,6 +1260,13 @@ export interface Car extends Document {
   supplier: Types.ObjectId
   minimumAge: number
   locations: Types.ObjectId[]
+  // F5b (W2-12/W2-13): vehicle identity + odometer reading (all
+  // optional). `odometerKm` is the current odometer reading — NOT
+  // `mileage` below, which is the km/day rental allowance.
+  make?: string
+  model?: string
+  year?: number
+  odometerKm?: number
 
   hourlyPrice: number | null
   discountedHourlyPrice: number | null
@@ -1276,6 +1293,10 @@ export interface Car extends Document {
   gearbox: bookcarsTypes.GearboxType
   aircon: boolean
   image: string | null
+  // F5b (W2-14): additional gallery photos beyond the cover `image`.
+  images?: string[]
+  // F5b (W2-14): privately stored car documents.
+  documents?: bookcarsTypes.CarDocument[]
   seats: number
   doors: number
   fuelPolicy: bookcarsTypes.FuelPolicy
@@ -1301,6 +1322,11 @@ export interface Car extends Document {
   trashHistory?: TrashHistoryRow[]
   // GA-PAR-08: financing block + document expiry dates (all optional)
   financing?: CarFinancing
+  // F5b (W2-19): insurance policy data (provider + policy number live
+  // next to the insurance expiry date; the policy file lives in the
+  // `documents` array with kind `insurance`).
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
   insuranceExpiryDate?: Date
   technicalInspectionExpiryDate?: Date
   vignetteExpiryDate?: Date

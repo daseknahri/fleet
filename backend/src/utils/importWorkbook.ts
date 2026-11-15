@@ -12,6 +12,7 @@ import { normalizeClientIdentityFields } from './clientIdentity'
 import {
   validateLocationsForSupplier,
   invalidFinancingOrDocumentField,
+  invalidCarIdentityField,
   normalizeFinancing,
   normalizeDocumentDate,
 } from '../controllers/carController'
@@ -119,6 +120,14 @@ export const IMPORT_COLUMNS: Record<ImportEntity, ColumnSpec[]> = {
     { name: 'insuranceExpiryDate' },
     { name: 'technicalInspectionExpiryDate' },
     { name: 'vignetteExpiryDate' },
+    // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+    // policy (all optional).
+    { name: 'make' },
+    { name: 'model' },
+    { name: 'year' },
+    { name: 'odometerKm' },
+    { name: 'insuranceProvider' },
+    { name: 'insurancePolicyNumber' },
   ],
   clients: [
     { name: 'fullName', required: true },
@@ -181,6 +190,12 @@ const EXAMPLES: Record<ImportEntity, Record<string, string>> = {
     insuranceExpiryDate: '2027-01-31',
     technicalInspectionExpiryDate: '2026-12-31',
     vignetteExpiryDate: '2027-01-31',
+    make: 'Dacia',
+    model: 'Logan',
+    year: '2021',
+    odometerKm: '45200',
+    insuranceProvider: 'AtlantaSanad',
+    insurancePolicyNumber: 'POL-2026-001',
   },
   clients: {
     fullName: 'EXAMPLE — Sara Bennani (examples live on this sheet only)',
@@ -651,6 +666,18 @@ const validateCars = async (
     const fullInsurance = numeric('fullInsurance')
     const additionalDriverPrice = numeric('additionalDriver')
     const tankCapacityLitres = numeric('tankCapacityLitres', { min: 0 })
+    // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+    // policy (all optional; same bounds as invalidCarIdentityField).
+    const year = numeric('year', { integer: true })
+    if (year !== undefined && (year < 1900 || year > new Date().getFullYear() + 1)) {
+      rowErrors.push({ row: row.row, field: 'year', message: `Invalid year: ${year} (must be between 1900 and ${new Date().getFullYear() + 1})` })
+    }
+    const odometerKm = numeric('odometerKm', { min: 0 })
+    for (const [field, max] of [['make', 100], ['model', 100], ['insuranceProvider', 200], ['insurancePolicyNumber', 100]] as const) {
+      if (asText(v[field]).length > max) {
+        rowErrors.push({ row: row.row, field, message: `Invalid ${field}: exceeds ${max} characters` })
+      }
+    }
     const aircon = v.aircon === undefined ? undefined : asBool(v.aircon)
     if (v.aircon !== undefined && aircon === undefined) {
       rowErrors.push({ row: row.row, field: 'aircon', message: `Invalid aircon: "${asText(v.aircon)}" (expected true/false)` })
@@ -696,6 +723,14 @@ const validateCars = async (
         dateBasedPrices: [],
         blockOnPay: true,
         ...(tankCapacityLitres !== undefined ? { tankCapacityLitres } : {}),
+        // F5b (W2-12/W2-13/W2-19): identity + odometer + insurance
+        // policy pass straight through to the Car document.
+        ...(asText(v.make) ? { make: asText(v.make) } : {}),
+        ...(asText(v.model) ? { model: asText(v.model) } : {}),
+        ...(year !== undefined ? { year } : {}),
+        ...(odometerKm !== undefined ? { odometerKm } : {}),
+        ...(asText(v.insuranceProvider) ? { insuranceProvider: asText(v.insuranceProvider) } : {}),
+        ...(asText(v.insurancePolicyNumber) ? { insurancePolicyNumber: asText(v.insurancePolicyNumber) } : {}),
         ...(v.insuranceExpiryDate !== undefined ? { insuranceExpiryDate: asText(v.insuranceExpiryDate) || v.insuranceExpiryDate } : {}),
         ...(v.technicalInspectionExpiryDate !== undefined ? { technicalInspectionExpiryDate: asText(v.technicalInspectionExpiryDate) || v.technicalInspectionExpiryDate } : {}),
         ...(v.vignetteExpiryDate !== undefined ? { vignetteExpiryDate: asText(v.vignetteExpiryDate) || v.vignetteExpiryDate } : {}),
@@ -713,6 +748,12 @@ const createCarFromImport = async (candidate: CarCandidate, supplierId: string):
   const invalidField = invalidFinancingOrDocumentField(payload as never)
   if (invalidField) {
     return { row: candidate.row, field: invalidField, message: `Invalid ${invalidField}` }
+  }
+  // F5b (W2-12/W2-13/W2-19): identity + odometer + insurance policy
+  // backstop (validateCars already checked them row by row).
+  const invalidIdentity = invalidCarIdentityField(payload as unknown as Record<string, unknown>)
+  if (invalidIdentity) {
+    return { row: candidate.row, field: invalidIdentity, message: `Invalid ${invalidIdentity}` }
   }
   try {
     const car = new Car({

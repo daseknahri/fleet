@@ -226,6 +226,90 @@ export const deleteImage = (id: string): Promise<number> =>
     .then((res) => res.status)
 
 /**
+ * Upload a gallery image for a Car (F5b, W2-14).
+ *
+ * @param {string} id
+ * @param {Blob} file
+ * @returns {Promise<string>} The stored filename.
+ */
+export const uploadCarImage = (id: string, file: Blob): Promise<string> => {
+  const formData = new FormData()
+  formData.append('image', file)
+
+  return axiosInstance
+    .post(
+      `/api/upload-car-image/${encodeURIComponent(id)}`,
+      formData,
+      {
+        withCredentials: true,
+        headers: { 'Content-Type': 'multipart/form-data' }
+      },
+    )
+    .then((res) => res.data)
+}
+
+/**
+ * Delete one gallery image of a Car (F5b, W2-14). The cover `image` is
+ * not in the gallery and cannot be deleted through this endpoint.
+ *
+ * @param {string} id
+ * @param {string} file
+ * @returns {Promise<number>}
+ */
+export const deleteCarImage = (id: string, file: string): Promise<number> =>
+  axiosInstance
+    .post(
+      `/api/delete-car-gallery-image/${encodeURIComponent(id)}/${encodeURIComponent(file)}`,
+      null,
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
+ * Upload a car document (F5b, W2-14).
+ *
+ * @param {string} id
+ * @param {Blob} file
+ * @param {string} kind
+ * @param {string} [expiryDate] ISO date string (the document's own expiry)
+ * @returns {Promise<bookcarsTypes.Response<bookcarsTypes.CarDocument>>}
+ */
+export const uploadCarDocument = (id: string, file: Blob, kind: string, expiryDate?: string): Promise<bookcarsTypes.Response<bookcarsTypes.CarDocument>> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('kind', kind)
+  if (expiryDate) {
+    formData.append('expiryDate', expiryDate)
+  }
+
+  return axiosInstance
+    .post(
+      `/api/upload-car-document/${encodeURIComponent(id)}`,
+      formData,
+      {
+        withCredentials: true,
+        headers: { 'Content-Type': 'multipart/form-data' }
+      },
+    )
+    .then((res) => ({ status: res.status, data: res.data }))
+}
+
+/**
+ * Delete one car document (F5b, W2-14).
+ *
+ * @param {string} id
+ * @param {string} file
+ * @returns {Promise<number>}
+ */
+export const deleteCarDocument = (id: string, file: string): Promise<number> =>
+  axiosInstance
+    .delete(
+      `/api/delete-car-document/${encodeURIComponent(id)}/${encodeURIComponent(file)}`,
+      { withCredentials: true }
+    )
+    .then((res) => res.status)
+
+/**
  * Delete a temporary Car image.
  *
  * @param {string} image

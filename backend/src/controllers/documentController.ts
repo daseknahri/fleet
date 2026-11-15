@@ -3,6 +3,7 @@ import { Request, Response } from 'express'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Booking from '../models/Booking'
+import Car from '../models/Car'
 import MaintenanceExpense from '../models/MaintenanceExpense'
 import User from '../models/User'
 import * as helper from '../utils/helper'
@@ -274,6 +275,78 @@ export const downloadClientDocument = async (req: Request, res: Response) => {
     await sendPrivateFile(res, filepath, contentType)
   } catch (err) {
     logger.error(`[document.downloadClientDocument] ${i18nSafeError(err)}`, err)
+    if (!res.headersSent) {
+      res.status(500).send('Unable to download document')
+    }
+  }
+}
+
+/**
+ * Download a car document (F5b, W2-14). Mirrors downloadClientDocument:
+ * the file is only served when its filename is recorded on the car, and
+ * only to the platform admin, the owning supplier, or staff of the
+ * owning agency with ReadPrivateDocuments. The car-documents store is
+ * never served statically.
+ */
+export const downloadCarDocument = async (req: Request, res: Response) => {
+  const { id, filename } = req.params
+
+  try {
+    if (!helper.isValidObjectId(id) || !isSafeFilename(filename)) {
+      res.status(400).send('Invalid document reference')
+      return
+    }
+
+    const callerId = req.user?._id
+    if (!callerId) {
+      res.status(403).send('Authentication required')
+      return
+    }
+
+    const [caller, car] = await Promise.all([
+      User.findById(callerId).select('_id type'),
+      Car.findById(id).select('_id supplier documents'),
+    ])
+
+    const document = car?.documents?.find((entry) => entry.file === filename)
+    if (!caller || !car || !document?.file) {
+      res.sendStatus(404)
+      return
+    }
+
+    const canReadStaffDocument = caller.type === bookcarsTypes.UserType.Staff
+      && !!car.supplier
+      && agencySupplierId(req) === car.supplier.toString()
+      && hasAgencyPermission(req.agency, AgencyPermission.ReadPrivateDocuments)
+
+    const canRead = caller.type === bookcarsTypes.UserType.Admin
+      || (caller.type === bookcarsTypes.UserType.Supplier && car.supplier?.toString() === caller._id.toString())
+      || canReadStaffDocument
+
+    if (!canRead) {
+      res.status(403).send('Forbidden')
+      return
+    }
+
+    const documentsDir = path.resolve(env.CDN_CAR_DOCUMENTS)
+    const filepath = path.resolve(documentsDir, document.file)
+    if (!filepath.startsWith(`${documentsDir}${path.sep}`)) {
+      logger.warn(`[document.downloadCarDocument] path escape attempt: ${filename}`)
+      res.status(403).send('Forbidden')
+      return
+    }
+
+    const extension = path.extname(filename).toLowerCase()
+    const contentType = extension === '.pdf'
+      ? 'application/pdf'
+      : extension === '.png'
+        ? 'image/png'
+        : extension === '.webp'
+          ? 'image/webp'
+          : 'image/jpeg'
+    await sendPrivateFile(res, filepath, contentType)
+  } catch (err) {
+    logger.error(`[document.downloadCarDocument] ${i18nSafeError(err)}`, err)
     if (!res.headersSent) {
       res.status(500).send('Unable to download document')
     }

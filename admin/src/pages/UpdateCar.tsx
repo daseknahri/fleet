@@ -43,6 +43,7 @@ import MultimediaList from '@/components/MultimediaList'
 import CarRangeList from '@/components/CarRangeList'
 import DateBasedPriceEditList from '@/components/DateBasedPriceEditList'
 import DatePicker from '@/components/DatePicker'
+import CarMedia from '@/components/CarMedia'
 import { Option, Supplier } from '@/models/common'
 import { schema, FormFields, DateBasedPrice } from '@/models/CarForm'
 
@@ -79,6 +80,13 @@ const UpdateCar = () => {
     defaultValues: {
       name: '',
       licensePlate: '',
+      // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance policy.
+      make: '',
+      model: '',
+      year: '',
+      odometerKm: '',
+      insuranceProvider: '',
+      insurancePolicyNumber: '',
       supplier: undefined,
       minimumAge: String(env.MINIMUM_AGE),
       locations: [],
@@ -280,6 +288,14 @@ const UpdateCar = () => {
         _id: car._id,
         name: data.name,
         licensePlate: data.licensePlate,
+        // F5b (W2-12/W2-13/W2-19): identity + odometer + insurance policy
+        // — empty fields are sent as null, which clears them server-side.
+        make: data.make || null,
+        model: data.model || null,
+        year: data.year ? Number(data.year) : null,
+        odometerKm: data.odometerKm ? Number(data.odometerKm) : null,
+        insuranceProvider: data.insuranceProvider || null,
+        insurancePolicyNumber: data.insurancePolicyNumber || null,
         supplier: supplier._id!,
         minimumAge: Number.parseInt(data.minimumAge, 10),
         locations: data.locations.map((l) => l._id),
@@ -376,6 +392,16 @@ const UpdateCar = () => {
               setImageRequired(!_car.image)
               setValue('name', _car.name)
               setValue('licensePlate', _car.licensePlate || '')
+              // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer +
+              // insurance policy load-back.
+              setValue('make', _car.make || '')
+              setValue('model', _car.model || '')
+              if (_car.year != null) {
+                setValue('year', _car.year.toString())
+              }
+              if (_car.odometerKm != null) {
+                setValue('odometerKm', _car.odometerKm.toString())
+              }
               setValue('supplier', _supplier)
               setValue('minimumAge', _car.minimumAge.toString())
               const lcs: Option[] = []
@@ -445,6 +471,8 @@ const UpdateCar = () => {
               if (_car.vignetteExpiryDate) {
                 setValue('vignetteExpiryDate', new Date(_car.vignetteExpiryDate))
               }
+              setValue('insuranceProvider', _car.insuranceProvider || '')
+              setValue('insurancePolicyNumber', _car.insurancePolicyNumber || '')
               // Scorecard #17: garage block load-back (this form is the
               // car-detail display of the block).
               if (_car.garage) {
@@ -550,6 +578,10 @@ const UpdateCar = () => {
                 <span>{strings.RECOMMENDED_IMAGE_SIZE}</span>
               </div>
 
+              {/* F5b (W2-14): gallery + car documents — managed here (the
+                  car must exist first, so CreateCar has no gallery). */}
+              {car && <CarMedia car={car} />}
+
               <FormControl fullWidth margin="dense">
                 <InputLabel className="required">{strings.NAME}</InputLabel>
                 <Input
@@ -566,6 +598,43 @@ const UpdateCar = () => {
                   type="text"
                   {...register('licensePlate')}
                   autoComplete="off"
+                />
+              </FormControl>
+
+              {/* F5b (W2-12): vehicle identity — structured make/model/year. */}
+              <FormControl fullWidth margin="dense">
+                <TextField
+                  label={strings.MAKE}
+                  {...register('make')}
+                  variant="standard"
+                  autoComplete="off"
+                  slotProps={{ htmlInput: { maxLength: 100 } }}
+                />
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <TextField
+                  label={strings.MODEL}
+                  {...register('model')}
+                  variant="standard"
+                  autoComplete="off"
+                  slotProps={{ htmlInput: { maxLength: 100 } }}
+                />
+              </FormControl>
+
+              <FormControl fullWidth margin="dense">
+                <TextField
+                  label={strings.YEAR}
+                  {...register('year')}
+                  variant="standard"
+                  autoComplete="off"
+                  error={!!errors.year}
+                  helperText={errors.year?.message}
+                  onChange={() => {
+                    if (errors.year) {
+                      clearErrors('year')
+                    }
+                  }}
                 />
               </FormControl>
 
@@ -1057,6 +1126,28 @@ const UpdateCar = () => {
               />
             </FormControl>
 
+            {/* F5b (W2-19): insurance policy data — provider + policy
+                number live next to the insurance expiry date above. */}
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.INSURANCE_PROVIDER}
+                {...register('insuranceProvider')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 200 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.INSURANCE_POLICY_NUMBER}
+                {...register('insurancePolicyNumber')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 100 } }}
+              />
+            </FormControl>
+
             {/* Scorecard #17: garage block — informational only; it never
                 changes booking behaviour (that rides on the fleet status). */}
             <div className="info">
@@ -1320,6 +1411,24 @@ const UpdateCar = () => {
                   onChange={() => {
                     if (errors.mileage) {
                       clearErrors('mileage')
+                    }
+                  }}
+                />
+              </FormControl>
+
+              {/* F5b (W2-13): the car's current odometer reading — NOT the
+                  km/day allowance above (`mileage`). */}
+              <FormControl fullWidth margin="dense">
+                <TextField
+                  label={strings.ODOMETER_KM}
+                  {...register('odometerKm')}
+                  variant="standard"
+                  autoComplete="off"
+                  error={!!errors.odometerKm}
+                  helperText={errors.odometerKm?.message}
+                  onChange={() => {
+                    if (errors.odometerKm) {
+                      clearErrors('odometerKm')
                     }
                   }}
                 />
