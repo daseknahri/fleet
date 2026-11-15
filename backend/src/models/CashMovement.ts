@@ -25,6 +25,9 @@ const schema = new Schema<env.CashMovement>({
   // cash held as a liability, never income. Manual movements carry no
   // purpose and no link.
   rentalPayment: { type: Schema.Types.ObjectId, ref: 'RentalPayment', index: true },
+  // F7 / W3 M-2 — the expense payment this movement was created from
+  // (cash expense payments only; same confirmed-Out pattern as C-7).
+  expensePayment: { type: Schema.Types.ObjectId, ref: 'MaintenanceExpensePayment', index: true },
   purpose: { type: String, enum: Object.values(bookcarsTypes.RentalPaymentPurpose) },
   reference: { type: String, maxlength: 160, trim: true },
   note: { type: String, maxlength: 1000, trim: true },

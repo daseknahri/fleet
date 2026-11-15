@@ -54,6 +54,8 @@ const maintenanceExpenseSchema = new Schema<env.MaintenanceExpense>(
       maxlength: 1000,
     },
     receipt: { type: String, trim: true, maxlength: 255 },
+    // F7 / W3 M-5 — the work order this expense belongs to, if any.
+    workOrder: { type: Schema.Types.ObjectId, ref: 'MaintenanceWorkOrder', index: true },
   },
   {
     timestamps: true,
@@ -64,6 +66,7 @@ const maintenanceExpenseSchema = new Schema<env.MaintenanceExpense>(
 
 maintenanceExpenseSchema.index({ supplier: 1, date: -1 })
 maintenanceExpenseSchema.index({ car: 1, date: -1 })
+maintenanceExpenseSchema.index({ workOrder: 1, date: -1 })
 
 const MaintenanceExpense = model<env.MaintenanceExpense>('MaintenanceExpense', maintenanceExpenseSchema)
 

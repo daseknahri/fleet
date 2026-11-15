@@ -7,6 +7,10 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceExpense from '../models/MaintenanceExpense'
+import MaintenanceExpenseAudit from '../models/MaintenanceExpenseAudit'
+import MaintenanceExpensePayment from '../models/MaintenanceExpensePayment'
+import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import { linkExpensePaymentToCash, recomputeExpensePaid } from '../utils/expensePayment'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
@@ -62,13 +66,26 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
   const car = carRaw === '' ? undefined : carRaw
   // GA-PAR-16: paidAmount — undefined = not supplied, null = untracked,
   // otherwise a number that must satisfy 0 <= paidAmount <= amount.
+  // F7 / W3 M-2: a NUMBER here is rejected by create/update before
+  // normalizePayload is reached (see rejectDeclaredPaidAmount) — paid
+  // amounts are recorded only via the payment endpoint, backed by a
+  // MaintenanceExpensePayment record. null/undefined still flow through.
   const paidAmount = payload.paidAmount === undefined
     ? undefined
     : payload.paidAmount === null
       ? null
       : Number(payload.paidAmount)
+  // F7 / W3 M-5: workOrder — undefined = not supplied, null = unlink,
+  // otherwise an id validated by the caller (must exist, belong to the
+  // expense's agency, and to the expense's car when it has one).
+  const workOrder = payload.workOrder === undefined
+    ? undefined
+    : payload.workOrder === null
+      ? null
+      : String(payload.workOrder).trim()
 
   if ((car !== undefined && !mongoose.isValidObjectId(car))
+    || (workOrder !== undefined && workOrder !== null && !mongoose.isValidObjectId(workOrder))
     || Number.isNaN(date.getTime())
     || !Object.values(bookcarsTypes.MaintenanceExpenseType).includes(payload.type)
     || !Number.isFinite(amount)
@@ -81,7 +98,61 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
     return null
   }
 
-  return { car, date, type: payload.type, amount, paidAmount, mileage, vendor, note, receipt }
+  return { car, date, type: payload.type, amount, paidAmount, mileage, vendor, note, receipt, workOrder }
+}
+
+/**
+ * F7 / W3 M-2 — a typed-in paidAmount must never again stand for money
+ * paid: paid amounts are recorded only via the payment endpoint, backed
+ * by a MaintenanceExpensePayment record (and, for cash, a CashMovement).
+ * Rejects a number OR a numeric string; null/undefined/blank pass
+ * (untracked / leave unchanged).
+ */
+const rejectDeclaredPaidAmount = (req: Request, res: Response): boolean => {
+  const raw = req.body?.paidAmount
+  if (typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw)))) {
+    res.status(400).send('Record expense payments via the payment endpoint')
+    return true
+  }
+  return false
+}
+
+/** F7 / W3 M-7 — one audit row per expense change (append-only). */
+const recordAudit = async (
+  supplier: mongoose.Types.ObjectId | string,
+  expenseId: mongoose.Types.ObjectId | string,
+  action: bookcarsTypes.MaintenanceExpenseAuditAction,
+  actor: mongoose.Types.ObjectId | undefined,
+  reason?: string,
+  changes?: Array<{ field: string, before?: string | number | null, after?: string | number | null }>,
+) => {
+  await MaintenanceExpenseAudit.create({ supplier, expense: expenseId, action, actor, reason: reason || undefined, changes })
+}
+
+const changeValue = (value: unknown): string | number | null => {
+  if (value === undefined || value === null) {
+    return null
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  if (typeof value === 'number') {
+    return value
+  }
+  return String(value)
+}
+
+/** F7 / W3 M-5 — the work order must exist, belong to the agency, and
+ * (when the expense has a car) to that same car. */
+const getWorkOrderInScope = async (workOrderId: string, supplierId: string, carId?: string | null) => {
+  const workOrder = await MaintenanceWorkOrder.findOne({ _id: workOrderId, supplier: supplierId }).select('_id car supplier')
+  if (!workOrder) {
+    return null
+  }
+  if (carId && workOrder.car.toString() !== carId.toString()) {
+    return null
+  }
+  return workOrder
 }
 
 const isAllowedReceipt = (filename: string) => {
@@ -170,6 +241,7 @@ export const list = async (req: Request, res: Response) => {
         .sort({ date: -1, createdAt: -1 })
         .populate('car', 'name licensePlate')
         .populate('supplier', 'fullName')
+        .populate('workOrder', 'title status')
 
       res.json(expenses.map((expense) => withPaymentState(expense)))
       return
@@ -181,6 +253,7 @@ export const list = async (req: Request, res: Response) => {
       .limit(pagination.size)
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
+      .populate('workOrder', 'title status')
 
     res.json(pagedResponse(expenses.map((expense) => withPaymentState(expense)), total, pagination))
   } catch (err) {
@@ -192,6 +265,10 @@ export const list = async (req: Request, res: Response) => {
 export const create = async (req: Request, res: Response) => {
   try {
     const user = req.user
+    // F7 / W3 M-2 — a typed-in paidAmount is rejected (400), never stored.
+    if (rejectDeclaredPaidAmount(req, res)) {
+      return
+    }
     const payload = normalizePayload(req.body as bookcarsTypes.UpsertMaintenanceExpensePayload)
     const supplierId = agencySupplierId(req)
     if (!user || !payload || (!supplierId && user.type !== bookcarsTypes.UserType.Admin)) {
@@ -221,6 +298,16 @@ export const create = async (req: Request, res: Response) => {
       }
     }
 
+    // F7 / W3 M-5 — the linked work order must belong to the expense's
+    // agency and, when the expense has a car, to that same car.
+    if (payload.workOrder) {
+      const workOrder = await getWorkOrderInScope(payload.workOrder, expenseSupplier, car ? car._id.toString() : null)
+      if (!workOrder) {
+        res.status(400).send('Work order not found for this expense')
+        return
+      }
+    }
+
     const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, expenseSupplier)
     const expense = new MaintenanceExpense({
       ...payload,
@@ -230,9 +317,18 @@ export const create = async (req: Request, res: Response) => {
       supplier: expenseSupplier,
     })
     await expense.save()
+    // F7 / W3 M-7 — the creation itself is audited.
+    await recordAudit(expenseSupplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Created, user._id, undefined, [
+      { field: 'date', after: changeValue(expense.date) },
+      { field: 'type', after: expense.type },
+      { field: 'amount', after: expense.amount },
+      { field: 'car', after: changeValue(car ? car._id : null) },
+      { field: 'workOrder', after: changeValue(expense.workOrder) },
+    ])
     await expense.populate([
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
+      { path: 'workOrder', select: 'title status' },
     ])
     res.status(201).json(withPaymentState(expense))
   } catch (err) {
@@ -244,6 +340,10 @@ export const create = async (req: Request, res: Response) => {
 export const update = async (req: Request, res: Response) => {
   try {
     const user = req.user
+    // F7 / W3 M-2 — a typed-in paidAmount is rejected (400), never stored.
+    if (rejectDeclaredPaidAmount(req, res)) {
+      return
+    }
     const payload = normalizePayload(req.body as bookcarsTypes.UpsertMaintenanceExpensePayload)
     if (!user || !payload || !mongoose.isValidObjectId(req.params.id)) {
       res.status(400).send('Invalid maintenance expense')
@@ -253,6 +353,14 @@ export const update = async (req: Request, res: Response) => {
     const expense = await MaintenanceExpense.findOne({ _id: req.params.id, ...getScope(req) })
     if (!expense) {
       res.sendStatus(404)
+      return
+    }
+
+    // F7 / W3 M-7 — an update may carry a reason (recorded on the
+    // audit row); when present it must be at least 3 characters.
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (reason && reason.length < 3) {
+      res.status(400).send('A reason of at least 3 characters is required')
       return
     }
 
@@ -266,6 +374,31 @@ export const update = async (req: Request, res: Response) => {
       }
     }
 
+    // F7 / W3 M-5 — a linked work order must belong to the expense's
+    // agency and, when the expense ends up with a car, to that car.
+    // (payload.car omitted clears the car, so the effective car is
+    // payload.car or none.)
+    if (payload.workOrder) {
+      const workOrder = await getWorkOrderInScope(payload.workOrder, expense.supplier.toString(), car ? car._id.toString() : null)
+      if (!workOrder) {
+        res.status(400).send('Work order not found for this expense')
+        return
+      }
+    }
+
+    // F7 / W3 M-7 — snapshot the before-values for the audit trail.
+    const before = {
+      car: expense.car ? expense.car.toString() : null,
+      date: expense.date,
+      type: expense.type,
+      amount: expense.amount,
+      mileage: expense.mileage,
+      vendor: expense.vendor,
+      note: expense.note,
+      receipt: expense.receipt,
+      workOrder: expense.workOrder ? expense.workOrder.toString() : null,
+    }
+
     const previousReceipt = expense.receipt
     const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, expense.supplier.toString())
     expense.car = car ? car._id : null as unknown as typeof expense.car
@@ -275,8 +408,16 @@ export const update = async (req: Request, res: Response) => {
     // GA-PAR-16: paidAmount omitted = leave unchanged (so legacy
     // clients that never send it cannot silently wipe the state);
     // explicit null clears it back to untracked.
+    // F7 / W3 M-2: once payment records exist, paidAmount is the SUM
+    // of those records — an update must never wipe it back to null.
     if (payload.paidAmount !== undefined) {
-      expense.paidAmount = payload.paidAmount
+      const hasPayments = await MaintenanceExpensePayment.exists({ expense: expense._id })
+      if (!hasPayments) {
+        expense.paidAmount = payload.paidAmount
+      }
+    }
+    if (payload.workOrder !== undefined) {
+      expense.workOrder = payload.workOrder ? new mongoose.Types.ObjectId(payload.workOrder) : null as unknown as typeof expense.workOrder
     }
     expense.mileage = payload.mileage
     expense.vendor = payload.vendor
@@ -288,9 +429,28 @@ expense.receipt = receipt || undefined
     if (payload.receipt !== undefined && previousReceipt && previousReceipt !== expense.receipt) {
 await removePrivateReceipt(previousReceipt)
 }
+    // F7 / W3 M-7 — audit only the fields that actually changed.
+    const after = {
+      car: expense.car ? expense.car.toString() : null,
+      date: expense.date,
+      type: expense.type,
+      amount: expense.amount,
+      mileage: expense.mileage,
+      vendor: expense.vendor,
+      note: expense.note,
+      receipt: expense.receipt,
+      workOrder: expense.workOrder ? expense.workOrder.toString() : null,
+    }
+    const changes = (Object.keys(before) as Array<keyof typeof before>)
+      .filter((field) => changeValue(before[field]) !== changeValue(after[field]))
+      .map((field) => ({ field, before: changeValue(before[field]), after: changeValue(after[field]) }))
+    if (changes.length > 0) {
+      await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Updated, user._id, reason || undefined, changes)
+    }
     await expense.populate([
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
+      { path: 'workOrder', select: 'title status' },
     ])
     res.json(withPaymentState(expense))
   } catch (err) {
@@ -306,15 +466,119 @@ export const remove = async (req: Request, res: Response) => {
       return
     }
 
-    const expense = await MaintenanceExpense.findOne({ _id: req.params.id, ...getScope(req) }).select('receipt')
+    // F7 / W3 M-7 — a hard delete now requires a recorded reason
+    // (at least 3 characters). The audit row is written BEFORE the
+    // delete, and the trail survives it (the expense id is kept).
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (reason.length < 3) {
+      res.status(400).send('A reason is required to delete an expense')
+      return
+    }
+
+    const expense = await MaintenanceExpense.findOne({ _id: req.params.id, ...getScope(req) }).select('receipt supplier')
     if (!expense) {
  res.sendStatus(404); return 
 }
+    await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Deleted, req.user?._id, reason)
     await MaintenanceExpense.deleteOne({ _id: expense._id })
     await removePrivateReceipt(expense.receipt)
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[maintenanceExpense.remove] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F7 / W3 M-2 — record one payment against an expense. The payment is
+ * append-only; after it is saved, a cash payment is linked to the open
+ * cash session (confirmed Out, F6 C-7 pattern) and the expense's
+ * paidAmount is recomputed as the sum of its payment records.
+ */
+export const recordPayment = async (req: Request, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid maintenance expense')
+      return
+    }
+    const expense = await MaintenanceExpense.findOne({ _id: req.params.id, ...getScope(req) })
+    if (!expense) {
+      res.sendStatus(404)
+      return
+    }
+    const date = new Date(req.body?.date)
+    const amount = Number(req.body?.amount)
+    const method = req.body?.method as bookcarsTypes.RentalPaymentMethod
+    const reference = String(req.body?.reference || '').trim()
+    const note = String(req.body?.note || '').trim()
+    if (Number.isNaN(date.getTime())
+      || !Number.isFinite(amount) || amount <= 0
+      || !Object.values(bookcarsTypes.RentalPaymentMethod).includes(method)
+      || reference.length > 160 || note.length > 1000) {
+      res.status(400).send('Invalid expense payment')
+      return
+    }
+    const payment = new MaintenanceExpensePayment({
+      supplier: expense.supplier,
+      expense: expense._id,
+      date,
+      amount,
+      currency: env.BASE_CURRENCY.toUpperCase(),
+      method,
+      reference: reference || undefined,
+      note: note || undefined,
+      actor: req.user?._id,
+    })
+    await payment.save()
+    await linkExpensePaymentToCash(payment)
+    await recomputeExpensePaid(expense._id)
+    const updated = await MaintenanceExpense.findById(expense._id)
+      .populate('car', 'name licensePlate')
+      .populate('supplier', 'fullName')
+      .populate('workOrder', 'title status')
+    res.status(201).json({ payment, expense: updated ? withPaymentState(updated) : null })
+  } catch (err) {
+    logger.error(`[maintenanceExpense.recordPayment] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+export const listPayments = async (req: Request, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid maintenance expense')
+      return
+    }
+    const expense = await MaintenanceExpense.findOne({ _id: req.params.id, ...getScope(req) }).select('_id')
+    if (!expense) {
+      res.sendStatus(404)
+      return
+    }
+    const payments = await MaintenanceExpensePayment.find({ expense: expense._id }).sort({ date: -1, createdAt: -1 })
+    res.json(payments)
+  } catch (err) {
+    logger.error(`[maintenanceExpense.listPayments] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F7 / W3 M-7 — the audit trail for one expense. The expense itself
+ * is NOT required to exist: the trail survives a hard delete, and
+ * this endpoint is how it is read afterwards. Scoped by supplier.
+ */
+export const listAudit = async (req: Request, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid maintenance expense')
+      return
+    }
+    const rows = await MaintenanceExpenseAudit.find({ expense: req.params.id, ...getScope(req) })
+      .sort({ createdAt: -1 })
+      .populate('actor', 'fullName')
+    res.json(rows)
+  } catch (err) {
+    logger.error(`[maintenanceExpense.listAudit] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

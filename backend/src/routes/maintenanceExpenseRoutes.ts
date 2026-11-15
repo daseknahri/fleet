@@ -15,5 +15,8 @@ routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermiss
 routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.create)
 routes.put(routeNames.update, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.update)
 routes.delete(routeNames.delete, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.remove)
+routes.post(routeNames.recordPayment, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.recordPayment)
+routes.get(routeNames.listPayments, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses), maintenanceExpenseController.listPayments)
+routes.get(routeNames.listAudit, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses), maintenanceExpenseController.listAudit)
 
 export default routes

@@ -1212,6 +1212,9 @@ export interface CashMovement extends Document {
   // from, and that payment's purpose (deposit cash is held, never income).
   rentalPayment?: Types.ObjectId
   purpose?: bookcarsTypes.RentalPaymentPurpose
+  // F7 / W3 M-2 — the expense payment this movement was created from
+  // (cash expense payments only; same confirmed-Out pattern as C-7).
+  expensePayment?: Types.ObjectId
   reference?: string
   note?: string
   actor?: Types.ObjectId
@@ -1222,16 +1225,46 @@ export interface MaintenanceExpense extends Document {
   supplier: Types.ObjectId
   // GA-PAR-16: optional — a general expense is tied to no car.
   car?: Types.ObjectId | null
+  // F7 / W3 M-5 — the work order this expense belongs to, if any.
+  workOrder?: Types.ObjectId | null
   date: Date
   type: bookcarsTypes.MaintenanceExpenseType
   amount: number
   // GA-PAR-16: null/absent = untracked/legacy. Payment status is
   // derived in payloads, never stored on the document.
+  // F7 / W3 M-2: once payment records exist, paidAmount is the SUM of
+  // those records, recomputed server-side — never typed in by hand.
   paidAmount?: number | null
   mileage?: number
   vendor?: string
   note?: string
   receipt?: string
+}
+
+/** F7 / W3 M-2 — one append-only payment record against an expense. */
+export interface MaintenanceExpensePayment extends Document {
+  supplier: Types.ObjectId
+  expense: Types.ObjectId
+  date: Date
+  amount: number
+  currency: string
+  method: bookcarsTypes.RentalPaymentMethod
+  reference?: string
+  note?: string
+  cashMovement?: Types.ObjectId
+  actor?: Types.ObjectId
+}
+
+/** F7 / W3 M-7 — append-only audit trail for maintenance expenses. */
+export interface MaintenanceExpenseAudit extends Document {
+  supplier: Types.ObjectId
+  // The expense id is kept after the expense is deleted, so the trail
+  // survives a hard delete (plain ObjectId, deliberately no ref).
+  expense: Types.ObjectId
+  action: bookcarsTypes.MaintenanceExpenseAuditAction
+  actor?: Types.ObjectId
+  reason?: string
+  changes?: Array<{ field: string, before?: string | number | null, after?: string | number | null }>
 }
 
 /** Maintenance schedule document. */

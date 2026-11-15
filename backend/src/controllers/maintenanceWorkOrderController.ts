@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import Car from '../models/Car'
+import MaintenanceExpense from '../models/MaintenanceExpense'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
@@ -37,7 +38,19 @@ const carInScope = async (carId: string, supplierId?: string, admin = false) => 
 export const list = async (req: Request, res: Response) => {
   try {
     const rows = await MaintenanceWorkOrder.find(scope(req)).sort({ scheduledStart: 1, createdAt: -1 }).populate('car', 'name licensePlate').populate('supplier', 'fullName')
-    res.json(rows)
+    // F7 / W3 M-5 — each work order carries the total amount and count
+    // of the expenses linked to it, so the UI can show the cost of a
+    // job without a second round-trip.
+    const totals = await MaintenanceExpense.aggregate([
+      { $match: { workOrder: { $in: rows.map((row) => row._id) } } },
+      { $group: { _id: '$workOrder', total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ])
+    const byId = new Map(totals.map((row) => [row._id.toString(), { total: Number(row.total), count: row.count }]))
+    res.json(rows.map((row) => {
+      const obj = row.toObject() as Record<string, unknown>
+      const total = byId.get(row._id.toString())
+      return { ...obj, expenseTotal: total ? Number(total.total.toFixed(2)) : 0, expenseCount: total ? total.count : 0 }
+    }))
   } catch (err) {
  logger.error(`[workOrder.list] ${i18n.t('ERROR')}`, err); res.status(400).send(i18n.t('ERROR')) 
 }

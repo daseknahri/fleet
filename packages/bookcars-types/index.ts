@@ -191,6 +191,10 @@ export enum CashMovementSource {
   // F6 / W3 C-7 — a movement created automatically from a ledger cash
   // payment (RentalPayment with method cash), linked to that payment.
   RentalPayment = 'rentalPayment',
+  // F7 / W3 M-2 — a movement created automatically from a cash expense
+  // payment (MaintenanceExpensePayment with method cash), linked to
+  // that payment. Same confirmed-Out pattern as RentalPayment.
+  ExpensePayment = 'expensePayment',
 }
 
 export enum InvoiceStatus {
@@ -2168,6 +2172,10 @@ export interface MaintenanceWorkOrder {
   vendor?: string
   note?: string
   expense?: string
+  // F7 / W3 M-5 — server-computed from linked expenses (list only):
+  // the total amount and count of expenses linked to this work order.
+  expenseTotal?: number
+  expenseCount?: number
   createdAt?: Date
   updatedAt?: Date
 }
@@ -2190,10 +2198,14 @@ export interface MaintenanceExpense {
   supplier: string | User
   // GA-PAR-16: car is OPTIONAL — a general expense is tied to no car.
   car?: string | Car | null
+  // F7 / W3 M-5 — the work order this expense belongs to, if any.
+  workOrder?: string | MaintenanceWorkOrder | null
   date: Date
   type: MaintenanceExpenseType
   amount: number
   // GA-PAR-16: null = untracked/legacy (no payment state recorded).
+  // F7 / W3 M-2: once payment records exist, paidAmount is the SUM of
+  // those records, recomputed server-side — never typed in by hand.
   paidAmount?: number | null
   // GA-PAR-16: derived by the backend in every payload, never stored.
   paymentStatus?: MaintenanceExpensePaymentStatus
@@ -2208,16 +2220,81 @@ export interface MaintenanceExpense {
 export interface UpsertMaintenanceExpensePayload {
   // GA-PAR-16: optional — omit/null for a general (car-less) expense.
   car?: string | null
+  // F7 / W3 M-5: omit = leave unchanged on update / unlinked on
+  // create; null = unlink; an id must exist, belong to the expense's
+  // agency, and (when the expense has a car) to that same car.
+  workOrder?: string | null
   date: Date | string
   type: MaintenanceExpenseType
   amount: number
   // GA-PAR-16: omit = leave unchanged on update / untracked on create;
   // null = untracked; a number must satisfy 0 <= paidAmount <= amount.
+  // F7 / W3 M-2: a NUMBER is rejected by the server (400) — paid
+  // amounts are recorded only via the payment endpoint, backed by a
+  // MaintenanceExpensePayment record.
   paidAmount?: number | null
   mileage?: number
   vendor?: string
   note?: string
   receipt?: string | null
+}
+
+/**
+ * F7 / W3 M-2 — one payment record against a maintenance expense.
+ * Append-only: payments are never edited or deleted, so `paidAmount`
+ * on the expense always traces to these records (and, for cash, to a
+ * CashMovement in the open cash session).
+ */
+export interface MaintenanceExpensePayment {
+  _id?: string
+  supplier: string | User
+  expense: string | MaintenanceExpense
+  date: Date
+  amount: number
+  currency: string
+  method: RentalPaymentMethod
+  reference?: string
+  note?: string
+  // F7 / W3 M-2 — the confirmed cash-session Out created from this
+  // payment when method is cash (null when no open session in the
+  // same currency existed; the payment still records, unlinked).
+  cashMovement?: string | null
+  actor?: string | User
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CreateMaintenanceExpensePaymentPayload {
+  date: Date | string
+  amount: number
+  method: RentalPaymentMethod
+  reference?: string
+  note?: string
+}
+
+/**
+ * F7 / W3 M-7 — append-only audit trail for maintenance expenses,
+ * following the RentalPayment pattern (the payment ledger is
+ * append-only; expenses now get the same treatment). The `expense`
+ * id is kept after the expense is deleted, so the trail survives
+ * a hard delete.
+ */
+export enum MaintenanceExpenseAuditAction {
+  Created = 'created',
+  Updated = 'updated',
+  Deleted = 'deleted',
+}
+
+export interface MaintenanceExpenseAudit {
+  _id?: string
+  supplier: string | User
+  expense: string
+  action: MaintenanceExpenseAuditAction
+  actor?: string | User
+  reason?: string
+  changes?: Array<{ field: string, before?: string | number | null, after?: string | number | null }>
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 export interface MaintenanceSchedule {

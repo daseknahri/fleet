@@ -12,6 +12,11 @@ import Booking from '../src/models/Booking'
 import RentalPayment from '../src/models/RentalPayment'
 import ContractCharge from '../src/models/ContractCharge'
 import MaintenanceExpense from '../src/models/MaintenanceExpense'
+import MaintenanceExpensePayment from '../src/models/MaintenanceExpensePayment'
+import MaintenanceExpenseAudit from '../src/models/MaintenanceExpenseAudit'
+import MaintenanceWorkOrder from '../src/models/MaintenanceWorkOrder'
+import CashMovement from '../src/models/CashMovement'
+import CashSession from '../src/models/CashSession'
 import Invoice from '../src/models/Invoice'
 import Quote from '../src/models/Quote'
 
@@ -45,6 +50,8 @@ const quoteIds: mongoose.Types.ObjectId[] = []
 
 const get = (token: string, url: string) => request(app).get(url).set(env.X_ACCESS_TOKEN, token)
 const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body)
+const put = (token: string, url: string, body: unknown) => request(app).put(url).set(env.X_ACCESS_TOKEN, token).send(body)
+const del = (token: string, url: string, body?: unknown) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token).send(body)
 
 const utc = (s: string) => new Date(`${s}Z`)
 
@@ -141,6 +148,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await RentalPayment.deleteMany({ idempotencyKey: { $regex: `^f7-.*-${suffix}$` } })
   await ContractCharge.deleteMany({ supplier: supplier._id })
+  await MaintenanceExpensePayment.deleteMany({ supplier: supplier._id })
+  await MaintenanceExpenseAudit.deleteMany({ supplier: supplier._id })
+  await MaintenanceWorkOrder.deleteMany({ supplier: supplier._id })
+  await CashMovement.deleteMany({ supplier: supplier._id })
+  await CashSession.deleteMany({ supplier: supplier._id })
   await MaintenanceExpense.deleteMany({ supplier: supplier._id })
   await Invoice.deleteMany({ _id: { $in: invoiceIds } })
   await Quote.deleteMany({ _id: { $in: quoteIds } })
@@ -278,5 +290,207 @@ describe('F7 / W3 B-3 — explicit tax override validation (validation only)', (
     expect(res.body.invoice.taxRate).toBe(20)
     expect(res.body.invoice.taxOverride).toBe(true)
     invoiceIds.push(res.body.invoice._id)
+  })
+})
+
+// The M-2/M-5/M-7 sections run last and use December fixtures, so they
+// cannot move the November R-2/R-7 figures above.
+describe('F7 / W3 M-2 — paidAmount is backed by payment records', () => {
+  let expenseId: string
+  let sessionId: string
+
+  it('refuses a typed-in paidAmount on create', async () => {
+    const res = await post(ownerToken, '/api/maintenance-expenses', {
+      car: car._id.toString(), date: '2026-12-10T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 100, paidAmount: 30, vendor: 'F7 M2',
+    })
+    expect(res.status).toBe(400)
+    expect(res.text).toContain('payment endpoint')
+  })
+
+  it('creates the expense untracked, then records a cash payment linked to the open session', async () => {
+    const created = await post(ownerToken, '/api/maintenance-expenses', {
+      car: car._id.toString(), date: '2026-12-10T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 100, vendor: 'F7 M2',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.paidAmount).toBeNull()
+    expenseId = created.body._id
+
+    const session = await post(ownerToken, '/api/cash/sessions', { account: types.CashAccountType.Cash, openingBalance: 100, openingDifferenceReason: 'F7 fixture' })
+    expect(session.status).toBe(201)
+    sessionId = session.body._id
+
+    const paid = await post(ownerToken, `/api/maintenance-expenses/${expenseId}/payments`, {
+      date: '2026-12-11T09:00:00.000Z', amount: 30, method: types.RentalPaymentMethod.Cash, reference: 'F7-M2-CASH',
+    })
+    expect(paid.status).toBe(201)
+    expect(paid.body.payment.amount).toBe(30)
+    expect(paid.body.payment.currency).toBe(env.BASE_CURRENCY.toUpperCase())
+    expect(paid.body.payment.cashMovement).toBeTruthy()
+    expect(paid.body.expense.paidAmount).toBe(30)
+    expect(paid.body.expense.paymentStatus).toBe(types.MaintenanceExpensePaymentStatus.Partial)
+
+    const movement = await CashMovement.findOne({ expensePayment: paid.body.payment._id })
+    expect(movement).not.toBeNull()
+    expect(movement?.direction).toBe(types.CashMovementDirection.Out)
+    expect(movement?.amount).toBe(30)
+    expect(movement?.status).toBe('confirmed')
+    expect(movement?.source).toBe(types.CashMovementSource.ExpensePayment)
+    expect(movement?.session.toString()).toBe(sessionId)
+  })
+
+  it('records a bank payment unlinked, recomputes paidAmount, and lists both payments', async () => {
+    const paid = await post(ownerToken, `/api/maintenance-expenses/${expenseId}/payments`, {
+      date: '2026-12-12T09:00:00.000Z', amount: 25.5, method: types.RentalPaymentMethod.BankTransfer,
+    })
+    expect(paid.status).toBe(201)
+    expect(paid.body.payment.cashMovement).toBeUndefined()
+    expect(paid.body.expense.paidAmount).toBe(55.5)
+    expect(await CashMovement.countDocuments({ supplier: supplier._id, source: types.CashMovementSource.ExpensePayment })).toBe(1)
+
+    const list = await get(ownerToken, `/api/maintenance-expenses/${expenseId}/payments`)
+    expect(list.status).toBe(200)
+    expect(list.body).toHaveLength(2)
+  })
+
+  it('refuses a typed-in paidAmount on update, and never lets an update wipe a backed paidAmount', async () => {
+    const bad = await put(ownerToken, `/api/maintenance-expenses/${expenseId}`, {
+      car: car._id.toString(), date: '2026-12-10T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 100, paidAmount: 99, vendor: 'F7 M2',
+    })
+    expect(bad.status).toBe(400)
+
+    const nulled = await put(ownerToken, `/api/maintenance-expenses/${expenseId}`, {
+      car: car._id.toString(), date: '2026-12-10T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 100, paidAmount: null, vendor: 'F7 M2',
+    })
+    expect(nulled.status).toBe(200)
+    expect(nulled.body.paidAmount).toBe(55.5)
+  })
+
+  it('refuses an invalid payment (zero amount, bad method)', async () => {
+    for (const body of [
+      { date: '2026-12-13T09:00:00.000Z', amount: 0, method: types.RentalPaymentMethod.Cash },
+      { date: '2026-12-13T09:00:00.000Z', amount: 10, method: 'cheque' },
+    ]) {
+      const res = await post(ownerToken, `/api/maintenance-expenses/${expenseId}/payments`, body)
+      expect(res.status).toBe(400)
+    }
+  })
+})
+
+describe('F7 / W3 M-5 — work orders have an admin surface and link expenses', () => {
+  let workOrderId: string
+  let otherCarId: string
+  let expenseId: string
+
+  it('creates a work order; the list carries zero linked-expense totals', async () => {
+    const otherCar = await makeCar()
+    otherCarId = otherCar._id.toString()
+    const created = await post(ownerToken, '/api/maintenance-work-orders', {
+      car: car._id.toString(), title: 'F7 M5 brake job', type: types.MaintenanceExpenseType.Repair,
+      status: types.WorkOrderStatus.Scheduled,
+      scheduledStart: '2026-12-15T08:00:00.000Z', scheduledEnd: '2026-12-15T12:00:00.000Z',
+    })
+    expect(created.status).toBe(201)
+    workOrderId = created.body._id
+
+    const list = await get(ownerToken, '/api/maintenance-work-orders')
+    expect(list.status).toBe(200)
+    const row = (list.body as Array<{ _id: string, expenseTotal: number, expenseCount: number }>)
+      .find((r) => r._id === workOrderId)
+    expect(row?.expenseTotal).toBe(0)
+    expect(row?.expenseCount).toBe(0)
+  })
+
+  it('links an expense to the work order and the list totals follow', async () => {
+    const created = await post(ownerToken, '/api/maintenance-expenses', {
+      car: car._id.toString(), workOrder: workOrderId, date: '2026-12-16T09:00:00.000Z',
+      type: types.MaintenanceExpenseType.Repair, amount: 80, vendor: 'F7 M5',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.workOrder?.title).toBe('F7 M5 brake job')
+    expenseId = created.body._id
+
+    const list = await get(ownerToken, '/api/maintenance-work-orders')
+    const row = (list.body as Array<{ _id: string, expenseTotal: number, expenseCount: number }>)
+      .find((r) => r._id === workOrderId)
+    expect(row?.expenseTotal).toBe(80)
+    expect(row?.expenseCount).toBe(1)
+  })
+
+  it('refuses a work order from another car, and a work order that does not exist', async () => {
+    const wrongCar = await post(ownerToken, '/api/maintenance-expenses', {
+      car: otherCarId, workOrder: workOrderId, date: '2026-12-16T09:00:00.000Z',
+      type: types.MaintenanceExpenseType.Repair, amount: 10, vendor: 'F7 M5',
+    })
+    expect(wrongCar.status).toBe(400)
+    const missing = await post(ownerToken, '/api/maintenance-expenses', {
+      car: car._id.toString(), workOrder: new mongoose.Types.ObjectId().toString(), date: '2026-12-16T09:00:00.000Z',
+      type: types.MaintenanceExpenseType.Repair, amount: 10, vendor: 'F7 M5',
+    })
+    expect(missing.status).toBe(400)
+  })
+
+  it('unlinks the expense; the work-order totals drop back to zero', async () => {
+    const updated = await put(ownerToken, `/api/maintenance-expenses/${expenseId}`, {
+      car: car._id.toString(), workOrder: null, date: '2026-12-16T09:00:00.000Z',
+      type: types.MaintenanceExpenseType.Repair, amount: 80, vendor: 'F7 M5',
+    })
+    expect(updated.status).toBe(200)
+    expect(updated.body.workOrder).toBeNull()
+
+    const list = await get(ownerToken, '/api/maintenance-work-orders')
+    const row = (list.body as Array<{ _id: string, expenseTotal: number, expenseCount: number }>)
+      .find((r) => r._id === workOrderId)
+    expect(row?.expenseTotal).toBe(0)
+    expect(row?.expenseCount).toBe(0)
+  })
+})
+
+describe('F7 / W3 M-7 — expense changes leave an append-only audit trail', () => {
+  let expenseId: string
+
+  it('audits creation, then an update with its field changes and reason', async () => {
+    const created = await post(ownerToken, '/api/maintenance-expenses', {
+      car: car._id.toString(), date: '2026-12-17T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 40, vendor: 'F7 M7 Vendor',
+    })
+    expect(created.status).toBe(201)
+    expenseId = created.body._id
+
+    const updated = await put(ownerToken, `/api/maintenance-expenses/${expenseId}`, {
+      car: car._id.toString(), date: '2026-12-17T09:00:00.000Z', type: types.MaintenanceExpenseType.Repair,
+      amount: 40, vendor: 'F7 M7 Vendor Fixed', reason: 'correct vendor name',
+    })
+    expect(updated.status).toBe(200)
+
+    const audit = await get(ownerToken, `/api/maintenance-expenses/${expenseId}/audit`)
+    expect(audit.status).toBe(200)
+    expect(audit.body).toHaveLength(2)
+    const updatedRow = (audit.body as Array<{ action: string, reason?: string, changes?: Array<{ field: string, before?: unknown, after?: unknown }> }>)
+      .find((r) => r.action === types.MaintenanceExpenseAuditAction.Updated)
+    expect(updatedRow?.reason).toBe('correct vendor name')
+    expect(updatedRow?.changes).toContainEqual({ field: 'vendor', before: 'F7 M7 Vendor', after: 'F7 M7 Vendor Fixed' })
+  })
+
+  it('refuses a delete without a reason, and with a reason shorter than 3 characters', async () => {
+    expect((await del(ownerToken, `/api/maintenance-expenses/${expenseId}`)).status).toBe(400)
+    expect((await del(ownerToken, `/api/maintenance-expenses/${expenseId}`, { reason: 'du' })).status).toBe(400)
+    expect(await MaintenanceExpense.findById(expenseId)).not.toBeNull()
+  })
+
+  it('deletes with a recorded reason, and the trail survives the delete', async () => {
+    const res = await del(ownerToken, `/api/maintenance-expenses/${expenseId}`, { reason: 'duplicate entry' })
+    expect(res.status).toBe(200)
+    expect(await MaintenanceExpense.findById(expenseId)).toBeNull()
+
+    const audit = await get(ownerToken, `/api/maintenance-expenses/${expenseId}/audit`)
+    expect(audit.status).toBe(200)
+    expect(audit.body).toHaveLength(3)
+    const deletedRow = (audit.body as Array<{ action: string, reason?: string }>)
+      .find((r) => r.action === types.MaintenanceExpenseAuditAction.Deleted)
+    expect(deletedRow?.reason).toBe('duplicate entry')
   })
 })
