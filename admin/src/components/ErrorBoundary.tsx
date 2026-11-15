@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
+import { strings as commonStrings } from '@/lang/common'
 
 interface Props {
   children?: ReactNode;
@@ -26,7 +27,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      return this.props.fallback || <h2>Something went wrong.</h2>
+      return this.props.fallback || <h2>{commonStrings.GENERIC_ERROR}</h2>
     }
 
     return this.props.children

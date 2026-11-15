@@ -69,7 +69,7 @@ const Search = () => {
         setAllSuppliers(fetchedSuppliers)
         setAllSuppliersIds(bookcarsHelper.flattenSuppliers(fetchedSuppliers))
       } catch (err) {
-        helper.error(err, 'Failed to fetch suppliers')
+        helper.error(err, strings.FETCH_SUPPLIERS_ERROR)
       }
     }
 
