@@ -5,9 +5,8 @@ div.settings {
   flex: 1 0 auto;
   justify-content: center;
   align-items: center;
-  margin: 45px 0;
   transform: translate3d(0, 0, 0);
-  margin: 80px 0 200px 0;
+  margin: 40px 0 80px;
   min-height: 100vh;
 }
 
@@ -39,7 +38,7 @@ div.settings .settings-net-wrapper {
 
   div.settings .settings-net {
     width: 360px;
-    height: 200px;
+    min-height: 200px;
     padding: 30px;
   }
 }
@@ -58,7 +57,7 @@ div.settings .settings-net-wrapper {
 
   div.settings .settings-net {
     width: 550px;
-    height: 200px;
+    min-height: 200px;
     padding: 30px;
   }
 }

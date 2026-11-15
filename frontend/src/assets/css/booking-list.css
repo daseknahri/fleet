@@ -29,12 +29,6 @@ div.bs-list div.cell-supplier img {
   max-height: 100%;
 }
 
-div.bs-update-status {
-  width: 444px;
-  height: 70px;
-  overflow: hidden;
-}
-
 div.bs-list span.bp {
   font-weight: 600;
 }

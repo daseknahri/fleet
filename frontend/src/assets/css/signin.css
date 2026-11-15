@@ -4,7 +4,7 @@ div.signin {
   flex-direction: row;
   flex: 1 0 auto;
   justify-content: center;
-  margin: 120px 0;
+  margin: 40px 0 80px;
   transform: translate3d(0, 0, 0);
   min-height: 100vh;
 }
@@ -27,7 +27,7 @@ div.signin div.signin-buttons {
 
 div.signin .form-error {
   clear: both;
-  height: 65px;
+  min-height: 65px;
   padding-top: 10px;
   text-align: center;
 }

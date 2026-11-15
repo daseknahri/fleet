@@ -36,8 +36,7 @@
 } */
 
 .btn-primary:hover,
-.btn-secondary:hover,
-.btn-orange:hover {
+.btn-secondary:hover {
   opacity: 0.95;
 }
 
@@ -81,7 +80,7 @@
 
 .form-error {
   clear: both;
-  height: 65px;
+  min-height: 65px;
   padding-top: 10px;
   text-align: center;
 }
@@ -238,7 +237,8 @@
 
 .dialog-content {
   margin: 0;
-  width: 410px;
+  width: 100%;
+  max-width: 410px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -304,7 +304,8 @@ div.content {
   }
 
   .dialog-content {
-    width: 350px;
+    width: 100%;
+    max-width: 350px;
   }
 }
 

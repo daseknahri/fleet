@@ -9,7 +9,7 @@ import SupplierFilter from '@/components/SupplierFilter'
 import StatusFilter from '@/components/StatusFilter'
 import BookingFilter from '@/components/BookingFilter'
 import { strings as headerStrings } from '@/lang/header'
-// import Progress from '@/components/Progress'
+import Progress from '@/components/Progress'
 import * as SupplierService from '@/services/SupplierService'
 
 import '@/assets/css/bookings.css'
@@ -77,7 +77,7 @@ const Bookings = () => {
         )}
       </Layout>
 
-      {/* {user?.verified && loadingPage && <Progress />} */}
+      {loadingSuppliers && <Progress />}
     </>
   )
 }

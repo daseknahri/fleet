@@ -35,6 +35,7 @@ import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
 import BookingStatus from '@/components/BookingStatus'
 import Extras from '@/components/Extras'
+import Progress from '@/components/Progress'
 
 import '@/assets/css/booking-list.css'
 
@@ -217,18 +218,21 @@ const BookingList = ({
         field: 'from',
         headerName: commonStrings.FROM,
         flex: 1,
+        minWidth: 110,
         valueGetter: (value: string) => getDate(value),
       },
       {
         field: 'to',
         headerName: commonStrings.TO,
         flex: 1,
+        minWidth: 110,
         valueGetter: (value: string) => getDate(value),
       },
       {
         field: 'price',
         headerName: strings.PRICE,
         flex: 1,
+        minWidth: 100,
         renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.Booking, string>) => <span className="bp">{value}</span>,
         valueGetter: (value: number) => bookcarsHelper.formatPrice(value, commonStrings.CURRENCY, language as string),
       },
@@ -236,6 +240,7 @@ const BookingList = ({
         field: 'status',
         headerName: strings.STATUS,
         flex: 1,
+        minWidth: 130,
         renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.Booking, bookcarsTypes.BookingStatus>) => <BookingStatus value={value!} showIcon />,
         valueGetter: (value: string) => value,
       },
@@ -244,6 +249,7 @@ const BookingList = ({
         headerName: commonStrings.ACTIONS,
         sortable: false,
         disableColumnMenu: true,
+        minWidth: 90,
         renderHeader: () => <span className="sr-only">{commonStrings.ACTIONS}</span>,
         renderCell: ({ row }: GridRenderCellParams<bookcarsTypes.Booking>) => {
           const cancelBooking = (e: React.MouseEvent<HTMLElement>) => {
@@ -290,6 +296,7 @@ const BookingList = ({
         field: 'car',
         headerName: strings.CAR,
         flex: 1,
+        minWidth: 120,
         valueGetter: (value: bookcarsTypes.Car) => value?.name,
       })
     }
@@ -299,6 +306,7 @@ const BookingList = ({
         field: 'supplier',
         headerName: commonStrings.SUPPLIER,
         flex: 1,
+        minWidth: 120,
         renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.Booking, string>) => (
           <div className="cell-supplier">
             <SafeImage src={bookcarsHelper.joinURL(env.CDN_USERS, (row.supplier as bookcarsTypes.User).avatar)} alt={value} />
@@ -393,6 +401,12 @@ const BookingList = ({
       {user
         && (env.isMobile ? (
           <>
+            {loading && <Progress />}
+
+            {!loading && rows.length === 0 && (
+              <div className="empty-list">{strings.EMPTY_LIST}</div>
+            )}
+
             {rows.map((booking) => {
               const _bookingCar = booking.car as bookcarsTypes.Car
               const bookingSupplier = booking.supplier as bookcarsTypes.User
@@ -452,6 +466,13 @@ const BookingList = ({
                   </div>
 
                   <div className="bs-buttons">
+                    <Button
+                      variant="contained"
+                      className="btn-primary"
+                      onClick={() => navigate(`/booking?b=${booking._id}`)}
+                    >
+                      {strings.VIEW}
+                    </Button>
                     {booking.cancellation
                       && !booking.cancelRequest
                       && booking.status !== bookcarsTypes.BookingStatus.Cancelled
