@@ -80,7 +80,14 @@ export const createPayPalOrder = async (req: Request, res: Response) => {
     }
 
     const snapshot = booking.financialSnapshot
-    if (!snapshot || snapshot.mode === bookcarsTypes.CheckoutPaymentMode.PayLater || snapshot.amountDueNow <= 0) {
+    // F1 fix-up round 2 / §8: Mongoose hydrates a missing financialSnapshot
+    // as {} (truthy), so !snapshot is dead — a snapshot-less booking would
+    // fall through and create a PayPal order with an undefined amount and
+    // currency (no money is taken here, but the order is garbage). Treat
+    // a snapshot without a numeric rental total as missing (same guard as
+    // bookingController.update()); it keeps the truthful 400 below.
+    const hasRealSnapshot = !!snapshot && typeof snapshot.rentalTotal === 'number'
+    if (!hasRealSnapshot || snapshot.mode === bookcarsTypes.CheckoutPaymentMode.PayLater || snapshot.amountDueNow <= 0) {
       res.status(400).send('Booking has no payable checkout amount')
       return
     }
@@ -177,7 +184,17 @@ export const checkPayPalOrder = async (req: Request, res: Response) => {
     //
     const purchaseUnit = order.purchase_units?.[0]
     const snapshot = booking.financialSnapshot
-    if (!snapshot || booking.paypalOrderId !== orderId) {
+    // F1 fix-up round 2 / §8: Mongoose hydrates a missing financialSnapshot
+    // as {} (truthy), so !snapshot is dead — a snapshot-less booking whose
+    // order matches would fall through and throw on
+    // snapshot.paymentCurrency, returning a bare 400 with a completed
+    // capture kept (the generic catch only refunds once captureId is set,
+    // which happens after these checks). Treat a snapshot without a
+    // numeric rental total as missing (same guard as
+    // bookingController.update()); this branch already refunds a
+    // completed capture before answering.
+    const hasRealSnapshot = !!snapshot && typeof snapshot.rentalTotal === 'number'
+    if (!hasRealSnapshot || booking.paypalOrderId !== orderId) {
       // F1 / W4 GAP-05: a COMPLETED capture behind an unlinked order is
       // money taken with no booking — refund it before returning.
       if (respondMismatch(res, await refundCompletedCapture(paypal, order), 'Payment order is not linked to this booking')) {

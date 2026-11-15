@@ -137,7 +137,14 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
     }
 
     const financialSnapshot = booking.financialSnapshot
-    if (!financialSnapshot || session.metadata?.bookingId !== booking._id.toString()) {
+    // F1 fix-up round 2: Mongoose hydrates a missing financialSnapshot as
+    // {} (truthy), so !financialSnapshot is dead at runtime — a paid
+    // snapshot-less booking skipped this branch, threw in toMinorUnits
+    // (Unsupported currency undefined) and returned a bare 400 with the
+    // money kept. Treat a snapshot without a numeric rental total as
+    // missing (same guard as bookingController.update()).
+    const hasRealSnapshot = !!financialSnapshot && typeof financialSnapshot.rentalTotal === 'number'
+    if (!hasRealSnapshot || session.metadata?.bookingId !== booking._id.toString()) {
       // F1 fix-up / W4 GAP-05: a paid session whose snapshot is missing or
       // whose metadata disagrees with the booking took the money — refund
       // the succeeded intent before answering, as the adjacent

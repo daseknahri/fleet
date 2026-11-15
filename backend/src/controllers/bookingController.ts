@@ -720,7 +720,15 @@ export const confirmPaymentIntent = async (req: Request, res: Response) => {
     }
 
     const snapshot = booking.financialSnapshot
-    if (!snapshot || booking.paymentIntentId !== paymentIntentId) {
+    // F1 fix-up round 2 / §8: Mongoose hydrates a missing financialSnapshot
+    // as {} (truthy), so !snapshot is dead — a snapshot-less booking whose
+    // intent matches would fall through to the verification below and
+    // throw on snapshot.paymentCurrency, returning a bare 400 with the
+    // money kept. Treat a snapshot without a numeric rental total as
+    // missing (same guard as update()); the branch body already refunds a
+    // succeeded intent before the 409.
+    const hasRealSnapshot = !!snapshot && typeof snapshot.rentalTotal === 'number'
+    if (!hasRealSnapshot || booking.paymentIntentId !== paymentIntentId) {
       // F1 fix-up / W4 GAP-05: a succeeded client-supplied intent that is
       // not this booking's intent took the money — refund it before the
       // 409, as the verification-mismatch branch below does. An intent
