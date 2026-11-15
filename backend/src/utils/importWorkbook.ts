@@ -1,10 +1,15 @@
 import ExcelJS from 'exceljs'
 import mongoose from 'mongoose'
+import path from 'node:path'
+import asyncFs from 'node:fs/promises'
 import validator from 'validator'
 import * as bookcarsTypes from ':bookcars-types'
+import * as env from '../config/env.config'
 import Car from '../models/Car'
 import User from '../models/User'
+import Token from '../models/Token'
 import Booking from '../models/Booking'
+import Invoice from '../models/Invoice'
 import Location from '../models/Location'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import { BOOKING_RESERVATION_STATUSES } from './bookingReservationHelper'
@@ -30,6 +35,11 @@ import MaintenanceExpense from '../models/MaintenanceExpense'
  * (no dry-run token is trusted) and persists only the valid rows;
  * invalid rows are skipped and reported with their spreadsheet row
  * number (1-based, header = row 1, first data row = row 2).
+ * F5b (W2-15): a commit is all-or-nothing — the loop stops at the
+ * first commit-phase failure and every row created so far in the run
+ * is removed by compensating deletes (rollback), so a failed import
+ * leaves nothing behind. Rows that fail validation are still skipped
+ * and reported without touching the database.
  *
  * Creation paths — NO raw inserts and no forked rules:
  * - bookings are created by literally invoking bookingController.create
@@ -81,6 +91,8 @@ export interface ImportReport {
   invalidRows: number
   created: number
   errors: ImportRowError[]
+  /** F5b (W2-15): true when a commit-phase failure stopped the run and the rows created so far were rolled back (created is then 0, unless a rollback delete failed — see the report errors). */
+  rolledBack?: boolean
 }
 
 export class ImportFileError extends Error {}
@@ -311,6 +323,103 @@ export interface ParsedRow {
   values: Record<string, unknown>
 }
 
+/**
+ * F5b (W2-21): header normalisation — lower-case, separators
+ * (spaces, underscores, hyphens) stripped, so "License Plate",
+ * "license_plate" and "licensePlate" all normalise to "licenseplate".
+ */
+const normalizeHeader = (name: string): string => name.trim().toLowerCase().replace(/[\s_-]+/g, '')
+
+/**
+ * F5b (W2-21): per-entity header aliases, in normalised form (see
+ * normalizeHeader). A header matches a spec column when it equals the
+ * canonical name or one of its aliases after normalisation.
+ * Canonical names win over aliases and the first alias wins: the
+ * resolver checks canonicals first, then aliases in spec order.
+ * Unknown headers are still ignored — only spec columns are read.
+ */
+const HEADER_ALIASES: Record<ImportEntity, Record<string, string[]>> = {
+  cars: {
+    licensePlate: ['plate', 'platenumber', 'registration', 'registrationplate', 'registrationnumber'],
+    name: ['carname', 'vehiclename'],
+    locations: ['location', 'locationname', 'locationnames'],
+    dailyPrice: ['priceperday', 'dayprice'],
+    deposit: ['caution'],
+    minimumAge: ['minimumage', 'minage'],
+    type: ['cartype', 'vehicletype'],
+    gearbox: ['transmission'],
+    seats: ['seat'],
+    doors: ['door'],
+    aircon: ['airconditioning', 'ac'],
+    mileage: ['mileageallowance', 'kmperday', 'dailymileage'],
+    tankCapacityLitres: ['tankcapacity', 'tank'],
+    make: ['brand', 'marque'],
+    odometerKm: ['odometer', 'mileagekm', 'km', 'kilometrage'],
+    insuranceProvider: ['insurer', 'insurancecompany'],
+    insurancePolicyNumber: ['policynumber', 'policy'],
+    insuranceExpiryDate: ['insuranceexpiry', 'insuranceexpiration'],
+    technicalInspectionExpiryDate: ['technicalinspectionexpiry', 'inspectionexpiry'],
+    vignetteExpiryDate: ['vignetteexpiry'],
+  },
+  clients: {
+    fullName: ['fullname', 'name', 'customername', 'clientname', 'customer'],
+    email: ['mail', 'emailaddress'],
+    phone: ['telephone', 'tel', 'mobile', 'phonenumber'],
+    birthDate: ['birthdate', 'dateofbirth', 'dob'],
+    cinNumber: ['cin', 'idnumber', 'nationalid'],
+    cinExpiry: ['cinexpiry', 'cinexpiration'],
+    passportNumber: ['passport', 'passportno'],
+    passportExpiry: ['passportexpiry', 'passportexpiration'],
+    licenseNumber: ['license', 'licenseno', 'drivinglicense', 'driverlicense', 'permit'],
+    licenseExpiry: ['licenseexpiry', 'licenseexpiration'],
+    clientType: ['type', 'customertype'],
+    clientStatus: ['status'],
+    companyName: ['company', 'businessname'],
+    companyRegistration: ['registrationnumber', 'rc'],
+    companyContactName: ['companycontact', 'contactname'],
+    consentGiven: ['consent', 'gdprconsent'],
+    consentScope: ['consentpurposes'],
+  },
+  bookings: {
+    carPlate: ['plate', 'licenseplate', 'vehicle'],
+    clientEmail: ['email', 'customeremail'],
+    from: ['start', 'startdate', 'pickupdate', 'fromdate', 'departure'],
+    to: ['end', 'enddate', 'returndate', 'todate'],
+    price: ['totalprice', 'total', 'amount', 'rentalprice'],
+    status: ['bookingstatus'],
+  },
+  expenses: {
+    date: ['expensedate'],
+    carPlate: ['plate', 'licenseplate', 'vehicle'],
+    category: ['type', 'expensecategory', 'expensetype'],
+    amount: ['total', 'totalamount', 'cost'],
+    paidAmount: ['paid', 'amountpaid'],
+    vendor: ['supplier', 'merchant', 'garage', 'provider'],
+    note: ['notes', 'description', 'comment', 'details'],
+    mileage: ['odometer', 'km'],
+  },
+}
+
+/** Resolve one header cell to its canonical spec column name, or null. */
+export const resolveImportHeader = (entity: ImportEntity, header: string): string | null => {
+  const key = normalizeHeader(header)
+  if (!key) {
+    return null
+  }
+  const spec = IMPORT_COLUMNS[entity]
+  const canonical = spec.find((col) => normalizeHeader(col.name) === key)
+  if (canonical) {
+    return canonical.name
+  }
+  const aliases = HEADER_ALIASES[entity]
+  for (const col of spec) {
+    if ((aliases[col.name] || []).includes(key)) {
+      return col.name
+    }
+  }
+  return null
+}
+
 export const parseImportWorkbook = async (buffer: Buffer, entity: ImportEntity): Promise<ParsedRow[]> => {
   const workbook = new ExcelJS.Workbook()
   try {
@@ -325,15 +434,26 @@ export const parseImportWorkbook = async (buffer: Buffer, entity: ImportEntity):
   const spec = IMPORT_COLUMNS[entity]
   const headerRow = sheet.getRow(1)
   const columnIndex = new Map<string, number>()
+  const foundHeaders: string[] = []
   headerRow.eachCell((cell, colNumber) => {
     const name = cellText(cell.value)
-    if (name) {
-      columnIndex.set(name, colNumber)
+    if (!name) {
+      return
+    }
+    foundHeaders.push(name)
+    // F5b (W2-21): a header matches by canonical name or alias.
+    // First match wins: a duplicated/aliased header later in the row
+    // does not displace the template column.
+    const resolved = resolveImportHeader(entity, name)
+    if (resolved && !columnIndex.has(resolved)) {
+      columnIndex.set(resolved, colNumber)
     }
   })
   for (const col of spec) {
     if (col.required && !columnIndex.has(col.name)) {
-      throw new ImportFileError(`Missing required column: ${col.name}`)
+      // F5b (W2-21): the missing-column error lists the headers that
+      // were actually found, so a typo'd header is diagnosable.
+      throw new ImportFileError(`Missing required column: ${col.name} (columns found: ${foundHeaders.join(', ') || '(none)'})`)
     }
   }
   const rows: ParsedRow[] = []
@@ -751,7 +871,11 @@ const validateCars = async (
   return { candidates, errors }
 }
 
-const createCarFromImport = async (candidate: CarCandidate, supplierId: string): Promise<ImportRowError | null> => {
+/**
+ * F5b (W2-15): on success returns the created car id (the rollback
+ * record); on failure returns the row error, as before.
+ */
+const createCarFromImport = async (candidate: CarCandidate, supplierId: string): Promise<string | ImportRowError> => {
   const { payload } = candidate
   if (!(await validateLocationsForSupplier(payload.locations as string[], supplierId))) {
     return { row: candidate.row, field: 'locations', message: 'Invalid locations for supplier' }
@@ -776,7 +900,7 @@ const createCarFromImport = async (candidate: CarCandidate, supplierId: string):
       vignetteExpiryDate: normalizeDocumentDate(payload.vignetteExpiryDate as string | undefined),
     })
     await car.save()
-    return null
+    return car._id.toString()
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Car could not be created'
     return { row: candidate.row, message: `Car could not be created: ${message}`.slice(0, 300) }
@@ -1216,6 +1340,66 @@ const validateExpenses = async (
 // Orchestration
 // ---------------------------------------------------------------------------
 
+interface CreatedImportRef {
+  row: number
+  id: string
+}
+
+/**
+ * F5b (W2-15): compensating deletes for a rolled-back import run.
+ * Per entity: cars by created _id; clients by _id plus their Token
+ * rows (the activation email already sent cannot be unsent);
+ * expenses by _id plus a best-effort receipt-file unlink (imported
+ * expenses never carry a receipt — the import body has no receipt
+ * column — but the handler path supports one, so the unlink is kept
+ * as a backstop); bookings by _id plus their Draft invoices (status
+ * Draft only — an issued invoice is never deleted). Booking
+ * reference numbers consumed by the atomic Counter are NOT reclaimed.
+ * Best-effort per row: a failed delete is reported, never thrown,
+ * so one stuck row cannot hide the rest. No MongoDB transactions:
+ * the handlers do not accept sessions.
+ */
+const rollbackCreatedImportRows = async (
+  entity: ImportEntity,
+  created: CreatedImportRef[],
+  supplierId: string,
+): Promise<{ removed: number, failures: string[] }> => {
+  let removed = 0
+  const failures: string[] = []
+  for (const ref of created) {
+    try {
+      if (!ref.id) {
+        failures.push(`row ${ref.row}: created row could not be identified for rollback`)
+        continue
+      }
+      if (entity === 'cars') {
+        await Car.deleteOne({ _id: ref.id })
+      } else if (entity === 'clients') {
+        await User.deleteOne({ _id: ref.id })
+        await Token.deleteMany({ user: ref.id })
+      } else if (entity === 'expenses') {
+        const expense = await MaintenanceExpense.findById(ref.id).select('receipt').lean()
+        const receipt = (expense as { receipt?: string } | null)?.receipt
+        if (receipt && receipt === path.basename(receipt)) {
+          const base = path.resolve(env.CDN_MAINTENANCE)
+          const target = path.resolve(base, receipt)
+          if (target.startsWith(`${base}${path.sep}`)) {
+            await asyncFs.unlink(target).catch(() => undefined)
+          }
+        }
+        await MaintenanceExpense.deleteOne({ _id: ref.id })
+      } else {
+        await Booking.deleteOne({ _id: ref.id })
+        await Invoice.deleteMany({ booking: ref.id, supplier: supplierId, status: bookcarsTypes.InvoiceStatus.Draft })
+      }
+      removed += 1
+    } catch (err) {
+      failures.push(`row ${ref.row}: ${err instanceof Error ? err.message : 'rollback failed'}`)
+    }
+  }
+  return { removed, failures }
+}
+
 export interface ImportActor {
   user: unknown
   agency?: { supplierId: string, role: string }
@@ -1240,6 +1424,17 @@ export const runImport = async (
   }
   const validRowNumbers = new Set<number>()
 
+  // F5b (W2-15): rollback state. A commit stops at the first
+  // commit-phase failure; every row created so far in the run is
+  // recorded here (row + created id) for the compensating deletes.
+  const createdRefs: CreatedImportRef[] = []
+  let commitFailureRow: number | null = null
+  const recordCreated = (row: number, id: string | undefined) => {
+    createdRefs.push({ row, id: id || '' })
+    validRowNumbers.add(row)
+    report.created += 1
+  }
+
   if (entity === 'cars') {
     const { candidates, errors } = await validateCars(rows, supplierId)
     report.errors.push(...errors)
@@ -1247,12 +1442,13 @@ export const runImport = async (
       if (dryRun) {
         validRowNumbers.add(candidate.row)
       } else {
-        const failure = await createCarFromImport(candidate, supplierId)
-        if (failure) {
-          report.errors.push(failure)
+        const result = await createCarFromImport(candidate, supplierId)
+        if (typeof result === 'string') {
+          recordCreated(candidate.row, result)
         } else {
-          validRowNumbers.add(candidate.row)
-          report.created += 1
+          report.errors.push(result)
+          commitFailureRow = candidate.row
+          break
         }
       }
     }
@@ -1266,13 +1462,30 @@ export const runImport = async (
         const result = await invokeHandler(userController.create as never, {
           user: actor.user,
           agency: actor.agency,
-          body: { ...candidate.body },
+          // F5b (W2-15): the agency scope is this import's supplier.
+          // userController.create only forces the supplier for
+          // Supplier/Staff callers, so without this an admin import
+          // would create supplier-less clients despite the
+          // agency-scoped validation above — and the rollback lookup
+          // below could not find them. (Bookings already pass the
+          // supplier explicitly; cars get it in createCarFromImport;
+          // expenses resolve it from the agency/car in the handler.)
+          body: { ...candidate.body, supplier: supplierId },
         })
         if (result.status === 200) {
-          validRowNumbers.add(candidate.row)
-          report.created += 1
+          // F5b (W2-15): userController.create returns no body, so the
+          // created client is resolved by its agency-unique email for
+          // the rollback record.
+          const stored = await User.findOne({
+            supplier: supplierId,
+            type: bookcarsTypes.UserType.User,
+            email: candidate.body.email as string,
+          }).select('_id').lean()
+          recordCreated(candidate.row, stored?._id.toString())
         } else {
           report.errors.push({ row: candidate.row, message: handlerErrorMessage(result, `Client could not be created (status ${result.status})`) })
+          commitFailureRow = candidate.row
+          break
         }
       }
     }
@@ -1291,10 +1504,13 @@ export const runImport = async (
           body: { ...candidate.body },
         })
         if (result.status === 201) {
-          validRowNumbers.add(candidate.row)
-          report.created += 1
+          // F5b (W2-15): the 201 body is the expense doc (with _id).
+          const id = (result.body as { _id?: unknown } | undefined)?._id
+          recordCreated(candidate.row, id ? String(id) : undefined)
         } else {
           report.errors.push({ row: candidate.row, message: handlerErrorMessage(result, `Expense could not be created (status ${result.status})`) })
+          commitFailureRow = candidate.row
+          break
         }
       }
     }
@@ -1323,8 +1539,9 @@ export const runImport = async (
           },
         })
         if (result.status === 200) {
-          validRowNumbers.add(candidate.row)
-          report.created += 1
+          // F5b (W2-15): the 200 body is the booking doc (with _id).
+          const id = (result.body as { _id?: unknown } | undefined)?._id
+          recordCreated(candidate.row, id ? String(id) : undefined)
         } else {
           report.errors.push({
             row: candidate.row,
@@ -1332,8 +1549,29 @@ export const runImport = async (
               ? 'Car unavailable for these dates: conflicts with an existing booking'
               : handlerErrorMessage(result, `Booking could not be created (status ${result.status})`),
           })
+          commitFailureRow = candidate.row
+          break
         }
       }
+    }
+  }
+
+  // F5b (W2-15): a commit-phase failure rolls the whole run back —
+  // dry runs never create, so there is nothing to roll back. The
+  // created rows are removed, created drops to 0 (unless a rollback
+  // delete failed — then the remainder stays and is reported), and
+  // the run reports as fully invalid: nothing from this file was kept.
+  if (!dryRun && commitFailureRow !== null) {
+    const { removed, failures } = await rollbackCreatedImportRows(entity, createdRefs, supplierId)
+    report.rolledBack = true
+    report.created = createdRefs.length - removed
+    validRowNumbers.clear()
+    report.errors.push({
+      row: commitFailureRow,
+      message: `Import rolled back after a failure at row ${commitFailureRow}: ${removed} created row(s) removed — nothing from this file was kept`,
+    })
+    for (const failure of failures) {
+      report.errors.push({ row: 0, message: `Rollback incomplete: ${failure}` })
     }
   }
 

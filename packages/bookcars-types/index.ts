@@ -1214,9 +1214,6 @@ export interface User {
   clientDocuments?: ClientDocument[]
   clientDocumentsCount?: number
   balanceDue?: number
-  /** F5b (W2-04): per-row document flags (customer rows only). */
-  documentsMissing?: boolean
-  documentsExpired?: boolean
   /** GA-PAR-22: trash / restore (client rows only — see backend models/User.ts). */
   deletedAt?: Date | null
   deletedBy?: string | User
@@ -2105,18 +2102,9 @@ export interface ResultData<T> {
 
 export type Result<T> = [ResultData<T>] | [] | undefined | null
 
-/** F5b (W2-04): client-list filters (Clients page toolbar). */
-export interface ClientListFilters {
-  clientStatus?: ClientStatus | string
-  clientType?: ClientType | string
-  missingDocs?: boolean
-  hasContracts?: boolean
-}
-
 export interface GetUsersBody {
   user: string
   types: UserType[]
-  filters?: ClientListFilters
 }
 
 export interface CreatePaymentPayload {
@@ -2254,6 +2242,8 @@ export interface ImportRowError {
 /**
  * GA-PAR-15 — import report, identical in shape for dry-run and commit.
  * `created` is 0 on a dry run (a dry run persists nothing).
+ * F5b (W2-15): `rolledBack` is true when a commit-phase failure
+ * stopped the run and the rows created so far were rolled back.
  */
 export interface ImportReport {
   entity: ImportEntity
@@ -2263,6 +2253,7 @@ export interface ImportReport {
   invalidRows: number
   created: number
   errors: ImportRowError[]
+  rolledBack?: boolean
 }
 
 /**
