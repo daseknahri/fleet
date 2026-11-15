@@ -7,8 +7,9 @@ import Booking from '../models/Booking'
 import CashSession from '../models/CashSession'
 import CashMovement from '../models/CashMovement'
 import ContractCharge from '../models/ContractCharge'
-import { LedgerError, confirmRentalPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
+import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
+import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
 import * as logger from '../utils/logger'
@@ -28,8 +29,52 @@ const populatedPaths = [
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const payments = await RentalPayment.find(getScope(req)).sort({ date: -1, createdAt: -1 }).populate(populatedPaths)
-    res.json(payments)
+    // F6 / W3 X-1 — server-side pagination + filters (same filter
+    // validation as the CSV export below). No page/size params keeps
+    // the legacy full-array response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { ...getScope(req) }
+    if (typeof req.query.status === 'string' && req.query.status) {
+      if (!Object.values(bookcarsTypes.RentalPaymentStatus).includes(req.query.status as bookcarsTypes.RentalPaymentStatus)) {
+        res.status(400).send('Invalid payment status filter')
+        return
+      }
+      filter.status = req.query.status
+    }
+    if (typeof req.query.purpose === 'string' && req.query.purpose) {
+      if (!Object.values(bookcarsTypes.RentalPaymentPurpose).includes(req.query.purpose as bookcarsTypes.RentalPaymentPurpose)) {
+        res.status(400).send('Invalid payment purpose filter')
+        return
+      }
+      filter.purpose = req.query.purpose
+    }
+    if (typeof req.query.booking === 'string' && req.query.booking) {
+      if (!mongoose.isValidObjectId(req.query.booking)) {
+        res.status(400).send('Invalid booking filter')
+        return
+      }
+      filter.booking = req.query.booking
+    }
+    const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
+    const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
+    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+      res.status(400).send('Invalid payment date filter')
+      return
+    }
+    if (from || to) {
+      filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
+    }
+    if (!pagination) {
+      res.json(await RentalPayment.find(filter).sort({ date: -1, createdAt: -1 }).populate(populatedPaths))
+      return
+    }
+    const total = await RentalPayment.countDocuments(filter)
+    const payments = await RentalPayment.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size).populate(populatedPaths)
+    res.json(pagedResponse(payments, total, pagination))
   } catch (err) {
     logger.error(`[rentalPayment.list] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -44,17 +89,36 @@ export const create = async (req: Request, res: Response) => {
     const amount = Number(payload?.amount)
     const reference = String(payload?.reference || '').trim()
     const note = String(payload?.note || '').trim()
+    const reason = String(payload?.reason || '').trim()
+    const direction = payload.direction === bookcarsTypes.RentalPaymentDirection.Debit
+      ? bookcarsTypes.RentalPaymentDirection.Debit
+      : bookcarsTypes.RentalPaymentDirection.Credit
     const idempotencyKey = typeof payload?.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : undefined
     const providerReference = typeof payload?.providerReference === 'string' ? payload.providerReference.trim() : undefined
     if (!user || !mongoose.isValidObjectId(payload?.booking) || Number.isNaN(date.getTime())
       || !Number.isFinite(amount) || amount <= 0
       || !Object.values(bookcarsTypes.RentalPaymentMethod).includes(payload.method)
       || (payload.purpose !== undefined && !Object.values(bookcarsTypes.RentalPaymentPurpose).includes(payload.purpose))
-      || reference.length > 160 || note.length > 1000
+      || (payload.direction !== undefined && !Object.values(bookcarsTypes.RentalPaymentDirection).includes(payload.direction))
+      || reference.length > 160 || note.length > 1000 || reason.length > 1000
       || (idempotencyKey !== undefined && (idempotencyKey.length < 8 || idempotencyKey.length > 200))
       || (providerReference !== undefined && providerReference.length > 200)) {
       res.status(400).send('Invalid rental payment')
       return
+    }
+    // F6 / W3 P-8 — a manual debit / standalone refund entry is ledger
+    // only (no provider refund — the money was never taken through a
+    // provider here): accountant-or-above, a recorded reason, source
+    // forced to Adjustment. Counter agents record credits pending only.
+    if (direction === bookcarsTypes.RentalPaymentDirection.Debit) {
+      if (req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent) {
+        res.status(403).send('Counter agents cannot record debit entries')
+        return
+      }
+      if (reason.length < 3) {
+        res.status(400).send('A reason is required for a debit entry')
+        return
+      }
     }
 
     const supplierId = agencySupplierId(req)
@@ -71,11 +135,17 @@ export const create = async (req: Request, res: Response) => {
       method: payload.method,
       status: pendingEntry ? bookcarsTypes.RentalPaymentStatus.Pending : undefined,
       purpose: payload.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction,
+      // A debit is an adjustment, never a manual collection: the source
+      // is forced, not operator-chosen.
+      source: direction === bookcarsTypes.RentalPaymentDirection.Debit ? bookcarsTypes.RentalPaymentSource.Adjustment : undefined,
       idempotencyKey,
       providerReference,
       actorId: user._id,
       reference,
-      note,
+      // The debit reason is the audit trail: it leads the note when both
+      // are given, and is the note when no separate note is given.
+      note: reason ? (note ? `${reason} — ${note}` : reason) : note,
     })
     // F3 / W1 #3: a posted manual payment is a collection — the booking's
     // payment status follows the ledger (Pending → Paid when nothing is
@@ -304,6 +374,119 @@ export const linkCashSession = async (req: Request, res: Response) => {
   }
 }
 
+// F6 / W3 P-8 — edit a stuck Pending ledger entry (never-posted
+// money only). The fields an operator may correct before the entry
+// can confirm: date, amount, method, purpose, reference, note. The
+// direction is fixed — a credit never becomes a debit by editing.
+// The amount is re-validated against the (possibly new) purpose's cap
+// via getPurposeRemaining: a credit must fit the remaining cap, a
+// debit must fit the recorded total. Posted/Reversed entries are
+// append-only (409) — their correction path is reverse + re-record.
+export const update = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    if (!user || !mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid payment entry')
+      return
+    }
+    const payload = req.body as bookcarsTypes.UpdateRentalPaymentPayload
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) })
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
+      res.status(409).send('Only a pending payment entry can be edited')
+      return
+    }
+    const date = payload.date !== undefined ? new Date(payload.date) : undefined
+    const amount = payload.amount !== undefined ? Number(payload.amount) : undefined
+    const reference = payload.reference !== undefined ? String(payload.reference).trim() : undefined
+    const note = payload.note !== undefined ? String(payload.note).trim() : undefined
+    if ((date !== undefined && Number.isNaN(date.getTime()))
+      || (amount !== undefined && (!Number.isFinite(amount) || amount <= 0))
+      || (payload.method !== undefined && !Object.values(bookcarsTypes.RentalPaymentMethod).includes(payload.method))
+      || (payload.purpose !== undefined && !Object.values(bookcarsTypes.RentalPaymentPurpose).includes(payload.purpose))
+      || (reference !== undefined && reference.length > 160)
+      || (note !== undefined && note.length > 1000)) {
+      res.status(400).send('Invalid payment entry')
+      return
+    }
+    if (amount !== undefined) {
+      const purpose = payload.purpose || payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
+      const { remaining, recorded, currency } = await getPurposeRemaining(payment.booking, purpose)
+      const isDebit = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit
+      const cap = isDebit ? recorded : remaining
+      if (toMinorUnits(amount, currency) > toMinorUnits(cap, currency)) {
+        res.status(409).send(isDebit
+          ? (purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+            ? 'Edited debit exceeds the recorded refundable deposit total'
+            : 'Edited debit exceeds the recorded rental total')
+          : (purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+            ? 'Edited amount exceeds the remaining refundable deposit allowance'
+            : 'Edited amount exceeds the remaining rental balance'))
+        return
+      }
+    }
+    if (date !== undefined) {
+      payment.date = date
+    }
+    if (amount !== undefined) {
+      payment.amount = amount
+    }
+    if (payload.method !== undefined) {
+      payment.method = payload.method
+    }
+    if (payload.purpose !== undefined) {
+      payment.purpose = payload.purpose
+    }
+    if (reference !== undefined) {
+      payment.reference = reference
+    }
+    if (note !== undefined) {
+      payment.note = note
+    }
+    await payment.save()
+    await payment.populate(populatedPaths)
+    res.json(payment)
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      res.status(err.code === 'BOOKING_NOT_FOUND' ? 404 : 409).send(err.message)
+      return
+    }
+    logger.error(`[rentalPayment.update] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// F6 / W3 P-8 — delete a stuck Pending ledger entry: hard delete of
+// never-posted money. A pending entry never counted toward any total,
+// so nothing else changes. Posted/Reversed entries are append-only
+// (409) — their correction path is reverse + re-record.
+export const remove = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    if (!user || !mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid payment entry')
+      return
+    }
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) }).select('_id status')
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
+      res.status(409).send('Only a pending payment entry can be deleted')
+      return
+    }
+    await RentalPayment.deleteOne({ _id: payment._id })
+    res.sendStatus(204)
+  } catch (err) {
+    logger.error(`[rentalPayment.remove] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
 export const collectionsSummary = async (req: Request, res: Response) => {
   try {
     const bookings = await Booking.find({
@@ -374,6 +557,16 @@ export const collectionsSummary = async (req: Request, res: Response) => {
     contractAmount = round2(contractAmount)
     collected = round2(collected)
     remaining = round2(remaining)
+    // F6 / W3 X-1 — net posted payments, agency-wide (the Payments
+    // page's TOTAL card). Same posted rule the page used client-side:
+    // Posted, or legacy status-less rows; debits count negative. Not
+    // limited to the collections universe: a payment on a Void or
+    // Cancelled booking is still recorded money.
+    const netRows = await RentalPayment.aggregate([
+      { $match: { ...getScope(req), $or: [{ status: bookcarsTypes.RentalPaymentStatus.Posted }, { status: { $exists: false } }, { status: null }] } },
+      { $group: { _id: null, total: { $sum: { $cond: [{ $eq: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } },
+    ])
+    const postedNetTotal = round2(Number((netRows[0] as { total?: number } | undefined)?.total || 0))
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
       currency: env.BASE_CURRENCY.toUpperCase(),
@@ -382,6 +575,7 @@ export const collectionsSummary = async (req: Request, res: Response) => {
       remaining,
       collectionRatePct: contractAmount === 0 ? null : round2((collected / contractAmount) * 100),
       bookingsCount: bookings.length,
+      postedNetTotal,
     })
   } catch (err) {
     logger.error(`[rentalPayment.collectionsSummary] ${i18n.t('ERROR')}`, err)

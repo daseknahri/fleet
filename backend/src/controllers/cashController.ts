@@ -40,7 +40,35 @@ const getScope = (req: Request): Record<string, unknown> => {
 
 export const listSessions = async (req: Request, res: Response) => {
   try {
- res.json(await CashSession.find(getScope(req)).sort({ openedAt: -1 })) 
+    // F6 / W3 X-1 — server-side pagination + status / account filters.
+    // No page/size params keeps the legacy full-array response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { ...getScope(req) }
+    if (typeof req.query.status === 'string' && req.query.status) {
+      if (!Object.values(bookcarsTypes.CashSessionStatus).includes(req.query.status as bookcarsTypes.CashSessionStatus)) {
+        res.status(400).send('Invalid cash session status filter')
+        return
+      }
+      filter.status = req.query.status
+    }
+    if (typeof req.query.account === 'string' && req.query.account) {
+      if (!Object.values(bookcarsTypes.CashAccountType).includes(req.query.account as bookcarsTypes.CashAccountType)) {
+        res.status(400).send('Invalid cash account filter')
+        return
+      }
+      filter.account = req.query.account
+    }
+    if (!pagination) {
+      res.json(await CashSession.find(filter).sort({ openedAt: -1 }))
+      return
+    }
+    const total = await CashSession.countDocuments(filter)
+    const sessions = await CashSession.find(filter).sort({ openedAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size)
+    res.json(pagedResponse(sessions, total, pagination))
 } catch (err) {
  logger.error('[cash.listSessions]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -150,8 +178,43 @@ export const listMovements = async (req: Request, res: Response) => {
     if (!session) {
  res.sendStatus(404); return 
 }
-    const movements = await CashMovement.find({ session: session._id, ...getScope(req) }).sort({ date: -1, createdAt: -1 })
-    res.json(movements)
+    // F6 / W3 X-1 — server-side pagination + direction / source /
+    // status filters. No page/size params keeps the legacy full-array
+    // response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { session: session._id, ...getScope(req) }
+    if (typeof req.query.direction === 'string' && req.query.direction) {
+      if (!Object.values(bookcarsTypes.CashMovementDirection).includes(req.query.direction as bookcarsTypes.CashMovementDirection)) {
+        res.status(400).send('Invalid cash movement direction filter')
+        return
+      }
+      filter.direction = req.query.direction
+    }
+    if (typeof req.query.source === 'string' && req.query.source) {
+      if (!Object.values(bookcarsTypes.CashMovementSource).includes(req.query.source as bookcarsTypes.CashMovementSource)) {
+        res.status(400).send('Invalid cash movement source filter')
+        return
+      }
+      filter.source = req.query.source
+    }
+    if (typeof req.query.status === 'string' && req.query.status) {
+      if (!['pending', 'confirmed'].includes(req.query.status)) {
+        res.status(400).send('Invalid cash movement status filter')
+        return
+      }
+      filter.status = req.query.status
+    }
+    if (!pagination) {
+      res.json(await CashMovement.find(filter).sort({ date: -1, createdAt: -1 }))
+      return
+    }
+    const total = await CashMovement.countDocuments(filter)
+    const movements = await CashMovement.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size)
+    res.json(pagedResponse(movements, total, pagination))
   } catch (err) {
  logger.error('[cash.listMovements]', err); res.status(400).send(i18n.t('ERROR')) 
 }

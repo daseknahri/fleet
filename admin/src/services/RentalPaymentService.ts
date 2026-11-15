@@ -1,8 +1,15 @@
 import * as bookcarsTypes from ':bookcars-types'
 import axiosInstance from './axiosInstance'
 
-export const list = (): Promise<bookcarsTypes.RentalPayment[]> =>
-  axiosInstance.get('/api/rental-payments', { withCredentials: true }).then((res) => res.data)
+export const list = (params?: { page?: number, size?: number, status?: string, purpose?: string, booking?: string, from?: string, to?: string }): Promise<bookcarsTypes.RentalPayment[] | bookcarsTypes.PagedResult<bookcarsTypes.RentalPayment>> =>
+  axiosInstance.get('/api/rental-payments', { params, withCredentials: true }).then((res) => res.data)
+
+// F6 / W3 P-8 — edit / delete a stuck Pending entry.
+export const update = (paymentId: string, data: bookcarsTypes.UpdateRentalPaymentPayload): Promise<bookcarsTypes.RentalPayment> =>
+  axiosInstance.patch(`/api/rental-payments/${encodeURIComponent(paymentId)}`, data, { withCredentials: true }).then((res) => res.data)
+
+export const remove = (paymentId: string): Promise<void> =>
+  axiosInstance.delete(`/api/rental-payments/${encodeURIComponent(paymentId)}`, { withCredentials: true }).then(() => undefined)
 
 export const create = (data: bookcarsTypes.CreateRentalPaymentPayload): Promise<bookcarsTypes.RentalPayment> =>
   axiosInstance.post('/api/rental-payments', data, { withCredentials: true }).then((res) => res.data)

@@ -12,6 +12,7 @@ import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { contentMatchesExtension } from '../utils/fileContent'
 import * as helper from '../utils/helper'
+import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 
 const getScope = (req: Request): Record<string, unknown> => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -133,12 +134,55 @@ const getCarInScope = async (carId: string, supplierId?: string, isAdmin = false
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const expenses = await MaintenanceExpense.find(getScope(req))
+    // F6 / W3 X-1 — server-side pagination + type / date / car filters.
+    // No page/size params keeps the legacy full-array response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { ...getScope(req) }
+    if (typeof req.query.type === 'string' && req.query.type) {
+      if (!Object.values(bookcarsTypes.MaintenanceExpenseType).includes(req.query.type as bookcarsTypes.MaintenanceExpenseType)) {
+        res.status(400).send('Invalid expense type filter')
+        return
+      }
+      filter.type = req.query.type
+    }
+    if (typeof req.query.car === 'string' && req.query.car) {
+      if (!mongoose.isValidObjectId(req.query.car)) {
+        res.status(400).send('Invalid car filter')
+        return
+      }
+      filter.car = req.query.car
+    }
+    const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
+    const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
+    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+      res.status(400).send('Invalid expense date filter')
+      return
+    }
+    if (from || to) {
+      filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
+    }
+    if (!pagination) {
+      const expenses = await MaintenanceExpense.find(filter)
+        .sort({ date: -1, createdAt: -1 })
+        .populate('car', 'name licensePlate')
+        .populate('supplier', 'fullName')
+
+      res.json(expenses.map((expense) => withPaymentState(expense)))
+      return
+    }
+    const total = await MaintenanceExpense.countDocuments(filter)
+    const expenses = await MaintenanceExpense.find(filter)
       .sort({ date: -1, createdAt: -1 })
+      .skip(paginationSkip(pagination))
+      .limit(pagination.size)
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
 
-    res.json(expenses.map((expense) => withPaymentState(expense)))
+    res.json(pagedResponse(expenses.map((expense) => withPaymentState(expense)), total, pagination))
   } catch (err) {
     logger.error(`[maintenanceExpense.list] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))

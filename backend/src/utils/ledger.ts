@@ -376,7 +376,19 @@ existingQuery.session(session)
   // booking's own car deposit for legacy bookings — never a silent 0).
   const purposeTotal = await purposeCap(booking, purpose, session)
   const remaining = remainingLedgerBalance(purposeTotal, recorded, currency)
-  if (amount <= 0 || toMinorUnits(amount, currency) > toMinorUnits(remaining, currency)) {
+  const direction = input.direction || bookcarsTypes.RentalPaymentDirection.Credit
+  // F6 / W3 P-8 — a manual debit is validated against what was
+  // RECORDED, not what remains: it must not drive the purpose total
+  // below zero (a credit is validated against the remaining cap, as
+  // before). `recorded` is the signed net (debits count negative), so
+  // amount <= recorded is exactly "the total stays >= 0".
+  if (direction === bookcarsTypes.RentalPaymentDirection.Debit) {
+    if (amount <= 0 || toMinorUnits(amount, currency) > toMinorUnits(recorded, currency)) {
+      throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+        ? 'Debit exceeds the recorded refundable deposit total'
+        : 'Debit exceeds the recorded rental total')
+    }
+  } else if (amount <= 0 || toMinorUnits(amount, currency) > toMinorUnits(remaining, currency)) {
     throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
       ? (purposeTotal <= 0
         ? 'No refundable deposit is recorded for this booking (no snapshot and no car deposit)'
@@ -471,7 +483,18 @@ export const confirmRentalPayment = async (input: {
     // booking's own car deposit for legacy bookings).
     const purposeTotal = await purposeCap(booking, purpose)
     const remaining = remainingLedgerBalance(purposeTotal, recorded, currency)
-    if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(remaining, currency)) {
+    // F6 / W3 P-8 — a pending debit confirms against the recorded total
+    // (must not drive the purpose total below zero); a pending credit
+    // confirms against the remaining cap, as before. A debit can only
+    // be pending when an accountant recorded it (counter agents cannot
+    // record debits), but the check is the same either way.
+    if (payment.direction === bookcarsTypes.RentalPaymentDirection.Debit) {
+      if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(recorded, currency)) {
+        throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+          ? 'Confirming this debit would exceed the recorded refundable deposit total'
+          : 'Confirming this debit would exceed the recorded rental total')
+      }
+    } else if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(remaining, currency)) {
       throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit && purposeTotal <= 0
         ? 'No refundable deposit is recorded for this booking (no snapshot and no car deposit)'
         : 'Confirming this entry would exceed the remaining balance')

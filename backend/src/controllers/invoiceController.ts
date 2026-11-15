@@ -14,13 +14,35 @@ import { recomputeInvoicePayment } from '../utils/invoicePayment'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { renderInvoicePdf } from '../utils/invoicePdf'
 import { createInvoiceForBooking, InvoiceCreationError } from '../utils/invoiceCreation'
+import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName' }]
 
 export const list = async (req: Request, res: Response) => {
   try {
- res.json(await Invoice.find(scope(req)).sort({ createdAt: -1 }).populate(populate)) 
+    // F6 / W3 X-1 — server-side pagination + status filter. No
+    // page/size params keeps the legacy full-array response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { ...scope(req) }
+    if (typeof req.query.status === 'string' && req.query.status) {
+      if (!Object.values(bookcarsTypes.InvoiceStatus).includes(req.query.status as bookcarsTypes.InvoiceStatus)) {
+        res.status(400).send('Invalid invoice status filter')
+        return
+      }
+      filter.status = req.query.status
+    }
+    if (!pagination) {
+      res.json(await Invoice.find(filter).sort({ createdAt: -1 }).populate(populate))
+      return
+    }
+    const total = await Invoice.countDocuments(filter)
+    const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size).populate(populate)
+    res.json(pagedResponse(invoices, total, pagination))
 } catch (err) {
  logger.error('[invoice.list]', err); res.status(400).send(i18n.t('ERROR')) 
 }

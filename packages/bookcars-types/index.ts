@@ -1973,7 +1973,7 @@ export interface ReportDrilldownResult {
 }
 
 /** GA-PAR-09 Phase B / GA-PAR-14 — dashboard period aggregate. */
-/** GA-PAR-17 — payments collections summary (dictionary v2026-11-11.2). */
+/** GA-PAR-17 — payments collections summary (dictionary v2026-11-15.1). */
 export interface CollectionsSummary {
   metricDictionaryVersion: string
   currency: string
@@ -1982,6 +1982,11 @@ export interface CollectionsSummary {
   remaining: number
   collectionRatePct: number | null
   bookingsCount: number
+  // F6 / W3 X-1 — net posted payments (rent + deposits, debits
+  // negative), agency-wide. The Payments page's TOTAL card used to
+  // sum this client-side from the full payment list; the list is
+  // server-paginated now, so the server computes it.
+  postedNetTotal: number
 }
 
 export interface DashboardSummary {
