@@ -40,6 +40,15 @@ export interface PostRentalPaymentInput {
   actorId?: mongoose.Types.ObjectId | string
   reference?: string
   note?: string
+  // F2 / W4 GAP-10 — provider-settled leg (payment currency) of a
+  // provider checkout posting. Informational only: the base-currency
+  // `amount`/`currency` above still post under the purpose caps, and the
+  // recorded totals sum `amount`, never these fields.
+  settledAmount?: number
+  settledCurrency?: string
+  fxRate?: number
+  fxSource?: string
+  fxAt?: Date
   session?: mongoose.ClientSession
 }
 
@@ -169,6 +178,13 @@ existingQuery.session(session)
     providerReference: input.providerReference,
     actor: input.actorId,
     settledAt: (input.status || bookcarsTypes.RentalPaymentStatus.Posted) === bookcarsTypes.RentalPaymentStatus.Posted ? input.date : undefined,
+    // F2 / W4 GAP-10 — provider-settled leg, stored alongside the
+    // base-currency posting so provider settlement reconciles exactly.
+    settledAmount: input.settledAmount,
+    settledCurrency: input.settledCurrency,
+    fxRate: input.fxRate,
+    fxSource: input.fxSource,
+    fxAt: input.fxAt,
     reference: input.reference,
     note: input.note,
   })
@@ -364,6 +380,13 @@ return existing
       reversedFrom: original._id,
       refundProviderReference,
       refundedAt,
+      // F2 / W4 GAP-10 — the reversal annuls the same provider-settled
+      // leg, so the pair stays reconcilable to provider settlement.
+      settledAmount: original.settledAmount,
+      settledCurrency: original.settledCurrency,
+      fxRate: original.fxRate,
+      fxSource: original.fxSource,
+      fxAt: original.fxAt,
       settledAt: reversalDate,
       note: input.note || `Reversal of ${original._id.toString()}`,
     })

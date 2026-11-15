@@ -196,6 +196,12 @@ const bookingSchema = new Schema<env.Booking>(
       amountDueNow: Number,
       amountDueNowInPaymentCurrency: Number,
       quotedAt: Date,
+      // F2 / W4 GAP-10 — FX rate behind amountDueNowInPaymentCurrency
+      // (payment-currency units per 1 base-currency unit) + its source
+      // and capture time. Optional: pre-F2 snapshots carry no rate.
+      fxRate: Number,
+      fxSource: String,
+      fxAt: Date,
     },
     // GA-PAR-12: online client signing. `signingNonce` is the revocation
     // anchor for signing links: issue mints an HMAC capability token over

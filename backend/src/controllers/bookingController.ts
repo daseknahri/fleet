@@ -507,6 +507,22 @@ export const finalizePaidCheckoutBooking = async (
     // against the rent cap and the deposit leg against the deposit cap, so
     // it no longer throws OVERPAYMENT; a Deposit-mode checkout posts the
     // deposit as Deposit, not Rent.
+    //
+    // F2 / W4 GAP-10: each leg also stores its provider-settled leg
+    // (payment currency) so the ledger reconciles to the provider
+    // settlement exactly. The base-currency amount/currency still post
+    // under the existing purpose caps (ledger invariant — the settled leg
+    // is informational and never enters the recorded totals). The settled
+    // rent leg is the base leg × the snapshot FX rate (2dp); the deposit
+    // leg takes the remainder so the settled legs sum to the provider
+    // total exactly. Snapshots written before F2 carry no fxRate; the
+    // ratio of the two stored amounts is the fallback (exact for
+    // same-currency snapshots).
+    const settledFxRate = snapshot.fxRate && snapshot.fxRate > 0
+      ? snapshot.fxRate
+      : (snapshot.amountDueNow > 0 ? snapshot.amountDueNowInPaymentCurrency / snapshot.amountDueNow : 1)
+    const settledRentAmount = Number((rentAmount * settledFxRate).toFixed(2))
+    const settledDepositAmount = Number((snapshot.amountDueNowInPaymentCurrency - settledRentAmount).toFixed(2))
     const postLeg = async (purpose: bookcarsTypes.RentalPaymentPurpose, amount: number) => {
       await postProviderPayment({
         bookingId: booking._id.toString(),
@@ -519,6 +535,11 @@ export const finalizePaidCheckoutBooking = async (
         note: `Verified ${provider} checkout payment`,
         idempotencyKey: `${provider}-checkout-${reference}-${purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? 'deposit' : 'rent'}`,
         purpose,
+        settledAmount: purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? settledDepositAmount : settledRentAmount,
+        settledCurrency: snapshot.paymentCurrency,
+        fxRate: settledFxRate,
+        fxSource: snapshot.fxSource,
+        fxAt: snapshot.fxAt,
         ...(session ? { session } : {}),
       })
     }
@@ -1064,9 +1085,29 @@ export const checkout = async (req: Request, res: Response) => {
       res.status(400).send('The selected checkout amount must be greater than zero')
       return
     }
-    const amountDueNowInPaymentCurrency = amountDueNow === 0 || paymentCurrency === env.BASE_CURRENCY.toUpperCase()
-      ? amountDueNow
-      : await bookcarsHelper.convertPrice(amountDueNow, env.BASE_CURRENCY.toUpperCase(), paymentCurrency)
+    // F2 / W4 GAP-02: the FX rate service is a live dependency — its
+    // failure is a retryable provider outage, not a bad request. Answer
+    // 503 (no booking is created and no money is taken at this point)
+    // instead of letting the outer catch turn it into the generic 400.
+    let amountDueNowInPaymentCurrency: number
+    try {
+      amountDueNowInPaymentCurrency = amountDueNow === 0 || paymentCurrency === env.BASE_CURRENCY.toUpperCase()
+        ? amountDueNow
+        : await bookcarsHelper.convertPrice(amountDueNow, env.BASE_CURRENCY.toUpperCase(), paymentCurrency)
+    } catch (err) {
+      logger.error('[booking.checkout] Currency conversion failed; checkout cannot be priced', err)
+      res.status(503).send('Currency conversion is temporarily unavailable; please retry checkout')
+      return
+    }
+    // F2 / W4 GAP-10: record the FX rate behind
+    // amountDueNowInPaymentCurrency so the ledger's provider-settled leg
+    // reconciles exactly. The rate is derived from the two converted
+    // amounts (convertPrice rounds the converted total to 2dp); 1 with
+    // source 'identity' when no conversion happened.
+    const fxRate = amountDueNow > 0 && paymentCurrency !== env.BASE_CURRENCY.toUpperCase()
+      ? Number((amountDueNowInPaymentCurrency / amountDueNow).toFixed(6))
+      : 1
+    const fxSource = paymentCurrency === env.BASE_CURRENCY.toUpperCase() ? 'identity' : 'easy-currencies'
     const financialSnapshot: bookcarsTypes.BookingFinancialSnapshot = {
       version: 1,
       baseCurrency: env.BASE_CURRENCY,
@@ -1077,6 +1118,9 @@ export const checkout = async (req: Request, res: Response) => {
       amountDueNow,
       amountDueNowInPaymentCurrency,
       quotedAt: new Date(),
+      fxRate,
+      fxSource,
+      fxAt: new Date(),
     }
 
     const { language } = user

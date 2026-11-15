@@ -7,34 +7,7 @@ import * as bookingController from './bookingController'
 import * as ipinfoHelper from '../utils/ipinfoHelper'
 import { BookingConflictError } from '../utils/bookingReservationHelper'
 import { currencyExponent, formatProviderAmount } from '../utils/paymentAmount'
-
-/**
- * F1 / W4 GAP-05 — refund a COMPLETED PayPal capture after a verification
- * mismatch, before any error is returned. Returns `'refunded'` when the
- * money was returned, `'no-capture'` when no completed capture exists (so
- * no money was taken), and `'failed'` when the refund itself could not be
- * completed (caller must return a manual-review code).
- *
- * @param {object} paypal
- * @param {object} order
- * @returns {Promise<'refunded' | 'no-capture' | 'failed'>}
- */
-const refundCompletedCapture = async (
-  paypal: { refundCapture: (captureId: string, requestId: string) => Promise<unknown> },
-  order: { purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string, status?: string }> } }> },
-): Promise<'refunded' | 'no-capture' | 'failed'> => {
-  const capture = order?.purchase_units?.[0]?.payments?.captures?.find((c) => c?.status === 'COMPLETED' && c?.id)
-  if (!capture?.id) {
-    return 'no-capture'
-  }
-  try {
-    await paypal.refundCapture(capture.id, `refund-${capture.id}-mismatch`)
-    return 'refunded'
-  } catch (err) {
-    logger.error(`[paypal.checkPayPalOrder] Mismatch refund failed for capture ${capture.id}`, err)
-    return 'failed'
-  }
-}
+import { refundCompletedCapture } from '../utils/checkoutReconciliation'
 
 /**
  * F1 / W4 GAP-05 — map a mismatch-refund outcome to the response. A

@@ -2,43 +2,14 @@ import { Request, Response } from 'express'
 import mongoose from 'mongoose'
 import Stripe from 'stripe'
 import i18n from '../lang/i18n'
+import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
 import * as bookingController from './bookingController'
 import { BookingConflictError } from '../utils/bookingReservationHelper'
 import { toMinorUnits } from '../utils/paymentAmount'
-
-/**
- * F1 / W4 GAP-05 — refund a succeeded PaymentIntent after a verification
- * mismatch, before any error is returned. Returns `'refunded'` when the
- * money was returned, `'not-paid'` when the intent never succeeded (so
- * there is nothing to refund), and `'failed'` when the refund itself could
- * not be completed (caller must return a manual-review code).
- *
- * @param {Stripe} stripeAPI
- * @param {string} paymentIntentId
- * @returns {Promise<'refunded' | 'not-paid' | 'failed'>}
- */
-const refundSucceededIntent = async (
-  stripeAPI: Stripe,
-  paymentIntentId: string,
-): Promise<'refunded' | 'not-paid' | 'failed'> => {
-  try {
-    const intent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
-    if (!intent || intent.status !== 'succeeded') {
-      return 'not-paid'
-    }
-    await stripeAPI.refunds.create(
-      { payment_intent: intent.id },
-      { idempotencyKey: `refund-${intent.id}-mismatch` },
-    )
-    return 'refunded'
-  } catch (err) {
-    logger.error(`[stripe.checkCheckoutSession] Mismatch refund failed for ${paymentIntentId}`, err)
-    return 'failed'
-  }
-}
+import { reconcileStripeIntent, reconcileStripeSession, refundSucceededIntent } from '../utils/checkoutReconciliation'
 
 /**
  * F1 / W4 GAP-05 — map a mismatch-refund outcome to the response. A
@@ -310,4 +281,90 @@ export const checkCheckoutSession = async (req: Request, res: Response) => {
  */
 export const createPaymentIntent = async (_req: Request, res: Response) => {
   res.status(410).send('Payment intents are created from a server-priced booking checkout')
+}
+
+/**
+ * F2 / W4 GAP-04 — Stripe webhook: finalise (or refund) a paid checkout
+ * without the customer's browser. Before this endpoint existed, a
+ * customer who closed the tab after paying left money taken, booking
+ * `Void`, TTL-deleted, never refunded — finalisation depended entirely
+ * on the browser hitting `/checkout-session/:sessionId`.
+ *
+ * Security: the event is accepted ONLY with a valid Stripe signature
+ * (`stripe-signature` header, verified against
+ * `BC_STRIPE_WEBHOOK_SECRET` over the RAW request body — app.ts mounts
+ * this route with `express.raw` before the global JSON parser, so the
+ * handler must see a Buffer in `req.body`). The secret is read
+ * per-request via `env.__env__` (live `process.env` read, falling back
+ * to the boot-time value) so it is fail-closed when unconfigured and
+ * test-injectable without a module re-import. An unconfigured secret
+ * answers 503, a bad signature 400 — no event is ever processed
+ * unverified. The secret value is never logged.
+ *
+ * Semantics: a verified event is acknowledged with 200 once its money
+ * outcome is settled. `refund-failed` (money taken, refund not
+ * completed) answers 500 so Stripe redelivers — reconciliation is
+ * idempotent (finalisation requires `status: Void`, refunds reuse
+ * stable idempotency keys), so a redelivery cannot finalise or refund
+ * twice. Unknown event types are acknowledged and ignored.
+ * `payment_intent.succeeded` covers the mobile PaymentSheet flow, which
+ * has no Checkout Session; `checkout.session.async_payment_succeeded`
+ * is handled like `checkout.session.completed` for redirect/async
+ * methods, even though today's checkout is card-only.
+ *
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const handleStripeWebhook = async (req: Request, res: Response) => {
+  const webhookSecret = env.__env__('BC_STRIPE_WEBHOOK_SECRET', false, env.STRIPE_WEBHOOK_SECRET)
+  if (!webhookSecret) {
+    logger.error('[stripe.webhook] STRIPE_WEBHOOK_SECRET is not configured; rejecting webhook event')
+    res.status(503).send('Stripe webhook is not configured')
+    return
+  }
+  const signature = req.headers['stripe-signature']
+  if (typeof signature !== 'string' || !Buffer.isBuffer(req.body)) {
+    res.status(400).send('Invalid webhook request')
+    return
+  }
+  let event: Stripe.Event
+  try {
+    const stripeAPI = (await import('../payment/stripe.js')).default
+    event = stripeAPI.webhooks.constructEvent(req.body, signature, webhookSecret)
+  } catch (err) {
+    logger.error('[stripe.webhook] Signature verification failed', err)
+    res.status(400).send('Invalid webhook signature')
+    return
+  }
+  try {
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      const session = event.data.object as Stripe.Checkout.Session
+      const result = await reconcileStripeSession(session)
+      logger.info(`[stripe.webhook] ${event.type} ${session.id} -> ${result.outcome}${result.bookingId ? ` (booking ${result.bookingId})` : ''}${result.detail ? `: ${result.detail}` : ''}`)
+      if (result.outcome === 'refund-failed') {
+        res.status(500).send('Payment refund requires support review; Stripe will retry')
+        return
+      }
+    } else if (event.type === 'payment_intent.succeeded') {
+      const intent = event.data.object as Stripe.PaymentIntent
+      const result = await reconcileStripeIntent(intent)
+      logger.info(`[stripe.webhook] payment_intent.succeeded ${intent.id} -> ${result.outcome}${result.bookingId ? ` (booking ${result.bookingId})` : ''}${result.detail ? `: ${result.detail}` : ''}`)
+      if (result.outcome === 'refund-failed') {
+        res.status(500).send('Payment refund requires support review; Stripe will retry')
+        return
+      }
+    } else {
+      logger.info(`[stripe.webhook] Ignoring event ${event.type}`)
+    }
+  } catch (err) {
+    // Reconciliation itself failed (database / provider unavailable).
+    // Answer 500 so Stripe redelivers; the reconcile is idempotent, so
+    // a redelivery cannot finalise or refund twice.
+    logger.error(`[stripe.webhook] Failed to reconcile event ${event.type} ${event.id}`, err)
+    res.status(500).send('Webhook reconciliation failed; Stripe will retry')
+    return
+  }
+  res.sendStatus(200)
 }

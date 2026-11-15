@@ -458,6 +458,19 @@ stripeSessionExpireAt = stripeSessionExpireAt <= 82800 ? stripeSessionExpireAt :
 export const STRIPE_SESSION_EXPIRE_AT = stripeSessionExpireAt
 
 /**
+ * Stripe webhook endpoint secret (Stripe Dashboard → Developers →
+ * Webhooks → the endpoint's Signing secret). Required for signature
+ * verification of Stripe webhook events (F2 / W4 GAP-04). Empty means
+ * the webhook endpoint refuses every event (fail closed). The value is
+ * never logged and must come from the environment — never hardcode it.
+ * The handler also re-reads `BC_STRIPE_WEBHOOK_SECRET` per request
+ * (see stripeController.handleStripeWebhook).
+ *
+ * @type {string}
+ */
+export const STRIPE_WEBHOOK_SECRET = __env__('BC_STRIPE_WEBHOOK_SECRET', false, '')
+
+/**
  * Indicates whether PayPal is used in sandbox mode or production.
  *
  * @type {boolean}
@@ -1200,6 +1213,17 @@ export interface RentalPayment extends Document {
   refundProviderReference?: string
   refundedAt?: Date
   settledAt?: Date
+  // F2 / W4 GAP-10 — provider-settled leg of a provider checkout posting:
+  // the amount the provider actually settled, in the payment currency,
+  // at the snapshot FX rate. The base-currency `amount`/`currency` above
+  // still post under the ledger's purpose caps; these fields are
+  // informational only and never enter the recorded totals, so a
+  // foreign-currency charge reconciles to provider settlement exactly.
+  settledAmount?: number
+  settledCurrency?: string
+  fxRate?: number
+  fxSource?: string
+  fxAt?: Date
   reference?: string
   note?: string
 }

@@ -801,6 +801,23 @@ export interface BookingFinancialSnapshot {
   amountDueNow: number
   amountDueNowInPaymentCurrency: number
   quotedAt: Date
+  /**
+   * F2 / W4 GAP-10 — FX rate behind `amountDueNowInPaymentCurrency`:
+   * payment-currency units per 1 base-currency unit (1 when the
+   * currencies match). Optional: snapshots written before this field
+   * existed carry no rate, and the ledger derives the ratio from the
+   * two stored amounts instead. Never `required` (F1 lesson: a required
+   * field would break legacy snapshot-less rows).
+   */
+  fxRate?: number
+  /**
+   * F2 / W4 GAP-10 — where `fxRate` came from: `'easy-currencies'` for
+   * a live conversion, `'identity'` when `paymentCurrency` is the base
+   * currency and no conversion happened.
+   */
+  fxSource?: string
+  /** F2 / W4 GAP-10 — when the rate was captured (== `quotedAt`). */
+  fxAt?: Date
 }
 
 export interface CheckoutPayload {

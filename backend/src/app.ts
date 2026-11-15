@@ -15,6 +15,8 @@ import notificationRoutes from './routes/notificationRoutes'
 import carRoutes from './routes/carRoutes'
 import userRoutes from './routes/userRoutes'
 import stripeRoutes from './routes/stripeRoutes'
+import * as stripeController from './controllers/stripeController'
+import stripeRoutesConfig from './config/stripeRoutes.config'
 import countryRoutes from './routes/countryRoutes'
 import paypalRoutes from './routes/paypalRoutes'
 import ipinfoRoutes from './routes/ipinfoRoutes'
@@ -64,6 +66,11 @@ app.use(helmet.crossOriginOpenerPolicy())
 app.use(nocache())
 app.use(compression({ threshold: 0 }))
 app.use(express.urlencoded({ limit: '50mb', extended: true }))
+// F2 / W4 GAP-04: Stripe webhook signature verification needs the raw
+// request body — mount it BEFORE the global JSON parser consumes the
+// stream, with its own raw parser. stripeRoutes keeps the JSON-parsed
+// check endpoints; only the webhook lives here.
+app.use(stripeRoutesConfig.webhook, express.raw({ type: 'application/json', limit: '1mb' }), stripeController.handleStripeWebhook)
 app.use(express.json({ limit: '50mb' }))
 
 app.use(cors())
