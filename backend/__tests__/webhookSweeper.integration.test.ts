@@ -129,7 +129,7 @@ const makeFixture = async (
     pickupLocation: location._id, dropOffLocation: location._id,
     from: new Date(Date.now() + 86400000), to: new Date(Date.now() + 3 * 86400000),
     status: bookcarsTypes.BookingStatus.Void, price: amounts.rentalTotal,
-    sessionId: opts.sessionId === null ? undefined : (opts.sessionId || `cs-f2-${rand()}`),
+    sessionId: opts.sessionId === null ? undefined : (opts.sessionId || `cs_test_f2_${rand()}`),
     paymentIntentId: opts.paymentIntentId || undefined,
     paypalOrderId: opts.paypalOrderId || undefined,
     expireAt: opts.expireAt || new Date(Date.now() + 3600000),

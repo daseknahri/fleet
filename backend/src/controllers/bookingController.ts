@@ -471,11 +471,20 @@ const splitProviderCheckoutAmounts = (snapshot: bookcarsTypes.BookingFinancialSn
   return { rent: amountDueNow, deposit: 0 }
 }
 
-/** Finalize a booking only after an external provider has verified payment. */
+/** Finalize a booking only after an external provider has verified payment.
+ *
+ * `options.allowExpired` is for background reconciliation only (webhook /
+ * sweeper via checkoutReconciliation.finalizeOrRefund): those paths only
+ * ever see bookings whose `expireAt` has already passed, so the live-booking
+ * guard below would refuse every one of them. The browser return paths
+ * (checkCheckoutSession / checkPayPalOrder / confirmPaymentIntent) do not
+ * pass it, so a customer returning after expiry still cannot resurrect a
+ * dead booking. Car-availability conflicts are still enforced either way. */
 export const finalizePaidCheckoutBooking = async (
   booking: env.Booking,
   provider: 'stripe' | 'paypal',
   reference: string,
+  options?: { allowExpired?: boolean },
 ) => {
   const snapshot = booking.financialSnapshot
   if (!snapshot || !reference) {
@@ -512,7 +521,7 @@ export const finalizePaidCheckoutBooking = async (
 
     saved = await saveBookingWithAvailability(booking, {
       expectedStatus: bookcarsTypes.BookingStatus.Void,
-      requireExpireAt: true,
+      requireExpireAt: !options?.allowExpired,
       ...(session ? { session } : {}),
     })
     if (!saved) return

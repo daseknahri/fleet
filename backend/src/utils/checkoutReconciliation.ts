@@ -169,10 +169,17 @@ const finalizeOrRefund = async (
   const bookingId = booking._id.toString()
   let finalized = false
   try {
+    // Reconciliation (webhook / sweeper) only ever sees expired Void
+    // bookings: a late webhook delivery or a sweeper tick runs after
+    // `expireAt` passed. Without allowExpired the live-booking guard
+    // in finalizePaidCheckoutBooking refuses every one of them, so a
+    // paid-and-verified booking is refunded instead of finalised.
+    // Car-availability conflicts are still enforced inside the save.
     finalized = await bookingController.finalizePaidCheckoutBooking(
       booking,
       provider,
       reference,
+      { allowExpired: true },
     )
   } catch (err) {
     // Finalisation can throw after the provider payment succeeded (e.g. a
