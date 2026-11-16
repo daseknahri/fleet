@@ -481,7 +481,7 @@ carSchema.index(
   {
     unique: true,
     collation: { locale: 'en', strength: 2 },
-    partialFilterExpression: { licensePlate: { $type: 'string', $ne: '' }, deletedAt: null },
+    partialFilterExpression: { licensePlate: { $type: 'string', $gt: '' }, deletedAt: null },
   },
 )
 // Fleet statuses (scorecard #15): serves the fleet-status counts and
