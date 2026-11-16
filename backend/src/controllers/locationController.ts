@@ -949,7 +949,16 @@ export const updateImage = async (req: Request, res: Response) => {
 
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const location = await Location.findById(id)
-    if (!location || !sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
+    // A missing location is a 204 (the not-found answer the other
+    // image endpoints use), not a 403: the combined guard used to
+    // answer 403 for a location that does not exist, which also made
+    // the trailing 204 branch below unreachable.
+    if (!location) {
+      logger.error('[location.updateImage] Location not found:', id)
+      res.sendStatus(204)
+      return
+    }
+    if (!sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
       res.status(403).send('Forbidden: You cannot update this location image')
       return
     }
@@ -984,8 +993,6 @@ export const updateImage = async (req: Request, res: Response) => {
       return
     }
 
-    logger.error('[location.updateImage] Location not found:', id)
-    res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.updateImage] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -1010,7 +1017,13 @@ export const deleteImage = async (req: Request, res: Response) => {
     }
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
     const location = await Location.findById(id)
-    if (!location || !sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
+    // As in updateImage above: a missing location is a 204, not a 403.
+    if (!location) {
+      logger.error('[location.deleteImage] Location not found:', id)
+      res.sendStatus(204)
+      return
+    }
+    if (!sessionUser || !canAccessAgencyLocation(req, location.supplier)) {
       res.status(403).send('Forbidden: You cannot delete this location image')
       return
     }
@@ -1028,8 +1041,6 @@ export const deleteImage = async (req: Request, res: Response) => {
       res.sendStatus(200)
       return
     }
-    logger.error('[location.deleteImage] Location not found:', id)
-    res.sendStatus(204)
   } catch (err) {
     logger.error(`[location.deleteImage] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))

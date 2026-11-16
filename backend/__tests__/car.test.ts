@@ -180,7 +180,10 @@ describe('POST /api/create-car', () => {
     const startDate1 = new Date()
     const endDate1 = new Date(startDate1)
     endDate1.setDate(endDate1.getDate() + 1)
+    // F5b (W2-10): back-to-back means next start = previous end + 1 day;
+    // a start equal to the previous end is an overlap (400).
     const startDate2 = new Date(endDate1)
+    startDate2.setDate(startDate2.getDate() + 1)
     const endDate2 = new Date(startDate2)
     endDate2.setDate(endDate2.getDate() + 1)
 
@@ -259,11 +262,14 @@ describe('PUT /api/update-car', () => {
     startDate1.setDate(startDate1.getDate() + 1)
     const endDate1 = new Date(startDate1)
     endDate1.setDate(endDate1.getDate() + 2)
+    // F5b (W2-10): as in create above — back-to-back is previous end + 1 day.
     const startDate2 = new Date(endDate1)
+    startDate2.setDate(startDate2.getDate() + 1)
     const endDate2 = new Date(startDate2)
     endDate2.setDate(endDate2.getDate() + 2)
 
     const startDate3 = new Date(endDate2)
+    startDate3.setDate(startDate3.getDate() + 1)
     const endDate3 = new Date(startDate3)
     endDate3.setDate(endDate3.getDate() + 2)
 
@@ -1067,7 +1073,9 @@ describe('GET /api/validate-license-plate/:licensePlate', () => {
       .set(env.X_ACCESS_TOKEN, token)
 
     expect(res.statusCode).toBe(400)
-    expect(res.text).toContain('DB') // or the localized DB_ERROR message
+    // Catches send the generic i18n.t('ERROR') ('Internal Error: ') —
+    // never DB_ERROR or the thrown message — so assert that string.
+    expect(res.text).toContain('Internal Error')
 
     // restore original function
     spy.mockRestore()
@@ -1108,7 +1116,9 @@ describe('GET /api/validate-license-plate/:id/:licensePlate', () => {
       .set(env.X_ACCESS_TOKEN, token)
 
     expect(res.statusCode).toBe(400)
-    expect(res.text).toContain('DB') // or the localized DB_ERROR message
+    // Catches send the generic i18n.t('ERROR') ('Internal Error: ') —
+    // never DB_ERROR or the thrown message — so assert that string.
+    expect(res.text).toContain('Internal Error')
 
     // restore original function
     spy.mockRestore()

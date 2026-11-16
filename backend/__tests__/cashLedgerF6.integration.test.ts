@@ -315,8 +315,12 @@ describe('F6 / W3 C-5 — server-side cash journal', () => {
     expect(csv.status).toBe(200)
     expect(csv.headers['content-type']).toContain('text/csv')
     expect(csv.text).toContain('date,direction,source,status,purpose,reference,note,amount,currency,linkedPayment,bookingReference')
-    expect(csv.text).toContain('summary,income,25.00')
-    expect(csv.text).toContain('summary,expectedBalance,525.00')
+    // The CSV follows the exportPaymentsCsv escaping pattern (every
+    // field quoted) with the currency on the summary lines — F6-REPORT
+    // C-5 — so the summary lines are the quoted 4-field form, not the
+    // unquoted 3-field form.
+    expect(csv.text).toContain(`"summary","income","25.00","${env.BASE_CURRENCY}"`)
+    expect(csv.text).toContain(`"summary","expectedBalance","525.00","${env.BASE_CURRENCY}"`)
     await closeSession(session._id, { countedClosingBalance: 525, closingNote: 'F6 C-5 csv' })
   })
 

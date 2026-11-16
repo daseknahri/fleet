@@ -26,7 +26,9 @@ let TOKEN: string
 const createdClientIds: string[] = []
 const createdDocFiles: string[] = []
 
-const uniqueEmail = () => `f5b-client-${nanoid(8)}@test.bookcars.ma`
+// The User schema stores emails lowercase: generated addresses must
+// already be canonical, or stored-vs-generated comparisons fail.
+const uniqueEmail = () => `f5b-client-${nanoid(8).toLowerCase()}@test.bookcars.ma`
 const uniqueCin = () => `CIN${nanoid(8).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`
 const uniquePassport = () => `P${nanoid(8).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`
 
