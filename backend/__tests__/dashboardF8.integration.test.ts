@@ -403,14 +403,18 @@ describe('F8 / W5 S1 + AU4 — connections endpoint returns booleans only; setti
     expect(JSON.stringify(res.body)).not.toMatch(/sk_live|secret|token|password/i)
   })
 
-  it('GET /api/settings/connections without a token is 401', async () => {
+  // verifyToken answers a MISSING token with 403 ('No token provided!')
+  // and an INVALID token with 401 — the app-wide contract (see
+  // user.test.ts 'rejects ordinary, unauthenticated, and invalid-token
+  // callers'). The F8 AU4 write-up said 401; the implementation never did.
+  it('GET /api/settings/connections without a token is 403', async () => {
     const res = await request(app).get('/api/settings/connections')
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 
-  it('GET /api/settings without a token is 401 (AU4, fixed with S4)', async () => {
+  it('GET /api/settings without a token is 403 (AU4, fixed with S4)', async () => {
     const res = await request(app).get('/api/settings')
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 })
 

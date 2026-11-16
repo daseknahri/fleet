@@ -50,7 +50,11 @@ describe('Mongo-backed maintenance receipts, schedules and category reports', ()
     expect(download.status).toBe(200); expect(download.headers['content-type']).toContain('application/pdf')
     const denied = await request(app).get(`/api/maintenance-expense-receipt/${created.body._id}/${created.body.receipt}`).set(env.X_ACCESS_TOKEN, tokenB)
     expect(denied.status).toBe(403)
-    const removed = await request(app).delete(`/api/maintenance-expenses/${created.body._id}`).set(env.X_ACCESS_TOKEN, tokenA)
+    // F7 / W3 M-7: a hard delete requires a recorded reason (>= 3 chars);
+    // a bare DELETE is refused 400 ('A reason is required to delete an
+    // expense'). The admin UI sends the reason the same way
+    // (MaintenanceExpenseService.remove passes { data: { reason } }).
+    const removed = await request(app).delete(`/api/maintenance-expenses/${created.body._id}`).set(env.X_ACCESS_TOKEN, tokenA).send({ reason: 'Receipt lifecycle verified, test cleanup' })
     expect(removed.status).toBe(200)
     const afterDelete = await request(app).get(`/api/maintenance-expense-receipt/${created.body._id}/${created.body.receipt}`).set(env.X_ACCESS_TOKEN, tokenA)
     expect(afterDelete.status).toBe(404)
