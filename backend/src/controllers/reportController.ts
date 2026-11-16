@@ -164,9 +164,19 @@ import * as logger from '../utils/logger'
  * - paidAmount backing (F7 / W3 M-2): on expenses with payment
  *   records, paidAmount is the sum of those records; legacy rows
  *   keep their declared value until a payment is recorded for them.
+ *
+ * NEW (v2026-11-16.2, F8 / W5 D2) — the dashboard summary serves the
+ * platform-Admin view too: an Admin caller without a `?supplier=`
+ * gets the ALL-AGENCY aggregate (the sum of every agency's
+ * computePeriod), so the Admin totals are the exact sum of the agency
+ * totals — the two roles can no longer disagree by the approved-
+ * charges gap or the 1,000-row cap. An Admin caller WITH `?supplier=`
+ * still gets that single agency. The dashboard overdue list comes
+ * from GET /api/rental-payments/overdue (F6), i.e. the same shared
+ * definition — never from a client-side recomputation.
  */
 
-export const METRIC_DICTIONARY_VERSION = '2026-11-16.1'
+export const METRIC_DICTIONARY_VERSION = '2026-11-16.2'
 
 const round = (n: number) => Number(n.toFixed(2))
 const date = (value: unknown, fallback: Date) => {
@@ -814,20 +824,53 @@ export const drilldown = async (req: Request, res: Response) => {
 // as the builder (computePeriod): contractAmount INCLUDES approved
 // charges and the figures are exact at any scale (server-side
 // aggregation over the period-intersecting bookings, no fetch cap).
+// F8 / W5 D2 — the summary also serves the platform-Admin view: an
+// Admin caller without a ?supplier= gets the all-agency aggregate (the
+// sum of every agency's computePeriod), so the Admin totals are the
+// exact sum of the agency totals. An Admin caller WITH ?supplier=
+// still gets that single agency.
 export const dashboardSummary = async (req: Request, res: Response) => {
   try {
     const supplier = supplierFor(req)
-    if (!supplier) {
-      res.status(400).send('Agency filter required')
-      return
-    }
     const { from, to } = resolveRange(req.query)
     const scopeRaw = typeof req.query.scope === 'string' && req.query.scope ? req.query.scope : 'all'
     if (!SCOPES.includes(scopeRaw as ReportScope)) {
       throw new Error('Invalid scope')
     }
     const scope = scopeRaw as ReportScope
-    const data = await computePeriod(supplier, from, to, undefined, scope)
+    let data: PeriodData
+    if (supplier) {
+      data = await computePeriod(supplier, from, to, undefined, scope)
+    } else if (req.user?.type === types.UserType.Admin) {
+      // All-agency aggregate: the Admin dashboard flattens every
+      // agency, so its summary is the sum of every agency's
+      // computePeriod — exact, uncapped, charges included, the same
+      // number each agency sees for itself.
+      const suppliers = await User.find({ type: types.UserType.Supplier }).select('_id').lean()
+      const parts = await Promise.all(suppliers.map((s) => computePeriod(
+        s._id as mongoose.Types.ObjectId, from, to, undefined, scope,
+      )))
+      data = {
+        bookings: parts.flatMap((p) => p.bookings),
+        expenses: parts.flatMap((p) => p.expenses),
+        periodDays: parts[0]?.periodDays ?? 1,
+        totals: {
+          contractAmount: round(parts.reduce((s, p) => s + p.totals.contractAmount, 0)),
+          collected: round(parts.reduce((s, p) => s + p.totals.collected, 0)),
+          remaining: round(parts.reduce((s, p) => s + p.totals.remaining, 0)),
+          expenses: round(parts.reduce((s, p) => s + p.totals.expenses, 0)),
+          paidExpenses: round(parts.reduce((s, p) => s + p.totals.paidExpenses, 0)),
+          net: round(parts.reduce((s, p) => s + p.totals.net, 0)),
+          netAccrued: round(parts.reduce((s, p) => s + p.totals.netAccrued, 0)),
+          untrackedExpenses: parts.reduce((s, p) => s + p.totals.untrackedExpenses, 0),
+          untrackedExpenseAmount: round(parts.reduce((s, p) => s + p.totals.untrackedExpenseAmount, 0)),
+          bookingsCount: parts.reduce((s, p) => s + p.totals.bookingsCount, 0),
+        },
+      }
+    } else {
+      res.status(400).send('Agency filter required')
+      return
+    }
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
       currency: env.BASE_CURRENCY.toUpperCase(),

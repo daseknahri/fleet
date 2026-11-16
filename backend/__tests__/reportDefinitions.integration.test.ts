@@ -124,15 +124,16 @@ afterAll(async () => {
   await databaseHelper.close()
 })
 
-describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-16.1 verification', () => {
+describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-16.2 verification', () => {
   it('matches every hand-computed metric for the date-only range the UI sends', async () => {
     const res = await request(app).get('/api/reports/summary?from=2026-11-10&to=2026-11-19').set(env.X_ACCESS_TOKEN, token)
     expect(res.status).toBe(200)
     // F7 / W3 R-2 + R-7 — the pin tracks the dictionary version; the
     // dictionary bumped to 2026-11-16.1 for the shared receivable
     // definition (the Nov 20 payment now counts) and the cash-basis
-    // net/margin (untracked expenses count as 0 paid).
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.1')
+    // net/margin (untracked expenses count as 0 paid); F8 / W5 D2
+    // bumped it to 2026-11-16.2 (dashboard summary serves Admin too).
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.2')
     expect(res.body.currency).toBe(env.BASE_CURRENCY.toUpperCase())
     expect(res.body.timezone).toBe('Africa/Casablanca')
     // Casablanca day boundaries for the selected local days, then every

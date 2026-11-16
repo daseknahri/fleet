@@ -170,7 +170,7 @@ describe('F7 / W3 R-2 — summary receivable is the shared definition', () => {
   it('counts out-of-period payments and approved charges; keeps the old figure as periodReceivable', async () => {
     const res = await get(ownerToken, '/api/reports/summary?from=2026-11-10&to=2026-11-19')
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.1')
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.2')
     const m = res.body.metrics
     // Booking A: max(0, 700 + 50 - (300 + 999)) = 0 — the Nov 20
     // payment counts even though it falls outside the window, and the
