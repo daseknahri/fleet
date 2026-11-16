@@ -42,9 +42,9 @@ export const listSessions = async (req: Request, res: Response) => {
   try {
     // F6 / W3 X-1 — server-side pagination + status / account filters.
     // No page/size params keeps the legacy full-array response.
-    const { pagination, error } = parsePagination(req)
-    if (error) {
-      res.status(400).send(error)
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
       return
     }
     const filter: Record<string, unknown> = { ...getScope(req) }
@@ -62,13 +62,13 @@ export const listSessions = async (req: Request, res: Response) => {
       }
       filter.account = req.query.account
     }
-    if (!pagination) {
+    if (!parsed.pagination) {
       res.json(await CashSession.find(filter).sort({ openedAt: -1 }))
       return
     }
     const total = await CashSession.countDocuments(filter)
-    const sessions = await CashSession.find(filter).sort({ openedAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size)
-    res.json(pagedResponse(sessions, total, pagination))
+    const sessions = await CashSession.find(filter).sort({ openedAt: -1 }).skip(paginationSkip(parsed.pagination)).limit(parsed.pagination.size)
+    res.json(pagedResponse(sessions, total, parsed.pagination))
 } catch (err) {
  logger.error('[cash.listSessions]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -181,9 +181,9 @@ export const listMovements = async (req: Request, res: Response) => {
     // F6 / W3 X-1 — server-side pagination + direction / source /
     // status filters. No page/size params keeps the legacy full-array
     // response.
-    const { pagination, error } = parsePagination(req)
-    if (error) {
-      res.status(400).send(error)
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
       return
     }
     const filter: Record<string, unknown> = { session: session._id, ...getScope(req) }
@@ -208,13 +208,13 @@ export const listMovements = async (req: Request, res: Response) => {
       }
       filter.status = req.query.status
     }
-    if (!pagination) {
+    if (!parsed.pagination) {
       res.json(await CashMovement.find(filter).sort({ date: -1, createdAt: -1 }))
       return
     }
     const total = await CashMovement.countDocuments(filter)
-    const movements = await CashMovement.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size)
-    res.json(pagedResponse(movements, total, pagination))
+    const movements = await CashMovement.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(parsed.pagination)).limit(parsed.pagination.size)
+    res.json(pagedResponse(movements, total, parsed.pagination))
   } catch (err) {
  logger.error('[cash.listMovements]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -787,7 +787,7 @@ export const journal = async (req: Request, res: Response) => {
     const rows = built.movements.map(journalRowOf)
     if (!parsed.pagination) {
       res.json({
-        session: built.session,
+        session: built.session as unknown as bookcarsTypes.CashSession,
         rows,
         totals: built.totals,
         unlinkedCashPayments: built.unlinkedCashPayments,
@@ -801,7 +801,7 @@ export const journal = async (req: Request, res: Response) => {
     const start = paginationSkip(parsed.pagination)
     const page = pagedResponse(rows.slice(start, start + parsed.pagination.size), rows.length, parsed.pagination)
     res.json({
-      session: built.session,
+      session: built.session as unknown as bookcarsTypes.CashSession,
       rows: page.rows,
       totals: built.totals,
       unlinkedCashPayments: built.unlinkedCashPayments,
