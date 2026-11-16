@@ -47,7 +47,7 @@ export const list = async (req: Request, res: Response) => {
     ])
     const byId = new Map(totals.map((row) => [row._id.toString(), { total: Number(row.total), count: row.count }]))
     res.json(rows.map((row) => {
-      const obj = row.toObject() as Record<string, unknown>
+      const obj = row.toObject() as unknown as Record<string, unknown>
       const total = byId.get(row._id.toString())
       return { ...obj, expenseTotal: total ? Number(total.total.toFixed(2)) : 0, expenseCount: total ? total.count : 0 }
     }))

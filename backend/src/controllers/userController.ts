@@ -2361,10 +2361,10 @@ export const getUsers = async (req: Request, res: Response) => {
     // F5b (W2-04): client-list filters (Clients page toolbar). Unknown
     // enum values are ignored — the UI only sends select values.
     if (filters?.clientStatus && Object.values(bookcarsTypes.ClientStatus).includes(filters.clientStatus as bookcarsTypes.ClientStatus)) {
-      $match.$and!.push({ clientStatus: filters.clientStatus })
+      $match.$and!.push({ clientStatus: filters.clientStatus as bookcarsTypes.ClientStatus })
     }
     if (filters?.clientType && Object.values(bookcarsTypes.ClientType).includes(filters.clientType as bookcarsTypes.ClientType)) {
-      $match.$and!.push({ clientType: filters.clientType })
+      $match.$and!.push({ clientType: filters.clientType as bookcarsTypes.ClientType })
     }
     if (filters?.missingDocs === true) {
       // "Missing documents" = no client documents at all, or any

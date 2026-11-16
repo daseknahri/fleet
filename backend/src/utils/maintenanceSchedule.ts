@@ -127,7 +127,7 @@ export const findOverdueSchedule = async (
   for (const schedule of schedules) {
     const due = resolveScheduleDue({ ...schedule, car: car ? { odometerKm: car.odometerKm } : null })
     if (due.status === bookcarsTypes.MaintenanceScheduleStatus.Overdue) {
-      return { id: schedule._id.toString(), title: schedule.title, due, trigger: overdueTriggerLabel(due, schedule) }
+      return { id: schedule._id.toString(), title: schedule.title, due, trigger: overdueTriggerLabel(due, { ...schedule, car: undefined }) }
     }
   }
   return null
