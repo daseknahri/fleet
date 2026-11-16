@@ -1075,7 +1075,7 @@ describe('F5b (W2-20) coordinate range validation', () => {
     expect(created.statusCode).toBe(200)
     const locationId = created.body._id as string
     const storedBefore = await Location.findById(locationId)
-    expect(storedBefore?.parkingSpots.length).toBe(1)
+    expect(storedBefore?.parkingSpots?.length).toBe(1)
 
     const res = await request(app)
       .put(`/api/update-location/${locationId}`)
@@ -1094,7 +1094,7 @@ describe('F5b (W2-20) coordinate range validation', () => {
     expect(res.statusCode).toBe(400)
     expect(res.text).toBe('Invalid parking spot longitude at index 0')
     const unchanged = await Location.findById(locationId)
-    expect(unchanged?.parkingSpots.length).toBe(1)
+    expect(unchanged?.parkingSpots?.length).toBe(1)
 
     await deleteLocationAndValues(locationId)
 

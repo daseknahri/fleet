@@ -51,9 +51,9 @@ const invoiceIds: mongoose.Types.ObjectId[] = []
 const quoteIds: mongoose.Types.ObjectId[] = []
 
 const get = (token: string, url: string) => request(app).get(url).set(env.X_ACCESS_TOKEN, token)
-const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body)
-const put = (token: string, url: string, body: unknown) => request(app).put(url).set(env.X_ACCESS_TOKEN, token).send(body)
-const del = (token: string, url: string, body?: unknown) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token).send(body)
+const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
+const put = (token: string, url: string, body: unknown) => request(app).put(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
+const del = (token: string, url: string, body?: unknown) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
 
 const utc = (s: string) => new Date(`${s}Z`)
 
