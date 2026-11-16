@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { fr, enUS, es, arMA } from 'date-fns/locale'
 import { Scheduler } from '@/components/scheduler/index'
 import {
@@ -9,6 +10,8 @@ import {
 import * as bookcarsTypes from ':bookcars-types'
 import * as helper from '@/utils/helper'
 import * as BookingService from '@/services/BookingService'
+import * as CarService from '@/services/CarService'
+import * as MaintenanceScheduleService from '@/services/MaintenanceScheduleService'
 
 interface VehicleSchedulerProps {
   suppliers: string[]
@@ -16,6 +19,27 @@ interface VehicleSchedulerProps {
   filter?: bookcarsTypes.Filter
   user?: bookcarsTypes.User
   language: string
+  // F8 / W5 C2 — create-from-slot is offered only when the viewer may
+  // manage bookings (Scheduler.tsx passes its canManageBookings).
+  canCreate?: boolean
+  // F8 / W5 C3 — vehicle-by-day grid: one month table per vehicle.
+  grid?: boolean
+}
+
+// Maintenance blocks render as one-day, non-bookable events in a
+// colour no booking status uses (F8 / W5 C1).
+const MAINTENANCE_COLOR = '#7b1fa2'
+const MAINTENANCE_TEXT_COLOR = '#ffffff'
+
+const carLabelOf = (car: bookcarsTypes.Car | string | undefined) => {
+  if (!car) return ''
+  if (typeof car === 'string') return car
+  return car.licensePlate ? `${car.name} (${car.licensePlate})` : car.name
+}
+
+const dayStart = (value: Date | string) => {
+  const d = new Date(value)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
 const VehicleScheduler = (
@@ -25,16 +49,59 @@ const VehicleScheduler = (
     filter: filterFromProps,
     user,
     language,
+    canCreate,
+    grid,
   }: VehicleSchedulerProps
 ) => {
+  const navigate = useNavigate()
   const [filter, setFilter] = useState<bookcarsTypes.Filter>()
   const [init, setInit] = useState(true)
+  // F8 / W5 C1 — open maintenance schedules for the visible agencies,
+  // rendered as non-bookable blocks (F7's merged due status is already
+  // on the list payload: a schedule is a block until Completed).
+  const [schedules, setSchedules] = useState<bookcarsTypes.MaintenanceSchedule[]>([])
+  // F8 / W5 C3 — grid resources (one per vehicle). The vendored
+  // scheduler store takes resources as initial-only state, so the
+  // <Scheduler> below is keyed by grid mode and remounts on toggle.
+  const [resources, setResources] = useState<{ carId: string, text: string, subtext?: string }[]>([])
 
   const schedulerRef = React.useRef<SchedulerRef>(null)
 
   useEffect(() => {
     setFilter(filterFromProps)
   }, [filterFromProps])
+
+  useEffect(() => {
+    let cancelled = false
+    MaintenanceScheduleService.list()
+      .then((rows) => { if (!cancelled) setSchedules(rows || []) })
+      .catch(() => { if (!cancelled) setSchedules([]) })
+    return () => { cancelled = true }
+  }, [suppliers])
+
+  useEffect(() => {
+    if (!grid) {
+      setResources([])
+      return undefined
+    }
+    let cancelled = false
+    CarService.getCars('', {
+      suppliers,
+      includeAlreadyBookedCars: true,
+      includeComingSoonCars: true,
+    }, 1, 1000)
+      .then((result) => {
+        if (cancelled) return
+        const rows = result?.[0]?.resultData || []
+        setResources(rows.filter((car) => car._id).map((car) => ({
+          carId: car._id as string,
+          text: carLabelOf(car),
+          subtext: car.licensePlate || undefined,
+        })))
+      })
+      .catch(() => { if (!cancelled) setResources([]) })
+    return () => { cancelled = true }
+  }, [grid, suppliers])
 
   const fetchBookings = useCallback(async (query: RemoteQuery): Promise<ProcessedEvent[]> => {
     const emptyEvents: ProcessedEvent[] = [
@@ -78,7 +145,31 @@ const VehicleScheduler = (
       end: new Date(booking.to),
       color: helper.getBookingStatusBackgroundColor(booking.status),
       textColor: helper.getBookingStatusTextColor(booking.status),
+      // F8 / W5 C3 — the grid matches events to their vehicle row.
+      carId: typeof booking.car === 'string' ? booking.car : (booking.car as bookcarsTypes.Car | undefined)?._id,
     }))
+
+    // F8 / W5 C1 — maintenance blocks: one-day, non-bookable events on
+    // the schedule's due date (F7 merged status: date leg + mileage
+    // leg; Completed schedules are not blocks). A block is identified
+    // by its `maintenance-` event id; clicking it opens /maintenance.
+    for (const schedule of schedules) {
+      if (schedule.status === bookcarsTypes.MaintenanceScheduleStatus.Completed) continue
+      const start = dayStart(schedule.nextDueDate)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 1)
+      const carId = typeof schedule.car === 'string' ? schedule.car : (schedule.car as bookcarsTypes.Car | undefined)?._id
+      events.push({
+        event_id: `maintenance-${schedule._id}`,
+        title: `Maintenance — ${schedule.title} (${carLabelOf(schedule.car as bookcarsTypes.Car | string | undefined) || '?'})`,
+        start,
+        end,
+        color: MAINTENANCE_COLOR,
+        textColor: MAINTENANCE_TEXT_COLOR,
+        carId,
+        maintenance: true,
+      })
+    }
 
     setInit(false)
 
@@ -86,7 +177,7 @@ const VehicleScheduler = (
       return emptyEvents
     }
     return events
-  }, [filter, statuses, suppliers, user])
+  }, [filter, statuses, suppliers, user, schedules])
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -96,7 +187,23 @@ const VehicleScheduler = (
     if (!init && statuses.length > 0 && suppliers.length > 0) {
       fetchEvents()
     }
-  }, [statuses, suppliers, filter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [statuses, suppliers, filter, schedules]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // F8 / W5 C2 — create-from-slot: a free cell navigates to the booking
+  // form prefilled with the slot (and the vehicle in grid mode). The
+  // form itself still validates availability; an overlapping slot is
+  // refused there with the usual 409, including the F7 overdue-
+  // maintenance block. No drag/resize editing is enabled.
+  const handleCellClick = useCallback((start: Date, end: Date, resourceKey?: string, resourceVal?: string | number) => {
+    if (!canCreate) return
+    const params = new URLSearchParams()
+    if (resourceKey === 'carId' && resourceVal) {
+      params.set('car', String(resourceVal))
+    }
+    params.set('from', start.toISOString())
+    params.set('to', end.toISOString())
+    navigate(`/create-booking?${params.toString()}`)
+  }, [canCreate, navigate])
 
   const getTranslations = (_language: string) => {
     if (_language === 'fr') {
@@ -289,6 +396,7 @@ const VehicleScheduler = (
 
   return (
     <Scheduler
+      key={grid ? 'grid' : 'month'}
       ref={schedulerRef}
       view="month"
       locale={language === 'fr' ? fr : language === 'es' ? es : language === 'ar' ? arMA : enUS}
@@ -297,7 +405,15 @@ const VehicleScheduler = (
       editable={false}
       draggable={false}
       agenda={false}
+      resources={resources}
+      resourceFields={{ idField: 'carId', textField: 'text', subTextField: 'subtext' }}
+      resourceViewMode="default"
+      onCellClick={canCreate ? handleCellClick : undefined}
       onEventClick={(event: ProcessedEvent) => {
+        if (typeof event.event_id === 'string' && event.event_id.startsWith('maintenance-')) {
+          window.open('/maintenance', '_blank')!.focus()
+          return
+        }
         const url = `/update-booking?b=${event.event_id}`
         window.open(url, '_blank')!.focus()
       }}

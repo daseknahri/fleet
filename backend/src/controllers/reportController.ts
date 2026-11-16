@@ -820,6 +820,47 @@ export const drilldown = async (req: Request, res: Response) => {
   }
 }
 
+// F8 / W5 D3 (+ D4) — server-side fleet counts for the dashboard
+// summary: total live cars, cars available right now, cars on rent.
+// "Available" is NOT the flag alone: a car is available only when its
+// `available` flag is true, its operational status is in service, AND
+// no live, non-Completed booking overlaps `now` (the same active-
+// booking set the dashboard's Active list uses). Counts are exact at
+// any scale — no 1,000-row fetch cap.
+const fleetCounts = async (supplier: mongoose.Types.ObjectId | null, now: Date) => {
+  const carFilter: Record<string, unknown> = { deletedAt: null }
+  const bookingFilter: Record<string, unknown> = {
+    status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
+    lifecycle: { $ne: types.ContractLifecycle.Completed },
+    from: { $lte: now },
+    to: { $gte: now },
+    expireAt: null,
+    deletedAt: null,
+  }
+  if (supplier) {
+    carFilter.supplier = supplier
+    bookingFilter.supplier = supplier
+  }
+  const [cars, bookings] = await Promise.all([
+    Car.find(carFilter).select('_id available operationalStatus').lean(),
+    Booking.find(bookingFilter).select('car').lean(),
+  ])
+  const onRentIds = new Set(bookings.map((b) => String(b.car)))
+  let available = 0
+  let onRent = 0
+  for (const car of cars) {
+    const rented = onRentIds.has(String(car._id))
+    if (rented) {
+      onRent += 1
+    } else if (car.available
+      && car.operationalStatus !== types.CarOperationalStatus.Maintenance
+      && car.operationalStatus !== types.CarOperationalStatus.Stopped) {
+      available += 1
+    }
+  }
+  return { total: cars.length, available, onRent }
+}
+
 // GA-PAR-09 Phase B — dashboard aggregate. Same dictionary definitions
 // as the builder (computePeriod): contractAmount INCLUDES approved
 // charges and the figures are exact at any scale (server-side
@@ -871,6 +912,7 @@ export const dashboardSummary = async (req: Request, res: Response) => {
       res.status(400).send('Agency filter required')
       return
     }
+    const fleet = await fleetCounts(supplier || null, new Date())
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
       currency: env.BASE_CURRENCY.toUpperCase(),
@@ -882,6 +924,7 @@ export const dashboardSummary = async (req: Request, res: Response) => {
       collected: data.totals.collected,
       remaining: data.totals.remaining,
       contracts: data.totals.bookingsCount,
+      fleet,
     })
   } catch (err) {
     logger.error('[dashboard.summary]', err)

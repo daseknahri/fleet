@@ -75,7 +75,9 @@ import '@/assets/css/dashboard.css'
  *   inline error state; they NEVER fall back to the capped Phase A
  *   composition. The platform-Admin view uses the same endpoint with
  *   the all-agency aggregate (no ?supplier=), so Admin and agency
- *   totals agree exactly. All other cards keep the Phase A composition.
+ *   totals agree exactly. The availability card also reads the
+ *   summary's server-side fleet block in summary mode (F8 / W5 D3);
+ *   the remaining cards keep the Phase A composition.
  *   The platform-Admin all-suppliers view keeps Phase A composition
  *   only for roles that cannot read the aggregate (see above).
  * - New aggregations never use the platform-Admin all-suppliers
@@ -510,13 +512,34 @@ const Dashboard = () => {
   // Fleet statuses (scorecard #15): a car in maintenance or stopped is
   // NOT available, even when its `available` flag is true (a legacy car
   // with no stored status reads as in service).
+  // F8 / W5 D3 — availability is NOT the flag alone: a car out on a
+  // live booking overlapping now is on rent, even when its flag is
+  // true. The summary aggregate (fleet block) is the server-side
+  // version of the same rule; this client-side version serves only
+  // roles that cannot read the aggregate.
+  const onRentCarIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const booking of liveBookings) {
+      if (isCompleted(booking) || getBookingDate(booking, 'from') > now || getBookingDate(booking, 'to') < now) continue
+      const carId = typeof booking.car === 'string' ? booking.car : (booking.car as Car | undefined)?._id
+      if (carId) ids.add(String(carId))
+    }
+    return ids
+  }, [liveBookings, now])
+
   const availableCars = useMemo(
     () => carsBlock.data.filter(
       (car) => car.available
         && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Maintenance
-        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Stopped,
+        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Stopped
+        && !(car._id && onRentCarIds.has(car._id)),
     ).length,
-    [carsBlock.data],
+    [carsBlock.data, onRentCarIds],
+  )
+
+  const onRentCars = useMemo(
+    () => carsBlock.data.filter((car) => car._id && onRentCarIds.has(car._id)).length,
+    [carsBlock.data, onRentCarIds],
   )
 
   // Credit due (GA-PAR-08 financing): omitted entirely when no car in the
@@ -755,9 +778,16 @@ const Dashboard = () => {
           {renderCustomControls('kpi', 'availability')}
         </div>
         <Typography className="agency-dashboard__metric-label">{strings.AVAILABLE_CARS}</Typography>
-        {blockBody(carsBlock.status, () => void loadCars(supplierIdsRef.current), (
+        {summaryMode ? blockBody(summaryBlock.status, () => void loadSummary(), (
+          <>
+            <Typography component="p" className="agency-dashboard__metric-value">{`${summaryBlock.data?.fleet?.available ?? 0} / ${summaryBlock.data?.fleet?.total ?? 0}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{`${summaryBlock.data?.fleet?.onRent ?? 0} ${strings.ON_RENT}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{strings.READY_TO_RENT}</Typography>
+          </>
+        )) : blockBody(carsBlock.status, () => void loadCars(supplierIdsRef.current), (
           <>
             <Typography component="p" className="agency-dashboard__metric-value">{`${availableCars} / ${carsBlock.data.length}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{`${onRentCars} ${strings.ON_RENT}`}</Typography>
             <Typography className="agency-dashboard__metric-detail">{strings.READY_TO_RENT}</Typography>
             {partialChip(carsBlock.partial)}
           </>

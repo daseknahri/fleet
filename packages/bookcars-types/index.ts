@@ -2048,6 +2048,10 @@ export interface DashboardSummary {
   collected: number
   remaining: number
   contracts: number
+  // F8 / W5 D3 + D4 — server-side fleet counts, exact at any scale:
+  // total live cars, cars available right now (flag + in service and
+  // NOT out on a live booking overlapping now), and cars on rent.
+  fleet: { total: number, available: number, onRent: number }
 }
 
 /**
@@ -2678,6 +2682,15 @@ export interface UpdateSettingsPayload {
   minRentalHours: number
   minPickupDropoffHour: number
   maxPickupDropoffHour: number
+}
+
+// F8 / W5 S1 — connections status for /settings: booleans only, no
+// secrets. `true` means the credential is present in the environment.
+export interface SettingsConnections {
+  stripe: boolean
+  paypal: boolean
+  smtp: boolean
+  push: boolean
 }
 
 // 

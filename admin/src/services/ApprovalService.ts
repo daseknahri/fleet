@@ -6,6 +6,8 @@ export interface Approval {
   supplier: string
   subject: string
   subjectType: string
+  // F8 / W5 A5 — the record the subject navigates to, when it exists.
+  subjectUrl?: string
   amount?: number
   currency?: string
   status: bookcarsTypes.ApprovalDecision

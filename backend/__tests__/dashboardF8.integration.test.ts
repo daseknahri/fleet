@@ -251,3 +251,159 @@ describe('F8 / W5 D2 — dashboard summary serves Admin and agency from the same
     expect(idsInRows).not.toContain(String(bookingB1._id))
   })
 })
+
+describe('F8 / W5 D3 — availability counts active bookings, not the flag', () => {
+  const window = 'from=2026-11-10&to=2026-11-19'
+
+  it('fleet block: an on-rent car is not available, a maintenance car is neither', async () => {
+    // A live booking overlapping NOW (price 0, so the money figures in
+    // the shared window do not move; only the fleet block is asserted).
+    const now = Date.now()
+    const carNow = await makeCar(supplierA, 'A-now')
+    const bookingNow = await makeBooking(supplierA, carNow, new Date(now - 86400000), new Date(now + 86400000), 0, snapshot(0, 0))
+    const carMaint = await makeCar(supplierA, 'A-maint', { operationalStatus: types.CarOperationalStatus.Maintenance })
+    try {
+      const res = await get(tokenA, `/api/dashboard/summary?${window}`)
+      expect(res.status).toBe(200)
+      // carA (available, its bookings ended Nov 12) + carNow (on rent)
+      // + carMaint (maintenance): total 3, available 1, onRent 1.
+      expect(res.body.fleet).toEqual({ total: 3, available: 1, onRent: 1 })
+
+      const adminRes = await get(adminToken, `/api/dashboard/summary?${window}`)
+      expect(adminRes.status).toBe(200)
+      // + carB (available): total 4, available 2, onRent 1.
+      expect(adminRes.body.fleet).toEqual({ total: 4, available: 2, onRent: 1 })
+    } finally {
+      await Booking.deleteOne({ _id: bookingNow._id })
+      await Car.deleteMany({ _id: { $in: [carNow._id, carMaint._id] } })
+    }
+  })
+})
+
+describe('F8 / W5 A3 — requesters see their own approval requests, and only those', () => {
+  let accountant: { staff: env.User, token: string }
+  let counterAgent: { staff: env.User, token: string }
+
+  beforeAll(async () => {
+    accountant = await makeStaff('accountant', types.AgencyRole.Accountant, supplierA)
+    counterAgent = await makeStaff('counter', types.AgencyRole.CounterAgent, supplierA)
+    const own = await new Approval({
+      supplier: supplierA._id, subject: String(bookingA1._id), subjectType: 'contract-charge',
+      amount: 15000, currency: env.BASE_CURRENCY, status: types.ApprovalDecision.Pending,
+      requestedBy: accountant.staff._id,
+    }).save()
+    approvalIds.push(own._id)
+    const ownerRow = await new Approval({
+      supplier: supplierA._id, subject: String(bookingA2._id), subjectType: 'contract-charge',
+      amount: 5000, currency: env.BASE_CURRENCY, status: types.ApprovalDecision.Pending,
+      requestedBy: supplierA._id,
+    }).save()
+    approvalIds.push(ownerRow._id)
+  })
+
+  it('an accountant sees only the request they filed', async () => {
+    const res = await get(accountant.token, '/api/approvals')
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(String(res.body[0].requestedBy)).toBe(String(accountant.staff._id))
+  })
+
+  it('a counter agent with no requests sees an empty queue (not a 403)', async () => {
+    const res = await get(counterAgent.token, '/api/approvals')
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(0)
+  })
+
+  it('the agency owner (decider) still sees the whole queue', async () => {
+    const res = await get(tokenA, '/api/approvals')
+    expect(res.status).toBe(200)
+    expect(res.body.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('seeing is not deciding: the requester cannot decide their own request', async () => {
+    const list = await get(accountant.token, '/api/approvals')
+    const own = list.body[0]
+    const res = await post(accountant.token, `/api/approvals/${own._id}/decide`, { decision: 'approved' })
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('F8 / W5 A5 — queue subjects navigate; manual create uses a typed subject', () => {
+  let charge: env.ContractCharge
+  let invoice: env.Invoice
+
+  beforeAll(async () => {
+    charge = await new ContractCharge({
+      supplier: supplierA._id, booking: bookingA2._id, type: types.ContractChargeType.Fee,
+      reason: 'F8 A5 charge', amount: 50, currency: env.BASE_CURRENCY,
+      status: types.ApprovalDecision.Approved,
+    }).save()
+    invoice = await new Invoice({
+      supplier: supplierA._id, booking: bookingA2._id, status: types.InvoiceStatus.Draft,
+      currency: env.BASE_CURRENCY, subtotal: 400, taxAmount: 0, total: 400,
+      paidAmount: 0, paymentStatus: 'unpaid',
+    }).save()
+  })
+
+  it('creating an approval for an existing charge returns its booking URL', async () => {
+    const res = await post(tokenA, '/api/approvals', {
+      subject: String(charge._id), subjectType: 'contract-charge', amount: 5000, currency: env.BASE_CURRENCY,
+    })
+    expect(res.status).toBe(201)
+    approvalIds.push(res.body._id)
+    expect(res.body.subjectUrl).toBe(`/update-booking?b=${bookingA2._id}`)
+  })
+
+  it('creating an approval for an existing invoice returns its invoice URL', async () => {
+    const res = await post(tokenA, '/api/approvals', {
+      subject: String(invoice._id), subjectType: 'invoice', amount: 40000, currency: env.BASE_CURRENCY,
+    })
+    expect(res.status).toBe(201)
+    approvalIds.push(res.body._id)
+    expect(res.body.subjectUrl).toBe(`/invoices?id=${invoice._id}`)
+  })
+
+  it('the list carries the same subject URLs', async () => {
+    const res = await get(tokenA, '/api/approvals')
+    expect(res.status).toBe(200)
+    const bySubject = new Map(res.body.map((r: { subject: string, subjectUrl?: string }) => [String(r.subject), r.subjectUrl]))
+    expect(bySubject.get(String(charge._id))).toBe(`/update-booking?b=${bookingA2._id}`)
+    expect(bySubject.get(String(invoice._id))).toBe(`/invoices?id=${invoice._id}`)
+  })
+
+  it('a free-text subject type is rejected', async () => {
+    const res = await post(tokenA, '/api/approvals', {
+      subject: String(charge._id), subjectType: 'something-else', amount: 1000,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('a typed subject that does not exist is rejected', async () => {
+    const res = await post(tokenA, '/api/approvals', {
+      subject: String(new mongoose.Types.ObjectId()), subjectType: 'invoice', amount: 1000,
+    })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('F8 / W5 S1 + AU4 — connections endpoint returns booleans only; settings routes require a token', () => {
+  it('GET /api/settings/connections returns one boolean per channel, no secrets', async () => {
+    const res = await get(adminToken, '/api/settings/connections')
+    expect(res.status).toBe(200)
+    expect(typeof res.body.stripe).toBe('boolean')
+    expect(typeof res.body.paypal).toBe('boolean')
+    expect(typeof res.body.smtp).toBe('boolean')
+    expect(typeof res.body.push).toBe('boolean')
+    expect(JSON.stringify(res.body)).not.toMatch(/sk_live|secret|token|password/i)
+  })
+
+  it('GET /api/settings/connections without a token is 401', async () => {
+    const res = await request(app).get('/api/settings/connections')
+    expect(res.status).toBe(401)
+  })
+
+  it('GET /api/settings without a token is 401 (AU4, fixed with S4)', async () => {
+    const res = await request(app).get('/api/settings')
+    expect(res.status).toBe(401)
+  })
+})

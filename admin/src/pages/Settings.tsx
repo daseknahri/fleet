@@ -20,6 +20,7 @@ import { strings } from '@/lang/settings'
 import * as UserService from '@/services/UserService'
 import * as BankDetailsService from '@/services/BankDetailsService'
 import * as SettingService from '@/services/SettingService'
+import * as AgencyReturnSettingsService from '@/services/AgencyReturnSettingsService'
 import Backdrop from '@/components/SimpleBackdrop'
 import Avatar from '@/components/Avatar'
 import * as helper from '@/utils/helper'
@@ -41,6 +42,11 @@ const Settings = () => {
   const [enableEmailNotifications, setEnableEmailNotifications] = useState(false)
   const [bankDetails, setBankDetails] = useState<bookcarsTypes.BankDetails | null>(null)
   const [settings, setSettings] = useState<bookcarsTypes.Setting | null>(null)
+  // F8 / W5 S1 — MAP sections that were missing from /settings.
+  const [connections, setConnections] = useState<bookcarsTypes.SettingsConnections | null>(null)
+  const [returnSettings, setReturnSettings] = useState<bookcarsTypes.AgencyReturnSettings | null>(null)
+
+  const isSupplier = user?.type === bookcarsTypes.UserType.Supplier
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, clearErrors, setValue } = useForm<FormFields>({
     resolver: zodResolver(schema),
@@ -196,6 +202,20 @@ const Settings = () => {
         if (settings) {
           setSettings(settings)
         }
+
+        // F8 / W5 S1 — connections status for every signed-in user
+        // (booleans only, no secrets), and the agency's return rates
+        // for Supplier users (read-only here; edited on UpdateSupplier).
+        const connections = await SettingService.getConnections()
+        if (connections) {
+          setConnections(connections)
+        }
+        if (_user.type === bookcarsTypes.UserType.Supplier) {
+          const returnSettings = await AgencyReturnSettingsService.getAgencyReturnSettings()
+          if (returnSettings) {
+            setReturnSettings(returnSettings)
+          }
+        }
       } catch (err) {
         helper.error(err)
       } finally {
@@ -310,6 +330,56 @@ const Settings = () => {
               onSubmit={(data) => setBankDetails(data)}
             />
           )}
+
+          {(admin || isSupplier) && (
+            <Paper className="settings-net settings-net-wrapper" elevation={10}>
+              <h1 className="settings-form-title">{strings.AGENCY_SECTION}</h1>
+              <p>{strings.AGENCY_SECTION_DESC}</p>
+              {isSupplier && returnSettings && (
+                <div>
+                  <h2>{strings.RETURN_RATES}</h2>
+                  <p>{`${strings.RETURN_INCLUDED_KM}: ${returnSettings.includedKmPerDay ?? '—'}`}</p>
+                  <p>{`${strings.RETURN_EXTRA_KM_PRICE}: ${returnSettings.extraKmPrice ?? '—'}`}</p>
+                  <p>{`${strings.RETURN_FUEL_PRICE}: ${returnSettings.fuelPricePerLitre ?? '—'}`}</p>
+                  <p>{`${strings.RETURN_WASH_FEE}: ${returnSettings.washFee ?? '—'}`}</p>
+                  <p>{`${strings.RETURN_DEFAULT_DEPOSIT}: ${returnSettings.defaultDeposit ?? '—'}`}</p>
+                </div>
+              )}
+              <div className="buttons">
+                <Button
+                  variant="contained"
+                  className="btn-primary btn-margin-bottom"
+                  size="small"
+                  onClick={() => navigate(isSupplier ? `/update-supplier?c=${user._id}` : '/suppliers')}
+                >
+                  {strings.AGENCY_OPEN}
+                </Button>
+              </div>
+            </Paper>
+          )}
+
+          <Paper className="settings-net settings-net-wrapper" elevation={10}>
+            <h1 className="settings-form-title">{strings.SECURITY_SECTION}</h1>
+            <p>{strings.SECURITY_SECTION_DESC}</p>
+            <div className="buttons">
+              <Button variant="contained" className="btn-primary btn-margin-bottom" size="small" onClick={() => navigate('/change-password')}>
+                {commonStrings.RESET_PASSWORD}
+              </Button>
+            </div>
+          </Paper>
+
+          <Paper className="settings-net settings-net-wrapper" elevation={10}>
+            <h1 className="settings-form-title">{strings.CONNECTIONS_SECTION}</h1>
+            <p>{strings.CONNECTIONS_DESC}</p>
+            {connections && (
+              <div>
+                <p>{`${strings.CONN_STRIPE}: ${connections.stripe ? strings.CONN_CONFIGURED : strings.CONN_NOT_CONFIGURED}`}</p>
+                <p>{`${strings.CONN_PAYPAL}: ${connections.paypal ? strings.CONN_CONFIGURED : strings.CONN_NOT_CONFIGURED}`}</p>
+                <p>{`${strings.CONN_SMTP}: ${connections.smtp ? strings.CONN_CONFIGURED : strings.CONN_NOT_CONFIGURED}`}</p>
+                <p>{`${strings.CONN_PUSH}: ${connections.push ? strings.CONN_CONFIGURED : strings.CONN_NOT_CONFIGURED}`}</p>
+              </div>
+            )}
+          </Paper>
         </div>
       )}
 

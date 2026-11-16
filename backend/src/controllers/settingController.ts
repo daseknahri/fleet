@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import * as bookcarsTypes from ':bookcars-types'
+import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import Setting from '../models/Setting'
@@ -40,6 +41,31 @@ export const getSettings = async (req: Request, res: Response) => {
     res.json(settings)
   } catch (err) {
     logger.error(`[setting.getSettings] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F8 / W5 S1 — connections status for the /settings Connections card.
+ * Booleans only: whether each external channel is configured (the
+ * credential is present in the environment). No secret is ever
+ * returned; a `true` only means "configured".
+ *
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getConnections = async (req: Request, res: Response) => {
+  try {
+    res.json({
+      stripe: Boolean(env.STRIPE_SECRET_KEY),
+      paypal: Boolean(env.PAYPAL_CLIENT_ID),
+      smtp: Boolean(env.SMTP_HOST),
+      push: Boolean(env.EXPO_ACCESS_TOKEN),
+    } satisfies bookcarsTypes.SettingsConnections)
+  } catch (err) {
+    logger.error(`[setting.getConnections] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

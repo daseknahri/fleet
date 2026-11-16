@@ -33,6 +33,7 @@ import { strings as csStrings } from '@/lang/cars'
 import { strings } from '@/lang/create-booking'
 import * as UserService from '@/services/UserService'
 import * as BookingService from '@/services/BookingService'
+import * as CarService from '@/services/CarService'
 import * as AgentService from '@/services/AgentService'
 import { strings as agentStrings } from '@/lang/agents'
 import * as helper from '@/utils/helper'
@@ -56,6 +57,12 @@ const CreateBooking = () => {
   const [isSupplier, setIsSupplier] = useState(false)
   const [visible, setVisible] = useState(false)
   const [carObj, setCarObj] = useState<bookcarsTypes.Car>()
+  // F8 / W5 C2 — create-from-slot prefill (?car=&from=&to=, set by the
+  // calendar when a free cell is clicked). The pickers show the
+  // prefilled option via their `value` props; the form value itself is
+  // what onSubmit reads (carObj), so the two stay in sync.
+  const [prefillCar, setPrefillCar] = useState<bookcarsTypes.Car>()
+  const [prefillSupplier, setPrefillSupplier] = useState<Supplier>()
   const [minDate, setMinDate] = useState<Date>()
   const [fromError, setFromError] = useState(false)
   const [toError, setToError] = useState(false)
@@ -249,6 +256,45 @@ const CreateBooking = () => {
         setValue('supplier', { _id: user._id, name: user.fullName, image: user.avatar } as Supplier)
         setIsSupplier(true)
       }
+
+      // F8 / W5 C2 — create-from-slot prefill. Invalid params are
+      // ignored silently (plain form); a car the caller cannot see
+      // (404 / out of scope) leaves the car picker empty. Dates are
+      // taken as-is from the slot; the form still validates them and
+      // the submit still checks availability (409 on overlap).
+      const params = new URLSearchParams(window.location.search)
+      const fromParam = params.get('from')
+      const toParam = params.get('to')
+      const fromDate = fromParam ? new Date(fromParam) : null
+      const toDate = toParam ? new Date(toParam) : null
+      if (fromDate && !Number.isNaN(fromDate.getTime())) {
+        setValue('from', fromDate)
+      }
+      if (toDate && !Number.isNaN(toDate.getTime())) {
+        setValue('to', toDate)
+      }
+      const carId = params.get('car')
+      if (carId) {
+        void (async () => {
+          try {
+            const car = await CarService.getCar(carId)
+            if (!car) return
+            setCarObj(car)
+            setValue('car', car)
+            setPrefillCar(car)
+            if (user.type !== bookcarsTypes.RecordType.Supplier) {
+              const carSupplier = car.supplier as bookcarsTypes.User | undefined
+              if (carSupplier && typeof carSupplier === 'object') {
+                const supplierOption = { _id: carSupplier._id, name: carSupplier.fullName, image: carSupplier.avatar } as Supplier
+                setValue('supplier', supplierOption)
+                setPrefillSupplier(supplierOption)
+              }
+            }
+          } catch {
+            // Out-of-scope / unknown car: leave the picker empty.
+          }
+        })()
+      }
     }
   }
 
@@ -273,6 +319,7 @@ const CreateBooking = () => {
                   label={blStrings.SUPPLIER}
                   required
                   variant="standard"
+                  value={prefillSupplier}
                   onChange={(values) => setValue('supplier', values.length > 0 ? values[0] as Option : undefined)}
                 />
               </FormControl>
@@ -307,6 +354,7 @@ const CreateBooking = () => {
               label={blStrings.CAR}
               supplier={supplier?._id!}
               pickupLocation={pickupLocation?._id!}
+              value={prefillCar}
               onChange={(values) => {
                 const _car = values.length > 0 ? values[0] as bookcarsTypes.Car : undefined
                 setValue('car', _car)

@@ -29,6 +29,8 @@ const Scheduler = () => {
   const [suppliers, setSuppliers] = useState<string[]>()
   const [statuses, setStatuses] = useState(helper.getBookingStatuses().map((status) => status.value))
   const [filter, setFilter] = useState<bookcarsTypes.Filter | null>()
+  // F8 / W5 C3 — vehicle-by-day grid (one month table per vehicle).
+  const [grid, setGrid] = useState(false)
 
   const handleSupplierFilterChange = (_suppliers: string[]) => {
     setSuppliers(_suppliers)
@@ -87,6 +89,20 @@ const Scheduler = () => {
                   onChange={handleStatusFilterChange}
                   className="cl-status-filter"
                 />
+                <Button
+                  variant={grid ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setGrid(true)}
+                >
+                  {strings.GRID_VIEW}
+                </Button>
+                <Button
+                  variant={grid ? 'outlined' : 'contained'}
+                  size="small"
+                  onClick={() => setGrid(false)}
+                >
+                  {strings.MONTH_VIEW}
+                </Button>
                 <VehicleSchedulerFilter
                   onSubmit={handleVehicleSchedulerFilterSubmit}
                   className="cl-scheduler-filter"
@@ -100,7 +116,10 @@ const Scheduler = () => {
               suppliers={suppliers}
               statuses={statuses}
               filter={filter!}
+              user={user}
               language={user.language!}
+              canCreate={canManageBookings}
+              grid={grid}
             />
           </div>
         </div>
