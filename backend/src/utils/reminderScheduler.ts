@@ -2,6 +2,7 @@ import * as env from '../config/env.config'
 import Reminder from '../models/Reminder'
 import ReminderFiring from '../models/ReminderFiring'
 import * as logger from './logger'
+import { runAutoReminderPass } from './autoReminders'
 import { nextOccurrence } from './reminderSchedule'
 import { notifyReminderFired } from './reminderNotify'
 
@@ -30,6 +31,11 @@ const HOUR_MS = 60 * 60 * 1000
 
 export const runReminderTick = async (now: Date = new Date()): Promise<void> => {
   try {
+    // F8 / W5 N2 — automatic pickup / return / overdue / expiry
+    // reminders + the weekly recap. The pass throttles itself to at
+    // most once an hour and claims every send in the delivery log, so
+    // the 60 s tick cadence cannot double-send. It never throws.
+    await runAutoReminderPass(now)
     // Cheap pre-filter: an occurrence can only be due (for some offset)
     // when nextDueAt - maxOffset <= now.
     const horizon = new Date(now.getTime() + MAX_OFFSET_HOURS * HOUR_MS)

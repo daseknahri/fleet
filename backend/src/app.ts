@@ -33,6 +33,7 @@ import invoiceRoutes from './routes/invoiceRoutes'
 import quoteRoutes from './routes/quoteRoutes'
 import agentRoutes from './routes/agentRoutes'
 import reminderRoutes from './routes/reminderRoutes'
+import notificationDeliveryRoutes from './routes/notificationDeliveryRoutes'
 import agencyReturnSettingsRoutes from './routes/agencyReturnSettingsRoutes'
 import approvalRoutes from './routes/approvalRoutes'
 import contractOperationRoutes from './routes/contractOperationRoutes'
@@ -125,6 +126,7 @@ app.use('/', invoiceRoutes)
 app.use('/', quoteRoutes)
 app.use('/', agentRoutes)
 app.use('/', reminderRoutes)
+app.use('/', notificationDeliveryRoutes)
 app.use('/', agencyReturnSettingsRoutes)
 app.use('/', approvalRoutes)
 app.use('/', contractOperationRoutes)

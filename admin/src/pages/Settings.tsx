@@ -90,13 +90,21 @@ const Settings = () => {
     returnsDue: true, carDueDates: true, signedContracts: true, weeklyRecap: true, tips: true, news: true,
   })
 
+  // F8 / W5 S2 — `tips` and `news` have NO content producer anywhere
+  // (no sender, no feed, no job), so their toggles were dead controls
+  // that promised emails nobody would ever send. They are removed
+  // from the UI rather than wired to a producer that does not exist;
+  // the stored prefs stay harmless on the user record. The four live
+  // categories are wired to their consumers: returnsDue → the
+  // automatic return reminders, carDueDates → car-due + expiry
+  // reminders, signedContracts → the signed-contract email,
+  // weeklyRecap → the weekly recap (all in autoReminders.ts /
+  // reminderNotify.ts). Toggles gate EMAIL ONLY.
   const emailCategoryRows: { key: keyof bookcarsTypes.EmailNotificationCategories, label: string }[] = [
     { key: 'returnsDue', label: strings.SETTINGS_EMAIL_RETURNS_DUE },
     { key: 'carDueDates', label: strings.SETTINGS_EMAIL_CAR_DUE_DATES },
     { key: 'signedContracts', label: strings.SETTINGS_EMAIL_SIGNED_CONTRACTS },
     { key: 'weeklyRecap', label: strings.SETTINGS_EMAIL_WEEKLY_RECAP },
-    { key: 'tips', label: strings.SETTINGS_EMAIL_TIPS },
-    { key: 'news', label: strings.SETTINGS_EMAIL_NEWS },
   ]
 
   const handleEmailCategoryChange = (key: keyof bookcarsTypes.EmailNotificationCategories) => async (e: React.ChangeEvent<HTMLInputElement>) => {

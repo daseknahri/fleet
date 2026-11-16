@@ -2576,6 +2576,45 @@ export interface NotificationCounter {
   count: number
 }
 
+// F8 / W5 N3 — notification templates + delivery log. One template key
+// per notification kind; the delivery log records every send attempt
+// (in-app, email, push) per recipient so a failed send can be retried.
+export type NotificationTemplateKey =
+  | 'auto.pickup'
+  | 'auto.return'
+  | 'auto.overdue'
+  | 'auto.expiry'
+  | 'weekly.recap'
+  | 'reminder.manual'
+  | 'contract.signed'
+
+export type NotificationDeliveryChannel = 'inApp' | 'email' | 'push'
+
+export type NotificationDeliveryStatus = 'queued' | 'sent' | 'failed'
+
+export interface NotificationDelivery {
+  _id?: string
+  supplier: string | User
+  templateKey: NotificationTemplateKey
+  subjectType?: string
+  subjectId?: string
+  // Exactly-once key for the event (e.g. `pickup:<bookingId>:2026-11-17`);
+  // the unique index covers templateKey + subjectType + subjectId +
+  // dedupeKey + channel + recipient.
+  dedupeKey: string
+  channel: NotificationDeliveryChannel
+  recipient: string | User
+  subject?: string
+  body: string
+  status: NotificationDeliveryStatus
+  attempts: number
+  lastError?: string
+  providerId?: string
+  sentAt?: Date | string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 export interface ResultData<T> {
   pageInfo: { totalRecords: number }
   resultData: T[]

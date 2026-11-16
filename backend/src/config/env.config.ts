@@ -1031,6 +1031,26 @@ export interface ReminderFiring extends Document {
   updatedAt?: Date
 }
 
+/** F8 / W5 N3 — one delivery attempt of one notification to one recipient. */
+export interface NotificationDelivery extends Document {
+  supplier: Types.ObjectId
+  templateKey: bookcarsTypes.NotificationTemplateKey
+  subjectType?: string
+  subjectId?: string
+  dedupeKey: string
+  channel: bookcarsTypes.NotificationDeliveryChannel
+  recipient: Types.ObjectId
+  subject?: string
+  body: string
+  status: bookcarsTypes.NotificationDeliveryStatus
+  attempts: number
+  lastError?: string
+  providerId?: string
+  sentAt?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 /** ReportView config document shape (GA-PAR-14, scorecard #40). */
 export interface ReportViewConfig {
   from?: string

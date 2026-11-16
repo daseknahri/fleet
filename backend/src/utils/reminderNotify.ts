@@ -8,10 +8,12 @@ import Booking from '../models/Booking'
 import Car from '../models/Car'
 import Notification from '../models/Notification'
 import NotificationCounter from '../models/NotificationCounter'
+import NotificationDelivery from '../models/NotificationDelivery'
 import PushToken from '../models/PushToken'
 import User from '../models/User'
 import * as logger from './logger'
 import * as mailHelper from './mailHelper'
+import { renderNotificationTemplate } from './notificationTemplates'
 
 /**
  * GA-PAR-13 — reminder notification fan-out. This module MIRRORS the
@@ -74,6 +76,144 @@ export const signedContractEmailAllowed = (
   && owner.enableEmailNotifications !== false
   && owner.emailNotificationCategories?.signedContracts !== false
 
+/**
+ * F8 / W5 S2 + N2 — agency-level email gates for the automatic
+ * reminders. Toggles gate EMAIL ONLY — in-app and push are unaffected.
+ * - pickup / overdue: the master boolean only;
+ * - return: master + the `returnsDue` category (S2's consumer);
+ * - expiry (car documents + maintenance due): master + `carDueDates`.
+ */
+export type AutoReminderKind = 'pickup' | 'return' | 'overdue' | 'expiry'
+
+export const autoReminderEmailAllowed = (
+  owner: { enableEmailNotifications?: boolean, emailNotificationCategories?: bookcarsTypes.EmailNotificationCategories } | null | undefined,
+  kind: AutoReminderKind,
+): boolean => {
+  if (!owner || owner.enableEmailNotifications === false) {
+    return false
+  }
+  if (kind === 'return') {
+    return owner.emailNotificationCategories?.returnsDue !== false
+  }
+  if (kind === 'expiry') {
+    return owner.emailNotificationCategories?.carDueDates !== false
+  }
+  return true
+}
+
+/** F8 / W5 S2 + N2 — weekly recap email: master + `weeklyRecap`. */
+export const weeklyRecapEmailAllowed = (
+  owner: { enableEmailNotifications?: boolean, emailNotificationCategories?: bookcarsTypes.EmailNotificationCategories } | null | undefined,
+): boolean => !!owner
+  && owner.enableEmailNotifications !== false
+  && owner.emailNotificationCategories?.weeklyRecap !== false
+
+// ---------------------------------------------------------------------------
+// F8 / W5 N3 — delivery log: claim before send, mark after.
+//
+// `claimNotificationDelivery` INSERTS the row as `queued` and returns
+// it; the unique dedupe index makes a second claim for the same
+// (template, subject, dedupeKey, channel, recipient) fail with E11000,
+// which returns 'duplicate' — the caller skips silently (exactly-once
+// across ticks and restarts). A row left `queued` by a crashed process
+// is re-sendable from the log's retry endpoint. Any other insert
+// failure returns null: the caller still sends (a notification matters
+// more than its log row) and records the outcome best-effort.
+// ---------------------------------------------------------------------------
+
+export interface DeliveryClaim {
+  templateKey: bookcarsTypes.NotificationTemplateKey
+  subjectType?: string
+  subjectId?: string
+  dedupeKey: string
+  channel: bookcarsTypes.NotificationDeliveryChannel
+  recipient: Types.ObjectId | string
+  subject?: string
+  body: string
+}
+
+export const claimNotificationDelivery = async (
+  supplier: string,
+  claim: DeliveryClaim,
+): Promise<env.NotificationDelivery | 'duplicate' | null> => {
+  try {
+    const row = await NotificationDelivery.create({
+      supplier,
+      templateKey: claim.templateKey,
+      subjectType: claim.subjectType,
+      subjectId: claim.subjectId,
+      dedupeKey: claim.dedupeKey,
+      channel: claim.channel,
+      recipient: claim.recipient,
+      subject: claim.subject,
+      body: claim.body,
+      status: 'queued',
+      attempts: 0,
+    })
+    return row
+  } catch (err) {
+    if ((err as { code?: number })?.code === 11000) {
+      return 'duplicate'
+    }
+    logger.error('[reminderNotify] delivery claim failed', err)
+    return null
+  }
+}
+
+export const markDeliverySent = async (id: Types.ObjectId | string, providerId?: string): Promise<void> => {
+  try {
+    await NotificationDelivery.updateOne(
+      { _id: id },
+      { $inc: { attempts: 1 }, $set: { status: 'sent', sentAt: new Date(), ...(providerId ? { providerId } : {}), lastError: undefined } },
+    )
+  } catch (err) {
+    logger.error('[reminderNotify] markDeliverySent failed', err)
+  }
+}
+
+export const markDeliveryFailed = async (id: Types.ObjectId | string, error: unknown): Promise<void> => {
+  try {
+    const message = error instanceof Error ? error.message : String(error || 'Delivery failed')
+    await NotificationDelivery.updateOne(
+      { _id: id },
+      { $inc: { attempts: 1 }, $set: { status: 'failed', lastError: message.slice(0, 1000) } },
+    )
+  } catch (err) {
+    logger.error('[reminderNotify] markDeliveryFailed failed', err)
+  }
+}
+
+// Best-effort record for sends that ran without a claim (the claim
+// insert itself failed): the row carries its final status at once.
+export const recordNotificationDelivery = async (
+  supplier: string,
+  claim: DeliveryClaim,
+  status: bookcarsTypes.NotificationDeliveryStatus,
+  lastError?: string,
+): Promise<void> => {
+  try {
+    await NotificationDelivery.create({
+      supplier,
+      templateKey: claim.templateKey,
+      subjectType: claim.subjectType,
+      subjectId: claim.subjectId,
+      dedupeKey: claim.dedupeKey,
+      channel: claim.channel,
+      recipient: claim.recipient,
+      subject: claim.subject,
+      body: claim.body,
+      status,
+      attempts: 1,
+      ...(status === 'sent' ? { sentAt: new Date() } : {}),
+      ...(lastError ? { lastError: lastError.slice(0, 1000) } : {}),
+    })
+  } catch (err) {
+    if ((err as { code?: number })?.code !== 11000) {
+      logger.error('[reminderNotify] recordNotificationDelivery failed', err)
+    }
+  }
+}
+
 export const resolveReminderRecipients = async (supplierId: string): Promise<env.User[]> => {
   const recipients: env.User[] = []
   const owner = await User.findById(supplierId)
@@ -96,7 +236,7 @@ export const resolveReminderRecipients = async (supplierId: string): Promise<env
   return recipients
 }
 
-const createInAppNotification = async (userId: Types.ObjectId, message: string) => {
+export const createInAppNotification = async (userId: Types.ObjectId, message: string) => {
   const notification = new Notification({ user: userId, message })
   await notification.save()
   let counter = await NotificationCounter.findOne({ user: userId })
@@ -109,7 +249,7 @@ const createInAppNotification = async (userId: Types.ObjectId, message: string) 
   }
 }
 
-const sendPush = async (user: env.User, message: string, reminderId: Types.ObjectId | undefined): Promise<boolean> => {
+export const sendPush = async (user: env.User, message: string, reminderId: Types.ObjectId | undefined): Promise<boolean> => {
   const pushToken = await PushToken.findOne({ user: user._id })
   if (!pushToken) {
     return false
@@ -153,6 +293,43 @@ export interface ReminderFanoutResult {
 }
 
 /**
+ * F8 / W5 N3 — send one notification over one channel with delivery
+ * logging: claim the (template, subject, dedupeKey, channel,
+ * recipient) row first (a duplicate claim means "already sent — skip"),
+ * send, then mark the row sent/failed. Returns true when the send
+ * succeeded. `send` resolves with an optional provider id (the email
+ * message id); it must throw (or, for push, resolve false via the
+ * wrapper below) when the channel did not deliver.
+ */
+export const deliverNotification = async (
+  supplier: string,
+  claim: DeliveryClaim,
+  send: () => Promise<string | void>,
+): Promise<boolean> => {
+  const row = await claimNotificationDelivery(supplier, claim)
+  if (row === 'duplicate') {
+    return false
+  }
+  try {
+    const providerId = await send()
+    if (row) {
+      await markDeliverySent(row._id, typeof providerId === 'string' ? providerId : undefined)
+    } else {
+      await recordNotificationDelivery(supplier, claim, 'sent')
+    }
+    return true
+  } catch (err) {
+    if (row) {
+      await markDeliveryFailed(row._id, err)
+    } else {
+      await recordNotificationDelivery(supplier, claim, 'failed', err instanceof Error ? err.message : String(err || 'Delivery failed'))
+    }
+    logger.error('[reminderNotify] delivery failed', err)
+    return false
+  }
+}
+
+/**
  * Fan one fired reminder occurrence out to the agency recipients over
  * the reminder's configured channels. Never throws: every channel is
  * isolated per recipient so one bad address/token cannot starve the
@@ -188,39 +365,66 @@ export const notifyReminderFired = async (
     const message = linkedName
       ? `${reminder.title} — ${label} — ${linkedName} (due ${dueText})`
       : `${reminder.title} — ${label} (due ${dueText})`
+    // F8 / W5 N3 — the manual-reminder message keeps its exact text
+    // shape; the template only gives the delivery log a key for it.
+    const rendered = renderNotificationTemplate('reminder.manual', owner?.language, { message })
+    const dedupeKey = `manual:${reminder._id}:${occurrenceAt.toISOString()}:${offsetHours}`
     const emailAllowed = reminder.channels?.email && reminderEmailAllowed(owner, reminder.category)
 
     for (const recipient of recipients) {
       if (reminder.channels?.inApp) {
-        try {
-          await createInAppNotification(recipient._id, message)
-          result.inAppCount += 1
-        } catch (err) {
-          logger.error('[reminderNotify] in-app notification failed', err)
-        }
+        const delivered = await deliverNotification(supplierId, {
+          templateKey: 'reminder.manual',
+          subjectType: 'reminder',
+          subjectId: String(reminder._id),
+          dedupeKey,
+          channel: 'inApp',
+          recipient: recipient._id,
+          subject: rendered.subject,
+          body: rendered.body,
+        }, async () => { await createInAppNotification(recipient._id, rendered.body) })
+        if (delivered) result.inAppCount += 1
       }
       if (emailAllowed && recipient.enableEmailNotifications !== false && recipient.email) {
-        try {
+        const delivered = await deliverNotification(supplierId, {
+          templateKey: 'reminder.manual',
+          subjectType: 'reminder',
+          subjectId: String(reminder._id),
+          dedupeKey,
+          channel: 'email',
+          recipient: recipient._id,
+          subject: rendered.subject,
+          body: rendered.body,
+        }, async () => {
           const mailOptions: SendMailOptions = {
             from: env.SMTP_FROM,
             to: recipient.email,
-            subject: message,
-            html: `<p>Hello ${recipient.fullName},<br><br>${message}${reminder.note ? `<br><br>${reminder.note}` : ''}<br><br>Regards<br></p>`,
+            subject: rendered.subject,
+            html: `<p>Hello ${recipient.fullName},<br><br>${rendered.body}${reminder.note ? `<br><br>${reminder.note}` : ''}<br><br>Regards<br></p>`,
           }
-          await mailHelper.sendMail(mailOptions)
-          result.emailCount += 1
-        } catch (err) {
-          logger.error('[reminderNotify] email failed', err)
-        }
+          const info = await mailHelper.sendMail(mailOptions)
+          return info?.messageId as string | undefined
+        })
+        if (delivered) result.emailCount += 1
       }
       if (reminder.channels?.push) {
-        try {
-          if (await sendPush(recipient, message, reminder._id)) {
-            result.pushCount += 1
+        const delivered = await deliverNotification(supplierId, {
+          templateKey: 'reminder.manual',
+          subjectType: 'reminder',
+          subjectId: String(reminder._id),
+          dedupeKey,
+          channel: 'push',
+          recipient: recipient._id,
+          subject: rendered.subject,
+          body: rendered.body,
+        }, async () => {
+          // A false return (no token / ticket error) is a failed
+          // delivery, not a silent skip.
+          if (!(await sendPush(recipient, rendered.body, reminder._id))) {
+            throw new Error('Push not delivered')
           }
-        } catch (err) {
-          logger.error('[reminderNotify] push failed', err)
-        }
+        })
+        if (delivered) result.pushCount += 1
       }
     }
     logger.info(`[reminderNotify] reminder ${reminder._id} occurrence ${dueText} offset ${offsetHours}h -> inApp=${result.inAppCount} email=${result.emailCount} push=${result.pushCount} recipients=${result.recipientCount}`)
@@ -249,16 +453,36 @@ export const notifyClientSignedOnline = async (bookingId: string): Promise<void>
     }
     const driver = booking.driver ? await User.findById(booking.driver).select('fullName').lean() : null
     const reference = booking.reference || String(booking._id)
-    const subject = `Client signed online: contract ${reference}`
-    const body = `${driver?.fullName || 'A client'} signed contract ${reference} online.`
-    const mailOptions: SendMailOptions = {
-      from: env.SMTP_FROM,
-      to: owner.email,
-      subject,
-      html: `<p>Hello ${owner.fullName},<br><br>${body}<br><br>Regards<br></p>`,
+    // F8 / W5 N3 — the signed-contract notice is a template now, and
+    // its send is claimed in the delivery log (dedupe: one email per
+    // booking signing) so a retried signing completion cannot double it.
+    const rendered = renderNotificationTemplate('contract.signed', owner.language, {
+      reference,
+      driver: driver?.fullName || 'A client',
+    })
+    const supplierId = String(booking.supplier)
+    const delivered = await deliverNotification(supplierId, {
+      templateKey: 'contract.signed',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `signed:${booking._id}`,
+      channel: 'email',
+      recipient: owner._id,
+      subject: rendered.subject,
+      body: rendered.body,
+    }, async () => {
+      const mailOptions: SendMailOptions = {
+        from: env.SMTP_FROM,
+        to: owner.email,
+        subject: rendered.subject,
+        html: `<p>Hello ${owner.fullName},<br><br>${rendered.body}<br><br>Regards<br></p>`,
+      }
+      const info = await mailHelper.sendMail(mailOptions)
+      return info?.messageId as string | undefined
+    })
+    if (delivered) {
+      logger.info(`[reminderNotify] signed-contract email sent for booking ${booking._id}`)
     }
-    await mailHelper.sendMail(mailOptions)
-    logger.info(`[reminderNotify] signed-contract email sent for booking ${booking._id}`)
   } catch (err) {
     logger.error('[reminderNotify] signed-contract email failed (signing unaffected)', err)
   }

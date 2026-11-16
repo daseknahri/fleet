@@ -17,6 +17,8 @@ import NotificationDelivery from '../src/models/NotificationDelivery'
 import Notification from '../src/models/Notification'
 import Invoice from '../src/models/Invoice'
 import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
+import { runAutoReminderPass } from '../src/utils/autoReminders'
+import { renderNotificationTemplate } from '../src/utils/notificationTemplates'
 
 // F8 — DASHBOARD / CALENDAR / SETTINGS / TEAM / NOTIFICATIONS
 // (W5 D2, D3, C1–C3, S1–S5, A3, A5, A6, N2–N4, T4, I3, AU4, D4–D6,
@@ -170,7 +172,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await NotificationDelivery.deleteMany({ supplier: { $in: [supplierA._id, supplierB._id] } })
-  await Notification.deleteMany({ user: { $in: [supplierA._id, supplierB._id] } })
+  // In-app rows go to owners AND their active staff, so the cleanup
+  // covers every user id created by this file (staff included).
+  await Notification.deleteMany({ user: { $in: ids } })
   await MaintenanceSchedule.deleteMany({ supplier: { $in: [supplierA._id, supplierB._id] } })
   await Approval.deleteMany({ _id: { $in: approvalIds } })
   await AgencyMembership.deleteMany({ _id: { $in: membershipIds } })
@@ -405,5 +409,148 @@ describe('F8 / W5 S1 + AU4 — connections endpoint returns booleans only; setti
   it('GET /api/settings without a token is 401 (AU4, fixed with S4)', async () => {
     const res = await request(app).get('/api/settings')
     expect(res.status).toBe(401)
+  })
+})
+
+describe('F8 / W5 N2 — automatic pickup/return/overdue/expiry reminders', () => {
+  const day = 86400000
+  let carN2: env.Car
+  let carExp: env.Car
+  let scheduleN2: env.MaintenanceSchedule
+  let bookingPickup: env.Booking
+  let bookingReturn: env.Booking
+  let bookingOverdue: env.Booking
+
+  beforeAll(async () => {
+    const now = Date.now()
+    carN2 = await makeCar(supplierA, 'N2')
+    carExp = await makeCar(supplierA, 'N2-exp', { insuranceExpiryDate: new Date(now + 10 * day) })
+    // Pickup tomorrow; return tomorrow (from 3 days ago, so no pickup
+    // event for it); overdue since 2 days ago, 200 unpaid.
+    bookingPickup = await makeBooking(supplierA, carN2, new Date(now + day), new Date(now + 3 * day), 100, snapshot(100, 0))
+    bookingReturn = await makeBooking(supplierA, carN2, new Date(now - 3 * day), new Date(now + day), 100, snapshot(100, 0))
+    bookingOverdue = await makeBooking(supplierA, carN2, new Date(now - 5 * day), new Date(now - 2 * day), 200, snapshot(200, 0))
+    scheduleN2 = await new MaintenanceSchedule({
+      supplier: supplierA._id, car: carN2._id, type: types.MaintenanceExpenseType.Maintenance,
+      title: 'F8 N2 oil change', nextDueDate: new Date(now + 5 * day),
+      status: types.MaintenanceScheduleStatus.Upcoming,
+    }).save()
+  })
+
+  it('fires pickup, return, overdue and expiry reminders (in-app sent)', async () => {
+    const result = await runAutoReminderPass(new Date(), { force: true })
+    expect(result.skipped).toBe(false)
+    expect(result.pickups).toBeGreaterThanOrEqual(1)
+    expect(result.returns).toBeGreaterThanOrEqual(1)
+    expect(result.overdue).toBeGreaterThanOrEqual(1)
+    expect(result.expiries).toBeGreaterThanOrEqual(2)
+    const rows = await NotificationDelivery.find({ supplier: supplierA._id, channel: 'inApp', status: 'sent' }).lean()
+    const keys = new Set(rows.map((r) => `${r.templateKey}:${r.subjectId}`))
+    expect(keys.has(`auto.pickup:${bookingPickup._id}`)).toBe(true)
+    expect(keys.has(`auto.return:${bookingReturn._id}`)).toBe(true)
+    expect(keys.has(`auto.overdue:${bookingOverdue._id}`)).toBe(true)
+    expect(keys.has(`auto.expiry:${carExp._id}`)).toBe(true)
+    expect(keys.has(`auto.expiry:${scheduleN2._id}`)).toBe(true)
+  })
+
+  it('a second pass for the same day does not re-send (delivery-log dedupe)', async () => {
+    const filter = {
+      supplier: supplierA._id, templateKey: 'auto.pickup', subjectId: String(bookingPickup._id), channel: 'inApp',
+    }
+    const before = await NotificationDelivery.countDocuments(filter)
+    expect(before).toBeGreaterThanOrEqual(1)
+    await runAutoReminderPass(new Date(), { force: true })
+    expect(await NotificationDelivery.countDocuments(filter)).toBe(before)
+  })
+
+  it('fires the weekly recap once per ISO week, on Mondays', async () => {
+    const now = new Date()
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7))
+    monday.setHours(9, 0, 0, 0)
+    await runAutoReminderPass(monday, { force: true })
+    await runAutoReminderPass(monday, { force: true })
+    const rows = await NotificationDelivery.find({
+      supplier: supplierA._id, templateKey: 'weekly.recap', channel: 'inApp', recipient: supplierA._id,
+    }).lean()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('sent')
+  })
+})
+
+describe('F8 / W5 N3 — templates, delivery log and retry', () => {
+  it('templates render in the owner language with real record values', () => {
+    const rendered = renderNotificationTemplate('auto.pickup', 'fr', {
+      when: 'tomorrow', whenFr: 'demain', date: '2026-11-17', car: 'Clio (AA-123-AA)', driver: 'Jane Doe',
+    })
+    expect(rendered.subject).toContain('Clio (AA-123-AA)')
+    expect(rendered.subject).toContain('Jane Doe')
+    expect(rendered.body).toContain('2026-11-17')
+  })
+
+  it('the list endpoint returns the log, newest first, with filters', async () => {
+    const res = await get(tokenA, '/api/notification-deliveries')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    expect(res.body.length).toBeGreaterThan(0)
+    expect(res.body[0]).toHaveProperty('templateKey')
+    expect(res.body[0]).toHaveProperty('channel')
+    expect(res.body[0]).toHaveProperty('status')
+    const sent = await get(tokenA, '/api/notification-deliveries?status=sent')
+    expect(sent.status).toBe(200)
+    expect(sent.body.every((r: { status: string }) => r.status === 'sent')).toBe(true)
+    const email = await get(tokenA, '/api/notification-deliveries?channel=email')
+    expect(email.status).toBe(200)
+    expect(email.body.every((r: { channel: string }) => r.channel === 'email')).toBe(true)
+  })
+
+  it('an agency sees only its own deliveries', async () => {
+    const resB = await get(tokenB, '/api/notification-deliveries')
+    expect(resB.status).toBe(200)
+    expect(resB.body.every((r: { supplier: string }) => String(r.supplier) === String(supplierB._id))).toBe(true)
+  })
+
+  it('retry re-sends a failed in-app delivery and marks it sent', async () => {
+    const row = await new NotificationDelivery({
+      supplier: supplierA._id, templateKey: 'auto.pickup', subjectType: 'booking',
+      subjectId: String(bookingA1._id), dedupeKey: 'n3-test-retry', channel: 'inApp',
+      recipient: supplierA._id, subject: 'N3 retry test', body: 'N3 retry test body',
+      status: 'failed', attempts: 1, lastError: 'simulated failure',
+    }).save()
+    const res = await post(tokenA, `/api/notification-deliveries/${row._id}/retry`, {})
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('sent')
+    expect(res.body.attempts).toBe(2)
+    expect(res.body.sentAt).toBeTruthy()
+  })
+
+  it('retrying an already-sent delivery is refused', async () => {
+    const sent = await NotificationDelivery.findOne({ supplier: supplierA._id, status: 'sent' }).lean()
+    expect(sent).toBeTruthy()
+    const res = await post(tokenA, `/api/notification-deliveries/${sent!._id}/retry`, {})
+    expect(res.status).toBe(400)
+  })
+
+  it('retry requires ManageReminders (a read-only requester gets 403)', async () => {
+    const counter = await makeStaff('n3-counter', types.AgencyRole.CounterAgent, supplierA)
+    const row = await new NotificationDelivery({
+      supplier: supplierA._id, templateKey: 'auto.pickup', subjectType: 'booking',
+      subjectId: String(bookingA1._id), dedupeKey: 'n3-test-retry-403', channel: 'inApp',
+      recipient: supplierA._id, body: 'N3 retry 403 test',
+      status: 'failed', attempts: 1,
+    }).save()
+    const res = await post(counter.token, `/api/notification-deliveries/${row._id}/retry`, {})
+    expect(res.status).toBe(403)
+  })
+
+  it('retrying another agency delivery is 404', async () => {
+    const row = await new NotificationDelivery({
+      supplier: supplierB._id, templateKey: 'auto.pickup', subjectType: 'booking',
+      subjectId: String(bookingB1._id), dedupeKey: 'n3-test-retry-cross', channel: 'inApp',
+      recipient: supplierB._id, body: 'N3 cross-agency test',
+      status: 'failed', attempts: 1,
+    }).save()
+    const res = await post(tokenA, `/api/notification-deliveries/${row._id}/retry`, {})
+    expect(res.status).toBe(404)
   })
 })
