@@ -395,9 +395,14 @@ const Dashboard = () => {
     void loadCash()
     void loadOverdue()
     try {
+      // F8 / W5 D6 — the supplier filter is the AGENCY id, never the
+      // viewer's own _id: a staff member's _id is not an agency. The
+      // agency id arrives with the permissions (async, possibly after
+      // this load), so use it when it is already known and let the
+      // reload effect below correct the first load when it lands late.
       const supplierIds = helper.admin(u)
         ? bookcarsHelper.flattenSuppliers(await SupplierService.getAllSuppliers())
-        : [u._id || '']
+        : [agencySupplierRef.current || u._id || '']
       supplierIdsRef.current = supplierIds
       void loadBookings(supplierIds)
       void loadCars(supplierIds)
@@ -407,6 +412,25 @@ const Dashboard = () => {
       helper.error(error)
     }
   }, [loadBookings, loadCars, loadPayments, loadSchedules, loadCash, loadOverdue])
+
+  // F8 / W5 D6 — when the agency permissions land after the first
+  // load and carry a supplier id different from the ids the first
+  // load used (a staff member's own _id), reload bookings + cars with
+  // the real agency id. The backend's silent rewrite stays as a
+  // safety net, but the frontend no longer depends on it.
+  useEffect(() => {
+    if (!user || isAdminRef.current) {
+      return
+    }
+    const supplier = agencyPermissions?.supplier
+    if (!supplier || supplierIdsRef.current[0] === supplier) {
+      return
+    }
+    supplierIdsRef.current = [supplier]
+    void loadBookings([supplier])
+    void loadCars([supplier])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyPermissions, user])
 
   // ---- widget customisation (localStorage per user, no backend) ----
   useEffect(() => {
@@ -653,6 +677,47 @@ const Dashboard = () => {
     .filter((s) => s.status === bookcarsTypes.CashSessionStatus.Open)
     .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()), [cashBlock.sessions])
 
+  // F8 / W5 D5 — closed sessions: the last closed session per account
+  // and today's closed totals (counted balance at close). The
+  // sessions list itself is already unpaged (legacy full array), so
+  // no server change was needed for the closed side.
+  const closedCashSessions = useMemo(() => cashBlock.sessions
+    .filter((s) => s.status === bookcarsTypes.CashSessionStatus.Closed)
+    .sort((a, b) => new Date(b.closedAt || b.openedAt).getTime() - new Date(a.closedAt || a.openedAt).getTime()), [cashBlock.sessions])
+
+  const closedTodayByAccount = useMemo(() => {
+    const todayStart = startOfDay(new Date()).getTime()
+    const todayEnd = endOfDay(new Date()).getTime()
+    const totals: Record<string, { total: number, count: number }> = {}
+    for (const session of closedCashSessions) {
+      const closedAt = session.closedAt ? new Date(session.closedAt).getTime() : NaN
+      if (Number.isNaN(closedAt) || closedAt < todayStart || closedAt > todayEnd) continue
+      const amount = Number(session.countedClosingBalance ?? session.expectedClosingBalance ?? 0)
+      const entry = totals[session.account] || { total: 0, count: 0 }
+      entry.total = round2(entry.total + amount)
+      entry.count += 1
+      totals[session.account] = entry
+    }
+    return totals
+  }, [closedCashSessions])
+
+  // F8 / W5 D5 — a movement load that failed renders a retry, not a
+  // bare `—`: re-fetch that one session's movements only.
+  const retryMovements = useCallback(async (sessionId: string) => {
+    const scope = isAdminRef.current ? undefined : (agencySupplierRef.current || undefined)
+    try {
+      const movements = await CashService.movements(sessionId, scope)
+      setCashBlock((b) => ({
+        ...b,
+        movements: { ...b.movements, [sessionId]: movements || [] },
+        movementErrors: { ...b.movementErrors, [sessionId]: false },
+      }))
+    } catch (error) {
+      setCashBlock((b) => ({ ...b, movementErrors: { ...b.movementErrors, [sessionId]: true } }))
+      helper.error(error)
+    }
+  }, [])
+
   const treasuryExpected = useCallback((session: bookcarsTypes.CashSession): number | null => {
     if (session.expectedClosingBalance !== undefined && session.expectedClosingBalance !== null) {
       return Number(session.expectedClosingBalance)
@@ -836,10 +901,27 @@ const Dashboard = () => {
               {[bookcarsTypes.CashAccountType.Cash, bookcarsTypes.CashAccountType.Bank].map((account) => {
                 const session = openCashSessions.find((s) => s.account === account)
                 const expected = session ? treasuryExpected(session) : null
+                const lastClosed = closedCashSessions.find((s) => s.account === account)
+                const closedToday = closedTodayByAccount[account]
                 return (
-                  <Typography className="agency-dashboard__metric-detail" key={account}>
-                    {`${account === bookcarsTypes.CashAccountType.Bank ? strings.TREASURY_BANK : strings.TREASURY_CASH}: ${session ? (expected === null ? '—' : formatAmount(expected)) : strings.NO_OPEN_SESSION}`}
-                  </Typography>
+                  <React.Fragment key={account}>
+                    <Typography className="agency-dashboard__metric-detail">
+                      {`${account === bookcarsTypes.CashAccountType.Bank ? strings.TREASURY_BANK : strings.TREASURY_CASH}: ${session ? (expected === null ? '—' : formatAmount(expected)) : strings.NO_OPEN_SESSION}`}
+                    </Typography>
+                    {session && session._id && expected === null && cashBlock.movementErrors[session._id] && (
+                      <Button size="small" onClick={() => void retryMovements(session._id as string)}>{strings.RETRY}</Button>
+                    )}
+                    {lastClosed && (
+                      <Typography className="agency-dashboard__metric-detail">
+                        {`${strings.TREASURY_LAST_CLOSED}: ${formatDay(lastClosed.closedAt || lastClosed.openedAt)} — ${formatAmount(Number(lastClosed.countedClosingBalance ?? lastClosed.expectedClosingBalance ?? 0))}`}
+                      </Typography>
+                    )}
+                    {closedToday && closedToday.count > 0 && (
+                      <Typography className="agency-dashboard__metric-detail">
+                        {`${strings.TREASURY_CLOSED_TODAY}: ${formatAmount(closedToday.total)}`}
+                      </Typography>
+                    )}
+                  </React.Fragment>
                 )
               })}
               <Typography className="agency-dashboard__metric-detail">{strings.EXPECTED_BALANCE}</Typography>
@@ -900,6 +982,9 @@ const Dashboard = () => {
       <CardContent>
         <div className="agency-dashboard__panel-heading">
           <Typography component="h2" className="agency-dashboard__panel-title">{strings.EXPIRING_DOCUMENTS}</Typography>
+          {summaryMode && summaryBlock.status === 'ready' && (
+            <Typography className="agency-dashboard__metric-detail">{`${summaryBlock.data?.documentsExpiring ?? 0} ${strings.EXPIRING_TOTAL}`}</Typography>
+          )}
           <span>{partialChip(carsBlock.partial || schedulesBlock.partial)}{renderCustomControls('attention', 'documents')}</span>
         </div>
         {documentsData.usesSchedules && <Chip size="small" label={strings.INCLUDES_SCHEDULES} className="agency-dashboard__source-chip" />}

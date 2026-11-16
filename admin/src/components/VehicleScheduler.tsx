@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Typography } from '@mui/material'
 import { fr, enUS, es, arMA } from 'date-fns/locale'
 import { Scheduler } from '@/components/scheduler/index'
 import {
@@ -12,6 +13,7 @@ import * as helper from '@/utils/helper'
 import * as BookingService from '@/services/BookingService'
 import * as CarService from '@/services/CarService'
 import * as MaintenanceScheduleService from '@/services/MaintenanceScheduleService'
+import { strings as bookingsStrings } from '@/lang/bookings'
 
 interface VehicleSchedulerProps {
   suppliers: string[]
@@ -56,6 +58,11 @@ const VehicleScheduler = (
   const navigate = useNavigate()
   const [filter, setFilter] = useState<bookcarsTypes.Filter>()
   const [init, setInit] = useState(true)
+  // F8 / W5 C6 — the bookings fetch is capped at 10,000 rows (and the
+  // grid's car fetch at 1,000): when the cap binds, the calendar shows
+  // a partial-data banner instead of silently omitting rows.
+  const [partial, setPartial] = useState(false)
+  const [carsPartial, setCarsPartial] = useState(false)
   // F8 / W5 C1 — open maintenance schedules for the visible agencies,
   // rendered as non-bookable blocks (F7's merged due status is already
   // on the list payload: a schedule is a block until Completed).
@@ -82,6 +89,7 @@ const VehicleScheduler = (
   useEffect(() => {
     if (!grid) {
       setResources([])
+      setCarsPartial(false)
       return undefined
     }
     let cancelled = false
@@ -93,6 +101,7 @@ const VehicleScheduler = (
       .then((result) => {
         if (cancelled) return
         const rows = result?.[0]?.resultData || []
+        setCarsPartial(rows.length >= 1000)
         setResources(rows.filter((car) => car._id).map((car) => ({
           carId: car._id as string,
           text: carLabelOf(car),
@@ -134,9 +143,13 @@ const VehicleScheduler = (
     const _data = data && data.length > 0 ? data[0] : { pageInfo: { totalRecord: 0 }, resultData: [] }
     if (!_data) {
       helper.error()
+      setPartial(false)
       return emptyEvents
     }
     const bookings = _data.resultData
+    // F8 / W5 C6 — the fetch is capped at 10,000 rows; a full page
+    // means the calendar may be missing bookings.
+    setPartial(bookings.length >= 10000)
 
     const events = bookings.map((booking): ProcessedEvent => ({
       event_id: booking._id as string,
@@ -395,7 +408,11 @@ const VehicleScheduler = (
   }
 
   return (
-    <Scheduler
+    <>
+      {(partial || carsPartial) && (
+        <Typography sx={{ p: 1 }} color="warning.main">{bookingsStrings.PARTIAL_DATA}</Typography>
+      )}
+      <Scheduler
       key={grid ? 'grid' : 'month'}
       ref={schedulerRef}
       view="month"
@@ -424,6 +441,7 @@ const VehicleScheduler = (
         goToDay(date)
       }}
     />
+    </>
   )
 }
 

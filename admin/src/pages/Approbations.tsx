@@ -57,6 +57,14 @@ const Approbations = () => {
   const [agencyFilter, setAgencyFilter] = useState('')
   const agencyFilterLabelId = useId()
   const formAgencyLabelId = useId()
+  // F8 / W5 A6 — status/type filters + client-side pagination (page size
+  // 10). The page resets whenever a filter changes so the list never
+  // lands on an empty page.
+  const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [page, setPage] = useState(0)
+  const statusFilterLabelId = useId()
+  const typeFilterLabelId = useId()
   const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({})
   const [form, setForm] = useState({ supplier: '', subject: '', subjectType: 'invoice', amount: '', currency: 'MAD', reason: '' })
 
@@ -174,9 +182,15 @@ const Approbations = () => {
     }
   }
 
-  const visible = helper.admin(user) && agencyFilter
+  const filtered = (helper.admin(user) && agencyFilter
     ? approvals.filter((approval) => approval.supplier === agencyFilter)
-    : approvals
+    : approvals)
+    .filter((approval) => (!statusFilter || approval.status === statusFilter)
+      && (!typeFilter || approval.subjectType === typeFilter))
+  const PAGE_SIZE = 10
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageIndex = Math.min(page, pageCount - 1)
+  const visible = filtered.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE)
 
   return (
     <Layout strict onLoad={load}>
@@ -190,12 +204,29 @@ const Approbations = () => {
             {helper.admin(user) && (
               <FormControl size="small" sx={{ minWidth: 220 }}>
                 <InputLabel id={agencyFilterLabelId}>{strings.AGENCY}</InputLabel>
-                <Select label={strings.AGENCY} labelId={agencyFilterLabelId} value={agencyFilter} onChange={(e) => setAgencyFilter(e.target.value)}>
+                <Select label={strings.AGENCY} labelId={agencyFilterLabelId} value={agencyFilter} onChange={(e) => { setAgencyFilter(e.target.value); setPage(0) }}>
                   <MenuItem value="">{strings.ALL_AGENCIES}</MenuItem>
                   {suppliers.map((supplier) => <MenuItem key={supplier._id} value={supplier._id}>{supplier.fullName}</MenuItem>)}
                 </Select>
               </FormControl>
             )}
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id={statusFilterLabelId}>{strings.STATUS}</InputLabel>
+              <Select label={strings.STATUS} labelId={statusFilterLabelId} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}>
+                <MenuItem value="">{strings.ALL}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Pending}>{strings.PENDING}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Approved}>{strings.APPROVED}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Rejected}>{strings.REJECTED}</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel id={typeFilterLabelId}>{strings.SUBJECT_TYPE}</InputLabel>
+              <Select label={strings.SUBJECT_TYPE} labelId={typeFilterLabelId} value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}>
+                <MenuItem value="">{strings.ALL}</MenuItem>
+                <MenuItem value="invoice">{strings.TYPE_INVOICE}</MenuItem>
+                <MenuItem value="contract-charge">{strings.TYPE_CONTRACT_CHARGE}</MenuItem>
+              </Select>
+            </FormControl>
             <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => load(user || undefined)}>{strings.REFRESH}</Button>
           </Box>
         </Box>
@@ -247,6 +278,13 @@ const Approbations = () => {
                 </CardContent>
               </Card>
             ))}
+          </Box>
+        )}
+        {!loading && !error && filtered.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 2, flexWrap: 'wrap' }}>
+            <span>{strings.SHOWING} {pageIndex * PAGE_SIZE + 1}–{Math.min((pageIndex + 1) * PAGE_SIZE, filtered.length)} / {filtered.length}</span>
+            <Button variant="outlined" size="small" disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>{strings.PREVIOUS}</Button>
+            <Button variant="outlined" size="small" disabled={pageIndex >= pageCount - 1} onClick={() => setPage(pageIndex + 1)}>{strings.NEXT}</Button>
           </Box>
         )}
         <Divider sx={{ my: 3 }} />

@@ -488,6 +488,9 @@ export interface CreateAgencyMembershipPayload {
   fullName?: string
   password?: string
   role: AgencyRole
+  // F8 / W5 T4 — optional initial status: Active (default) or Pending
+  // ("created but not yet activated"). No invitation email is ever sent.
+  status?: AgencyMembershipStatus
 }
 
 export interface UpdateAgencyMembershipPayload {
@@ -2052,6 +2055,10 @@ export interface DashboardSummary {
   // total live cars, cars available right now (flag + in service and
   // NOT out on a live booking overlapping now), and cars on rent.
   fleet: { total: number, available: number, onRent: number }
+  // F8 / W5 D4 — server-side count of expiring documents (same rule
+  // as the documents widget): exact total, while the widget's list
+  // stays capped at 10 rows.
+  documentsExpiring: number
 }
 
 /**

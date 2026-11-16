@@ -8,6 +8,7 @@ import MaintenanceExpense from '../models/MaintenanceExpense'
 import ContractCharge from '../models/ContractCharge'
 import Invoice from '../models/Invoice'
 import Car from '../models/Car'
+import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import User from '../models/User'
 import ReportView from '../models/ReportView'
 import { getContractReceivable } from '../utils/contractReceivable'
@@ -861,6 +862,56 @@ const fleetCounts = async (supplier: mongoose.Types.ObjectId | null, now: Date) 
   return { total: cars.length, available, onRent }
 }
 
+// F8 / W5 D4 — server-side count of expiring documents for the
+// dashboard summary: the same rule the documents widget renders
+// client-side (PAR-08 fields win per car; a car with no document
+// fields falls back to its open maintenance schedules). Counts ROWS
+// (one per expiring document / due schedule), exact at any scale —
+// the widget's list stays capped at 10, but its heading count is now
+// the exact total instead of the capped list length.
+const documentsExpiringCount = async (supplier: mongoose.Types.ObjectId | null, now: Date) => {
+  const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30, 23, 59, 59, 999)
+  const carFilter: Record<string, unknown> = { deletedAt: null }
+  const scheduleFilter: Record<string, unknown> = {
+    status: { $ne: types.MaintenanceScheduleStatus.Completed },
+  }
+  if (supplier) {
+    carFilter.supplier = supplier
+    scheduleFilter.supplier = supplier
+  }
+  const [cars, schedules] = await Promise.all([
+    Car.find(carFilter).select('_id insuranceExpiryDate technicalInspectionExpiryDate vignetteExpiryDate').lean(),
+    MaintenanceSchedule.find(scheduleFilter).select('car nextDueDate').lean(),
+  ])
+  const hasDocFields = (car: { insuranceExpiryDate?: Date | string | null, technicalInspectionExpiryDate?: Date | string | null, vignetteExpiryDate?: Date | string | null }) => !!(
+    car.insuranceExpiryDate || car.technicalInspectionExpiryDate || car.vignetteExpiryDate
+  )
+  let count = 0
+  const fieldCarIds = new Set<string>()
+  for (const car of cars) {
+    if (!hasDocFields(car)) {
+      continue
+    }
+    fieldCarIds.add(String(car._id))
+    for (const value of [car.insuranceExpiryDate, car.technicalInspectionExpiryDate, car.vignetteExpiryDate]) {
+      if (value && new Date(value).getTime() <= horizon.getTime()) {
+        count += 1
+      }
+    }
+  }
+  for (const schedule of schedules) {
+    // Cars with PAR-08 fields are field-sourced only; a schedule whose
+    // car is outside the fetched fleet is treated as field-less.
+    if (fieldCarIds.has(String(schedule.car))) {
+      continue
+    }
+    if (schedule.nextDueDate && new Date(schedule.nextDueDate).getTime() <= horizon.getTime()) {
+      count += 1
+    }
+  }
+  return count
+}
+
 // GA-PAR-09 Phase B — dashboard aggregate. Same dictionary definitions
 // as the builder (computePeriod): contractAmount INCLUDES approved
 // charges and the figures are exact at any scale (server-side
@@ -913,6 +964,7 @@ export const dashboardSummary = async (req: Request, res: Response) => {
       return
     }
     const fleet = await fleetCounts(supplier || null, new Date())
+    const documentsExpiring = await documentsExpiringCount(supplier || null, new Date())
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
       currency: env.BASE_CURRENCY.toUpperCase(),
@@ -925,6 +977,7 @@ export const dashboardSummary = async (req: Request, res: Response) => {
       remaining: data.totals.remaining,
       contracts: data.totals.bookingsCount,
       fleet,
+      documentsExpiring,
     })
   } catch (err) {
     logger.error('[dashboard.summary]', err)

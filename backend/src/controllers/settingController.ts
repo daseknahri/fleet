@@ -86,6 +86,19 @@ export const updateSettings = async (req: Request, res: Response) => {
       minPickupDropoffHour,
       maxPickupDropoffHour,
     }: bookcarsTypes.UpdateSettingsPayload = req.body
+    // F8 / W5 S4 — explicit validation, never trusting the Mongoose
+    // model validators alone: counts must be integers >= 1, hours
+    // integers 0-23. Empty strings, non-numbers, NaN, fractions and
+    // zero are all 400 (an empty string used to arrive as 0).
+    const isValidCount = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 1
+    const isValidHour = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 23
+    if ((typeof minPickupHours !== 'undefined' && !isValidCount(minPickupHours))
+      || (typeof minRentalHours !== 'undefined' && !isValidCount(minRentalHours))
+      || (typeof minPickupDropoffHour !== 'undefined' && !isValidHour(minPickupDropoffHour))
+      || (typeof maxPickupDropoffHour !== 'undefined' && !isValidHour(maxPickupDropoffHour))) {
+      res.status(400).send('Invalid settings')
+      return
+    }
     const settings = await Setting.findOne({})
 
     if (settings) {

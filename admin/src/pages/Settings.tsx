@@ -55,6 +55,10 @@ const Settings = () => {
 
 
   const handleEmailNotificationsChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // F8 / W5 S3 — optimistic toggle with rollback: the previous value
+    // is restored when the save fails (non-200 or exception) instead
+    // of leaving the switch showing a state the server never stored.
+    const previous = enableEmailNotifications
     try {
       if (user) {
         setEnableEmailNotifications(e.target.checked)
@@ -72,12 +76,14 @@ const Settings = () => {
           setUser(_user)
           helper.info(strings.SETTINGS_UPDATED)
         } else {
+          setEnableEmailNotifications(previous)
           helper.error()
         }
       } else {
         helper.error()
       }
     } catch (err) {
+      setEnableEmailNotifications(previous)
       helper.error(err)
     }
   }
@@ -108,6 +114,8 @@ const Settings = () => {
   ]
 
   const handleEmailCategoryChange = (key: keyof bookcarsTypes.EmailNotificationCategories) => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // F8 / W5 S3 — same rollback as the master switch above.
+    const previous = emailCategories
     try {
       if (user) {
         const next = { ...emailCategories, [key]: e.target.checked }
@@ -123,12 +131,14 @@ const Settings = () => {
           setUser(_user)
           helper.info(strings.SETTINGS_UPDATED)
         } else {
+          setEmailCategories(previous)
           helper.error()
         }
       } else {
         helper.error()
       }
     } catch (err) {
+      setEmailCategories(previous)
       helper.error(err)
     }
   }

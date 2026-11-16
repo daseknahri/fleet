@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import AgencyMembership from '../models/AgencyMembership'
+import Approval from '../models/Approval'
 import User from '../models/User'
 import * as authHelper from '../utils/authHelper'
 import * as helper from '../utils/helper'
@@ -229,13 +230,19 @@ export const create = async (req: Request, res: Response) => {
       return
     }
 
+    // F8 / W5 T4 — the caller may create the membership as Pending
+    // ("created but not yet activated"); Active stays the default.
+    // Pending is NOT an invitation: no email is ever sent (T2 stays gated).
+    const requestedStatus = body.status === bookcarsTypes.AgencyMembershipStatus.Pending
+      ? bookcarsTypes.AgencyMembershipStatus.Pending
+      : bookcarsTypes.AgencyMembershipStatus.Active
     const membership = new AgencyMembership({
       supplier: new mongoose.Types.ObjectId(supplierId),
       user: staffUser._id,
       role: body.role,
-      status: bookcarsTypes.AgencyMembershipStatus.Active,
+      status: requestedStatus,
       invitedBy: req.user?._id,
-      activatedAt: new Date(),
+      activatedAt: requestedStatus === bookcarsTypes.AgencyMembershipStatus.Active ? new Date() : undefined,
     })
     await membership.save()
     membershipSaved = true
@@ -284,8 +291,11 @@ export const update = async (req: Request, res: Response) => {
     if (body.status !== undefined && ![
       bookcarsTypes.AgencyMembershipStatus.Active,
       bookcarsTypes.AgencyMembershipStatus.Suspended,
+      // F8 / W5 T4 — Pending is now reachable ("created but not yet
+      // activated"); it is not an invitation, so no email is sent.
+      bookcarsTypes.AgencyMembershipStatus.Pending,
     ].includes(body.status)) {
-      sendError(res, 400, 'Membership invitations are not implemented')
+      sendError(res, 400, 'Invalid membership status')
       return
     }
 
@@ -329,6 +339,10 @@ export const update = async (req: Request, res: Response) => {
         membership.suspendedAt = undefined
       } else if (body.status === bookcarsTypes.AgencyMembershipStatus.Suspended) {
         membership.suspendedAt = new Date()
+      } else if (body.status === bookcarsTypes.AgencyMembershipStatus.Pending) {
+        // Not yet activated (and not suspended): clear both timestamps.
+        membership.activatedAt = undefined
+        membership.suspendedAt = undefined
       }
     }
     await membership.save()
@@ -338,5 +352,42 @@ export const update = async (req: Request, res: Response) => {
   } catch (err) {
     logger.error('[agencyMembership.update] Failed to update membership', err)
     res.status(400).send('Unable to update agency membership')
+  }
+}
+
+/**
+ * F8 / W5 T4 — Remove a membership row (owner-only, see routes).
+ * Only the membership row is deleted: the staff User stays and can be
+ * re-linked to the agency later. Blocked (409) while the member has
+ * pending work — any Pending approval they requested — so their queue
+ * entries never lose their requester mid-flight.
+ */
+export const remove = async (req: Request, res: Response) => {
+  const { supplierId, membershipId } = req.params
+
+  try {
+    if (!mongoose.isValidObjectId(supplierId) || !mongoose.isValidObjectId(membershipId)) {
+      sendError(res, 400, 'Invalid membership reference')
+      return
+    }
+    const membership = await AgencyMembership.findOne({ _id: membershipId, supplier: supplierId })
+    if (!membership) {
+      res.sendStatus(404)
+      return
+    }
+    const pendingWork = await Approval.exists({
+      supplier: supplierId,
+      requestedBy: membership.user,
+      status: bookcarsTypes.ApprovalDecision.Pending,
+    })
+    if (pendingWork) {
+      sendError(res, 409, 'Member has pending approval requests')
+      return
+    }
+    await AgencyMembership.deleteOne({ _id: membership._id })
+    res.sendStatus(204)
+  } catch (err) {
+    logger.error('[agencyMembership.remove] Failed to remove membership', err)
+    res.status(400).send('Unable to remove agency membership')
   }
 }

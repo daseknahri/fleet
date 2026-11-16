@@ -13,6 +13,8 @@ const strings = new LocalizedStrings({
     EMPTY: 'No staff members have been added yet.', LOADING: 'Loading team…', LOAD_ERROR: 'Could not load the team.',
     UNAUTHORIZED: 'You do not have access to team administration.', NETWORK_ERROR: 'The team could not be reached. Check the connection and try again.',
     FORM_ERROR: 'Check the required fields and try again.', CREATE_ERROR: 'The staff account could not be created.', UPDATE_ERROR: 'The staff member could not be updated.',
+    REMOVE: 'Remove', REMOVE_CONFIRM: 'Remove this staff member from the agency? Their account stays and can be re-linked later.',
+    REMOVE_ERROR: 'The staff member could not be removed.', REMOVE_BLOCKED: 'This member still has pending approval requests.',
     PASSWORD_HINT: 'At least 6 characters', ROLE_HINT: 'Owner access is reserved for the agency account.',
   },
   fr: {
@@ -26,6 +28,8 @@ const strings = new LocalizedStrings({
     EMPTY: 'Aucun collaborateur n’a encore été ajouté.', LOADING: 'Chargement de l’équipe…', LOAD_ERROR: 'Impossible de charger l’équipe.',
     UNAUTHORIZED: 'Vous n’avez pas accès à l’administration de l’équipe.', NETWORK_ERROR: 'L’équipe est inaccessible. Vérifiez la connexion et réessayez.',
     FORM_ERROR: 'Vérifiez les champs obligatoires et réessayez.', CREATE_ERROR: 'Le compte collaborateur n’a pas pu être créé.', UPDATE_ERROR: 'Le collaborateur n’a pas pu être modifié.',
+    REMOVE: 'Retirer', REMOVE_CONFIRM: 'Retirer ce collaborateur de l’agence ? Son compte est conservé et pourra être rattaché plus tard.',
+    REMOVE_ERROR: 'Le collaborateur n’a pas pu être retiré.', REMOVE_BLOCKED: 'Ce collaborateur a encore des demandes d’approbation en attente.',
     PASSWORD_HINT: 'Au moins 6 caractères', ROLE_HINT: 'Le rôle propriétaire est réservé au compte de l’agence.',
   },
   ar: {
@@ -39,6 +43,8 @@ const strings = new LocalizedStrings({
     EMPTY: 'لم تتم إضافة أي موظف بعد.', LOADING: 'جار تحميل الفريق…', LOAD_ERROR: 'تعذر تحميل الفريق.',
     UNAUTHORIZED: 'لا تملك صلاحية إدارة الفريق.', NETWORK_ERROR: 'تعذر الوصول إلى الفريق. تحقق من الاتصال وحاول مرة أخرى.',
     FORM_ERROR: 'تحقق من الحقول المطلوبة وحاول مرة أخرى.', CREATE_ERROR: 'تعذر إنشاء حساب الموظف.', UPDATE_ERROR: 'تعذر تعديل الموظف.',
+    REMOVE: 'إزالة', REMOVE_CONFIRM: 'إزالة هذا الموظف من الوكالة؟ سيبقى حسابه ويمكن ربطه لاحقًا.',
+    REMOVE_ERROR: 'تعذر إزالة الموظف.', REMOVE_BLOCKED: 'لا يزال لدى هذا الموظف طلبات موافقة معلقة.',
     PASSWORD_HINT: 'ستة أحرف على الأقل', ROLE_HINT: 'صلاحية المالك محفوظة لحساب الوكالة.',
   },
   es: {
@@ -52,6 +58,8 @@ const strings = new LocalizedStrings({
     EMPTY: 'Todavía no se han añadido empleados.', LOADING: 'Cargando equipo…', LOAD_ERROR: 'No se pudo cargar el equipo.',
     UNAUTHORIZED: 'No tienes acceso a la administración del equipo.', NETWORK_ERROR: 'No se pudo acceder al equipo. Comprueba la conexión e inténtalo de nuevo.',
     FORM_ERROR: 'Comprueba los campos obligatorios e inténtalo de nuevo.', CREATE_ERROR: 'No se pudo crear la cuenta del empleado.', UPDATE_ERROR: 'No se pudo actualizar el empleado.',
+    REMOVE: 'Eliminar', REMOVE_CONFIRM: '¿Eliminar a este empleado de la agencia? Su cuenta se conserva y podrá volver a vincularse más adelante.',
+    REMOVE_ERROR: 'No se pudo eliminar el empleado.', REMOVE_BLOCKED: 'Este empleado todavía tiene solicitudes de aprobación pendientes.',
     PASSWORD_HINT: 'Al menos 6 caracteres', ROLE_HINT: 'El acceso de propietario está reservado para la cuenta de la agencia.',
   },
 })

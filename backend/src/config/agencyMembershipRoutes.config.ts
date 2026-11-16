@@ -4,6 +4,7 @@ const routes = {
   list: '/api/agency-memberships/:supplierId',
   create: '/api/agency-memberships/:supplierId',
   update: '/api/agency-memberships/:supplierId/:membershipId',
+  remove: '/api/agency-memberships/:supplierId/:membershipId',
 }
 
 export default routes

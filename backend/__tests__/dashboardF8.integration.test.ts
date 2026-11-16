@@ -17,6 +17,8 @@ import NotificationDelivery from '../src/models/NotificationDelivery'
 import Notification from '../src/models/Notification'
 import Invoice from '../src/models/Invoice'
 import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
+import Setting from '../src/models/Setting'
+import BankDetails from '../src/models/BankDetails'
 import { runAutoReminderPass } from '../src/utils/autoReminders'
 import { renderNotificationTemplate } from '../src/utils/notificationTemplates'
 
@@ -551,6 +553,211 @@ describe('F8 / W5 N3 — templates, delivery log and retry', () => {
       status: 'failed', attempts: 1,
     }).save()
     const res = await post(tokenA, `/api/notification-deliveries/${row._id}/retry`, {})
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('F8 / W5 D4 — documentsExpiring count (doc fields win over schedules)', () => {
+  const day = 86400000
+  const window = 'from=2026-11-10&to=2026-11-19'
+
+  it('counts field expiries, falls back to due schedules, and never double-counts a car', async () => {
+    // Baselines are relative: the N2 section left an expiring car and a
+    // due schedule behind for agency A, so the assertions are deltas.
+    const beforeA = await get(tokenA, `/api/dashboard/summary?${window}`)
+    expect(beforeA.status).toBe(200)
+    const beforeAdmin = await get(adminToken, `/api/dashboard/summary?${window}`)
+    expect(beforeAdmin.status).toBe(200)
+    const baseA = beforeA.body.documentsExpiring as number
+    const baseAdmin = beforeAdmin.body.documentsExpiring as number
+    const now = Date.now()
+
+    // +1 for A: insurance expiring in 10 days.
+    await makeCar(supplierA, 'D4-field', { insuranceExpiryDate: new Date(now + 10 * day) })
+    // +1 for A: no doc fields, only a due schedule.
+    const carSched = await makeCar(supplierA, 'D4-sched')
+    await new MaintenanceSchedule({
+      supplier: supplierA._id, car: carSched._id, type: types.MaintenanceExpenseType.Maintenance,
+      title: 'F8 D4 schedule', nextDueDate: new Date(now + 5 * day),
+      status: types.MaintenanceScheduleStatus.Upcoming,
+    }).save()
+    // +1 for A (not +2): both a field (7d) and a schedule (3d) — the
+    // field wins, the schedule is not double-counted.
+    const carBoth = await makeCar(supplierA, 'D4-both', { insuranceExpiryDate: new Date(now + 7 * day) })
+    await new MaintenanceSchedule({
+      supplier: supplierA._id, car: carBoth._id, type: types.MaintenanceExpenseType.Maintenance,
+      title: 'F8 D4 both', nextDueDate: new Date(now + 3 * day),
+      status: types.MaintenanceScheduleStatus.Upcoming,
+    }).save()
+    // +0: expiry beyond the 30-day horizon.
+    await makeCar(supplierA, 'D4-far', { insuranceExpiryDate: new Date(now + 40 * day) })
+    // +0: completed schedule.
+    const carDone = await makeCar(supplierA, 'D4-done')
+    await new MaintenanceSchedule({
+      supplier: supplierA._id, car: carDone._id, type: types.MaintenanceExpenseType.Maintenance,
+      title: 'F8 D4 done', nextDueDate: new Date(now + 2 * day),
+      status: types.MaintenanceScheduleStatus.Completed,
+    }).save()
+    // +1 for agency B only.
+    await makeCar(supplierB, 'D4-b', { insuranceExpiryDate: new Date(now + 10 * day) })
+
+    const resA = await get(tokenA, `/api/dashboard/summary?${window}`)
+    expect(resA.status).toBe(200)
+    expect(resA.body.documentsExpiring).toBe(baseA + 3)
+    const resAdmin = await get(adminToken, `/api/dashboard/summary?${window}`)
+    expect(resAdmin.status).toBe(200)
+    expect(resAdmin.body.documentsExpiring).toBe(baseAdmin + 4)
+  })
+})
+
+describe('F8 / W5 S4 — global-settings schema rejects empty/zero/invalid values', () => {
+  let hadSetting = false
+  let original: { minPickupHours: number, minRentalHours: number, minPickupDropoffHour: number, maxPickupDropoffHour: number } | null = null
+
+  beforeAll(async () => {
+    const existing = await Setting.findOne().lean()
+    hadSetting = !!existing
+    if (existing) {
+      original = {
+        minPickupHours: existing.minPickupHours,
+        minRentalHours: existing.minRentalHours,
+        minPickupDropoffHour: existing.minPickupDropoffHour,
+        maxPickupDropoffHour: existing.maxPickupDropoffHour,
+      }
+    } else {
+      await new Setting({
+        minPickupHours: 1, minRentalHours: 1, minPickupDropoffHour: 0, maxPickupDropoffHour: 23,
+      }).save()
+    }
+  })
+
+  afterAll(async () => {
+    if (hadSetting && original) {
+      await Setting.updateOne({}, { $set: original })
+    } else {
+      await Setting.deleteMany({})
+    }
+  })
+
+  it('rejects an empty string (the old Number("") = 0 escape)', async () => {
+    const res = await put(adminToken, '/api/update-settings', { minPickupHours: '' })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects zero counts', async () => {
+    expect((await put(adminToken, '/api/update-settings', { minPickupHours: 0 })).status).toBe(400)
+    expect((await put(adminToken, '/api/update-settings', { minRentalHours: 0 })).status).toBe(400)
+  })
+
+  it('rejects non-integers and hours outside 0-23', async () => {
+    expect((await put(adminToken, '/api/update-settings', { minPickupHours: 1.5 })).status).toBe(400)
+    expect((await put(adminToken, '/api/update-settings', { minPickupDropoffHour: 24 })).status).toBe(400)
+    expect((await put(adminToken, '/api/update-settings', { maxPickupDropoffHour: -1 })).status).toBe(400)
+  })
+
+  it('rejects an inverted pickup/dropoff hour window', async () => {
+    const res = await put(adminToken, '/api/update-settings', { minPickupDropoffHour: 10, maxPickupDropoffHour: 8 })
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts a valid update and persists it', async () => {
+    const res = await put(adminToken, '/api/update-settings', {
+      minPickupHours: 2, minRentalHours: 3, minPickupDropoffHour: 8, maxPickupDropoffHour: 20,
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.minPickupHours).toBe(2)
+    expect(res.body.minRentalHours).toBe(3)
+    expect(res.body.minPickupDropoffHour).toBe(8)
+    expect(res.body.maxPickupDropoffHour).toBe(20)
+  })
+})
+
+describe('F8 / W5 S5 — bank-details IBAN (mod-97) and SWIFT validation', () => {
+  let preExisting: env.BankDetails | null = null
+
+  beforeAll(async () => {
+    preExisting = await BankDetails.findOne().lean()
+  })
+
+  afterAll(async () => {
+    await BankDetails.deleteMany({})
+    if (preExisting) {
+      const { _id, ...rest } = preExisting
+      await new BankDetails({ _id, ...rest }).save()
+    }
+  })
+
+  const valid = {
+    accountHolder: 'F8 Fixture', bankName: 'F8 Bank',
+    iban: 'DE89370400440532013000', swiftBic: 'DEUTDEFF', showBankDetailsPage: true,
+  }
+
+  it('rejects an IBAN that fails mod-97', async () => {
+    const res = await post(adminToken, '/api/upsert-bank-details', { ...valid, iban: 'DE89370400440532013001' })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a structurally invalid IBAN and SWIFT', async () => {
+    expect((await post(adminToken, '/api/upsert-bank-details', { ...valid, iban: 'NOTANIBAN' })).status).toBe(400)
+    expect((await post(adminToken, '/api/upsert-bank-details', { ...valid, swiftBic: 'ABC' })).status).toBe(400)
+    expect((await post(adminToken, '/api/upsert-bank-details', { ...valid, swiftBic: 'DEUTDEFFXXX1' })).status).toBe(400)
+  })
+
+  it('accepts a valid IBAN + SWIFT (and a spaced, lowercase IBAN)', async () => {
+    const res = await post(adminToken, '/api/upsert-bank-details', valid)
+    expect(res.status).toBe(200)
+    expect(res.body.iban).toBe('DE89370400440532013000')
+    const res2 = await post(adminToken, '/api/upsert-bank-details', { ...valid, iban: 'de89 3704 0044 0532 0130 00', swiftBic: 'deutdeff' })
+    expect(res2.status).toBe(200)
+  })
+})
+
+describe('F8 / W5 T4 — membership removal and a reachable Pending status', () => {
+  it('create accepts an explicit Pending status', async () => {
+    const res = await post(tokenA, `/api/agency-memberships/${supplierA._id}`, {
+      email: `f8-t4-create-${suffix}@test.bookcars.ma`, fullName: 'F8 T4 Create Pending',
+      password: 't4-pass-1', role: types.AgencyRole.CounterAgent,
+      status: types.AgencyMembershipStatus.Pending,
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.status).toBe(types.AgencyMembershipStatus.Pending)
+    membershipIds.push(res.body._id)
+    ids.push(res.body.user._id)
+  })
+
+  it('update accepts Pending and can reactivate', async () => {
+    const { membership } = await makeStaff('t4-flip', types.AgencyRole.Accountant, supplierA)
+    const toPending = await put(tokenA, `/api/agency-memberships/${supplierA._id}/${membership._id}`, { status: types.AgencyMembershipStatus.Pending })
+    expect(toPending.status).toBe(200)
+    expect(toPending.body.status).toBe(types.AgencyMembershipStatus.Pending)
+    const toActive = await put(tokenA, `/api/agency-memberships/${supplierA._id}/${membership._id}`, { status: types.AgencyMembershipStatus.Active })
+    expect(toActive.status).toBe(200)
+    expect(toActive.body.status).toBe(types.AgencyMembershipStatus.Active)
+  })
+
+  it('delete removes the membership row but keeps the staff User', async () => {
+    const { staff, membership } = await makeStaff('t4-remove', types.AgencyRole.Mechanic, supplierA)
+    const res = await del(tokenA, `/api/agency-memberships/${supplierA._id}/${membership._id}`)
+    expect(res.status).toBe(204)
+    expect(await AgencyMembership.findById(membership._id)).toBeNull()
+    expect(await User.findById(staff._id)).not.toBeNull()
+  })
+
+  it('delete is blocked (409) while the member has a Pending approval', async () => {
+    const { staff, membership } = await makeStaff('t4-blocked', types.AgencyRole.Accountant, supplierA)
+    const approval = await new Approval({
+      supplier: supplierA._id, requestedBy: staff._id,
+      subject: String(new mongoose.Types.ObjectId()), subjectType: 'invoice',
+      amount: 100, currency: env.BASE_CURRENCY, status: types.ApprovalDecision.Pending,
+    }).save()
+    approvalIds.push(approval._id)
+    const res = await del(tokenA, `/api/agency-memberships/${supplierA._id}/${membership._id}`)
+    expect(res.status).toBe(409)
+    expect(await AgencyMembership.findById(membership._id)).not.toBeNull()
+  })
+
+  it('deleting an unknown membership is 404', async () => {
+    const res = await del(tokenA, `/api/agency-memberships/${supplierA._id}/${new mongoose.Types.ObjectId()}`)
     expect(res.status).toBe(404)
   })
 })
