@@ -207,9 +207,9 @@ export const list = async (req: Request, res: Response) => {
   try {
     // F6 / W3 X-1 — server-side pagination + type / date / car filters.
     // No page/size params keeps the legacy full-array response.
-    const { pagination, error } = parsePagination(req)
-    if (error) {
-      res.status(400).send(error)
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
       return
     }
     const filter: Record<string, unknown> = { ...getScope(req) }
@@ -236,7 +236,7 @@ export const list = async (req: Request, res: Response) => {
     if (from || to) {
       filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
     }
-    if (!pagination) {
+    if (!parsed.pagination) {
       const expenses = await MaintenanceExpense.find(filter)
         .sort({ date: -1, createdAt: -1 })
         .populate('car', 'name licensePlate')
@@ -249,13 +249,13 @@ export const list = async (req: Request, res: Response) => {
     const total = await MaintenanceExpense.countDocuments(filter)
     const expenses = await MaintenanceExpense.find(filter)
       .sort({ date: -1, createdAt: -1 })
-      .skip(paginationSkip(pagination))
-      .limit(pagination.size)
+      .skip(paginationSkip(parsed.pagination))
+      .limit(parsed.pagination.size)
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
       .populate('workOrder', 'title status')
 
-    res.json(pagedResponse(expenses.map((expense) => withPaymentState(expense)), total, pagination))
+    res.json(pagedResponse(expenses.map((expense) => withPaymentState(expense)), total, parsed.pagination))
   } catch (err) {
     logger.error(`[maintenanceExpense.list] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -318,7 +318,7 @@ export const create = async (req: Request, res: Response) => {
     })
     await expense.save()
     // F7 / W3 M-7 — the creation itself is audited.
-    await recordAudit(expenseSupplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Created, user._id, undefined, [
+    await recordAudit(expenseSupplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Created, new mongoose.Types.ObjectId(user._id), undefined, [
       { field: 'date', after: changeValue(expense.date) },
       { field: 'type', after: expense.type },
       { field: 'amount', after: expense.amount },
@@ -445,7 +445,7 @@ await removePrivateReceipt(previousReceipt)
       .filter((field) => changeValue(before[field]) !== changeValue(after[field]))
       .map((field) => ({ field, before: changeValue(before[field]), after: changeValue(after[field]) }))
     if (changes.length > 0) {
-      await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Updated, user._id, reason || undefined, changes)
+      await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Updated, new mongoose.Types.ObjectId(user._id), reason || undefined, changes)
     }
     await expense.populate([
       { path: 'car', select: 'name licensePlate' },
@@ -479,7 +479,7 @@ export const remove = async (req: Request, res: Response) => {
     if (!expense) {
  res.sendStatus(404); return 
 }
-    await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Deleted, req.user?._id, reason)
+    await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Deleted, req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined, reason)
     await MaintenanceExpense.deleteOne({ _id: expense._id })
     await removePrivateReceipt(expense.receipt)
     res.sendStatus(200)
