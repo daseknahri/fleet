@@ -1446,7 +1446,7 @@ export interface DateBasedPrice extends Document {
  * @typedef {Car}
  * @extends {Document}
  */
-export interface Car extends Document {
+export interface Car extends Omit<Document, 'model'> {
   name: string
   licensePlate?: string
   supplier: Types.ObjectId
