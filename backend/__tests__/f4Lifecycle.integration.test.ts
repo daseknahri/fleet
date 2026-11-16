@@ -45,6 +45,13 @@ jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
 // fake also carries the lifecycle methods setupTests.ts calls on the
 // real client (quit/disconnect) and no-op cache reads, so no other
 // importer of the module breaks.
+// ORDERING (L4d): this mock only reaches the limiter because
+// setupTests.ts imports redis lazily inside afterAll. A static redis
+// import in setupTests would load the real client before this file
+// evaluates, and jest.unstable_mockModule cannot replace an
+// already-loaded ESM module - the limiter would keep the real client,
+// fail open against the unreachable host-side Redis, and the burst
+// would see 0x429. Do not re-add a top-level redis import to setupTests.
 const mockBuckets = new Map<string, { tokens: number, lastTime: number }>()
 const mockRedis = {
   eval: async (_script: string, _numKeys: number, key: string, capacity: number, refillRateMs: number, now: number) => {
@@ -363,12 +370,18 @@ describe('F4 / W1 #10 — a checkout conflict leaves no orphan guest', () => {
 describe('F4 / W1 #15 — paymentIntentId is a sparse-unique backstop', () => {
   it('builds the sparse-unique index, refuses a duplicate intent, allows many without one', async () => {
     await Booking.createIndexes()
-    const indexes = await Booking.collection.getIndexes() as Record<string, { key?: Record<string, number>, unique?: boolean, sparse?: boolean }>
-    const index = indexes.paymentIntentId_1
+    // getIndexes() is Mongoose's alias for indexInformation() with no
+    // options, i.e. the COMPACT form { name: [[field, direction]] } -
+    // it has no key/unique/sparse members. The full form comes from
+    // indexes() (full: true by default).
+    const compact = await Booking.collection.getIndexes()
+    expect(compact.paymentIntentId_1).toEqual([['paymentIntentId', 1]])
+    const full = await Booking.collection.indexes()
+    const index = full.find((idx) => idx.name === 'paymentIntentId_1')
     expect(index).toBeDefined()
-    expect(index.key?.paymentIntentId).toBe(1)
-    expect(index.unique).toBe(true)
-    expect(index.sparse).toBe(true)
+    expect(index?.key?.paymentIntentId).toBe(1)
+    expect(index?.unique).toBe(true)
+    expect(index?.sparse).toBe(true)
 
     const fixture = await makeFixture('payment-intent-index')
     const first = await makeBooking(fixture, { paymentIntentId: `pi_f4_dup_${rand()}` })
