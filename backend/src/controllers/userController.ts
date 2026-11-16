@@ -2769,7 +2769,13 @@ export const sendEmail = async (req: Request, res: Response) => {
 
     res.sendStatus(200)
   } catch (err) {
-    logger.error(`[user.sendEmail] ${JSON.stringify(req.body)}`, err)
+    // Never log the live reCAPTCHA token (single-use): strip it from the
+    // logged body. The contact and newsletter forms share this handler,
+    // so this one redaction covers both paths into this catch (the
+    // origin-whitelist throw and any mail failure after the gate).
+    const loggedBody = { ...req.body }
+    delete loggedBody.recaptchaToken
+    logger.error(`[user.sendEmail] ${JSON.stringify(loggedBody)}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

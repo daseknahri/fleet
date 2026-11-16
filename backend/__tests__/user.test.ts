@@ -2213,23 +2213,47 @@ describe('POST /api/send-email', () => {
       message: 'test message',
       isContactForm: true,
     }
-    let res = await request(app)
-      .post('/api/send-email')
-      .set('Origin', env.FRONTEND_HOST)
-      .send(payload)
-    expect(res.statusCode).toBe(200)
+    // The F1 runner loads backend/.env.docker into the jest env, where
+    // BC_RECAPTCHA_SECRET is a configured non-placeholder secret, so
+    // RECAPTCHA_REQUIRED is true at app import and the gate is on: the
+    // success cases must send a token the mocked siteverify accepts.
+    // Same axios.post mock + re-import pattern as the gate test below —
+    // the shared top-level app cannot be re-mocked per case. (With the
+    // gate off, e.g. a placeholder secret, the token is simply ignored
+    // and the same assertions still hold.)
+    const mockSiteVerify = (data: unknown) => {
+      jest.unstable_mockModule('axios', () => ({
+        default: {
+          post: jest.fn(() => Promise.resolve({ data })),
+        },
+      }))
+      jest.resetModules()
+    }
+    const postSendEmail = async (body: bookcarsTypes.SendEmailPayload) => {
+      let statusCode = 0
+      await jest.isolateModulesAsync(async () => {
+        const newApp = (await import('../src/app.js')).default
+
+        const res = await request(newApp)
+          .post('/api/send-email')
+          .set('Origin', env.FRONTEND_HOST)
+          .send(body)
+        statusCode = res.statusCode
+      })
+      return statusCode
+    }
+
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(200)
 
     // test success (newsletter form)
     payload.isContactForm = false
     payload.message = ''
-    res = await request(app)
-      .post('/api/send-email')
-      .set('Origin', env.FRONTEND_HOST)
-      .send(payload)
-    expect(res.statusCode).toBe(200)
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(200)
 
     // test failure (no Origin)
-    res = await request(app)
+    let res = await request(app)
       .post('/api/send-email')
       .send(payload)
     expect(res.statusCode).toBe(400)
