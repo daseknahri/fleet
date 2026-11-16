@@ -49,6 +49,7 @@ const NewsletterForm = () => {
         subject: 'New Newsletter Subscription',
         message: '',
         isContactForm: false,
+        recaptchaToken,
       }
       const status = await UserService.sendEmail(payload)
 

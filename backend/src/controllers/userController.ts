@@ -7,7 +7,6 @@ import mongoose from 'mongoose'
 import { CookieOptions, Request, Response } from 'express'
 import * as nodemailer from 'nodemailer'
 import type { SendMailOptions } from 'nodemailer'
-import axios from 'axios'
 import * as bookcarsTypes from ':bookcars-types'
 import i18n from '../lang/i18n'
 import * as env from '../config/env.config'
@@ -19,6 +18,7 @@ import PushToken from '../models/PushToken'
 import * as helper from '../utils/helper'
 import * as authHelper from '../utils/authHelper'
 import * as mailHelper from '../utils/mailHelper'
+import * as recaptchaHelper from '../utils/recaptchaHelper'
 import Notification from '../models/Notification'
 import AgencyMembership from '../models/AgencyMembership'
 import NotificationCounter from '../models/NotificationCounter'
@@ -2684,18 +2684,24 @@ export const deleteUsers = async (req: Request, res: Response) => {
  */
 export const verifyRecaptcha = async (req: Request, res: Response) => {
   try {
-    const { token, ip } = req.params
-    const result = await axios.get(`https://www.google.com/recaptcha/api/siteverify?secret=${encodeURIComponent(env.RECAPTCHA_SECRET)}&response=${encodeURIComponent(token)}&remoteip=${ip}`)
-    const { success } = result.data
+    const { token } = req.params as { token: string }
+    if (!token || token.length > 4096) {
+      res.sendStatus(400)
+      return
+    }
 
-    if (success) {
+    const verified = await recaptchaHelper.verifyRecaptchaToken(
+      token,
+      req.ip || req.socket.remoteAddress || ''
+    )
+    if (verified) {
       res.sendStatus(200)
       return
     }
     res.sendStatus(204)
-  } catch (err) {
-    logger.error(`[user.delete] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
-    res.status(400).send(i18n.t('ERROR'))
+  } catch {
+    logger.error('[user.verifyRecaptcha] Verification service unavailable')
+    res.status(503).send(i18n.t('ERROR'))
   }
 }
 
@@ -2719,7 +2725,34 @@ export const sendEmail = async (req: Request, res: Response) => {
     }
 
     const { body }: { body: bookcarsTypes.SendEmailPayload } = req
-    const { from, to, subject, message, isContactForm } = body
+    const { from, to, subject, message, isContactForm, recaptchaToken } = body
+
+    if (env.RECAPTCHA_REQUIRED) {
+      if (!recaptchaToken) {
+        res.status(400).json({ message: 'reCAPTCHA verification is required.' })
+        return
+      }
+      if (!env.RECAPTCHA_SECRET || env.RECAPTCHA_SECRET === 'RECAPTCHA_SECRET') {
+        logger.error('[user.sendEmail] reCAPTCHA is required but its secret is not configured')
+        res.status(503).json({ message: 'reCAPTCHA verification is unavailable.' })
+        return
+      }
+
+      try {
+        const verified = await recaptchaHelper.verifyRecaptchaToken(
+          recaptchaToken,
+          req.ip || req.socket.remoteAddress || ''
+        )
+        if (!verified) {
+          res.status(400).json({ message: 'reCAPTCHA verification failed.' })
+          return
+        }
+      } catch {
+        logger.error('[user.sendEmail] reCAPTCHA verification service unavailable')
+        res.status(503).json({ message: 'reCAPTCHA verification is unavailable.' })
+        return
+      }
+    }
 
     const mailOptions: SendMailOptions = {
       from: env.SMTP_FROM,

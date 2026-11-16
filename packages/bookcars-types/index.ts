@@ -2690,6 +2690,7 @@ export interface SendEmailPayload {
   subject: string
   message: string
   isContactForm: boolean
+  recaptchaToken?: string
 }
 
 export interface Response<T> {
