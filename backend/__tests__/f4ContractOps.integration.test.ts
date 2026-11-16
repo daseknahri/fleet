@@ -442,7 +442,12 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
     expect(untouched!.status).toBe(bookcarsTypes.BookingStatus.Paid)
     expect(untouched!.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
     expect(untouched!.noShowAt).toBeFalsy()
-    expect(untouched!.cancellationRecord).toBeFalsy()
+    // `cancellationRecord` itself is always present: Mongoose materialises
+    // the single-nested subdocument on every load, with the array default
+    // `refundProviderReferences: []`. No cancellation was recorded, so the
+    // meaningful fields stay unset.
+    expect(untouched!.cancellationRecord?.cancelledAt).toBeFalsy()
+    expect(untouched!.cancellationRecord?.refundDecision).toBeFalsy()
     // Legacy shape: Draft lifecycle with money already collected.
     const legacy = await makeFixture('no-show-paid-legacy', {
       status: bookcarsTypes.BookingStatus.Paid,
