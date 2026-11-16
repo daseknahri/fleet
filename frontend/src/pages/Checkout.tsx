@@ -260,7 +260,11 @@ const Checkout = () => {
         helper.error()
       }
     } catch (err) {
-      helper.error(err)
+      if ((err as any)?.status === 400) {
+        helper.error(err, strings.INVALID_REQUEST)
+      } else {
+        helper.error(err)
+      }
     }
   }
 
@@ -852,11 +856,21 @@ const Checkout = () => {
                           <div className="payment-options-container">
                             <PayPalButtons
                               createOrder={async () => {
-                                const name = bookcarsHelper.truncateString(car.name, PayPalService.ORDER_NAME_MAX_LENGTH)
-                                const _description = `${car.name} - ${daysLabel} - ${pickupLocation._id === dropOffLocation._id ? pickupLocation.name : `${pickupLocation.name} - ${dropOffLocation.name}`}`
-                                const description = bookcarsHelper.truncateString(_description, PayPalService.ORDER_DESCRIPTION_MAX_LENGTH)
-                                const orderId = await PayPalService.createOrder(bookingId!, name, description)
-                                return orderId
+                                try {
+                                  if (!bookingId) {
+                                    console.error('Missing bookingId before PayPal order creation')
+                                    return ''
+                                  }
+                                  const name = bookcarsHelper.truncateString(car.name, PayPalService.ORDER_NAME_MAX_LENGTH)
+                                  const _description = `${car.name} - ${daysLabel} - ${pickupLocation._id === dropOffLocation._id ? pickupLocation.name : `${pickupLocation.name} - ${dropOffLocation.name}`}`
+                                  const description = bookcarsHelper.truncateString(_description, PayPalService.ORDER_DESCRIPTION_MAX_LENGTH)
+                                  const orderId = await PayPalService.createOrder(bookingId!, name, description)
+                                  return orderId || ''
+                                } catch (err) {
+                                  setPaymentFailed(true)
+                                  helper.error(err)
+                                  return ''
+                                }
                               }}
                               onApprove={async (data, actions) => {
                                 try {
