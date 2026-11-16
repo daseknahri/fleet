@@ -4,6 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import * as bookcarsTypes from ':bookcars-types'
+import * as bookcarsHelper from ':bookcars-helper'
 import Booking from '../models/Booking'
 import ContractInspection from '../models/ContractInspection'
 import ContractCharge from '../models/ContractCharge'
@@ -713,7 +714,7 @@ export const settlementPreview = async (req: Request, res: Response) => {
       ? {
         returnedAt: new Date(returnInsp.occurredAt),
         dueAt: new Date(booking!.to),
-        lateHours: helper.hours(booking!.to, returnInsp.occurredAt),
+        lateHours: bookcarsHelper.hours(booking!.to, returnInsp.occurredAt),
       }
       : undefined
     const preview: bookcarsTypes.SettlementPreview = {
