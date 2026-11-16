@@ -208,6 +208,8 @@ export const en = {
   TO_DATE_EMPTY: 'Please enter a drop-off date.',
   TO_TIME_EMPTY: 'Please enter a drop-off time.',
   PAYMENT_FAILED: 'Payment failed.',
+  PAYMENT_CANCELED_TITLE: 'Payment Canceled',
+  CHECKOUT_INVALID_REQUEST: 'An account with this email already exists or invalid details were provided. Your payment authorization was canceled and you were not charged. Please sign in to continue.',
   ERROR: 'Error',
   LOGIN_ERROR: 'Authentication failed.',
   OR: 'or',

@@ -7,6 +7,7 @@ import { format, intervalToDuration } from 'date-fns'
 import { enUS, fr, es } from 'date-fns/locale'
 import { PaymentSheetError, initPaymentSheet, useStripe } from '@stripe/stripe-react-native'
 import { useIsFocused } from '@react-navigation/native'
+import { Text as RNPText, Dialog, Portal, Button as NativeButton } from 'react-native-paper'
 
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
@@ -86,6 +87,8 @@ const CheckoutScreen = () => {
   const [birthDateValid, setBirthDateValid] = useState(true)
   const [tosError, setTosError] = useState(false)
   const [error, setError] = useState(false)
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false)
+  const [errorDialogMessage, setErrorDialogMessage] = useState('')
   const [success, setSuccess] = useState(true)
   const [locale, setLocale] = useState(fr)
   const [additionalDriverFullNameRequired, setAdditionalDriverFullNameRequired] = useState(false)
@@ -422,7 +425,7 @@ const CheckoutScreen = () => {
         start: birthDate,
         end: new Date(),
       }).years ?? 0
-      const _birthDateValid = sub >= env.MINIMUM_AGE
+      const _birthDateValid = sub >= (__car?.minimumAge ?? env.MINIMUM_AGE)
 
       setBirthDateValid(_birthDateValid)
       setError(!_birthDateValid)
@@ -443,7 +446,7 @@ const CheckoutScreen = () => {
         start: addtionalDriverBirthDate,
         end: new Date(),
       }).years ?? 0
-      const _birthDateValid = sub >= env.MINIMUM_AGE
+      const _birthDateValid = sub >= (__car?.minimumAge ?? env.MINIMUM_AGE)
 
       setAdditionalDriverBirthDateValid(_birthDateValid)
       setError(!_birthDateValid)
@@ -558,6 +561,11 @@ const CheckoutScreen = () => {
   const _error = (err?: unknown) => {
     helper.error(err)
     setLoading(false)
+  }
+
+  const showPaymentErrorDialog = (message: string) => {
+    setErrorDialogMessage(message)
+    setErrorDialogOpen(true)
   }
 
   const handleCheckout = async () => {
@@ -727,7 +735,7 @@ const CheckoutScreen = () => {
       if (initPaymentSheetError) {
         await releaseTemporaryBooking()
         setLoading(false)
-        alert(i18n.t('PAYMENT_FAILED'))
+        showPaymentErrorDialog(initPaymentSheetError.message || i18n.t('PAYMENT_FAILED'))
         return
       }
 
@@ -736,7 +744,7 @@ const CheckoutScreen = () => {
         await releaseTemporaryBooking()
         setLoading(false)
         if (presentPaymentSheetError.code !== PaymentSheetError.Canceled) {
-          alert(i18n.t('PAYMENT_FAILED'))
+          showPaymentErrorDialog(presentPaymentSheetError.message || i18n.t('PAYMENT_FAILED'))
         }
         return
       }
@@ -744,7 +752,7 @@ const CheckoutScreen = () => {
       const confirmationStatus = await BookingService.confirmPaymentIntent(checkout.bookingId, paymentIntentId)
       if (confirmationStatus !== 200) {
         setLoading(false)
-        alert(i18n.t('PAYMENT_FAILED'))
+        showPaymentErrorDialog(confirmationStatus === 400 ? i18n.t('CHECKOUT_INVALID_REQUEST') : i18n.t('PAYMENT_FAILED'))
         return
       }
       setLoading(false)
@@ -1179,6 +1187,32 @@ const CheckoutScreen = () => {
           {loading && <Backdrop message={i18n.t('PLEASE_WAIT')} />}
         </>
       )}
+
+      <Portal>
+        <Dialog
+          style={styles.dialog}
+          visible={errorDialogOpen}
+          onDismiss={() => setErrorDialogOpen(false)}
+          dismissable={false}
+        >
+          <Dialog.Title style={styles.dialogTitleContent}>
+            {i18n.t('PAYMENT_CANCELED_TITLE')}
+          </Dialog.Title>
+          <Dialog.Content style={styles.dialogContent}>
+            <RNPText variant="bodyMedium" style={{ textAlign: 'center' }}>
+              {errorDialogMessage}
+            </RNPText>
+          </Dialog.Content>
+          <Dialog.Actions style={styles.dialogActions}>
+            <NativeButton
+              textColor="#f37022"
+              onPress={() => setErrorDialogOpen(false)}
+            >
+              {i18n.t('CLOSE')}
+            </NativeButton>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </Layout>
   )
 }
@@ -1372,6 +1406,23 @@ const styles = StyleSheet.create({
   },
   error: {
     marginBottom: 10,
+  },
+  dialog: {
+    width: '90%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    backgroundColor: '#fff',
+  },
+  dialogTitleContent: {
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  dialogContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogActions: {
+    justifyContent: 'center',
   },
 })
 
