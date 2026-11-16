@@ -56,8 +56,6 @@ const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
 
-const cookieFor = (token: string) => `${env.X_ACCESS_TOKEN}=${token};`
-const adminCookie = () => cookieFor(adminToken)
 
 type FixtureOpts = {
   status?: bookcarsTypes.BookingStatus
@@ -141,7 +139,7 @@ const paymentsOf = async (bookingId: mongoose.Types.ObjectId) =>
   RentalPayment.find({ booking: bookingId }).sort({ purpose: 1, createdAt: 1 }).lean()
 
 const cancelAsAdmin = (bookingId: string, body: object) =>
-  request(app).post(`/api/bookings/${bookingId}/cancel`).set('Cookie', [adminCookie()]).send(body)
+  request(app).post(`/api/bookings/${bookingId}/cancel`).set(env.X_ACCESS_TOKEN, adminToken).send(body)
 
 const mockPayPalOrderWithCapture = (orderId: string, captureId: string, amount: string) => {
   paypalGetOrder.mockResolvedValue({
@@ -335,7 +333,7 @@ describe('F3 / W1 #1 — staff cancel of paid/deposit bookings', () => {
     await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, 'stripe', 'pi_f3_frees_car')
     const cancelled = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'Customer cancelled', refundDecision: 'none' })
     expect(cancelled.status).toBe(200)
-    const rebook = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()]).send({
+    const rebook = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send({
       booking: {
         supplier: fixture.supplier._id.toString(), car: fixture.car._id.toString(), driver: fixture.driver._id.toString(),
         pickupLocation: fixture.location._id.toString(), dropOffLocation: fixture.location._id.toString(),
@@ -358,11 +356,11 @@ describe('F3 / W1 #1 — staff cancel of paid/deposit bookings', () => {
     fixtureUserIds.push(otherSupplier._id)
     const otherToken = await authHelper.encryptJWT({ id: otherSupplier._id.toString() })
     const cross = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/cancel`)
-      .set('Cookie', [cookieFor(otherToken)]).send({ reason: 'Customer cancelled', refundDecision: 'none' })
+      .set(env.X_ACCESS_TOKEN, otherToken).send({ reason: 'Customer cancelled', refundDecision: 'none' })
     expect(cross.status).toBe(403)
     const driverToken = await authHelper.encryptJWT({ id: fixture.driver._id.toString() })
     const customer = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/cancel`)
-      .set('Cookie', [cookieFor(driverToken)]).send({ reason: 'Customer cancelled', refundDecision: 'none' })
+      .set(env.X_ACCESS_TOKEN, driverToken).send({ reason: 'Customer cancelled', refundDecision: 'none' })
     expect(customer.status).toBe(403)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
@@ -372,7 +370,7 @@ describe('F3 / W1 #1 — staff cancel of paid/deposit bookings', () => {
 describe('F3 / W1 #18 — Cancelled is no longer a bare 400 dead-end', () => {
   it('updateStatus to Cancelled from Paid refuses with the cancel-workflow redirect', async () => {
     const fixture = await makeFixture('status-paid-cancel', { status: bookcarsTypes.BookingStatus.Paid })
-    const response = await request(app).post('/api/update-booking-status').set('Cookie', [adminCookie()]).send({
+    const response = await request(app).post('/api/update-booking-status').set(env.X_ACCESS_TOKEN, adminToken).send({
       ids: [fixture.booking._id.toString()], status: bookcarsTypes.BookingStatus.Cancelled,
     })
     expect(response.status).toBe(400)
@@ -383,7 +381,7 @@ describe('F3 / W1 #18 — Cancelled is no longer a bare 400 dead-end', () => {
 
   it('update to Cancelled from Paid refuses with the cancel-workflow redirect', async () => {
     const fixture = await makeFixture('update-paid-cancel', { status: bookcarsTypes.BookingStatus.Paid })
-    const response = await request(app).put('/api/update-booking').set('Cookie', [adminCookie()]).send({
+    const response = await request(app).put('/api/update-booking').set(env.X_ACCESS_TOKEN, adminToken).send({
       booking: {
         _id: fixture.booking._id.toString(), supplier: fixture.supplier._id.toString(),
         car: fixture.car._id.toString(), driver: fixture.driver._id.toString(),
@@ -400,7 +398,7 @@ describe('F3 / W1 #18 — Cancelled is no longer a bare 400 dead-end', () => {
 
   it('updateStatus to Cancelled from Pending succeeds and sets lifecycle Cancelled', async () => {
     const fixture = await makeFixture('status-pending-cancel')
-    const response = await request(app).post('/api/update-booking-status').set('Cookie', [adminCookie()]).send({
+    const response = await request(app).post('/api/update-booking-status').set(env.X_ACCESS_TOKEN, adminToken).send({
       ids: [fixture.booking._id.toString()], status: bookcarsTypes.BookingStatus.Cancelled,
     })
     expect(response.status).toBe(200)
@@ -414,7 +412,7 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
   it('confirms a Pending booking to Paid when the full cash amount is posted in the call', async () => {
     const fixture = await makeFixture('confirm-full-cash')
     const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(true)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
@@ -430,7 +428,7 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
   it('reports a partial cash collection as not-confirmed with the outstanding balance', async () => {
     const fixture = await makeFixture('confirm-partial-cash')
     const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 400, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 400, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(false)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Pending)
@@ -443,7 +441,7 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
     const fixture = await makeFixture('confirm-posted-only')
     await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, 'stripe', 'pi_f3_confirm_posted')
     const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({})
+      .set(env.X_ACCESS_TOKEN, adminToken).send({})
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(true)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
@@ -453,7 +451,7 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
     const fixture = await makeFixture('confirm-deposit-full', { status: bookcarsTypes.BookingStatus.Deposit, amountDueNow: 250 })
     await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 250, 'stripe', 'pi_f3_confirm_deposit')
     const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(true)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.PaidInFull)
@@ -462,19 +460,19 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
   it('refuses an overpayment and a confirmation on a cancelled booking', async () => {
     const fixture = await makeFixture('confirm-overpay')
     const over = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1001, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1001, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(over.status).toBe(400)
     expect(over.text).toContain('exceeds the remaining rental balance')
     const cancelled = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'Customer cancelled', refundDecision: 'none' })
     expect(cancelled.status).toBe(200)
     const closed = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000 })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000 })
     expect(closed.status).toBe(409)
   })
 
   it('a full rent posting on the Payments page flips the booking to Paid by itself', async () => {
     const fixture = await makeFixture('confirm-via-payments-page')
-    const response = await request(app).post('/api/rental-payments').set('Cookie', [adminCookie()]).send({
+    const response = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
       booking: fixture.booking._id.toString(), date: new Date(), amount: 1000,
       method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
     })
@@ -487,11 +485,11 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
 describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of a paid booking', () => {
   const requestCancelAsDriver = async (fixture: any) => {
     const driverToken = await authHelper.encryptJWT({ id: fixture.driver._id.toString() })
-    return request(app).post(`/api/cancel-booking/${fixture.booking._id.toString()}`).set('Cookie', [cookieFor(driverToken)])
+    return request(app).post(`/api/cancel-booking/${fixture.booking._id.toString()}`).set(env.X_ACCESS_TOKEN, driverToken)
   }
 
   const queueAsAdmin = async (supplierId: string) =>
-    request(app).post('/api/cancel-requests/1/30/en').set('Cookie', [adminCookie()]).send({ suppliers: [supplierId] })
+    request(app).post('/api/cancel-requests/1/30/en').set(env.X_ACCESS_TOKEN, adminToken).send({ suppliers: [supplierId] })
 
   it('customer cancel request lands in the queue with the amounts at stake; approve cancels it', async () => {
     const fixture = await makeFixture('queue-approve', { status: bookcarsTypes.BookingStatus.Paid })
@@ -508,7 +506,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
     expect(rows[0].outstandingBalance).toBe(0)
     expect(rows[0].requestedAt).toBeTruthy()
     const decided = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/decide-cancel-request`)
-      .set('Cookie', [adminCookie()]).send({ decision: 'approve', reason: 'Customer cancelled before pickup', refundDecision: 'none' })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ decision: 'approve', reason: 'Customer cancelled before pickup', refundDecision: 'none' })
     expect(decided.status).toBe(200)
     expect(decided.body.booking.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
     expect(decided.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Cancelled)
@@ -521,7 +519,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
     const requested = await requestCancelAsDriver(fixture)
     expect(requested.status).toBe(200)
     const denied = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/decide-cancel-request`)
-      .set('Cookie', [adminCookie()]).send({ decision: 'deny', reason: 'Outside the cancellation window' })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ decision: 'deny', reason: 'Outside the cancellation window' })
     expect(denied.status).toBe(200)
     expect(denied.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
     expect(denied.body.cancelRequest).toBe(false)
@@ -532,12 +530,12 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
   it('decide without a pending request refuses 409, and approve needs a refund decision', async () => {
     const fixture = await makeFixture('queue-no-request', { status: bookcarsTypes.BookingStatus.Paid })
     const noRequest = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/decide-cancel-request`)
-      .set('Cookie', [adminCookie()]).send({ decision: 'approve', reason: 'Customer cancelled', refundDecision: 'none' })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ decision: 'approve', reason: 'Customer cancelled', refundDecision: 'none' })
     expect(noRequest.status).toBe(409)
     expect(noRequest.text).toContain('NO_CANCEL_REQUEST')
     await requestCancelAsDriver(fixture)
     const noDecision = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/decide-cancel-request`)
-      .set('Cookie', [adminCookie()]).send({ decision: 'approve', reason: 'Customer cancelled' })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ decision: 'approve', reason: 'Customer cancelled' })
     expect(noDecision.status).toBe(400)
   })
 
@@ -547,7 +545,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
     mockPayPalOrderWithCapture('order_f3_paypal_full', 'cap_f3_paypal_full', '1000')
     await requestCancelAsDriver(fixture)
     const decided = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/decide-cancel-request`)
-      .set('Cookie', [adminCookie()]).send({ decision: 'approve', reason: 'Customer cancelled', refundDecision: 'full' })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ decision: 'approve', reason: 'Customer cancelled', refundDecision: 'full' })
     expect(decided.status).toBe(200)
     expect(decided.body.refund.status).toBe('refunded')
     expect(paypalRefundCapture).toHaveBeenCalledWith('cap_f3_paypal_full', expect.stringContaining('refund-reversal-'))
@@ -565,7 +563,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
     fixtureUserIds.push(otherSupplier._id)
     const otherToken = await authHelper.encryptJWT({ id: otherSupplier._id.toString() })
     const queue = await request(app).post('/api/cancel-requests/1/30/en')
-      .set('Cookie', [cookieFor(otherToken)]).send({ suppliers: [otherSupplier._id.toString()] })
+      .set(env.X_ACCESS_TOKEN, otherToken).send({ suppliers: [otherSupplier._id.toString()] })
     expect(queue.status).toBe(200)
     expect((queue.body[0].resultData as any[])).toHaveLength(0)
   })
@@ -574,7 +572,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
 describe('F3 / W1 #11 — handover payment gate', () => {
   const handoverAsAdmin = (fixture: any, body: object = {}) =>
     request(app).post(`/api/contract-operations/${fixture.booking._id.toString()}/handover?supplier=${fixture.supplier._id.toString()}`)
-      .set('Cookie', [adminCookie()]).send(body)
+      .set(env.X_ACCESS_TOKEN, adminToken).send(body)
 
   it('refuses handover on an unpaid Pending booking, naming the outstanding balance', async () => {
     const fixture = await makeFixture('handover-unpaid')
@@ -589,7 +587,7 @@ describe('F3 / W1 #11 — handover payment gate', () => {
   it('allows handover once the payment is confirmed (cash at the counter, then handover)', async () => {
     const fixture = await makeFixture('handover-after-confirm')
     const confirmed = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(confirmed.status).toBe(200)
     expect(confirmed.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
     const response = await handoverAsAdmin(fixture)

@@ -103,8 +103,6 @@ const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
 
-const cookieFor = (token: string) => `${env.X_ACCESS_TOKEN}=${token};`
-const adminCookie = () => cookieFor(adminToken)
 
 const makeFixture = async (label: string, opts: { payLater?: boolean } = {}) => {
   const supplier = await User.create({
@@ -204,11 +202,11 @@ describe('F4 / W1 #4 — back-to-back rentals do not conflict', () => {
       },
     })
     // Touching: pickup exactly at the previous return (same-day turnaround).
-    const touching = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()]).send(payload(aTo, new Date(Date.now() + 5 * DAY)))
+    const touching = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send(payload(aTo, new Date(Date.now() + 5 * DAY)))
     expect(touching.status).toBe(200)
     fixtureBookingIds.push(touching.body._id)
     // Real overlap: pickup one hour before the previous return.
-    const overlapping = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()])
+    const overlapping = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken)
       .send(payload(new Date(aTo.getTime() - 3600000), new Date(Date.now() + 5 * DAY)))
     expect(overlapping.status).toBe(409)
   })
@@ -286,7 +284,7 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
     } as any)
     fixtureBookingIds.push(booking._id)
     const response = await request(app).post(`/api/bookings/${booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(true)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
@@ -386,7 +384,7 @@ describe('F4 / W1 #16 — getBooking falls back when a language value is missing
   it('returns the English location name for an Arabic read of an English-only location', async () => {
     const fixture = await makeFixture('location-fallback')
     const booking = await makeBooking(fixture)
-    const response = await request(app).get(`/api/booking/${booking._id.toString()}/ar`).set('Cookie', [adminCookie()])
+    const response = await request(app).get(`/api/booking/${booking._id.toString()}/ar`).set(env.X_ACCESS_TOKEN, adminToken)
     expect(response.status).toBe(200)
     expect(response.body.pickupLocation.name).toBe('F4 Airport location-fallback')
     expect(response.body.dropOffLocation.name).toBe('F4 Airport location-fallback')

@@ -64,8 +64,6 @@ const fixtureChargeIds: mongoose.Types.ObjectId[] = []
 const fixtureSnapshotIds: mongoose.Types.ObjectId[] = []
 const fixtureSnapshotFiles: string[] = []
 
-const cookieFor = (token: string) => `${env.X_ACCESS_TOKEN}=${token};`
-const adminCookie = () => cookieFor(adminToken)
 
 type FixtureOpts = {
   status?: bookcarsTypes.BookingStatus
@@ -155,7 +153,7 @@ const makeSecondCar = async (fixture: any, label: string, dailyPrice = 150, depo
 }
 
 const amendAsAdmin = (bookingId: string, body: object) =>
-  request(app).post(`/api/bookings/${bookingId}/amend`).set('Cookie', [adminCookie()]).send(body)
+  request(app).post(`/api/bookings/${bookingId}/amend`).set(env.X_ACCESS_TOKEN, adminToken).send(body)
 
 const ops = (fixture: any) => {
   const base = `/api/contract-operations/${fixture.booking._id.toString()}`
@@ -374,7 +372,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
     } as any)
     fixtureBookingIds.push(currentBooking._id)
     const response = await request(app).post('/api/overdue-bookings/1/30/en')
-      .set('Cookie', [adminCookie()]).send({ suppliers: [fixture.supplier._id.toString()] })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ suppliers: [fixture.supplier._id.toString()] })
     expect(response.status).toBe(200)
     const rows = response.body[0].resultData as any[]
     expect(rows).toHaveLength(1)
@@ -387,17 +385,17 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
   it('marks a no-show, frees the car, and refuses repeats / early / handed-over markings', async () => {
     const fixture = await makeFixture('no-show', { fromOffsetDays: -1, toOffsetDays: 2 })
     const marked = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(marked.status).toBe(200)
     expect(marked.body.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
     expect(marked.body.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Cancelled)
     expect(marked.body.noShowAt).toBeTruthy()
     const again = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(again.status).toBe(409)
     expect(again.text).toContain('ALREADY_CANCELLED')
     // The car is freed for the same dates.
-    const rebook = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()]).send({
+    const rebook = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send({
       booking: {
         supplier: fixture.supplier._id.toString(), car: fixture.car._id.toString(), driver: fixture.driver._id.toString(),
         pickupLocation: fixture.locationA._id.toString(), dropOffLocation: fixture.locationA._id.toString(),
@@ -412,7 +410,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
 
     const early = await makeFixture('no-show-early')
     const tooEarly = await request(app).post(`/api/bookings/${early.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(tooEarly.status).toBe(409)
     expect(tooEarly.text).toContain('NO_SHOW_TOO_EARLY')
 
@@ -422,7 +420,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
       fromOffsetDays: -1, toOffsetDays: 2,
     })
     const invalid = await request(app).post(`/api/bookings/${handed.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(invalid.status).toBe(409)
     expect(invalid.text).toContain('NO_SHOW_INVALID_STATE')
   })
@@ -437,7 +435,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
       fromOffsetDays: -1, toOffsetDays: 2,
     })
     const refused = await request(app).post(`/api/bookings/${paid.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(refused.status).toBe(409)
     expect(refused.text).toContain('NO_SHOW_PAID_BOOKING')
     const untouched = await Booking.findById(paid.booking._id).lean()
@@ -452,7 +450,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
       fromOffsetDays: -1, toOffsetDays: 2,
     })
     const refusedLegacy = await request(app).post(`/api/bookings/${legacy.booking._id.toString()}/mark-no-show`)
-      .set('Cookie', [adminCookie()])
+      .set(env.X_ACCESS_TOKEN, adminToken)
     expect(refusedLegacy.status).toBe(409)
     expect(refusedLegacy.text).toContain('NO_SHOW_PAID_BOOKING')
   })
