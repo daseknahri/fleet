@@ -59,9 +59,9 @@ const approvalIds: mongoose.Types.ObjectId[] = []
 const membershipIds: mongoose.Types.ObjectId[] = []
 
 const get = (token: string, url: string) => request(app).get(url).set(env.X_ACCESS_TOKEN, token)
-const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body)
-const put = (token: string, url: string, body: unknown) => request(app).put(url).set(env.X_ACCESS_TOKEN, token).send(body)
-const del = (token: string, url: string, body?: unknown) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token).send(body)
+const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
+const put = (token: string, url: string, body: unknown) => request(app).put(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
+const del = (token: string, url: string, body?: unknown) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
 
 const utc = (s: string) => new Date(`${s}Z`)
 
@@ -473,7 +473,7 @@ describe('F8 / W5 N2 — automatic pickup/return/overdue/expiry reminders', () =
 
   it('a second pass for the same day does not re-send (delivery-log dedupe)', async () => {
     const filter = {
-      supplier: supplierA._id, templateKey: 'auto.pickup', subjectId: String(bookingPickup._id), channel: 'inApp',
+      supplier: supplierA._id, templateKey: 'auto.pickup' as types.NotificationTemplateKey, subjectId: String(bookingPickup._id), channel: 'inApp' as types.NotificationDeliveryChannel,
     }
     const before = await NotificationDelivery.countDocuments(filter)
     expect(before).toBeGreaterThanOrEqual(1)

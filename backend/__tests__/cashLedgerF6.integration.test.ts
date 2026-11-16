@@ -48,8 +48,8 @@ const ids: mongoose.Types.ObjectId[] = []
 const membershipIds: mongoose.Types.ObjectId[] = []
 
 const get = (token: string, url: string) => request(app).get(url).set(env.X_ACCESS_TOKEN, token)
-const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body)
-const patch = (token: string, url: string, body: unknown) => request(app).patch(url).set(env.X_ACCESS_TOKEN, token).send(body)
+const post = (token: string, url: string, body: unknown) => request(app).post(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
+const patch = (token: string, url: string, body: unknown) => request(app).patch(url).set(env.X_ACCESS_TOKEN, token).send(body as object)
 const del = (token: string, url: string) => request(app).delete(url).set(env.X_ACCESS_TOKEN, token)
 
 const snapshot = (rentalTotal: number, depositAmount: number) => ({

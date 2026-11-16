@@ -2,7 +2,7 @@ import asyncFs from 'node:fs/promises'
 import path from 'node:path'
 import { nanoid } from 'nanoid'
 import escapeStringRegexp from 'escape-string-regexp'
-import mongoose from 'mongoose'
+import mongoose, { HydratedDocument } from 'mongoose'
 import { Request, Response } from 'express'
 import * as nodemailer from 'nodemailer'
 import type { SendMailOptions } from 'nodemailer'
@@ -963,7 +963,7 @@ export const update = async (req: Request, res: Response) => {
     if (!helper.isValidObjectId(_id)) {
       throw new Error('body._id is not valid')
     }
-    const car = await Car.findById(_id)
+    const car: env.Car | null = await Car.findById(_id)
 
     if (car) {
       // begin of security check
@@ -1380,7 +1380,7 @@ export const update = async (req: Request, res: Response) => {
         const normalizedDateBasedPrices = validDateBasedPrices(dateBasedPrices)
 
         // Remove all date based prices not in the valid body.dateBasedPrices rows.
-        const dateBasedPriceIds = normalizedDateBasedPrices.filter((dbp) => !!dbp._id).map((dbp) => dbp._id)
+        const dateBasedPriceIds = normalizedDateBasedPrices.filter((dbp): dbp is bookcarsTypes.DateBasedPrice & { _id: string } => !!dbp._id).map((dbp) => dbp._id)
         const dateBasedPriceIdsToDelete = car.dateBasedPrices.filter((id) => !dateBasedPriceIds.includes(id.toString()))
 
         // F5b (F5a QA observation a): snapshot the rows this loop is
@@ -1389,10 +1389,10 @@ export const update = async (req: Request, res: Response) => {
         // the catch. The snapshot is taken even when nothing is about
         // to be deleted — the update loop below also edits rows.
         const rowsToDeleteDocs = dateBasedPriceIdsToDelete.length > 0
-          ? await DateBasedPrice.find({ _id: { $in: dateBasedPriceIdsToDelete } }).lean()
+          ? (await DateBasedPrice.find({ _id: { $in: dateBasedPriceIdsToDelete } }).lean()) as Array<Pick<env.DateBasedPrice, '_id' | 'startDate' | 'endDate' | 'dailyPrice'>>
           : []
         const rowsToUpdateDocs = dateBasedPriceIds.length > 0
-          ? await DateBasedPrice.find({ _id: { $in: dateBasedPriceIds } }).lean()
+          ? (await DateBasedPrice.find({ _id: { $in: dateBasedPriceIds } }).lean()) as Array<Pick<env.DateBasedPrice, '_id' | 'startDate' | 'endDate' | 'dailyPrice'>>
           : []
         seasonalSnapshot = {
           deleted: rowsToDeleteDocs.map((doc) => ({
@@ -3051,7 +3051,7 @@ export const restoreCar = async (req: Request, res: Response) => {
 
   // F5b (F5a QA observation b): hoisted so the catch can name the plate
   // in the E11000 → 409 mapping below.
-  let car: Awaited<ReturnType<typeof Car.findById>> = null
+  let car: HydratedDocument<env.Car> | null = null
 
   try {
     const reason = (req.body as { reason?: unknown } | undefined)?.reason

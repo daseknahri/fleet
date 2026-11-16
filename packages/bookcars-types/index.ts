@@ -1084,12 +1084,12 @@ export interface CreateCarPayload {
   // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
   // policy (all optional; the gallery and the car documents are
   // managed through their own endpoints, never through this payload).
-  make?: string
-  model?: string
+  make?: string | null
+  model?: string | null
   year?: number | null
   odometerKm?: number | null
-  insuranceProvider?: string
-  insurancePolicyNumber?: string
+  insuranceProvider?: string | null
+  insurancePolicyNumber?: string | null
 
   // price fields
   hourlyPrice: number | null

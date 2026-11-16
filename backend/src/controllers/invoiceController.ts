@@ -23,9 +23,9 @@ export const list = async (req: Request, res: Response) => {
   try {
     // F6 / W3 X-1 — server-side pagination + status filter. No
     // page/size params keeps the legacy full-array response.
-    const { pagination, error } = parsePagination(req)
-    if (error) {
-      res.status(400).send(error)
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
       return
     }
     const filter: Record<string, unknown> = { ...scope(req) }
@@ -36,13 +36,13 @@ export const list = async (req: Request, res: Response) => {
       }
       filter.status = req.query.status
     }
-    if (!pagination) {
+    if (!parsed.pagination) {
       res.json(await Invoice.find(filter).sort({ createdAt: -1 }).populate(populate))
       return
     }
     const total = await Invoice.countDocuments(filter)
-    const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size).populate(populate)
-    res.json(pagedResponse(invoices, total, pagination))
+    const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).skip(paginationSkip(parsed.pagination)).limit(parsed.pagination.size).populate(populate)
+    res.json(pagedResponse(invoices, total, parsed.pagination))
 } catch (err) {
  logger.error('[invoice.list]', err); res.status(400).send(i18n.t('ERROR')) 
 }

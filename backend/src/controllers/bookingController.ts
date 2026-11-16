@@ -2874,7 +2874,7 @@ export const getCancelRequests = async (req: Request, res: Response) => {
 
     const resultData: bookcarsTypes.CancelRequestRow[] = []
     for (const row of rows) {
-      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot'>)
+      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
       const r = row as unknown as Record<string, unknown>
       delete r.signingNonce
       resultData.push({
@@ -3126,7 +3126,7 @@ export const getOverdueBookings = async (req: Request, res: Response) => {
 
     const resultData: bookcarsTypes.OverdueBookingRow[] = []
     for (const row of rows) {
-      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot'>)
+      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
       const r = row as unknown as Record<string, unknown>
       delete r.signingNonce
       resultData.push({

@@ -198,7 +198,7 @@ const Invoices = () => {
       ])
       setInvoices(invoiceRows || [])
       setBookings(bookingResult?.[0]?.resultData || [])
-      setPayments(paymentRows || [])
+      setPayments(Array.isArray(paymentRows) ? paymentRows : paymentRows?.rows || [])
       setApprovals(approvalRows || [])
       setQuotes(quoteRows || [])
       setCars((carResult as unknown as Array<{ resultData?: bookcarsTypes.Car[] }>)?.[0]?.resultData || [])

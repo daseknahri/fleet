@@ -32,9 +32,9 @@ export const list = async (req: Request, res: Response) => {
     // F6 / W3 X-1 — server-side pagination + filters (same filter
     // validation as the CSV export below). No page/size params keeps
     // the legacy full-array response.
-    const { pagination, error } = parsePagination(req)
-    if (error) {
-      res.status(400).send(error)
+    const parsed = parsePagination(req)
+    if ('error' in parsed) {
+      res.status(400).send(parsed.error)
       return
     }
     const filter: Record<string, unknown> = { ...getScope(req) }
@@ -68,13 +68,13 @@ export const list = async (req: Request, res: Response) => {
     if (from || to) {
       filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
     }
-    if (!pagination) {
+    if (!parsed.pagination) {
       res.json(await RentalPayment.find(filter).sort({ date: -1, createdAt: -1 }).populate(populatedPaths))
       return
     }
     const total = await RentalPayment.countDocuments(filter)
-    const payments = await RentalPayment.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size).populate(populatedPaths)
-    res.json(pagedResponse(payments, total, pagination))
+    const payments = await RentalPayment.find(filter).sort({ date: -1, createdAt: -1 }).skip(paginationSkip(parsed.pagination)).limit(parsed.pagination.size).populate(populatedPaths)
+    res.json(pagedResponse(payments, total, parsed.pagination))
   } catch (err) {
     logger.error(`[rentalPayment.list] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))

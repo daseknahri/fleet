@@ -284,7 +284,7 @@ const Dashboard = () => {
     setPaymentsBlock((b) => ({ ...b, status: 'loading' }))
     try {
       const rows = await RentalPaymentService.list()
-      setPaymentsBlock({ status: 'ready', data: rows || [], partial: false })
+      setPaymentsBlock({ status: 'ready', data: (Array.isArray(rows) ? rows : rows.rows) || [], partial: false })
     } catch (error) {
       setPaymentsBlock((b) => ({ ...b, status: 'error' }))
       helper.error(error)

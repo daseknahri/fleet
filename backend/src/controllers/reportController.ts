@@ -390,7 +390,7 @@ const bucketRange = (key: string, groupBy: GroupBy): { start: Date, end: Date } 
 // method) belong to NEITHER scope by design.
 type ReportScope = 'all' | 'cash' | 'bank'
 const SCOPES: ReportScope[] = ['all', 'cash', 'bank']
-const SCOPE_METHODS: Record<Exclude<ReportScope, 'all'>, string[]> = {
+const SCOPE_METHODS: Record<Exclude<ReportScope, 'all'>, types.RentalPaymentMethod[]> = {
   cash: [types.RentalPaymentMethod.Cash],
   bank: [types.RentalPaymentMethod.BankTransfer, types.RentalPaymentMethod.Card],
 }
@@ -784,7 +784,7 @@ export const drilldown = async (req: Request, res: Response) => {
       booking: { $in: bookingIds },
       status: types.RentalPaymentStatus.Posted,
       ...(scope !== 'all' ? { method: { $in: SCOPE_METHODS[scope] } } : {}),
-    }).select('_id booking date amount direction purpose method').sort({ date: 1 }).limit(DRILLDOWN_LIMIT + 1).lean() : []
+    }).select('_id booking date amount direction purpose method').sort({ date: 1 }).limit(DRILLDOWN_LIMIT + 1).lean() as Array<Pick<env.RentalPayment, '_id' | 'booking' | 'date' | 'amount' | 'direction' | 'purpose' | 'method'>> : []
     const rentPayments = payments.filter((p) => !p.purpose || p.purpose === types.RentalPaymentPurpose.Rent)
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
