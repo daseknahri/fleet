@@ -416,6 +416,22 @@ describe('F8 / W5 S1 + AU4 — connections endpoint returns booleans only; setti
 
 describe('F8 / W5 N2 — automatic pickup/return/overdue/expiry reminders', () => {
   const day = 86400000
+  // ISO week key (YYYY-Www), mirroring the private `isoWeekKey` in
+  // autoReminders.ts (not exported, so the test recomputes it the same
+  // way). The weekly recap's dedupeKey is `weekly:<this key>`; scoping
+  // the assertion to it keeps the test green on Mondays, when the two
+  // earlier tests in this describe legitimately fire the recap for the
+  // current week (QA D-QA-1).
+  const isoWeekKey = (date: Date): string => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+    const dow = (d.getUTCDay() + 6) % 7
+    d.setUTCDate(d.getUTCDate() - dow + 3)
+    const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4))
+    const firstDay = (firstThursday.getUTCDay() + 6) % 7
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDay + 3)
+    const week = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000))
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+  }
   let carN2: env.Car
   let carExp: env.Car
   let scheduleN2: env.MaintenanceSchedule
@@ -474,6 +490,7 @@ describe('F8 / W5 N2 — automatic pickup/return/overdue/expiry reminders', () =
     await runAutoReminderPass(monday, { force: true })
     const rows = await NotificationDelivery.find({
       supplier: supplierA._id, templateKey: 'weekly.recap', channel: 'inApp', recipient: supplierA._id,
+      dedupeKey: `weekly:${isoWeekKey(monday)}`,
     }).lean()
     expect(rows).toHaveLength(1)
     expect(rows[0].status).toBe('sent')
