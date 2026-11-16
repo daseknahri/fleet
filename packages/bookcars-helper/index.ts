@@ -368,6 +368,43 @@ export const calculateTotalPrice = (car: bookcarsTypes.Car, from: Date, to: Date
 }
 
 /**
+ * F2 / W4 GAP-02 — module-level FX rate cache for `convertPrice`.
+ *
+ * The fix sketch says to enable `setupRatesCache` on the converter used
+ * by `convertPrice` — but `convertPrice` builds a FRESH `CurrencyConverter`
+ * per call, so enabling the instance cache there would be dead code: the
+ * instance (and its cache) dies with the call. The cache therefore lives
+ * here, at the `convertPrice` level, with the same 1-hour TTL the sketch
+ * specifies (3600 s): one live rate fetch per currency pair per hour, all
+ * later calls for the pair reuse the cached rate. The `CurrencyConverter`
+ * class itself is untouched, so every other caller keeps exactly its
+ * current behaviour — only `convertPrice` makes fewer network calls.
+ * A cached rate is at most 1 hour stale; checkout stores the applied rate
+ * on the snapshot (GAP-10), so the charged rate stays auditable.
+ *
+ * The cache key is the currency pair; the stored value is the unit rate
+ * (converted total / amount), so different amounts for the same pair all
+ * hit the cache. Amount validation runs BEFORE the cache lookup so an
+ * invalid amount still throws exactly as it did before (the converter's
+ * own `amount should be a positive number` / `amount should be a number`
+ * errors are preserved).
+ */
+const FX_RATE_CACHE_TTL_MS = 3600 * 1000
+const fxRateCache = new Map<string, { rate: number, expiresAt: number }>()
+
+/**
+ * Clear the FX rate cache. Test support (the suites assert cache hits
+ * without waiting out the TTL); also usable by ops tooling after a rate
+ * incident. No production code path calls it.
+ *
+ * @export
+ * @returns {void}
+ */
+export const clearFxRateCache = (): void => {
+  fxRateCache.clear()
+}
+
+/**
  * Convert price from a given currency to another.
  *
  * @async
@@ -386,8 +423,20 @@ export const convertPrice = async (amount: number, from: string, to: string): Pr
   if (from === to) {
     return amount
   }
+  if (typeof amount !== 'number') {
+    throw new TypeError('amount should be a number')
+  }
+  if (amount <= 0) {
+    throw new Error('amount should be a positive number')
+  }
+  const pair = `${from.toUpperCase()}${to.toUpperCase()}`
+  const cached = fxRateCache.get(pair)
+  if (cached && Date.now() < cached.expiresAt) {
+    return Number((amount * cached.rate).toFixed(2))
+  }
   const cc = new CurrencyConverter({ from, to, amount })
   const res = await cc.convert()
+  fxRateCache.set(pair, { rate: res / amount, expiresAt: Date.now() + FX_RATE_CACHE_TTL_MS })
   return Number(res.toFixed(2))
 }
 

@@ -7,6 +7,7 @@ import * as env from './config/env.config'
 import * as databaseHelper from './utils/databaseHelper'
 import app from './app'
 import { startReminderScheduler } from './utils/reminderScheduler'
+import { startCheckoutSweeper } from './utils/checkoutSweeper'
 import * as logger from './utils/logger'
 
 /**
@@ -55,6 +56,11 @@ const start = async (): Promise<void> => {
     // app.ts (which the P0 suites import), so no tick can fire during
     // tests. Kill-switch: BC_REMINDERS_SCHEDULER=off.
     startReminderScheduler()
+
+    // F2 / W4 GAP-04: the checkout sweeper starts ONLY here, same
+    // contract as the reminders scheduler — never from app.ts.
+    // Kill-switch: BC_CHECKOUT_SWEEPER=off.
+    startCheckoutSweeper()
 
     const protocol = env.HTTPS ? 'HTTPS' : 'HTTP'
     const server = await createServer()

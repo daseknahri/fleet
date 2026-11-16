@@ -15,6 +15,7 @@ import Country from '../models/Country'
 import User from '../models/User'
 import ParkingSpot from '../models/ParkingSpot'
 import * as logger from '../utils/logger'
+import { invalidCoordinateField } from '../utils/locationHelper'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { agencySupplierId } from '../utils/agencyAuthorization'
@@ -121,6 +122,12 @@ export const validate = async (req: Request, res: Response) => {
 }
 
 const createParkingSpot = async (parkingSpot: bookcarsTypes.ParkingSpot): Promise<string> => {
+  // F5b (W2-20): backstop — the create/update endpoints validate first
+  // (field-named 400s); this keeps a future caller from persisting
+  // out-of-range spots.
+  if (invalidCoordinateField(parkingSpot.latitude, parkingSpot.longitude)) {
+    throw new Error('Invalid parking spot coordinates')
+  }
   const parkinSpotValues: string[] = []
   if (parkingSpot.values) {
     for (const name of parkingSpot.values) {
@@ -181,6 +188,25 @@ export const create = async (req: Request, res: Response) => {
     if (!(await validateCountryForSupplier(country, supplier))) {
       res.status(400).send('Invalid country: the country does not belong to the location agency')
       return
+    }
+
+    // F5b (W2-20): coordinates must be in range (latitude -90..90,
+    // longitude -180..180); absent means "no coordinates". Validated
+    // before ANY persistence — parking spots and values are created
+    // below, so a late rejection would orphan them.
+    const badCoordinate = invalidCoordinateField(latitude, longitude)
+    if (badCoordinate) {
+      res.status(400).send(`Invalid ${badCoordinate}`)
+      return
+    }
+    if (_parkingSpots) {
+      for (const [index, parkingSpot] of _parkingSpots.entries()) {
+        const badSpotCoordinate = invalidCoordinateField(parkingSpot.latitude, parkingSpot.longitude)
+        if (badSpotCoordinate) {
+          res.status(400).send(`Invalid parking spot ${badSpotCoordinate} at index ${index}`)
+          return
+        }
+      }
     }
 
     if (image) {
@@ -352,6 +378,24 @@ export const update = async (req: Request, res: Response) => {
       if (!(await validateCountryForSupplier(country, location.supplier?.toString() || ''))) {
         res.status(400).send('Invalid country: the country does not belong to the location agency')
         return
+      }
+
+      // F5b (W2-20): coordinates must be in range (latitude -90..90,
+      // longitude -180..180); absent means "no coordinates". Validated
+      // before any spot is created, updated or deleted below.
+      const badCoordinate = invalidCoordinateField(latitude, longitude)
+      if (badCoordinate) {
+        res.status(400).send(`Invalid ${badCoordinate}`)
+        return
+      }
+      if (parkingSpots) {
+        for (const [index, parkingSpot] of parkingSpots.entries()) {
+          const badSpotCoordinate = invalidCoordinateField(parkingSpot.latitude, parkingSpot.longitude)
+          if (badSpotCoordinate) {
+            res.status(400).send(`Invalid parking spot ${badSpotCoordinate} at index ${index}`)
+            return
+          }
+        }
       }
 
       location.country = new mongoose.Types.ObjectId(country)

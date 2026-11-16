@@ -14,13 +14,35 @@ import { recomputeInvoicePayment } from '../utils/invoicePayment'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { renderInvoicePdf } from '../utils/invoicePdf'
 import { createInvoiceForBooking, InvoiceCreationError } from '../utils/invoiceCreation'
+import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName' }]
 
 export const list = async (req: Request, res: Response) => {
   try {
- res.json(await Invoice.find(scope(req)).sort({ createdAt: -1 }).populate(populate)) 
+    // F6 / W3 X-1 — server-side pagination + status filter. No
+    // page/size params keeps the legacy full-array response.
+    const { pagination, error } = parsePagination(req)
+    if (error) {
+      res.status(400).send(error)
+      return
+    }
+    const filter: Record<string, unknown> = { ...scope(req) }
+    if (typeof req.query.status === 'string' && req.query.status) {
+      if (!Object.values(bookcarsTypes.InvoiceStatus).includes(req.query.status as bookcarsTypes.InvoiceStatus)) {
+        res.status(400).send('Invalid invoice status filter')
+        return
+      }
+      filter.status = req.query.status
+    }
+    if (!pagination) {
+      res.json(await Invoice.find(filter).sort({ createdAt: -1 }).populate(populate))
+      return
+    }
+    const total = await Invoice.countDocuments(filter)
+    const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).skip(paginationSkip(pagination)).limit(pagination.size).populate(populate)
+    res.json(pagedResponse(invoices, total, pagination))
 } catch (err) {
  logger.error('[invoice.list]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -134,6 +156,15 @@ export const voidInvoice = async (req: Request, res: Response) => {
     if (!invoice || invoice.status !== bookcarsTypes.InvoiceStatus.Issued || reason.length < 3 || reason.length > 1000) {
  res.status(400).send('Invalid invoice void'); return 
 }
+    // F7 / W3 B-2 — a voided invoice keeps no stale paid status: the
+    // paid state is snapshotted first (voidedPaidAmount /
+    // voidedPaymentStatus), then cleared — paidAmount back to 0,
+    // paymentStatus back to unpaid, payment links removed.
+    invoice.voidedPaidAmount = invoice.paidAmount
+    invoice.voidedPaymentStatus = invoice.paymentStatus
+    invoice.paidAmount = 0
+    invoice.paymentStatus = 'unpaid'
+    invoice.payments = []
     invoice.status = bookcarsTypes.InvoiceStatus.Voided
     invoice.voidedAt = new Date()
     invoice.voidedBy = req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined
@@ -175,6 +206,14 @@ export const recordPayment = async (req: Request, res: Response) => {
     if (!payment || payment.booking.toString() !== invoice.booking.toString()) {
  res.status(404).send('Payment not found for this contract'); return 
 }
+    // F7 / W3 B-5 — only a Posted payment may be linked to an invoice:
+    // a Pending payment is not money yet, and a Reversed payment is
+    // money that came back. (recomputeInvoicePayment already ignores
+    // non-Posted links, so without this check a Pending link would sit
+    // on the invoice contributing nothing — a stale link.)
+    if (payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+ res.status(409).send('Only posted payments can be linked to an invoice'); return 
+}
     if (payment.purpose && payment.purpose !== bookcarsTypes.RentalPaymentPurpose.Rent) {
  res.status(400).send('Only rental payments can be linked to an invoice'); return 
 }
@@ -198,6 +237,80 @@ export const recordPayment = async (req: Request, res: Response) => {
     res.json(updated)
   } catch (err) {
     logger.error('[invoice.recordPayment]', err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F7 / W3 B-5 — unlink a payment from an issued invoice. The link is
+ * removed, the paid amounts are recomputed from the remaining links,
+ * and the unlink is written to the invoice's unlinkLog (payment,
+ * reason, time, actor) so the removal is traceable. The payment
+ * itself is untouched — unlinking is not a reversal.
+ */
+export const unlinkPayment = async (req: Request, res: Response) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
+    if (!invoice || invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
+ res.status(404).send('Issued invoice not found'); return 
+}
+    const paymentId = req.body?.payment
+    const reason = String(req.body?.reason || '').trim()
+    if (!mongoose.isValidObjectId(paymentId) || reason.length < 3 || reason.length > 1000) {
+ res.status(400).send('Invalid payment unlink'); return 
+}
+    if (!(invoice.payments || []).some((item) => item.toString() === paymentId)) {
+ res.status(409).send('Payment is not linked to this invoice'); return 
+}
+    invoice.payments = (invoice.payments || []).filter((item) => item.toString() !== paymentId)
+    invoice.unlinkLog = [...(invoice.unlinkLog || []), {
+      payment: new mongoose.Types.ObjectId(paymentId),
+      reason,
+      at: new Date(),
+      by: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+    }]
+    await invoice.save()
+    const updated = await recomputeInvoicePayment(invoice._id)
+    if (!updated) {
+ res.status(404).send('Invoice not found'); return 
+}
+    await updated.populate(populate)
+    res.json(updated)
+  } catch (err) {
+    logger.error('[invoice.unlinkPayment]', err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * F7 / W3 B-4 — record a delivery of an issued invoice (printed /
+ * emailed / shared). STATUS TRACKING ONLY: this endpoint records that
+ * a delivery happened — it sends nothing. SMTP/Resend is owner-
+ * decision pending and SMS/WhatsApp adapters are gated, so there is
+ * no sending adapter behind this; the UI calls it after the operator
+ * downloads the PDF (print) or opens the wa.me link (whatsapp), and
+ * `email` is accepted for future/manual use only.
+ */
+export const recordDelivery = async (req: Request, res: Response) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
+    if (!invoice || invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
+ res.status(404).send('Issued invoice not found'); return 
+}
+    const channel = req.body?.channel as bookcarsTypes.InvoiceDeliveryChannel
+    if (!Object.values(bookcarsTypes.InvoiceDeliveryChannel).includes(channel)) {
+ res.status(400).send('Invalid delivery channel'); return 
+}
+    invoice.deliveries = [...(invoice.deliveries || []), {
+      channel,
+      at: new Date(),
+      by: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+    }]
+    await invoice.save()
+    await invoice.populate(populate)
+    res.json(invoice)
+  } catch (err) {
+    logger.error('[invoice.recordDelivery]', err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

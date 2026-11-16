@@ -19,7 +19,12 @@ import * as logger from './logger'
  *
  * PAR-01 tax behaviour, preserved verbatim from the original controller:
  * - an explicit taxAmount override is respected exactly as supplied and
- *   taxRate stays null;
+ *   taxRate stays null — F7 / W3 B-3 adds validation first
+ *   (validateExplicitTax): the override must be a finite number >= 0,
+ *   no larger than the subtotal, and consistent with any tax rate that
+ *   travels with it (quote conversion). The HT-vs-TTC basis is NOT
+ *   decided here (gated, ADR-001); the override is recorded on the
+ *   invoice as taxOverride instead of silently blending in;
  * - otherwise, when the supplier has VAT enabled, taxAmount is computed
  *   from the stored rate (falling back to the standard 20% when none was
  *   stored) and the applied rate is snapshotted on the invoice;
@@ -48,6 +53,63 @@ export interface CreateInvoiceOptions {
   subtotal?: number
   taxRate?: number | null
   currency?: string
+}
+
+/**
+ * F7 / W3 B-3 — explicit-tax-override validation (VALIDATION ONLY).
+ *
+ * The HT-vs-TTC question (whether rentalTotal is tax-inclusive) is an
+ * open ADR-001 decision needing a qualified local source, so this
+ * function does NOT decide the tax rule and does NOT check an override
+ * against the supplier's configured VAT rate: a reduced rate or an
+ * exempt line can legitimately differ from it, and rejecting that
+ * difference would silently decide the gated question. What it does
+ * reject — with the reason, so the caller can answer 400 instead of
+ * silently issuing a wrong-tax invoice — is every override that is
+ * invalid on its own terms:
+ * - not a number at all (boolean / object / array / blank or
+ *   non-numeric string — note `Number(true)` is 1 and `Number('')`
+ *   is 0, so both must be rejected explicitly, not via Number());
+ * - not finite, or negative;
+ * - larger than the subtotal (a tax amount cannot exceed its base);
+ * - when a tax rate travels with the override (quote conversion),
+ *   inconsistent with that rate by more than one minor unit, or the
+ *   rate itself outside 0–100.
+ * Returns the reason string, or null when the override is valid.
+ */
+export const validateExplicitTax = (
+  subtotal: number,
+  taxAmount: unknown,
+  taxRate: number | null | undefined,
+  currency: string,
+): string | null => {
+  if (typeof taxAmount === 'boolean' || (typeof taxAmount === 'object' && taxAmount !== null) || Array.isArray(taxAmount)) {
+    return 'Invalid tax amount: not a number'
+  }
+  if (typeof taxAmount === 'string' && taxAmount.trim() === '') {
+    return 'Invalid tax amount: not a number'
+  }
+  const amount = Number(taxAmount)
+  if (!Number.isFinite(amount) || amount < 0) {
+    return 'Invalid tax amount: must be a finite number >= 0'
+  }
+  if (!Number.isFinite(subtotal) || subtotal < 0) {
+    return 'Invalid subtotal'
+  }
+  if (amount > subtotal) {
+    return 'Invalid tax amount: exceeds the subtotal'
+  }
+  if (taxRate !== undefined && taxRate !== null) {
+    if (typeof taxRate !== 'number' || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+      return 'Invalid tax rate: must be between 0 and 100'
+    }
+    const exponent = currencyExponent(currency)
+    const expected = Number((subtotal * (taxRate / 100)).toFixed(exponent))
+    if (Math.abs(toMinorUnits(amount, currency) - toMinorUnits(expected, currency)) > 1) {
+      return 'Invalid tax amount: does not match the tax rate'
+    }
+  }
+  return null
 }
 
 type BookingLike = {
@@ -84,6 +146,14 @@ export const createInvoiceForBooking = async (
   let taxAmount: number
   let taxRate: number | null = null
   if (hasExplicitTax) {
+    // F7 / W3 B-3 — the override is validated, never silently
+    // accepted: type/range checks plus rate consistency when a rate
+    // travels with it (quote conversion). The HT-vs-TTC basis itself
+    // is NOT decided here (gated, ADR-001).
+    const invalid = validateExplicitTax(subtotal, options.taxAmount, options.taxRate ?? null, currency)
+    if (invalid) {
+      throw new InvoiceCreationError('INVALID_TAX', invalid)
+    }
     taxAmount = Number(Number(options.taxAmount).toFixed(exponent))
     taxRate = options.taxRate !== undefined ? options.taxRate : null
   } else if (options.subtotal !== undefined && options.subtotal !== null) {
@@ -111,6 +181,10 @@ export const createInvoiceForBooking = async (
     subtotal,
     taxAmount,
     taxRate,
+    // F7 / W3 B-3 — the override is recorded on the invoice (visible
+    // on the record and, later, on the PDF) rather than silently
+    // blending into a computed tax.
+    taxOverride: hasExplicitTax,
     total: (toMinorUnits(subtotal, currency) + toMinorUnits(taxAmount, currency)) / (10 ** exponent),
   })
   return invoice

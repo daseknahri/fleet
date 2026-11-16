@@ -12,6 +12,10 @@ interface StatusFilterProps {
   className?: string
   collapse?: boolean
   onChange?: (value: bookcarsTypes.BookingStatus[]) => void
+  // F8 / W5 C5 — statuses checked on first render. Empty/absent keeps
+  // the old behaviour (nothing checked = every status). Callers that
+  // hide Void/Cancelled by default pass the live statuses here.
+  initialStatuses?: bookcarsTypes.BookingStatus[]
 }
 
 const statuses = helper.getBookingStatuses()
@@ -20,10 +24,11 @@ const allStatuses = bookcarsHelper.getAllBookingStatuses()
 const StatusFilter = ({
   className,
   collapse,
-  onChange
+  onChange,
+  initialStatuses,
 }: StatusFilterProps) => {
-  const [checkedStatuses, setCheckedStatuses] = useState<bookcarsTypes.BookingStatus[]>([])
-  const [allChecked, setAllChecked] = useState(false)
+  const [checkedStatuses, setCheckedStatuses] = useState<bookcarsTypes.BookingStatus[]>(initialStatuses ? [...initialStatuses] : [])
+  const [allChecked, setAllChecked] = useState(!!initialStatuses && initialStatuses.length === allStatuses.length)
 
   const refs = useRef<(HTMLInputElement | null)[]>([])
 
@@ -103,6 +108,7 @@ const StatusFilter = ({
                 data-value={status.value}
                 className="status-checkbox"
                 aria-label={status.label}
+                defaultChecked={initialStatuses?.includes(status.value)}
                 onChange={handleCheckStatusChange}
               />
               <BookingStatus value={status.value} onClick={handleStatusClick} />

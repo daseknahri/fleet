@@ -10,6 +10,7 @@ import Layout from '@/components/Layout'
 import AccessDenied from '@/components/AccessDenied'
 import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import * as ReminderService from '@/services/ReminderService'
+import * as NotificationDeliveryService from '@/services/NotificationDeliveryService'
 import * as CarService from '@/services/CarService'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
@@ -105,11 +106,48 @@ const Reminders = () => {
   const [historyFor, setHistoryFor] = useState<Reminder | null>(null)
   const [firings, setFirings] = useState<bookcarsTypes.ReminderFiring[]>([])
 
+  // F8 / W5 N3 — delivery log (one row per recipient per channel).
+  const [deliveries, setDeliveries] = useState<bookcarsTypes.NotificationDelivery[]>([])
+  const [deliveriesLoading, setDeliveriesLoading] = useState(false)
+  const [deliveryStatus, setDeliveryStatus] = useState('')
+  const [deliveryError, setDeliveryError] = useState(false)
+
+  const deliveryStatusLabel = (status: bookcarsTypes.NotificationDeliveryStatus) => (
+    status === 'sent' ? strings.DELIVERY_SENT
+      : status === 'failed' ? strings.DELIVERY_FAILED : strings.DELIVERY_QUEUED
+  )
+  const deliveryStatusColor = (status: bookcarsTypes.NotificationDeliveryStatus) => (
+    status === 'sent' ? 'success' : status === 'failed' ? 'error' : 'warning'
+  ) as 'success' | 'error' | 'warning'
+
+  const loadDeliveries = useCallback(async (status?: string) => {
+    setDeliveriesLoading(true)
+    setDeliveryError(false)
+    try {
+      setDeliveries(await NotificationDeliveryService.list(
+        supplierScope,
+        status ? { status } : undefined,
+      ))
+    } catch {
+      setDeliveryError(true)
+    } finally {
+      setDeliveriesLoading(false)
+    }
+  }, [supplierScope])
+
+  const retryDelivery = async (delivery: bookcarsTypes.NotificationDelivery) => {
+    await runAction(async () => {
+      const updated = await NotificationDeliveryService.retry(delivery._id as string)
+      setDeliveries((current) => current.map((row) => (row._id === updated._id ? updated : row)))
+    }, strings.DELIVERY_RETRIED)
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(false)
     try {
       setReminders(await ReminderService.list(supplierScope))
+      await loadDeliveries(deliveryStatus || undefined)
       if (supplierScope) {
         try {
           const carResult = await CarService.getCars('', { suppliers: [supplierScope] }, 1, 200)
@@ -125,7 +163,7 @@ const Reminders = () => {
     } finally {
       setLoading(false)
     }
-  }, [supplierScope])
+  }, [supplierScope, loadDeliveries, deliveryStatus])
 
   const onLoad = useCallback(() => { load() }, [load])
 
@@ -276,6 +314,55 @@ const Reminders = () => {
                 {canManage && <Button size="small" onClick={() => openEdit(reminder)} disabled={busy}>{strings.EDIT_TITLE}</Button>}
                 {canManage && <Button size="small" onClick={() => openHistory(reminder)} disabled={busy}>{strings.HISTORY}</Button>}
                 {canManage && <Button size="small" color="error" onClick={() => setDeleteTarget(reminder)} disabled={busy}>{strings.DELETE}</Button>}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="agency-reminders__panel" style={{ marginTop: 24 }}>
+          <div className="agency-reminders__heading">
+            <div>
+              <Typography variant="h5" className="agency-reminders__title">{strings.DELIVERY_LOG}</Typography>
+              <Typography className="agency-reminders__subtitle">{strings.DELIVERY_SUBTITLE}</Typography>
+            </div>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>{strings.DELIVERY_STATUS}</InputLabel>
+              <Select
+                label={strings.DELIVERY_STATUS}
+                value={deliveryStatus}
+                onChange={(e) => {
+                  setDeliveryStatus(e.target.value)
+                  void loadDeliveries(e.target.value || undefined)
+                }}
+              >
+                <MenuItem value="">{strings.DELIVERY_ALL}</MenuItem>
+                <MenuItem value="queued">{strings.DELIVERY_QUEUED}</MenuItem>
+                <MenuItem value="sent">{strings.DELIVERY_SENT}</MenuItem>
+                <MenuItem value="failed">{strings.DELIVERY_FAILED}</MenuItem>
+              </Select>
+            </FormControl>
+          </div>
+          {deliveryError && <Alert severity="error" sx={{ mb: 2 }}>{strings.DELIVERY_ERROR}</Alert>}
+          {deliveriesLoading && <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>}
+          {!deliveriesLoading && deliveries.length === 0 && !deliveryError && <Box sx={{ p: 3 }}>{strings.DELIVERY_EMPTY}</Box>}
+          {!deliveriesLoading && deliveries.map((delivery) => (
+            <div className="agency-reminders__grid agency-reminders__row" key={delivery._id}>
+              <span data-label={strings.DELIVERY_MESSAGE}>
+                <strong>{delivery.subject || delivery.body}</strong>
+                {delivery.subject && <><br /><small>{delivery.body}</small></>}
+                {delivery.lastError && <><br /><small>{delivery.lastError}</small></>}
+              </span>
+              <span data-label={strings.DELIVERY_TEMPLATE}>{delivery.templateKey}</span>
+              <span data-label={strings.DELIVERY_CHANNEL}>{delivery.channel}</span>
+              <span data-label={strings.DELIVERY_ATTEMPTS}>{delivery.attempts}</span>
+              <span data-label={strings.DELIVERY_SENT_AT}>{formatDate(delivery.sentAt || delivery.createdAt)}</span>
+              <span data-label={strings.DELIVERY_STATUS}>
+                <Chip size="small" color={deliveryStatusColor(delivery.status)} label={deliveryStatusLabel(delivery.status)} />
+              </span>
+              <span className="agency-reminders__actions">
+                {canManage && delivery.status !== 'sent' && (
+                  <Button size="small" onClick={() => retryDelivery(delivery)} disabled={busy}>{strings.DELIVERY_RETRY}</Button>
+                )}
               </span>
             </div>
           ))}

@@ -15,6 +15,33 @@ const carSchema = new Schema<env.Car>(
       index: true,
       trim: true,
     },
+    // F5b (W2-12): vehicle identity — all optional, informational only.
+    // `name` stays the display name; make/model/year are the structured
+    // identity the name used to carry as free text.
+    make: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    model: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    year: {
+      type: Number,
+      min: 1900,
+      max: 2100,
+    },
+    // F5b (W2-13): the car's current odometer reading (km). NOT
+    // `mileage` below — that is the km/day rental allowance (-1 =
+    // unlimited). The tight year/odometer bounds live in the controller
+    // (invalidCarIdentityField); the schema keeps only coarse guards so
+    // a legacy row never fails an unrelated save.
+    odometerKm: {
+      type: Number,
+      min: 0,
+    },
     supplier: {
       type: Schema.Types.ObjectId,
       required: [true, "can't be blank"],
@@ -131,6 +158,15 @@ const carSchema = new Schema<env.Car>(
     },
     image: {
       type: String,
+    },
+    // F5b (W2-14): additional gallery photos beyond the cover `image`
+    // above (the cover stays the single `image` for backwards
+    // compatibility — the booking/frontend flows read it). Managed
+    // through the gallery endpoints only (cap 8, enforced in the
+    // controller); never written through the create/update payload.
+    images: {
+      type: [String],
+      default: [],
     },
     seats: {
       type: Number,
@@ -278,6 +314,20 @@ const carSchema = new Schema<env.Car>(
     },
     // GA-PAR-08: document expiry dates (all optional) — GA-PAR-09's
     // expiring-documents card reads these raw fields.
+    // F5b (W2-19): the insurance policy data — provider + policy number
+    // live here next to the insurance expiry date. The policy FILE
+    // itself lives in the `documents` array below with kind `insurance`
+    // (no duplicate `insuranceDocument` string field).
+    insuranceProvider: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+    },
+    insurancePolicyNumber: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
     insuranceExpiryDate: {
       type: Date,
     },
@@ -287,6 +337,38 @@ const carSchema = new Schema<env.Car>(
     vignetteExpiryDate: {
       type: Date,
     },
+    // F5b (W2-14): privately stored car documents (insurance,
+    // technical inspection, vignette, other) — mirrors the client
+    // `clientDocuments` sub-documents. The files live in the private
+    // car-documents store (env.CDN_CAR_DOCUMENTS); only the owning
+    // agency / admin can download them (see documentController).
+    // `expiryDate` is the document's own expiry, independent of the
+    // three expiry-date fields above.
+    documents: [{
+      kind: {
+        type: String,
+        required: [true, "can't be blank"],
+        trim: true,
+        maxlength: 30,
+      },
+      file: {
+        type: String,
+        required: [true, "can't be blank"],
+        trim: true,
+      },
+      originalName: {
+        type: String,
+        trim: true,
+        maxlength: 255,
+      },
+      expiryDate: {
+        type: Date,
+      },
+      uploadedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
     // Scorecard #17: garage block (all optional, informational only).
     // No required fields, no default: a car with no stored block is
     // simply not at a garage. A block whose every field is cleared is
@@ -382,6 +464,26 @@ carSchema.index({ updatedAt: -1, _id: 1 })
 // GA-PAR-22: serves both the live lists (`deletedAt: null`) and the
 // trash view (`deletedAt: { $ne: null }`) per agency.
 carSchema.index({ supplier: 1, deletedAt: 1 })
+// F5a (W2-01): per-agency license-plate uniqueness, backing the
+// server-side check in carController create/update (the check alone is
+// raceable). Partial: only live cars with a non-empty plate take part,
+// so legacy empty-plate rows and trashed cars never block index
+// creation and a trashed car's plate stays reusable (same rule as
+// validateLicensePlate / restoreCar). Case-insensitive (strength-2
+// collation) to match the importer's rule that the same plate in
+// another case is the same plate. Per-agency, not global: the same
+// plate already exists under different agencies in the local dev data
+// and multi-agency is gated (#48). Deploy precondition: the target
+// database must hold no live per-agency plate duplicate, or
+// initialize() fails and the server exits(1) — see F5A-REPORT.md.
+carSchema.index(
+  { supplier: 1, licensePlate: 1 },
+  {
+    unique: true,
+    collation: { locale: 'en', strength: 2 },
+    partialFilterExpression: { licensePlate: { $type: 'string', $ne: '' }, deletedAt: null },
+  },
+)
 // Fleet statuses (scorecard #15): serves the fleet-status counts and
 // the status filter in getCars.
 carSchema.index({ supplier: 1, operationalStatus: 1 })

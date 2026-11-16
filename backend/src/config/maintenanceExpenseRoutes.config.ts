@@ -6,6 +6,11 @@ const routes = {
   create: '/api/maintenance-expenses',
   update: '/api/maintenance-expenses/:id',
   delete: '/api/maintenance-expenses/:id',
+  // F7 / W3 M-2 — append-only payment records backing paidAmount.
+  recordPayment: '/api/maintenance-expenses/:id/payments',
+  listPayments: '/api/maintenance-expenses/:id/payments',
+  // F7 / W3 M-7 — append-only audit trail (survives a hard delete).
+  listAudit: '/api/maintenance-expenses/:id/audit',
 }
 
 export default routes

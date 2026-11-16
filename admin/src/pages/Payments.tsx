@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogTitle,
   MenuItem, TextField, Typography,
@@ -28,20 +28,26 @@ interface PaymentForm {
   amount: string
   method: bookcarsTypes.RentalPaymentMethod
   purpose: bookcarsTypes.RentalPaymentPurpose
+  // F6 / W3 P-8 — a debit is a manual debit / standalone refund entry
+  // (ledger only, accountant-or-above, reason required).
+  direction: bookcarsTypes.RentalPaymentDirection
+  reason: string
   reference: string
   note: string
 }
 
 const emptyForm = (): PaymentForm => ({
   booking: '', date: new Date().toISOString().slice(0, 10), amount: '',
-  method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent, reference: '', note: '',
+  method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+  direction: bookcarsTypes.RentalPaymentDirection.Credit, reason: '', reference: '', note: '',
 })
+
+// F6 / W3 X-1 — the payments table is server-paginated.
+const PAGE_SIZE = 50
 
 const getBooking = (payment: bookcarsTypes.RentalPayment): bookcarsTypes.Booking | undefined => (
   typeof payment.booking === 'string' ? undefined : payment.booking
 )
-
-const bookingIdOf = (booking?: bookcarsTypes.Booking) => booking?._id || (booking ? '' : '')
 
 // Visible contract label: the human reference (GA-PAR-02) when the booking
 // has one, otherwise the shortened _id the page used before.
@@ -74,6 +80,9 @@ const Payments = () => {
   const [bookings, setBookings] = useState<bookcarsTypes.Booking[]>([])
   const [payments, setPayments] = useState<bookcarsTypes.RentalPayment[]>([])
   const [collections, setCollections] = useState<bookcarsTypes.CollectionsSummary | null>(null)
+  // F6 / W3 P-3 — the receivables table from the server's shared
+  // outstanding definition (null until the endpoint answers).
+  const [serverOverdue, setServerOverdue] = useState<bookcarsTypes.OverdueReceivableResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -81,6 +90,15 @@ const Payments = () => {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(false)
   const [form, setForm] = useState<PaymentForm>(emptyForm)
+  // F6 / W3 X-1 — server pagination state for the payments table.
+  const [page, setPage] = useState(1)
+  const [paymentsTotal, setPaymentsTotal] = useState(0)
+  // F6 / W3 P-8 — the Pending entry being edited (null = new entry).
+  const [editingPayment, setEditingPayment] = useState<bookcarsTypes.RentalPayment | null>(null)
+  // F6 / W3 X-1 — posted totals for the booking selected in the dialog,
+  // fetched on demand (the list is paginated now, so no full-list totals
+  // exist on the page). Null until the fetch answers.
+  const [selectedTotals, setSelectedTotals] = useState<{ rent: number, deposit: number } | null>(null)
   const [reversingId, setReversingId] = useState('')
   const [notice, setNotice] = useState('')
   const reversalInFlight = useRef<Set<string>>(new Set())
@@ -99,18 +117,36 @@ const Payments = () => {
       const supplierIds = helper.admin(user)
         ? bookcarsHelper.flattenSuppliers(await SupplierService.getAllSuppliers())
         : [user._id || '']
-      const [bookingResult, paymentRows] = await Promise.all([
+      const [bookingResult, paymentPage] = await Promise.all([
         BookingService.getBookings({ suppliers: supplierIds, statuses: Object.values(bookcarsTypes.BookingStatus) }, 1, 1000),
-        RentalPaymentService.list(),
+        RentalPaymentService.list({ page: 1, size: PAGE_SIZE }),
       ])
       setBookings(bookingResult?.[0]?.resultData || [])
-      setPayments(paymentRows || [])
-      // GA-PAR-17 — collections KPI (dictionary v2026-11-11.2). A failure
+      // F6 / W3 X-1 — the table is server-paginated; the service returns
+      // the envelope when page/size are given (a bare array only for the
+      // legacy no-params call, which this page no longer makes).
+      if (Array.isArray(paymentPage)) {
+        setPayments(paymentPage)
+        setPaymentsTotal(paymentPage.length)
+      } else {
+        setPayments(paymentPage.rows)
+        setPaymentsTotal(paymentPage.total)
+      }
+      setPage(1)
+      // GA-PAR-17 — collections KPI (dictionary v2026-11-15.1). A failure
       // degrades this card only, never the page.
       try {
         setCollections(await RentalPaymentService.collectionsSummary())
       } catch {
         setCollections(null)
+      }
+      // F6 / W3 P-3 — shared outstanding/receivable table. A failure
+      // leaves the table empty and the OVERDUE card at '—' rather than
+      // a wrong client-side number, never the page.
+      try {
+        setServerOverdue(await RentalPaymentService.overdue())
+      } catch {
+        setServerOverdue(null)
       }
     } catch (error) {
       setLoadError(true)
@@ -122,61 +158,82 @@ const Payments = () => {
 
   const onLoad = reload
 
-  const paymentTotals = useMemo(() => payments.reduce<Record<string, { rent: number, deposit: number }>>((totals, payment) => {
-    // Only posted (or legacy status-less) payments are money received:
-    // pending counter entries never count toward the amount due, and an
-    // annulled reversal pair counts as zero - the same rule the backend
-    // posted sums apply (GAQ12B2-D3).
-    if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
-      return totals
+  // F6 / W3 X-1 — the dialog's caps come from an on-demand fetch of
+  // the selected booking's payments (see the effect below): the list is
+  // paginated now, so the page no longer holds the full-list totals.
+  // Only posted (or legacy status-less) payments are money received:
+  // pending counter entries never count toward the amount due, and an
+  // annulled reversal pair counts as zero - the same rule the backend
+  // posted sums apply (GAQ12B2-D3).
+  useEffect(() => {
+    if (!dialogOpen || !form.booking) {
+      setSelectedTotals(null)
+      return
     }
-    const bookingId = typeof payment.booking === 'string' ? payment.booking : payment.booking?._id
-    if (bookingId) {
-      const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
-      const signedAmount = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount
-      const current = totals[bookingId] || { rent: 0, deposit: 0 }
-      current[purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? 'deposit' : 'rent'] += signedAmount
-      totals[bookingId] = current
-    }
-    return totals
-  }, {}), [payments])
-
-  // A receivable is overdue when the rental end has passed and the rental balance is not fully posted.
-  // Refundable deposits are deliberately excluded: they are not rental receivable.
-  const overdueRows = useMemo(() => bookings
-    .filter((booking) => {
-      const id = bookingIdOf(booking)
-      if (!id || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
-        return false
+    let cancelled = false
+    RentalPaymentService.list({ booking: form.booking, size: 100 }).then((res) => {
+      if (cancelled) {
+        return
       }
-      const rentalTotal = Number(booking.financialSnapshot?.rentalTotal || booking.price || 0)
-      const postedRent = paymentTotals[id]?.rent || 0
-      return new Date(booking.to).getTime() <= new Date().getTime() && rentalTotal - postedRent > 0.005
-    })
-    .map((booking) => {
-      const id = bookingIdOf(booking)
-      const rentalTotal = Number(booking.financialSnapshot?.rentalTotal || booking.price || 0)
-      return {
-        booking,
-        outstanding: Math.max(0, rentalTotal - (paymentTotals[id]?.rent || 0)),
-        depositHeld: Math.max(0, Number(booking.financialSnapshot?.depositAmount || 0) - (paymentTotals[id]?.deposit || 0)),
+      const rows = Array.isArray(res) ? res : res.rows
+      const totals = rows.reduce((acc, payment) => {
+        if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+          return acc
+        }
+        const signedAmount = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount
+        if ((payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent) === bookcarsTypes.RentalPaymentPurpose.Deposit) {
+          acc.deposit += signedAmount
+        } else {
+          acc.rent += signedAmount
+        }
+        return acc
+      }, { rent: 0, deposit: 0 })
+      setSelectedTotals(totals)
+    }).catch(() => {
+      if (!cancelled) {
+        setSelectedTotals(null)
       }
     })
-    .sort((a, b) => b.outstanding - a.outstanding), [bookings, paymentTotals])
+    return () => { cancelled = true }
+  }, [dialogOpen, form.booking])
 
-  const overdueTotal = overdueRows.reduce((sum, row) => sum + row.outstanding, 0)
-  const postedNetTotal = payments.reduce((sum, payment) => {
-    if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
-      return sum
-    }
-    return sum + (payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount)
-  }, 0)
+  // F6 / W3 P-3 — the receivables table comes from the server's shared
+  // outstanding definition (dictionary v2026-11-15.1): rentalTotal +
+  // APPROVED charges − posted rent, overdue per the shared due rule.
+  // The client-side fallback that used to live here needed the full
+  // payment list; the list is server-paginated now (X-1), so the
+  // endpoint is the single source — when it fails, the table stays
+  // empty and the OVERDUE card shows '—' rather than a wrong number.
+  const overdueRows = (serverOverdue?.rows || []).map((row) => ({
+    booking: row.booking,
+    outstanding: row.outstandingBalance,
+    depositHeld: row.depositHeld,
+    dueAt: row.dueAt ? new Date(row.dueAt) : undefined,
+    overdue: row.overdue,
+  }))
 
+  // The OVERDUE card sums only the rows whose due date has passed;
+  // the table itself lists every outstanding receivable.
+  const overdueTotal = serverOverdue ? serverOverdue.overdueTotal : null
+
+  // F6 / W3 X-1 — the TOTAL card is the server's net posted total
+  // (collections summary): the paged list cannot sum it client-side.
+  const postedNetTotal = collections?.postedNetTotal ?? null
+
+  // A booking can take a payment when it still owes rent (it appears
+  // in the server receivables table) or still owes a deposit (its
+  // snapshot carries a deposit — the dialog's on-demand totals show
+  // the true remaining and block the save when it is 0). When the
+  // receivables endpoint failed, every live booking is offered and the
+  // dialog caps decide. Paid/PaidInFull bookings are never offered.
+  const overdueBookingIds = new Set(overdueRows.map((row) => row.booking._id))
   const eligibleBookings = bookings.filter((booking) => booking._id
     && booking.price !== undefined
     && ![bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled,
       bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(booking.status)
-    && Number(booking.financialSnapshot?.rentalTotal || booking.price) - (paymentTotals[booking._id]?.rent || 0) > 0.005)
+    && (overdueBookingIds.has(booking._id)
+      || Number(booking.financialSnapshot?.depositAmount || 0) > 0
+      || !serverOverdue))
 
   const filtered = useMemo(() => {
     const query = keyword.trim().toLocaleLowerCase()
@@ -192,40 +249,99 @@ const Payments = () => {
 
   const selectedBooking = bookings.find((booking) => booking._id === form.booking)
   const selectedFinancialSnapshot = selectedBooking?.financialSnapshot
-  const remainingRent = form.booking
-    ? Math.max(0, Number(selectedFinancialSnapshot?.rentalTotal || selectedBooking?.price || 0) - (paymentTotals[form.booking]?.rent || 0))
-    : 0
-  const remainingDeposit = form.booking
-    ? Math.max(0, Number(selectedFinancialSnapshot?.depositAmount || 0) - (paymentTotals[form.booking]?.deposit || 0))
-    : 0
+  // Caps for the dialog, from the on-demand posted totals (null until
+  // the fetch answers — the server re-enforces both caps on save).
+  // A credit is capped by what remains; a debit by what was recorded.
+  const remainingRent = selectedTotals
+    ? Math.max(0, Number(selectedFinancialSnapshot?.rentalTotal || selectedBooking?.price || 0) - selectedTotals.rent)
+    : null
+  const remainingDeposit = selectedTotals
+    ? Math.max(0, Number(selectedFinancialSnapshot?.depositAmount || 0) - selectedTotals.deposit)
+    : null
+  const recordedRent = selectedTotals?.rent ?? null
+  const recordedDeposit = selectedTotals?.deposit ?? null
   const remaining = form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? remainingDeposit : remainingRent
+  const recorded = form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? recordedDeposit : recordedRent
+  const cap = form.direction === bookcarsTypes.RentalPaymentDirection.Debit ? recorded : remaining
+
+  // F6 / W3 P-8 — in edit mode the edited booking is offered even when
+  // it is no longer eligible for a new payment.
+  const dialogBookings = editingPayment && selectedBooking
+    ? [selectedBooking, ...eligibleBookings.filter((booking) => booking._id !== selectedBooking._id)]
+    : eligibleBookings
 
   const openNew = (bookingId?: string) => {
+    setEditingPayment(null)
     setForm({ ...emptyForm(), booking: bookingId || eligibleBookings[0]?._id || '' })
+    setFormError(false)
+    setDialogOpen(true)
+  }
+
+  // F6 / W3 P-8 — edit a stuck Pending entry, prefilled in the same
+  // dialog. The direction is fixed (a credit never becomes a debit by
+  // editing); the booking is offered even when it is no longer
+  // eligible for a new payment.
+  const openEdit = (payment: bookcarsTypes.RentalPayment) => {
+    const bookingId = typeof payment.booking === 'string' ? payment.booking : payment.booking?._id || ''
+    setEditingPayment(payment)
+    setForm({
+      booking: bookingId,
+      date: new Date(payment.date).toISOString().slice(0, 10),
+      amount: String(payment.amount),
+      method: payment.method,
+      purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction: payment.direction || bookcarsTypes.RentalPaymentDirection.Credit,
+      reason: '',
+      reference: payment.reference || '',
+      note: payment.note || '',
+    })
     setFormError(false)
     setDialogOpen(true)
   }
 
   const handleSave = async () => {
     const amount = Number(form.amount)
-    if (!form.booking || !form.date || !Number.isFinite(amount) || amount <= 0 || amount > remaining + 0.005) {
+    // F6 / W3 P-8 — a debit needs a recorded reason (>= 3 chars); the
+    // cap is the recorded total for a debit, the remaining balance for
+    // a credit. The server re-enforces both on save.
+    if (!form.booking || !form.date || !Number.isFinite(amount) || amount <= 0
+      || (cap !== null && amount > cap + 0.005)
+      || (form.direction === bookcarsTypes.RentalPaymentDirection.Debit && form.reason.trim().length < 3)) {
       setFormError(true)
       return
     }
     setSaving(true)
     setFormError(false)
     try {
+      if (editingPayment?._id) {
+        const payment = await RentalPaymentService.update(editingPayment._id, {
+          date: new Date(`${form.date}T12:00:00`),
+          amount,
+          method: form.method,
+          purpose: form.purpose,
+          reference: form.reference.trim(),
+          note: form.note.trim(),
+        })
+        setPayments((rows) => rows.map((row) => (row._id === payment._id ? payment : row)))
+        setDialogOpen(false)
+        setEditingPayment(null)
+        setNotice('')
+        return
+      }
       const payment = await RentalPaymentService.create({
         booking: form.booking,
         date: new Date(`${form.date}T12:00:00`),
         amount,
         method: form.method,
         purpose: form.purpose,
+        direction: form.direction,
+        reason: form.reason.trim() || undefined,
         idempotencyKey: globalThis.crypto.randomUUID(),
         reference: form.reference.trim(),
         note: form.note.trim(),
       })
       setPayments((rows) => [payment, ...rows])
+      setPaymentsTotal((total) => total + 1)
       setDialogOpen(false)
       setNotice('')
     } catch (error) {
@@ -233,6 +349,44 @@ const Payments = () => {
       setFormError(true)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // F6 / W3 P-8 — delete a stuck Pending entry (never-posted money).
+  const handleDelete = async (payment: bookcarsTypes.RentalPayment) => {
+    if (!payment._id || !globalThis.window.confirm(strings.DELETE_CONFIRM)) {
+      return
+    }
+    try {
+      await RentalPaymentService.remove(payment._id)
+      setPayments((rows) => rows.filter((row) => row._id !== payment._id))
+      setPaymentsTotal((total) => Math.max(0, total - 1))
+      setNotice(strings.DELETED)
+    } catch (error) {
+      helper.error(error, helper.getErrorMessage(error, strings.SAVE_ERROR))
+    }
+  }
+
+  // F6 / W3 X-1 — the pager fetches the requested page from the server.
+  const goToPage = async (nextPage: number) => {
+    if (nextPage < 1 || nextPage === page) {
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await RentalPaymentService.list({ page: nextPage, size: PAGE_SIZE })
+      if (Array.isArray(res)) {
+        setPayments(res)
+        setPaymentsTotal(res.length)
+      } else {
+        setPayments(res.rows)
+        setPaymentsTotal(res.total)
+      }
+      setPage(nextPage)
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -306,9 +460,9 @@ const Payments = () => {
         {loadError && <Alert severity="error">{strings.LOAD_ERROR}</Alert>}
         {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
         <div className="agency-payments__summary">
-          <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading ? '—' : formatAmount(postedNetTotal)}</strong></CardContent></Card>
-          <Card><CardContent><span className="agency-payments__summary-icon">T</span><small>{strings.ENTRIES}</small><strong>{loading ? '—' : payments.length}</strong></CardContent></Card>
-          <Card><CardContent><span className="agency-payments__summary-icon agency-payments__summary-icon--warning"><WarningAmberRoundedIcon /></span><small>{strings.OVERDUE}</small><strong>{loading ? '—' : formatAmount(overdueTotal)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading || postedNetTotal === null ? '—' : formatAmount(postedNetTotal)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-payments__summary-icon">T</span><small>{strings.ENTRIES}</small><strong>{loading ? '—' : paymentsTotal}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-payments__summary-icon agency-payments__summary-icon--warning"><WarningAmberRoundedIcon /></span><small>{strings.OVERDUE}</small><strong>{loading || overdueTotal === null ? '—' : formatAmount(overdueTotal)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.COLLECTIONS}</small><strong>{loading || !collections ? '—' : `${formatAmount(collections.collected)} / ${formatAmount(collections.contractAmount)}`}</strong>{collections && <small>{strings.COLLECTION_RATE}: {collections.collectionRatePct === null ? '—' : `${collections.collectionRatePct.toFixed(2)}%`}</small>}</CardContent></Card>
         </div>
         <section className="agency-payments__panel agency-payments__receivables">
@@ -323,7 +477,7 @@ const Payments = () => {
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstanding)}</strong>
               <span data-label={strings.DEPOSIT}>{formatAmount(row.depositHeld)}</span>
-              <span data-label={strings.DATE}>{formatDate(row.booking.to)}</span>
+              <span data-label={strings.DATE}>{formatDate(row.dueAt ?? row.booking.to)}</span>
             </div>
           ))}
         </section>
@@ -363,18 +517,31 @@ const Payments = () => {
                     {payment.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? strings.REVERSE_DEPOSIT : strings.REVERSE}
                   </Button>
                 )}
+                {payment.status === bookcarsTypes.RentalPaymentStatus.Pending && canRecordPayments && (
+                  <>
+                    <Button size="small" variant="outlined" onClick={() => openEdit(payment)}>{strings.EDIT}</Button>
+                    <Button size="small" color="error" variant="outlined" onClick={() => handleDelete(payment)}>{strings.DELETE}</Button>
+                  </>
+                )}
               </span>
             </div>
           })}
+          {paymentsTotal > 0 && (
+            <div className="agency-payments__pager">
+              <Button size="small" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>{strings.PREVIOUS}</Button>
+              <span>{strings.SHOWING} {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, paymentsTotal)} / {paymentsTotal}</span>
+              <Button size="small" disabled={page * PAGE_SIZE >= paymentsTotal || loading} onClick={() => goToPage(page + 1)}>{strings.NEXT}</Button>
+            </div>
+          )}
         </section>
       </div>
       )}
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{strings.NEW}</DialogTitle>
+        <DialogTitle>{editingPayment ? strings.EDIT_PAYMENT : strings.NEW}</DialogTitle>
         <DialogContent className="agency-payments__form">
           {formError && <Alert severity="error">{strings.SAVE_ERROR}</Alert>}
           <TextField select fullWidth required label={strings.BOOKING} value={form.booking} onChange={setField('booking')}>
-            {eligibleBookings.map((booking) => <MenuItem key={booking._id} value={booking._id}>
+            {dialogBookings.map((booking) => <MenuItem key={booking._id} value={booking._id}>
               {bookingLabel(booking)} ·· {carName(booking)} ·· {customerName(booking)}
             </MenuItem>)}
           </TextField>
@@ -382,10 +549,15 @@ const Payments = () => {
             <MenuItem value={bookcarsTypes.RentalPaymentPurpose.Rent}>{purposeLabel(bookcarsTypes.RentalPaymentPurpose.Rent)}</MenuItem>
             <MenuItem value={bookcarsTypes.RentalPaymentPurpose.Deposit}>{purposeLabel(bookcarsTypes.RentalPaymentPurpose.Deposit)}</MenuItem>
           </TextField>
-          {selectedBooking && <Typography variant="body2" color="text.secondary">{strings.REMAINING}: {formatAmount(remaining)}{form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? ` · ${strings.REFUNDABLE}` : ''}</Typography>}
+          {selectedBooking && <Typography variant="body2" color="text.secondary">{form.direction === bookcarsTypes.RentalPaymentDirection.Debit ? strings.DEBIT_CAP : strings.REMAINING}: {cap === null ? '—' : formatAmount(cap)}{form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? ` · ${strings.REFUNDABLE}` : ''}</Typography>}
+          <TextField select fullWidth required label={strings.DIRECTION} value={form.direction} disabled={!!editingPayment} onChange={setField('direction')}>
+            <MenuItem value={bookcarsTypes.RentalPaymentDirection.Credit}>{strings.CREDIT}</MenuItem>
+            <MenuItem value={bookcarsTypes.RentalPaymentDirection.Debit}>{strings.DEBIT}</MenuItem>
+          </TextField>
+          {form.direction === bookcarsTypes.RentalPaymentDirection.Debit && !editingPayment && <TextField fullWidth required label={strings.REASON} value={form.reason} onChange={setField('reason')} inputProps={{ maxLength: 1000 }} />}
           <div className="agency-payments__form-grid">
             <TextField fullWidth required type="date" label={strings.DATE_FIELD} value={form.date} onChange={setField('date')} InputLabelProps={{ shrink: true }} />
-            <TextField fullWidth required type="number" label={strings.AMOUNT} value={form.amount} onChange={setField('amount')} inputProps={{ min: 0.01, step: 0.01, max: remaining }} />
+            <TextField fullWidth required type="number" label={strings.AMOUNT} value={form.amount} onChange={setField('amount')} inputProps={{ min: 0.01, step: 0.01, max: cap ?? undefined }} />
             <TextField select fullWidth required label={strings.METHOD} value={form.method} onChange={setField('method')}>
               {Object.values(bookcarsTypes.RentalPaymentMethod).map((method) => <MenuItem key={method} value={method}>{methodLabel(method)}</MenuItem>)}
             </TextField>
@@ -395,7 +567,7 @@ const Payments = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)} disabled={saving}>{strings.CANCEL}</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving || !eligibleBookings.length}>{strings.SAVE}</Button>
+          <Button variant="contained" onClick={handleSave} disabled={saving || !dialogBookings.length}>{strings.SAVE}</Button>
         </DialogActions>
       </Dialog>
     </Layout>

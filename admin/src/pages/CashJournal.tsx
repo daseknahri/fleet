@@ -5,8 +5,6 @@ import * as bookcarsTypes from ':bookcars-types'
 import Layout from '@/components/Layout'
 import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import AccessDenied from '@/components/AccessDenied'
-import * as MaintenanceExpenseService from '@/services/MaintenanceExpenseService'
-import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as CashService from '@/services/CashService'
 import * as UserService from '@/services/UserService'
 import * as SupplierService from '@/services/SupplierService'
@@ -25,28 +23,12 @@ interface JournalRow {
   method: string
   amount: number
   searchText: string
-}
-
-const vehicleName = (car: string | bookcarsTypes.Car | null | undefined) => {
-  // The expense API can return a null car when the referenced vehicle no
-  // longer resolves; rendering must degrade to a placeholder, not throw.
-  if (!car || typeof car === 'string') {
-    return '—'
-  }
-  return `${car.name}${car.licensePlate ? ` · ${car.licensePlate}` : ''}`
-}
-
-const getCustomer = (booking?: bookcarsTypes.Booking) => (
-  booking?.driver && typeof booking.driver !== 'string' ? booking.driver.fullName || booking.driver.email || '' : ''
-)
-
-const methodName = (method: bookcarsTypes.RentalPaymentMethod) => {
-  switch (method) {
-    case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK
-    case bookcarsTypes.RentalPaymentMethod.Card: return strings.CARD
-    case bookcarsTypes.RentalPaymentMethod.Other: return strings.OTHER
-    default: return strings.CASH
-  }
+  // F6 / W3 C-5 — server-computed journal rows carry the movement's
+  // status and ledger purpose: pending entries are shown, never
+  // counted; deposit-purpose cash is held, never income.
+  status?: 'pending' | 'confirmed'
+  purpose?: bookcarsTypes.RentalPaymentPurpose
+  rentalPayment?: string
 }
 
 const uiLocale = () => {
@@ -69,6 +51,9 @@ const CashJournal = () => {
   const [agencies, setAgencies] = useState<bookcarsTypes.User[]>([])
   const [agencyId, setAgencyId] = useState('')
   const [rows, setRows] = useState<JournalRow[]>([])
+  const [journalTotals, setJournalTotals] = useState<bookcarsTypes.CashJournalTotals | null>(null)
+  const [unlinkedCashPayments, setUnlinkedCashPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
+  const [unlinkedCashTotal, setUnlinkedCashTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -90,6 +75,13 @@ const CashJournal = () => {
   const [openingBalance, setOpeningBalance] = useState('0')
   const [countedBalance, setCountedBalance] = useState('0')
   const [closingNote, setClosingNote] = useState('')
+  // F6 / W3 C-1 — chained opening from the previous counted close.
+  const [previousCloseBalance, setPreviousCloseBalance] = useState<number | null>(null)
+  const [openingDifferenceReason, setOpeningDifferenceReason] = useState('')
+  // F6 / W3 C-4 — close-time pending carry + discrepancy approval.
+  const [closePreview, setClosePreview] = useState<{ pendingCount: number, pendingIn: number, pendingOut: number, expectedBalance: number } | null>(null)
+  const [pendingCarryReason, setPendingCarryReason] = useState('')
+  const [discrepancyReason, setDiscrepancyReason] = useState('')
   const [sessionError, setSessionError] = useState(false)
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
   const [movementDirection, setMovementDirection] = useState<bookcarsTypes.CashMovementDirection>(bookcarsTypes.CashMovementDirection.In)
@@ -132,9 +124,7 @@ const CashJournal = () => {
     setLoading(true)
     setLoadError(false)
     try {
-      const [payments, expenses, listedSessions, currentCash, currentBank] = await Promise.all([
-        RentalPaymentService.list(),
-        MaintenanceExpenseService.list(),
+      const [listedSessions, currentCash, currentBank] = await Promise.all([
         CashService.listSessions(scope),
         CashService.current(bookcarsTypes.CashAccountType.Cash, scope),
         CashService.current(bookcarsTypes.CashAccountType.Bank, scope),
@@ -151,55 +141,46 @@ const CashJournal = () => {
       if (selectedSession) {
         setCountedBalance(String(selectedSession.countedClosingBalance ?? selectedSession.openingBalance))
       }
-      const movementRows: JournalRow[] = selectedSession?._id
-        ? (await CashService.movements(selectedSession._id, scope)).map((movement) => ({
-          id: `movement-${movement._id}`,
-          date: new Date(movement.date),
-          direction: movement.direction,
-          reason: movement.source === bookcarsTypes.CashMovementSource.Transfer ? strings.TRANSFER : strings.MANUAL_MOVEMENT,
-          context: [movement.reference, movement.note].filter(Boolean).join(' · ') || '—',
-          method: selectedSession.account === bookcarsTypes.CashAccountType.Bank ? strings.BANK : strings.CASH,
-          amount: movement.amount,
-          searchText: `${movement.reference || ''} ${movement.note || ''} ${movement.source}`.toLocaleLowerCase(),
-        })) : []
-      const paymentRows: JournalRow[] = (payments || []).map((payment) => {
-        const booking = typeof payment.booking === 'string' ? undefined : payment.booking
-        const car = booking?.car
-        const vehicle = car ? vehicleName(car) : ''
-        const customer = getCustomer(booking)
-        const contractId = booking?._id || (typeof payment.booking === 'string' ? payment.booking : '')
-        return {
-          id: `payment-${payment._id}`,
-          date: new Date(payment.date),
-          direction: 'in',
-          reason: strings.PAYMENT,
-          context: [contractId ? contractId.slice(-8).toUpperCase() : '', vehicle, customer].filter(Boolean).join(' · ') || '—',
-          method: methodName(payment.method),
-          amount: payment.amount,
-          searchText: `${strings.PAYMENT} ${contractId} ${vehicle} ${customer} ${payment.reference || ''} ${payment.note || ''}`.toLocaleLowerCase(),
-        }
-      })
-      const expenseRows: JournalRow[] = (expenses || []).map((expense) => {
-        const vehicle = vehicleName(expense.car)
-        const reason = expense.vendor || expense.note || strings.MAINTENANCE
-        return {
-          id: `expense-${expense._id}`,
-          date: new Date(expense.date),
-          direction: 'out',
-          reason,
-          context: vehicle,
-          method: strings.MAINTENANCE,
-          amount: expense.amount,
-          searchText: `${strings.MAINTENANCE} ${reason} ${vehicle} ${expense.type}`.toLocaleLowerCase(),
-        }
-      })
-      setRows([...movementRows, ...paymentRows, ...expenseRows].sort((a, b) => b.date.getTime() - a.date.getTime()))
+      // F6 / W3 C-5 — the journal is computed server-side from the
+      // selected session's movements under one scope (confirmed-only
+      // income/expenses, deposits held separately, pending listed, never
+      // counted). The page no longer merges all agency payments and all
+      // expenses client-side: that merge counted reversed/pending/deposit
+      // payments as income and unpaid expenses as outflows, and its scope
+      // could not reconcile to any session. Maintenance expenses are not
+      // drawer movements and stay on Maintenance + Reports.
+      const journal = selectedSession?._id
+        ? await CashService.journal(selectedSession._id, scope, { from: from || undefined, to: to || undefined })
+        : null
+      setJournalTotals(journal?.totals || null)
+      setUnlinkedCashPayments(journal?.unlinkedCashPayments || [])
+      setUnlinkedCashTotal(journal?.unlinkedCashTotal || 0)
+      const movementRows: JournalRow[] = (journal?.rows || []).map((row) => ({
+        id: row.id,
+        date: new Date(row.date),
+        direction: row.direction,
+        reason: row.source === bookcarsTypes.CashMovementSource.Transfer
+          ? strings.TRANSFER
+          : row.rentalPayment
+            ? strings.PAYMENT
+            : strings.MANUAL_MOVEMENT,
+        context: [row.bookingReference, row.reference, row.note].filter(Boolean).join(' · ') || '—',
+        method: row.rentalPayment
+          ? strings.CASH
+          : selectedSession?.account === bookcarsTypes.CashAccountType.Bank ? strings.BANK : strings.CASH,
+        amount: row.amount,
+        searchText: `${row.reference || ''} ${row.note || ''} ${row.source} ${row.bookingReference || ''}`.toLocaleLowerCase(),
+        status: row.status,
+        purpose: row.purpose,
+        rentalPayment: row.rentalPayment,
+      }))
+      setRows(movementRows.sort((a, b) => b.date.getTime() - a.date.getTime()))
     } catch (error) {
  setLoadError(true); helper.error(error) 
 } finally {
  setLoading(false) 
 }
-  }, [agencies.length, agencyId, accountFocus])
+  }, [agencies.length, agencyId, accountFocus, from, to])
 
   useEffect(() => {
     if (user?.type === bookcarsTypes.RecordType.Admin && agencyId) {
@@ -311,9 +292,35 @@ const CashJournal = () => {
         return
       }
       if (sessionDialog === 'open') {
-        await CashService.open({ account: openAccount, openingBalance: Number(openingBalance), supplier: supplierScope })
+        // F6 / W3 C-1 — a blank opening chains from the previous counted
+        // close (the server defaults it); a value that differs from the
+        // chain needs a recorded reason. The server enforces both.
+        const entered = openingBalance.trim() === '' ? undefined : Number(openingBalance)
+        if (previousCloseBalance !== null && entered !== undefined && entered !== previousCloseBalance && openingDifferenceReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.OPENING_DIFFERENCE_REASON_REQUIRED)
+          return
+        }
+        await CashService.open({ account: openAccount, openingBalance: entered, openingDifferenceReason: openingDifferenceReason.trim() || undefined, supplier: supplierScope })
       } else if (sessionDialog === 'close' && session?._id) {
-        await CashService.close(session._id, { countedClosingBalance: Number(countedBalance), closingNote }, supplierScope)
+        // F6 / W3 C-4 — pending entries are carried only with a reason,
+        // and any discrepancy needs an approved reason (tolerance is
+        // ZERO). The server re-checks both against the live session.
+        const counted = Number(countedBalance)
+        const expected = closePreview?.expectedBalance ?? session.expectedClosingBalance ?? counted
+        const discrepancy = Number((counted - expected).toFixed(2))
+        const pendingCount = closePreview?.pendingCount ?? 0
+        if (pendingCount > 0 && pendingCarryReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.PENDING_CARRY_REASON_REQUIRED)
+          return
+        }
+        if (discrepancy !== 0 && discrepancyReason.trim().length < 3) {
+          setSessionError(true)
+          setSessionErrorMessage(strings.DISCREPANCY_REASON_REQUIRED)
+          return
+        }
+        await CashService.close(session._id, { countedClosingBalance: counted, closingNote, acknowledgePending: pendingCount > 0, pendingCarryReason: pendingCarryReason.trim() || undefined, discrepancyApproved: discrepancy !== 0, discrepancyReason: discrepancyReason.trim() || undefined }, supplierScope)
       }
       setSessionDialog(null)
       await onLoad(UserService.getCurrentUser() || undefined)
@@ -321,6 +328,17 @@ const CashJournal = () => {
  setSessionError(true); setSessionErrorMessage(helper.getErrorMessage(error, strings.SESSION_ERROR)); helper.error(error, helper.getErrorMessage(error, strings.SESSION_ERROR)) 
 }
   }
+
+  // F6 / W3 C-5 — headline figures come from the server-side journal
+  // totals (one scope, confirmed-only, deposits held separately).
+  // They are never re-summed from the rendered rows: a reversed,
+  // pending or deposit row must not leak back into income/expenses.
+  const income = journalTotals?.income ?? 0
+  const expenses = journalTotals?.expenses ?? 0
+  const net = journalTotals?.net ?? 0
+  const deposits = journalTotals?.deposits ?? 0
+  const pendingIn = journalTotals?.pendingIn ?? 0
+  const pendingOut = journalTotals?.pendingOut ?? 0
 
   // GA-PAR-24 — on-demand Z-report PDF for the closed focused session.
   // Same blob-download pattern as the Reports car PDF; the button renders
@@ -349,16 +367,76 @@ const CashJournal = () => {
   const otherAccount = accountFocus === bookcarsTypes.CashAccountType.Cash ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
   const otherCurrent = currentByAccount[otherAccount]
 
-  const openSessionDialog = () => {
-    // Default the dialog to the focused account, or to the other account when
-    // the focused one already has an open session.
-    setOpenAccount(!currentByAccount[accountFocus] ? accountFocus : (!otherCurrent ? otherAccount : accountFocus))
-    setSessionDialog('open')
+  // F6 / W3 C-1 — prefill the opening balance from the previous
+  // counted close of the chosen account (null on a first session).
+  const loadPreviousClose = async (account: bookcarsTypes.CashAccountType) => {
+    try {
+      const prev = await CashService.previousClose(account, supplierScope)
+      setPreviousCloseBalance(prev ? prev.countedClosingBalance : null)
+      setOpeningBalance(prev ? String(prev.countedClosingBalance) : '0')
+      setOpeningDifferenceReason('')
+    } catch {
+      setPreviousCloseBalance(null)
+    }
   }
 
-  const income = filtered.reduce((sum, row) => sum + (row.direction === 'in' ? row.amount : 0), 0)
-  const expenses = filtered.reduce((sum, row) => sum + (row.direction === 'out' ? row.amount : 0), 0)
-  const net = income - expenses
+  const openSessionDialog = async () => {
+    // Default the dialog to the focused account, or to the other account when
+    // the focused one already has an open session.
+    const account = !currentByAccount[accountFocus] ? accountFocus : (!otherCurrent ? otherAccount : accountFocus)
+    setOpenAccount(account)
+    setSessionDialog('open')
+    await loadPreviousClose(account)
+  }
+
+  // F6 / W3 C-4 — the close dialog previews the whole session's pending
+  // entries and the expected balance (unfiltered: the journal table
+  // itself may be date-filtered), so the closer sees what will be
+  // carried and what discrepancy they are approving.
+  const openCloseDialog = async () => {
+    setSessionDialog('close')
+    setPendingCarryReason('')
+    setDiscrepancyReason('')
+    setClosePreview(null)
+    if (!session?._id) {
+      return
+    }
+    try {
+      const journal = await CashService.journal(session._id, supplierScope)
+      const pending = (journal.rows || []).filter((row) => row.status === 'pending')
+      setClosePreview({
+        pendingCount: pending.length,
+        pendingIn: pending.filter((row) => row.direction === bookcarsTypes.CashMovementDirection.In).reduce((sum, row) => sum + row.amount, 0),
+        pendingOut: pending.filter((row) => row.direction === bookcarsTypes.CashMovementDirection.Out).reduce((sum, row) => sum + row.amount, 0),
+        expectedBalance: journal.totals.expectedBalance,
+      })
+    } catch {
+      setClosePreview(null)
+    }
+  }
+
+  // F6 / W3 C-5 — journal CSV export (same filters + server totals as
+  // the page). Same blob-download pattern as the Z-report.
+  const downloadJournalCsv = async () => {
+    if (!session?._id) {
+      return
+    }
+    try {
+      setSessionError(false)
+      setSessionErrorMessage('')
+      const blob = await CashService.journalCsv(session._id, supplierScope, { from: from || undefined, to: to || undefined })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `gestion-auto-cash-journal-${session._id}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setSessionError(true)
+      setSessionErrorMessage(helper.getErrorMessage(error, strings.JOURNAL_EXPORT_ERROR))
+      helper.error(error, helper.getErrorMessage(error, strings.JOURNAL_EXPORT_ERROR))
+    }
+  }
 
   return (
     <Layout strict onLoad={onLoad}>
@@ -376,7 +454,7 @@ const CashJournal = () => {
             {otherCurrent ? <span>{`${accountName(otherAccount)} · ${strings.SESSION_OPEN}`}</span> : null}
             <span>{session ? `${accountName(session.account)} · ${session.status === bookcarsTypes.CashSessionStatus.Open ? strings.SESSION_OPEN : strings.SESSION_CLOSED} · ${session.currency}` : strings.NO_SESSION}</span>
             {session && <span className="agency-cash__session-balances">{strings.OPENING_BALANCE}: {formatAmount(session.openingBalance)} · {strings.EXPECTED}: {session.expectedClosingBalance === undefined ? '—' : formatAmount(session.expectedClosingBalance)} · {strings.COUNTED_BALANCE}: {session.countedClosingBalance === undefined ? '—' : formatAmount(session.countedClosingBalance)} · {strings.DISCREPANCY}: {session.discrepancy === undefined ? '—' : formatAmount(session.discrepancy)}</span>}
-            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={() => setSessionDialog('close')}>{strings.CLOSE_SESSION}</Button></span> : <span className="agency-cash__session-actions"><Button disabled={!canMutateCash} variant="outlined" onClick={downloadZReport}>{strings.Z_REPORT}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button></span>}
+            {session?.status === bookcarsTypes.CashSessionStatus.Open ? <span className="agency-cash__session-actions"><Button disabled={!canAddMovement} variant="outlined" onClick={() => setSessionDialog('movement')}>{strings.ADD_MOVEMENT}</Button><Button disabled={!canMutateCash} variant="outlined" onClick={openTransfer}>{strings.TRANSFER}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openCloseDialog}>{strings.CLOSE_SESSION}</Button></span> : <span className="agency-cash__session-actions"><Button disabled={!canMutateCash} variant="outlined" onClick={downloadZReport}>{strings.Z_REPORT}</Button><Button disabled={!canMutateCash} variant="contained" onClick={openSessionDialog}>{strings.OPEN_SESSION}</Button></span>}
           </div>
         </div>
         {loadError && <Alert severity="error" className="agency-cash__alert">{strings.LOAD_ERROR}</Alert>}
@@ -386,12 +464,16 @@ const CashJournal = () => {
           <Card><CardContent><span className="agency-cash__summary-icon"><AccountBalanceWalletRoundedIcon /></span><small>{strings.INCOME}</small><strong>{loading ? '—' : formatAmount(income)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--out">−</span><small>{strings.EXPENSES}</small><strong>{loading ? '—' : formatAmount(expenses)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--net">{strings.ENTRIES.slice(0, 1)}</span><small>{strings.NET}</small><strong>{loading ? '—' : formatAmount(net)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-cash__summary-icon">D</span><small>{strings.DEPOSITS}</small><strong>{loading ? '—' : formatAmount(deposits)}</strong></CardContent></Card>
         </div>
+        {!loading && (pendingIn > 0 || pendingOut > 0) && <Typography variant="caption" className="agency-cash__pending">{strings.PENDING}: +{formatAmount(pendingIn)} / −{formatAmount(pendingOut)}</Typography>}
+        {!loading && unlinkedCashTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashPayments.length})</Alert>}
         <section className="agency-cash__panel">
           <div className="agency-cash__toolbar">
             <TextField size="small" placeholder={strings.SEARCH} slotProps={{ htmlInput: { 'aria-label': strings.SEARCH } }} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
             <TextField size="small" type="date" label={strings.FROM} value={from} onChange={(event) => setFrom(event.target.value)} InputLabelProps={{ shrink: true }} />
             <TextField size="small" type="date" label={strings.TO} value={to} onChange={(event) => setTo(event.target.value)} InputLabelProps={{ shrink: true }} />
+            <Button variant="outlined" disabled={!session} onClick={downloadJournalCsv}>{strings.EXPORT_CSV}</Button>
           </div>
           <div className="agency-cash__table-head"><span>{strings.DATE}</span><span>{strings.TYPE}</span><span>{strings.REASON}</span><span>{strings.CONTEXT}</span><span>{strings.METHOD}</span><span>{strings.AMOUNT}</span></div>
           {loading ? <div className="agency-cash__empty">…</div> : filtered.length === 0 ? (
@@ -399,8 +481,8 @@ const CashJournal = () => {
           ) : filtered.map((row) => (
             <div className="agency-cash__row" key={row.id}>
               <span>{formatDate(row.date)}</span>
-              <span><span className={`agency-cash__kind ${row.direction === 'out' ? 'agency-cash__kind--out' : ''}`}>{row.direction === 'in' ? strings.INCOMING : strings.OUTGOING}</span></span>
-              <strong>{row.reason}</strong><span>{row.context}</span><span>{row.method}</span>
+              <span><span className={`agency-cash__kind ${row.direction === 'out' ? 'agency-cash__kind--out' : ''}`}>{row.direction === 'in' ? strings.INCOMING : strings.OUTGOING}{row.status === 'pending' ? ` · ${strings.PENDING}` : ''}</span></span>
+              <strong>{row.reason}{row.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? ` · ${strings.DEPOSIT}` : ''}</strong><span>{row.context}</span><span>{row.method}</span>
               <strong className={row.direction === 'out' ? 'agency-cash__amount--out' : ''}>{row.direction === 'out' ? '−' : '+'}{formatAmount(row.amount)}</strong>
             </div>
           ))}
@@ -408,7 +490,7 @@ const CashJournal = () => {
         <Dialog open={sessionDialog !== null} onClose={() => setSessionDialog(null)} fullWidth maxWidth="xs">
           <DialogTitle>{sessionDialog === 'open' ? strings.OPEN_SESSION : sessionDialog === 'close' ? strings.CLOSE_SESSION : strings.ADD_MOVEMENT}</DialogTitle>
           <DialogContent className="agency-cash__dialog">
-            {sessionDialog === 'open' ? <><TextField select label={strings.ACCOUNT} value={openAccount} onChange={(event) => setOpenAccount(event.target.value as bookcarsTypes.CashAccountType)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashAccountType.Cash} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Cash]}>{strings.CASH}</option><option value={bookcarsTypes.CashAccountType.Bank} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Bank]}>{strings.BANK_ACCOUNT}</option></TextField><TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /></> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} /></> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
+            {sessionDialog === 'open' ? <><TextField select label={strings.ACCOUNT} value={openAccount} onChange={(event) => { const account = event.target.value as bookcarsTypes.CashAccountType; setOpenAccount(account); loadPreviousClose(account) }} SelectProps={{ native: true }}><option value={bookcarsTypes.CashAccountType.Cash} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Cash]}>{strings.CASH}</option><option value={bookcarsTypes.CashAccountType.Bank} disabled={!!currentByAccount[bookcarsTypes.CashAccountType.Bank]}>{strings.BANK_ACCOUNT}</option></TextField><TextField autoFocus type="number" label={strings.OPENING_BALANCE} value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} />{previousCloseBalance !== null && <Typography variant="body2">{strings.OPENING_CHAINED}: {formatAmount(previousCloseBalance)}</Typography>}{previousCloseBalance !== null && openingBalance !== '' && Number(openingBalance) !== previousCloseBalance && <TextField label={strings.OPENING_DIFFERENCE_REASON} value={openingDifferenceReason} onChange={(event) => setOpeningDifferenceReason(event.target.value)} multiline minRows={2} />}</> : sessionDialog === 'close' ? <><TextField autoFocus type="number" label={strings.COUNTED_BALANCE} value={countedBalance} onChange={(event) => setCountedBalance(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.CLOSE_NOTE} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} multiline minRows={2} />{closePreview && closePreview.pendingCount > 0 && <Typography variant="body2">{strings.CLOSE_PENDING_WARNING}: {closePreview.pendingCount} ({formatAmount(closePreview.pendingIn)} / {formatAmount(closePreview.pendingOut)})</Typography>}{closePreview && closePreview.pendingCount > 0 && <TextField label={strings.PENDING_CARRY_REASON} value={pendingCarryReason} onChange={(event) => setPendingCarryReason(event.target.value)} multiline minRows={2} />}{closePreview && Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)) !== 0 && <Typography variant="body2">{strings.CLOSE_DISCREPANCY_WARNING}: {formatAmount(Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)))}</Typography>}{closePreview && Number((Number(countedBalance) - closePreview.expectedBalance).toFixed(2)) !== 0 && <TextField label={strings.DISCREPANCY_REASON} value={discrepancyReason} onChange={(event) => setDiscrepancyReason(event.target.value)} multiline minRows={2} />}</> : <><TextField select label={strings.DIRECTION} value={movementDirection} onChange={(event) => setMovementDirection(event.target.value as bookcarsTypes.CashMovementDirection)} SelectProps={{ native: true }}><option value={bookcarsTypes.CashMovementDirection.In}>{strings.INCOMING}</option><option value={bookcarsTypes.CashMovementDirection.Out}>{strings.OUTGOING}</option></TextField><TextField autoFocus type="number" label={strings.AMOUNT} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} inputProps={{ min: 0, step: 0.01 }} /><TextField label={strings.REFERENCE} value={movementReference} onChange={(event) => setMovementReference(event.target.value)} /><TextField label={strings.NOTE} value={movementNote} onChange={(event) => setMovementNote(event.target.value)} multiline minRows={2} /></>}
           </DialogContent>
           <DialogActions><Button onClick={() => setSessionDialog(null)}>{strings.CANCEL}</Button><Button variant="contained" onClick={sessionDialog === 'movement' ? saveMovement : saveSession}>{strings.SAVE}</Button></DialogActions>
         </Dialog>

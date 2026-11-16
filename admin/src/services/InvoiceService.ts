@@ -25,5 +25,13 @@ export const voidInvoice = (id: string, data: bookcarsTypes.VoidInvoicePayload):
 export const recordPayment = (id: string, payment: string): Promise<InvoiceWithApproval> =>
   axiosInstance.post(`/api/invoices/${encodeURIComponent(id)}/payments`, { payment }, { withCredentials: true }).then((res) => res.data)
 
+// F7 / W3 B-5 — unlink a payment (reason required, logged on the invoice).
+export const unlinkPayment = (id: string, payment: string, reason: string): Promise<InvoiceWithApproval> =>
+  axiosInstance.post(`/api/invoices/${encodeURIComponent(id)}/payments/unlink`, { payment, reason }, { withCredentials: true }).then((res) => res.data)
+
+// F7 / W3 B-4 — record a delivery (status tracking only; sends nothing).
+export const recordDelivery = (id: string, channel: bookcarsTypes.InvoiceDeliveryChannel): Promise<InvoiceWithApproval> =>
+  axiosInstance.post(`/api/invoices/${encodeURIComponent(id)}/deliveries`, { channel }, { withCredentials: true }).then((res) => res.data)
+
 export const downloadPdf = (id: string): Promise<Blob> =>
   axiosInstance.get(`/api/invoices/${encodeURIComponent(id)}/pdf`, { withCredentials: true, responseType: 'blob' }).then((res) => res.data as Blob)

@@ -20,7 +20,22 @@ const rentalPaymentSchema = new Schema<env.RentalPayment>(
     confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     confirmedAt: { type: Date },
     reversedFrom: { type: Schema.Types.ObjectId, ref: 'RentalPayment' },
+    refundProviderReference: { type: String, maxlength: 200, trim: true },
+    refundedAt: { type: Date },
     settledAt: { type: Date },
+    // F2 / W4 GAP-10 — provider-settled leg of a provider checkout
+    // posting: the amount the provider actually settled, in the payment
+    // currency, at the snapshot FX rate. Informational only — the
+    // base-currency amount/currency above still post under the ledger's
+    // purpose caps and the recorded totals sum `amount`, never these.
+    settledAmount: { type: Number, min: 0 },
+    settledCurrency: { type: String, uppercase: true, minlength: 3, maxlength: 3 },
+    fxRate: { type: Number, min: 0 },
+    fxSource: { type: String, maxlength: 50, trim: true },
+    fxAt: { type: Date },
+    // F6 / W3 C-7 — the cash session this cash-method payment is linked
+    // into (unset while no open cash session exists at posting time).
+    cashSession: { type: Schema.Types.ObjectId, ref: 'CashSession', index: true },
     reference: { type: String, maxlength: 160, trim: true },
     note: { type: String, maxlength: 1000, trim: true },
   },

@@ -56,6 +56,8 @@ import * as MaintenanceExpenseService from '@/services/MaintenanceExpenseService
 
 import * as MaintenanceScheduleService from '@/services/MaintenanceScheduleService'
 
+import * as MaintenanceWorkOrderService from '@/services/MaintenanceWorkOrderService'
+
 import * as UserService from '@/services/UserService'
 
 import * as helper from '@/utils/helper'
@@ -95,17 +97,59 @@ interface ExpenseForm {
 
   car: string
 
+  // F7 / W3 M-5 — the linked work order ('' = none).
+  workOrder: string
+
   date: string
 
   type: bookcarsTypes.MaintenanceExpenseType
 
   amount: string
 
-  paidAmount: string
-
   mileage: string
 
   vendor: string
+
+  note: string
+
+  // F7 / W3 M-7 — optional reason recorded on the update audit row.
+  reason: string
+
+}
+
+
+interface WorkOrderForm {
+
+  car: string
+
+  title: string
+
+  type: bookcarsTypes.MaintenanceExpenseType
+
+  status: bookcarsTypes.WorkOrderStatus
+
+  scheduledStart: string
+
+  scheduledEnd: string
+
+  odometer: string
+
+  vendor: string
+
+  note: string
+
+}
+
+
+interface PaymentForm {
+
+  date: string
+
+  amount: string
+
+  method: bookcarsTypes.RentalPaymentMethod
+
+  reference: string
 
   note: string
 
@@ -158,9 +202,49 @@ const emptyScheduleForm = (car = ''): ScheduleForm => ({
 })
 
 
+const emptyWorkOrderForm = (car = ''): WorkOrderForm => ({
+
+  car,
+
+  title: '',
+
+  type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+
+  status: bookcarsTypes.WorkOrderStatus.Scheduled,
+
+  scheduledStart: new Date().toISOString().slice(0, 10),
+
+  scheduledEnd: new Date().toISOString().slice(0, 10),
+
+  odometer: '',
+
+  vendor: '',
+
+  note: '',
+
+})
+
+
+const emptyPaymentForm = (): PaymentForm => ({
+
+  date: new Date().toISOString().slice(0, 10),
+
+  amount: '',
+
+  method: bookcarsTypes.RentalPaymentMethod.Cash,
+
+  reference: '',
+
+  note: '',
+
+})
+
+
 const emptyForm = (): ExpenseForm => ({
 
   car: '',
+
+  workOrder: '',
 
   date: new Date().toISOString().slice(0, 10),
 
@@ -168,13 +252,13 @@ const emptyForm = (): ExpenseForm => ({
 
   amount: '',
 
-  paidAmount: '',
-
   mileage: '',
 
   vendor: '',
 
   note: '',
+
+  reason: '',
 
 })
 
@@ -329,6 +413,46 @@ const Maintenance = () => {
 
   const [scheduleDeleteTarget, setScheduleDeleteTarget] = useState<bookcarsTypes.MaintenanceSchedule | null>(null)
 
+  // F7 / W3 M-5 — work orders (admin UI; the API existed, the page did not).
+  const [workOrders, setWorkOrders] = useState<bookcarsTypes.MaintenanceWorkOrder[]>([])
+
+  const [workOrderDialogOpen, setWorkOrderDialogOpen] = useState(false)
+
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<bookcarsTypes.MaintenanceWorkOrder | null>(null)
+
+  const [workOrderSaving, setWorkOrderSaving] = useState(false)
+
+  const [workOrderFormError, setWorkOrderFormError] = useState(false)
+
+  const [workOrderFormErrorMessage, setWorkOrderFormErrorMessage] = useState('')
+
+  const [workOrderForm, setWorkOrderForm] = useState<WorkOrderForm>(emptyWorkOrderForm())
+
+  const [workOrderDeleteTarget, setWorkOrderDeleteTarget] = useState<bookcarsTypes.MaintenanceWorkOrder | null>(null)
+
+  // F7 / W3 M-2 — record-payment dialog (paidAmount is never typed in
+  // the expense dialog any more; it is the sum of these records).
+  const [paymentTarget, setPaymentTarget] = useState<bookcarsTypes.MaintenanceExpense | null>(null)
+
+  const [paymentForm, setPaymentForm] = useState<PaymentForm>(emptyPaymentForm())
+
+  const [paymentSaving, setPaymentSaving] = useState(false)
+
+  const [paymentError, setPaymentError] = useState(false)
+
+  const [paymentErrorMessage, setPaymentErrorMessage] = useState('')
+
+  // F7 / W3 M-7 — audit history dialog + delete reason.
+  const [historyTarget, setHistoryTarget] = useState<bookcarsTypes.MaintenanceExpense | null>(null)
+
+  const [historyRows, setHistoryRows] = useState<bookcarsTypes.MaintenanceExpenseAudit[]>([])
+
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  const [deleteReason, setDeleteReason] = useState('')
+
+  const [deleteError, setDeleteError] = useState(false)
+
   const [saving, setSaving] = useState(false)
 
   const [formError, setFormError] = useState(false)
@@ -356,13 +480,15 @@ const Maintenance = () => {
 
         : [user._id || '']
 
-      const [carResult, expenseRows, scheduleRows, reportData] = await Promise.all([
+      const [carResult, expenseRows, scheduleRows, workOrderRows, reportData] = await Promise.all([
 
         CarService.getCars('', { suppliers: supplierIds, includeAlreadyBookedCars: true, includeComingSoonCars: true }, 1, 1000),
 
         MaintenanceExpenseService.list(),
 
         MaintenanceScheduleService.list(),
+
+        MaintenanceWorkOrderService.list(),
 
         MaintenanceExpenseService.report(),
 
@@ -373,6 +499,8 @@ const Maintenance = () => {
       setExpenses(expenseRows || [])
 
       setSchedules(scheduleRows || [])
+
+      setWorkOrders(workOrderRows || [])
 
       setReport(reportData || null)
     } catch (error) {
@@ -424,19 +552,21 @@ const Maintenance = () => {
 
       car: typeof expense.car === 'string' ? expense.car : expense.car?._id || '',
 
+      workOrder: !expense.workOrder ? '' : typeof expense.workOrder === 'string' ? expense.workOrder : expense.workOrder._id || '',
+
       date: new Date(expense.date).toISOString().slice(0, 10),
 
       type: expense.type,
 
       amount: String(expense.amount),
 
-      paidAmount: expense.paidAmount === undefined || expense.paidAmount === null ? '' : String(expense.paidAmount),
-
       mileage: expense.mileage === undefined ? '' : String(expense.mileage),
 
       vendor: expense.vendor || '',
 
       note: expense.note || '',
+
+      reason: '',
 
     })
 
@@ -453,11 +583,7 @@ const Maintenance = () => {
 
     const mileage = form.mileage.trim() ? Number(form.mileage) : undefined
 
-    const paidAmount = form.paidAmount.trim() ? Number(form.paidAmount) : null
-
     if (!form.date || !Number.isFinite(amount) || amount <= 0
-
-      || (paidAmount !== null && (!Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > amount))
 
       || (mileage !== undefined && (!Number.isFinite(mileage) || mileage < 0))) {
       setFormError(true)
@@ -482,13 +608,13 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
         car: form.car || undefined,
 
+        workOrder: form.workOrder || null,
+
         date: new Date(`${form.date}T12:00:00`),
 
         type: form.type,
 
         amount,
-
-        paidAmount,
 
         mileage,
 
@@ -501,7 +627,7 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
       }
 
       if (selected?._id) {
-        const updated = await MaintenanceExpenseService.update(selected._id, payload)
+        const updated = await MaintenanceExpenseService.update(selected._id, payload, form.reason.trim() || undefined)
 
         setExpenses((rows) => rows.map((row) => row._id === selected._id ? updated : row))
       } else {
@@ -715,14 +841,302 @@ return
 return
 }
 
+    // F7 / W3 M-7 — a hard delete requires a recorded reason.
+    if (deleteReason.trim().length < 3) {
+      setDeleteError(true)
+
+      return
+    }
+
     try {
-      await MaintenanceExpenseService.remove(deleteTarget._id)
+      await MaintenanceExpenseService.remove(deleteTarget._id, deleteReason.trim())
 
       setExpenses((rows) => rows.filter((row) => row._id !== deleteTarget._id))
 
       setDeleteTarget(null)
+
+      setDeleteReason('')
+
+      setDeleteError(false)
     } catch (error) {
       helper.error(error)
+    }
+  }
+
+
+  const workOrderStatusLabel = (status: bookcarsTypes.WorkOrderStatus) => {
+    switch (status) {
+      case bookcarsTypes.WorkOrderStatus.InProgress: return strings.WO_IN_PROGRESS
+
+      case bookcarsTypes.WorkOrderStatus.Completed: return strings.COMPLETED
+
+      case bookcarsTypes.WorkOrderStatus.Cancelled: return strings.WO_CANCELLED
+
+      default: return strings.WO_SCHEDULED
+    }
+  }
+
+
+  const workOrderCarName = (workOrder: bookcarsTypes.MaintenanceWorkOrder) => {
+    if (!workOrder.car || typeof workOrder.car === 'string') {
+return '—'
+}
+
+    return `${workOrder.car.name || '—'}${workOrder.car.licensePlate ? ` · ${workOrder.car.licensePlate}` : ''}`
+  }
+
+
+  const openWorkOrderNew = () => {
+    setSelectedWorkOrder(null)
+
+    setWorkOrderForm(emptyWorkOrderForm(cars[0]?._id || ''))
+
+    setWorkOrderFormError(false)
+
+    setWorkOrderFormErrorMessage('')
+
+    setWorkOrderDialogOpen(true)
+  }
+
+
+  const openWorkOrderEdit = (workOrder: bookcarsTypes.MaintenanceWorkOrder) => {
+    setSelectedWorkOrder(workOrder)
+
+    setWorkOrderForm({
+
+      car: typeof workOrder.car === 'string' ? workOrder.car : workOrder.car?._id || '',
+
+      title: workOrder.title,
+
+      type: workOrder.type,
+
+      status: workOrder.status,
+
+      scheduledStart: new Date(workOrder.scheduledStart).toISOString().slice(0, 10),
+
+      scheduledEnd: new Date(workOrder.scheduledEnd).toISOString().slice(0, 10),
+
+      odometer: workOrder.odometer === undefined ? '' : String(workOrder.odometer),
+
+      vendor: workOrder.vendor || '',
+
+      note: workOrder.note || '',
+
+    })
+
+    setWorkOrderFormError(false)
+
+    setWorkOrderFormErrorMessage('')
+
+    setWorkOrderDialogOpen(true)
+  }
+
+
+  const handleWorkOrderSave = async () => {
+    const odometer = workOrderForm.odometer.trim() ? Number(workOrderForm.odometer) : undefined
+
+    const failWorkOrderValidation = (message: string) => {
+      setWorkOrderFormError(true)
+
+      setWorkOrderFormErrorMessage(message)
+    }
+
+    if (!workOrderForm.car) {
+      failWorkOrderValidation(`${strings.WORK_ORDER_REQUIRED_FIELD}${strings.VEHICLE}`)
+
+      return
+    }
+
+    if (!workOrderForm.title.trim()) {
+      failWorkOrderValidation(`${strings.WORK_ORDER_REQUIRED_FIELD}${strings.WORK_ORDER_TITLE}`)
+
+      return
+    }
+
+    if (!workOrderForm.scheduledStart || !workOrderForm.scheduledEnd) {
+      failWorkOrderValidation(`${strings.WORK_ORDER_REQUIRED_FIELD}${strings.START}`)
+
+      return
+    }
+
+    if (new Date(`${workOrderForm.scheduledStart}T12:00:00`) >= new Date(`${workOrderForm.scheduledEnd}T12:00:00`)) {
+      failWorkOrderValidation(`${strings.WORK_ORDER_INVALID_FIELD}${strings.END}`)
+
+      return
+    }
+
+    if (odometer !== undefined && (!Number.isFinite(odometer) || odometer < 0)) {
+      failWorkOrderValidation(`${strings.WORK_ORDER_INVALID_FIELD}${strings.MILEAGE}`)
+
+      return
+    }
+
+    setWorkOrderSaving(true)
+
+    setWorkOrderFormError(false)
+
+    const payload: bookcarsTypes.UpsertMaintenanceWorkOrderPayload = {
+
+      car: workOrderForm.car,
+
+      title: workOrderForm.title.trim(),
+
+      type: workOrderForm.type,
+
+      status: workOrderForm.status,
+
+      scheduledStart: new Date(`${workOrderForm.scheduledStart}T12:00:00`),
+
+      scheduledEnd: new Date(`${workOrderForm.scheduledEnd}T12:00:00`),
+
+      odometer,
+
+      vendor: workOrderForm.vendor.trim(),
+
+      note: workOrderForm.note.trim(),
+
+    }
+
+    try {
+      if (selectedWorkOrder?._id) {
+        await MaintenanceWorkOrderService.update(selectedWorkOrder._id, payload)
+      } else {
+        await MaintenanceWorkOrderService.create(payload)
+      }
+
+      // Re-list: the totals (expenseTotal / expenseCount) are computed
+      // server-side on list, so the row is refreshed from the server.
+      setWorkOrders(await MaintenanceWorkOrderService.list())
+
+      setWorkOrderDialogOpen(false)
+    } catch (error) {
+      const detail = apiErrorMessage(error)
+
+      helper.error(error, detail || undefined)
+
+      setWorkOrderFormError(true)
+
+      setWorkOrderFormErrorMessage(detail)
+    } finally {
+      setWorkOrderSaving(false)
+    }
+  }
+
+
+  const handleWorkOrderDelete = async () => {
+    if (!workOrderDeleteTarget?._id) {
+return
+}
+
+    try {
+      await MaintenanceWorkOrderService.remove(workOrderDeleteTarget._id)
+
+      setWorkOrders((rows) => rows.filter((row) => row._id !== workOrderDeleteTarget._id))
+
+      setWorkOrderDeleteTarget(null)
+    } catch (error) {
+      helper.error(error)
+    }
+  }
+
+
+  const paymentMethodLabel = (method: bookcarsTypes.RentalPaymentMethod) => {
+    switch (method) {
+      case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK_TRANSFER
+
+      case bookcarsTypes.RentalPaymentMethod.Card: return strings.CARD
+
+      case bookcarsTypes.RentalPaymentMethod.Other: return strings.OTHER
+
+      default: return strings.CASH
+    }
+  }
+
+
+  const openPayment = (expense: bookcarsTypes.MaintenanceExpense) => {
+    setPaymentTarget(expense)
+
+    setPaymentForm(emptyPaymentForm())
+
+    setPaymentError(false)
+
+    setPaymentErrorMessage('')
+  }
+
+
+  const handlePaymentSave = async () => {
+    if (!paymentTarget?._id) {
+return
+}
+
+    const amount = Number(paymentForm.amount)
+
+    if (!paymentForm.date || !Number.isFinite(amount) || amount <= 0) {
+      setPaymentError(true)
+
+      return
+    }
+
+    setPaymentSaving(true)
+
+    setPaymentError(false)
+
+    try {
+      const { expense } = await MaintenanceExpenseService.recordPayment(paymentTarget._id, {
+
+        date: new Date(`${paymentForm.date}T12:00:00`),
+
+        amount,
+
+        method: paymentForm.method,
+
+        reference: paymentForm.reference.trim() || undefined,
+
+        note: paymentForm.note.trim() || undefined,
+
+      })
+
+      setExpenses((rows) => rows.map((row) => row._id === paymentTarget._id ? expense : row))
+
+      setPaymentTarget(null)
+    } catch (error) {
+      const detail = apiErrorMessage(error)
+
+      helper.error(error, detail || undefined)
+
+      setPaymentError(true)
+
+      setPaymentErrorMessage(detail)
+    } finally {
+      setPaymentSaving(false)
+    }
+  }
+
+
+  const openHistory = async (expense: bookcarsTypes.MaintenanceExpense) => {
+    setHistoryTarget(expense)
+
+    setHistoryRows([])
+
+    setHistoryLoading(true)
+
+    try {
+      setHistoryRows(await MaintenanceExpenseService.listAudit(expense._id || ''))
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+
+  const auditActionLabel = (action: bookcarsTypes.MaintenanceExpenseAuditAction) => {
+    switch (action) {
+      case bookcarsTypes.MaintenanceExpenseAuditAction.Updated: return strings.AUDIT_UPDATED
+
+      case bookcarsTypes.MaintenanceExpenseAuditAction.Deleted: return strings.AUDIT_DELETED
+
+      default: return strings.AUDIT_CREATED
     }
   }
 
@@ -823,9 +1237,13 @@ return
 
               {canManageExpenses && <span className="agency-maintenance__actions">
 
+                <Button size="small" aria-label={strings.RECORD_PAYMENT} onClick={() => openPayment(expense)}>{strings.RECORD_PAYMENT}</Button>
+
+                <Button size="small" aria-label={strings.HISTORY} onClick={() => openHistory(expense)}>{strings.HISTORY}</Button>
+
                 <Button size="small" aria-label={strings.EDIT} onClick={() => openEdit(expense)}><EditRoundedIcon /></Button>
 
-                <Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setDeleteTarget(expense)}><DeleteOutlineRoundedIcon /></Button>
+                <Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setDeleteTarget(expense); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button>
 
               </span>}
 
@@ -849,11 +1267,25 @@ return
 
         </section>
 
+        <section className="agency-maintenance__panel" aria-label={strings.WORK_ORDERS}>
+
+          <div className="agency-maintenance__section-heading">
+
+            <Typography component="h2">{strings.WORK_ORDERS}</Typography>
+
+            <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={openWorkOrderNew} disabled={cars.length === 0 || !canManageExpenses}>{strings.ADD_WORK_ORDER}</Button>
+
+          </div>
+
+          {workOrders.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_WORK_ORDERS}</div> : workOrders.map((workOrder) => <div className="agency-maintenance__schedule-row" key={workOrder._id}><div><strong>{workOrder.title}</strong><span>{workOrderCarName(workOrder)}</span></div><span>{formatDate(workOrder.scheduledStart)} → {formatDate(workOrder.scheduledEnd)}</span><span className={`agency-maintenance__status agency-maintenance__status--${workOrder.status}`}>{workOrderStatusLabel(workOrder.status)}</span><span>{strings.LINKED_EXPENSES}: {workOrder.expenseCount || 0} · {formatAmount(workOrder.expenseTotal || 0)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openWorkOrderEdit(workOrder)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setWorkOrderDeleteTarget(workOrder)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+
+        </section>
+
         <section className="agency-maintenance__panel" aria-label={strings.CATEGORY_REPORT}>
 
           <div className="agency-maintenance__section-heading"><Typography component="h2">{strings.CATEGORY_REPORT}</Typography><strong>{report ? formatAmount(report.total) : '—'}</strong></div>
 
-          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
+          {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS} · {strings.PAID} {formatAmount(row.paidTotal ?? 0)}{row.untracked ? ` (${row.untracked} ${strings.UNPAID})` : ''}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
 
         </section>
 
@@ -890,9 +1322,15 @@ return
 
             <TextField fullWidth required type="number" label={strings.AMOUNT} value={form.amount} onChange={setField('amount')} inputProps={{ min: 0.01, step: 0.01 }} />
 
-            <TextField fullWidth type="number" label={strings.PAID_AMOUNT} value={form.paidAmount} onChange={setField('paidAmount')} inputProps={{ min: 0, step: 0.01 }} />
+            <TextField select fullWidth label={strings.WORK_ORDER} value={form.workOrder} onChange={setField('workOrder')}>
 
-            <Typography variant="body2">{strings.PAYMENT_STATUS}: {paymentStatusLabel(paymentStatusOf({ amount: Number(form.amount) || 0, paidAmount: form.paidAmount.trim() ? Number(form.paidAmount) : null } as bookcarsTypes.MaintenanceExpense))}</Typography>
+              <MenuItem value="">—</MenuItem>
+
+              {workOrders.filter((workOrder) => !form.car || (typeof workOrder.car === 'string' ? workOrder.car === form.car : workOrder.car?._id === form.car)).map((workOrder) => <MenuItem value={workOrder._id} key={workOrder._id}>{workOrder.title}</MenuItem>)}
+
+            </TextField>
+
+            {selected && <Typography variant="body2">{strings.PAYMENT_STATUS}: {paymentStatusLabel(paymentStatusOf(selected))} · {strings.PAID}: {formatAmount(selected.paidAmount ?? 0)}</Typography>}
 
             <TextField fullWidth type="number" label={strings.MILEAGE} value={form.mileage} onChange={setField('mileage')} inputProps={{ min: 0, step: 1 }} />
 
@@ -903,6 +1341,8 @@ return
           <input aria-label={strings.RECEIPT} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setReceiptFile(event.target.files?.[0] || null)} />
 
           <TextField fullWidth multiline minRows={3} label={strings.NOTE} value={form.note} onChange={setField('note')} inputProps={{ maxLength: 1000 }} />
+
+          {selected && <TextField fullWidth label={strings.UPDATE_REASON} value={form.reason} onChange={setField('reason')} inputProps={{ maxLength: 1000 }} />}
 
         </DialogContent>
 
@@ -970,7 +1410,13 @@ return
 
         <DialogTitle>{strings.DELETE}</DialogTitle>
 
-        <DialogContent>{strings.DELETE_CONFIRM}</DialogContent>
+        <DialogContent>
+
+          <Typography>{strings.DELETE_CONFIRM}</Typography>
+
+          <TextField fullWidth required label={strings.DELETE_REASON} value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} error={deleteError} helperText={deleteError ? strings.DELETE_REASON_REQUIRED : ''} inputProps={{ maxLength: 1000 }} sx={{ mt: 2 }} />
+
+        </DialogContent>
 
         <DialogActions>
 
@@ -996,6 +1442,140 @@ return
           <Button color="error" variant="contained" onClick={handleScheduleDelete}>{strings.DELETE}</Button>
 
         </DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={workOrderDialogOpen} onClose={() => !workOrderSaving && setWorkOrderDialogOpen(false)} fullWidth maxWidth="sm">
+
+        <DialogTitle>{selectedWorkOrder ? strings.EDIT_WORK_ORDER : strings.NEW_WORK_ORDER}</DialogTitle>
+
+        <DialogContent className="agency-maintenance__form">
+
+          {workOrderFormError && <Alert severity="error">{workOrderFormErrorMessage || strings.WORK_ORDER_SAVE_ERROR}</Alert>}
+
+          <TextField select fullWidth required label={strings.VEHICLE} value={workOrderForm.car} onChange={(event) => setWorkOrderForm((current) => ({ ...current, car: event.target.value }))}>
+
+            {cars.map((car) => <MenuItem value={car._id} key={car._id}>{car.name}{car.licensePlate ? ` · ${car.licensePlate}` : ''}</MenuItem>)}
+
+          </TextField>
+
+          <TextField fullWidth required label={strings.WORK_ORDER_TITLE} value={workOrderForm.title} onChange={(event) => setWorkOrderForm((current) => ({ ...current, title: event.target.value }))} inputProps={{ maxLength: 200 }} />
+
+          <div className="agency-maintenance__form-grid">
+
+            <TextField select fullWidth required label={strings.TYPE} value={workOrderForm.type} onChange={(event) => setWorkOrderForm((current) => ({ ...current, type: event.target.value as bookcarsTypes.MaintenanceExpenseType }))}>{Object.values(bookcarsTypes.MaintenanceExpenseType).map((type) => <MenuItem value={type} key={type}>{typeLabel(type)}</MenuItem>)}</TextField>
+
+            <TextField select fullWidth required label={strings.STATUS} value={workOrderForm.status} onChange={(event) => setWorkOrderForm((current) => ({ ...current, status: event.target.value as bookcarsTypes.WorkOrderStatus }))}>
+
+              <MenuItem value={bookcarsTypes.WorkOrderStatus.Scheduled}>{strings.WO_SCHEDULED}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.WorkOrderStatus.InProgress}>{strings.WO_IN_PROGRESS}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.WorkOrderStatus.Completed}>{strings.COMPLETED}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.WorkOrderStatus.Cancelled}>{strings.WO_CANCELLED}</MenuItem>
+
+            </TextField>
+
+            <TextField fullWidth required type="date" label={strings.START} value={workOrderForm.scheduledStart} onChange={(event) => setWorkOrderForm((current) => ({ ...current, scheduledStart: event.target.value }))} InputLabelProps={{ shrink: true }} />
+
+            <TextField fullWidth required type="date" label={strings.END} value={workOrderForm.scheduledEnd} onChange={(event) => setWorkOrderForm((current) => ({ ...current, scheduledEnd: event.target.value }))} InputLabelProps={{ shrink: true }} />
+
+            <TextField fullWidth type="number" label={strings.MILEAGE} value={workOrderForm.odometer} onChange={(event) => setWorkOrderForm((current) => ({ ...current, odometer: event.target.value }))} inputProps={{ min: 0, step: 1 }} />
+
+          </div>
+
+          <TextField fullWidth label={strings.VENDOR} value={workOrderForm.vendor} onChange={(event) => setWorkOrderForm((current) => ({ ...current, vendor: event.target.value }))} inputProps={{ maxLength: 160 }} />
+
+          <TextField fullWidth multiline minRows={3} label={strings.NOTE} value={workOrderForm.note} onChange={(event) => setWorkOrderForm((current) => ({ ...current, note: event.target.value }))} inputProps={{ maxLength: 1000 }} />
+
+        </DialogContent>
+
+        <DialogActions><Button onClick={() => setWorkOrderDialogOpen(false)} disabled={workOrderSaving}>{strings.CANCEL}</Button><Button variant="contained" onClick={handleWorkOrderSave} disabled={workOrderSaving || cars.length === 0}>{strings.SAVE_WORK_ORDER}</Button></DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={!!workOrderDeleteTarget} onClose={() => setWorkOrderDeleteTarget(null)} maxWidth="xs" fullWidth>
+
+        <DialogTitle>{strings.DELETE}</DialogTitle>
+
+        <DialogContent>{strings.DELETE_WORK_ORDER_CONFIRM}</DialogContent>
+
+        <DialogActions>
+
+          <Button onClick={() => setWorkOrderDeleteTarget(null)}>{strings.CANCEL}</Button>
+
+          <Button color="error" variant="contained" onClick={handleWorkOrderDelete}>{strings.DELETE}</Button>
+
+        </DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={!!paymentTarget} onClose={() => !paymentSaving && setPaymentTarget(null)} fullWidth maxWidth="sm">
+
+        <DialogTitle>{strings.RECORD_PAYMENT}</DialogTitle>
+
+        <DialogContent className="agency-maintenance__form">
+
+          {paymentError && <Alert severity="error">{paymentErrorMessage || strings.PAYMENT_SAVE_ERROR}</Alert>}
+
+          <div className="agency-maintenance__form-grid">
+
+            <TextField fullWidth required type="date" label={strings.DATE} value={paymentForm.date} onChange={(event) => setPaymentForm((current) => ({ ...current, date: event.target.value }))} InputLabelProps={{ shrink: true }} />
+
+            <TextField fullWidth required type="number" label={strings.AMOUNT} value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} inputProps={{ min: 0.01, step: 0.01 }} />
+
+            <TextField select fullWidth required label={strings.PAYMENT_METHOD} value={paymentForm.method} onChange={(event) => setPaymentForm((current) => ({ ...current, method: event.target.value as bookcarsTypes.RentalPaymentMethod }))}>
+
+              <MenuItem value={bookcarsTypes.RentalPaymentMethod.Cash}>{strings.CASH}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.RentalPaymentMethod.BankTransfer}>{strings.BANK_TRANSFER}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.RentalPaymentMethod.Card}>{strings.CARD}</MenuItem>
+
+              <MenuItem value={bookcarsTypes.RentalPaymentMethod.Other}>{strings.OTHER}</MenuItem>
+
+            </TextField>
+
+            <TextField fullWidth label={strings.PAYMENT_REFERENCE} value={paymentForm.reference} onChange={(event) => setPaymentForm((current) => ({ ...current, reference: event.target.value }))} inputProps={{ maxLength: 160 }} />
+
+          </div>
+
+          <TextField fullWidth multiline minRows={3} label={strings.NOTE} value={paymentForm.note} onChange={(event) => setPaymentForm((current) => ({ ...current, note: event.target.value }))} inputProps={{ maxLength: 1000 }} />
+
+        </DialogContent>
+
+        <DialogActions><Button onClick={() => setPaymentTarget(null)} disabled={paymentSaving}>{strings.CANCEL}</Button><Button variant="contained" onClick={handlePaymentSave} disabled={paymentSaving}>{strings.SAVE}</Button></DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={!!historyTarget} onClose={() => setHistoryTarget(null)} fullWidth maxWidth="sm">
+
+        <DialogTitle>{strings.HISTORY}</DialogTitle>
+
+        <DialogContent>
+
+          {historyLoading ? <div className="agency-maintenance__empty">…</div> : historyRows.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_HISTORY}</div> : historyRows.map((row) => (
+
+            <div key={row._id} className="agency-maintenance__report-row">
+
+              <span>{auditActionLabel(row.action)} · {row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</span>
+
+              <span>{row.actor && typeof row.actor === 'object' ? row.actor.fullName : ''}{row.reason ? ` — ${row.reason}` : ''}</span>
+
+              <span>{row.changes?.length ? `${strings.CHANGES}: ${row.changes.map((change) => `${change.field}: ${change.before ?? '—'} → ${change.after ?? '—'}`).join('; ')}` : ''}</span>
+
+            </div>
+
+          ))}
+
+        </DialogContent>
+
+        <DialogActions><Button onClick={() => setHistoryTarget(null)}>{strings.CANCEL}</Button></DialogActions>
 
       </Dialog>
 

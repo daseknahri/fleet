@@ -61,6 +61,8 @@ const Team = () => {
   const [networkError, setNetworkError] = useState(false)
   const [unauthorized, setUnauthorized] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  // F8 / W5 T4 — membership removal: the row awaiting confirmation.
+  const [removeTarget, setRemoveTarget] = useState<MembershipRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(false)
   const [form, setForm] = useState<MembershipForm>(emptyForm)
@@ -197,6 +199,27 @@ const Team = () => {
     setDialogOpen(true)
   }
 
+  // F8 / W5 T4 — remove the membership row only (the staff User stays
+  // and can be re-linked). A 409 from the backend means the member
+  // still has pending approval requests.
+  const handleRemove = async () => {
+    const supplierId = isAdmin || isAgencyOwner ? selectedAgencyId : memberships[0]?.supplier || ''
+    if (!removeTarget?._id || !supplierId) {
+      return
+    }
+    setSaving(true)
+    try {
+      await AgencyMembershipService.remove(supplierId, removeTarget._id)
+      setMemberships((rows) => rows.filter((row) => row._id !== removeTarget._id))
+      setRemoveTarget(null)
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      helper.error(error, status === 409 ? strings.REMOVE_BLOCKED : strings.REMOVE_ERROR)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Layout strict onLoad={setUser} style={{ direction: isRtl ? 'rtl' : 'ltr' }}>
       {user && (
@@ -254,6 +277,7 @@ const Team = () => {
                 <span>{strings.EMAIL}</span>
                 <span>{strings.ROLE}</span>
                 <span>{strings.STATUS}</span>
+                <span>{strings.ACTIONS}</span>
               </div>
               {memberships.map((membership) => {
                 const member = typeof membership.user === 'string' ? undefined : membership.user
@@ -293,7 +317,20 @@ const Team = () => {
                       >
                         <MenuItem value={bookcarsTypes.AgencyMembershipStatus.Active}>{strings.ACTIVE}</MenuItem>
                         <MenuItem value={bookcarsTypes.AgencyMembershipStatus.Suspended}>{strings.SUSPENDED}</MenuItem>
+                        <MenuItem value={bookcarsTypes.AgencyMembershipStatus.Pending}>{strings.PENDING}</MenuItem>
                       </Select>
+                    </span>
+                    <span>
+                      {!isOwner && (
+                        <Button
+                          variant="text"
+                          color="error"
+                          disabled={!canManage || saving}
+                          onClick={() => setRemoveTarget(membership)}
+                        >
+                          {strings.REMOVE}
+                        </Button>
+                      )}
                     </span>
                   </div>
                 )
@@ -353,6 +390,19 @@ const Team = () => {
               <Button onClick={() => setDialogOpen(false)} disabled={saving}>{strings.CANCEL}</Button>
               <Button variant="contained" onClick={handleCreate} disabled={saving || !selectedAgencyId}>
                 {strings.SAVE}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog open={removeTarget !== null} onClose={() => !saving && setRemoveTarget(null)} fullWidth maxWidth="sm">
+            <DialogTitle>{strings.REMOVE}</DialogTitle>
+            <DialogContent>
+              <Typography>{strings.REMOVE_CONFIRM}</Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setRemoveTarget(null)} disabled={saving}>{strings.CANCEL}</Button>
+              <Button variant="contained" color="error" onClick={handleRemove} disabled={saving}>
+                {strings.REMOVE}
               </Button>
             </DialogActions>
           </Dialog>

@@ -11,9 +11,10 @@ const strings = new LocalizedStrings({
     NEW: 'Record payment', SAVE: 'Record payment', CANCEL: 'Cancel', REQUIRED: 'Required', SELECT_BOOKING: 'Select a contract',
     BOOKING: 'Rental contract', DATE_FIELD: 'Payment date', CASH: 'Cash', BANK: 'Bank transfer', CARD: 'Card', OTHER: 'Other',
     REMAINING: 'Remaining for selected purpose', PURPOSE_FIELD: 'Payment purpose', RENT: 'Rental balance', DEPOSIT: 'Refundable deposit', REFUNDABLE: 'refundable',
-    RECEIVABLES: 'Receivables', OVERDUE: 'Overdue receivables', OUTSTANDING: 'Outstanding', NO_OVERDUE: 'No overdue receivables.',
+    RECEIVABLES: 'Receivables', OVERDUE: 'Overdue receivables', OUTSTANDING: 'Outstanding', NO_OVERDUE: 'No outstanding receivables.',
     REVERSE: 'Reverse payment', REVERSE_DEPOSIT: 'Refund deposit', REVERSE_CONFIRM: 'This creates an auditable debit reversal. Continue?',
     REVERSED: 'Reversed', POSTED: 'Posted', PENDING: 'Pending', COLLECTIONS: 'Collections', COLLECTION_RATE: 'Collection rate', EXPORT_CSV: 'Export CSV',
+    DIRECTION: 'Direction', CREDIT: 'Credit', DEBIT: 'Debit', DEBIT_CAP: 'Recorded for selected purpose', REASON: 'Reason', EDIT: 'Edit', DELETE: 'Delete', DELETE_CONFIRM: 'Delete this pending entry? It never counted as money.', DELETED: 'Pending entry deleted', EDIT_PAYMENT: 'Edit payment entry', PREVIOUS: 'Previous', NEXT: 'Next', SHOWING: 'Showing',
   },
   fr: {
     EYEBROW: 'FINANCE', TITLE: 'Paiements', SUBTITLE: 'Enregistrez et consultez les paiements reçus pour les contrats.',
@@ -24,9 +25,10 @@ const strings = new LocalizedStrings({
     NEW: 'Enregistrer un paiement', SAVE: 'Enregistrer', CANCEL: 'Annuler', REQUIRED: 'Obligatoire', SELECT_BOOKING: 'Choisir un contrat',
     BOOKING: 'Contrat de location', DATE_FIELD: 'Date du paiement', CASH: 'Espèces', BANK: 'Virement bancaire', CARD: 'Carte', OTHER: 'Autre',
     REMAINING: 'Reste pour le motif sélectionné', PURPOSE_FIELD: 'Motif du paiement', RENT: 'Solde de location', DEPOSIT: 'Dépôt de garantie remboursable', REFUNDABLE: 'remboursable',
-    RECEIVABLES: 'Créances', OVERDUE: 'Créances en retard', OUTSTANDING: 'Solde dû', NO_OVERDUE: 'Aucune créance en retard.',
+    RECEIVABLES: 'Créances', OVERDUE: 'Créances en retard', OUTSTANDING: 'Solde dû', NO_OVERDUE: 'Aucune créance en attente.',
     REVERSE: 'Annuler le paiement', REVERSE_DEPOSIT: 'Rembourser le dépôt', REVERSE_CONFIRM: 'Cette action crée une écriture de débit auditable. Continuer ?',
     REVERSED: 'Annulé', POSTED: 'Comptabilisé', PENDING: 'En attente', COLLECTIONS: 'Encaissements', COLLECTION_RATE: 'Taux d’encaissement', EXPORT_CSV: 'Exporter CSV',
+    DIRECTION: 'Sens', CREDIT: 'Crédit', DEBIT: 'Débit', DEBIT_CAP: 'Enregistré pour le motif sélectionné', REASON: 'Motif', EDIT: 'Modifier', DELETE: 'Supprimer', DELETE_CONFIRM: 'Supprimer cette écriture en attente ? Elle n’a jamais compté comme argent.', DELETED: 'Écriture en attente supprimée', EDIT_PAYMENT: 'Modifier l’écriture', PREVIOUS: 'Précédent', NEXT: 'Suivant', SHOWING: 'Affichage',
   },
   es: {
     EYEBROW: 'FINANZAS', TITLE: 'Pagos', SUBTITLE: 'Registra y consulta los pagos recibidos por contrato.',
@@ -37,9 +39,10 @@ const strings = new LocalizedStrings({
     NEW: 'Registrar pago', SAVE: 'Registrar pago', CANCEL: 'Cancelar', REQUIRED: 'Obligatorio', SELECT_BOOKING: 'Seleccionar contrato',
     BOOKING: 'Contrato de alquiler', DATE_FIELD: 'Fecha de pago', CASH: 'Efectivo', BANK: 'Transferencia bancaria', CARD: 'Tarjeta', OTHER: 'Otro',
     REMAINING: 'Pendiente del concepto seleccionado', PURPOSE_FIELD: 'Concepto del pago', RENT: 'Saldo del alquiler', DEPOSIT: 'Depósito reembolsable', REFUNDABLE: 'reembolsable',
-    RECEIVABLES: 'Cuentas por cobrar', OVERDUE: 'Cuentas vencidas', OUTSTANDING: 'Pendiente', NO_OVERDUE: 'No hay cuentas vencidas.',
+    RECEIVABLES: 'Cuentas por cobrar', OVERDUE: 'Cuentas vencidas', OUTSTANDING: 'Pendiente', NO_OVERDUE: 'No hay cuentas pendientes.',
     REVERSE: 'Revertir pago', REVERSE_DEPOSIT: 'Reembolsar depósito', REVERSE_CONFIRM: 'Esto crea una reversión de débito auditable. ¿Continuar?',
     REVERSED: 'Revertido', POSTED: 'Contabilizado', PENDING: 'Pendiente', COLLECTIONS: 'Cobros', COLLECTION_RATE: 'Tasa de cobro', EXPORT_CSV: 'Exportar CSV',
+    DIRECTION: 'Dirección', CREDIT: 'Crédito', DEBIT: 'Débito', DEBIT_CAP: 'Registrado para el concepto seleccionado', REASON: 'Motivo', EDIT: 'Editar', DELETE: 'Eliminar', DELETE_CONFIRM: '¿Eliminar este asiento pendiente? Nunca contó como dinero.', DELETED: 'Asiento pendiente eliminado', EDIT_PAYMENT: 'Editar asiento', PREVIOUS: 'Anterior', NEXT: 'Siguiente', SHOWING: 'Mostrando',
   },
   ar: {
     EYEBROW: 'المالية', TITLE: 'المدفوعات', SUBTITLE: 'سجل وراجع المدفوعات المستلمة مقابل عقود التأجير.',
@@ -50,9 +53,10 @@ const strings = new LocalizedStrings({
     NEW: 'تسجيل دفعة', SAVE: 'تسجيل الدفعة', CANCEL: 'إلغاء', REQUIRED: 'مطلوب', SELECT_BOOKING: 'اختر عقداً',
     BOOKING: 'عقد التأجير', DATE_FIELD: 'تاريخ الدفع', CASH: 'نقداً', BANK: 'تحويل بنكي', CARD: 'بطاقة', OTHER: 'أخرى',
     REMAINING: 'المتبقي للغرض المحدد', PURPOSE_FIELD: 'غرض الدفع', RENT: 'رصيد التأجير', DEPOSIT: 'وديعة قابلة للاسترداد', REFUNDABLE: 'قابل للاسترداد',
-    RECEIVABLES: 'الذمم المدينة', OVERDUE: 'الذمم المتأخرة', OUTSTANDING: 'المبلغ المستحق', NO_OVERDUE: 'لا توجد ذمم متأخرة.',
+    RECEIVABLES: 'الذمم المدينة', OVERDUE: 'الذمم المتأخرة', OUTSTANDING: 'المبلغ المستحق', NO_OVERDUE: 'لا توجد ذمم مستحقة.',
     REVERSE: 'عكس الدفعة', REVERSE_DEPOSIT: 'استرداد الوديعة', REVERSE_CONFIRM: 'سيؤدي ذلك إلى إنشاء قيد عكسي قابل للتدقيق. هل تريد المتابعة؟',
     REVERSED: 'معكوسة', POSTED: 'مرحّلة', PENDING: 'قيد الانتظار', COLLECTIONS: 'التحصيلات', COLLECTION_RATE: 'نسبة التحصيل', EXPORT_CSV: 'تصدير CSV',
+    DIRECTION: 'الاتجاه', CREDIT: 'دائن', DEBIT: 'مدين', DEBIT_CAP: 'المسجل للغرض المحدد', REASON: 'السبب', EDIT: 'تعديل', DELETE: 'حذف', DELETE_CONFIRM: 'حذف هذا القيد المعلق؟ لم يُحتسب كمال أبداً.', DELETED: 'تم حذف القيد المعلق', EDIT_PAYMENT: 'تعديل قيد الدفع', PREVIOUS: 'السابق', NEXT: 'التالي', SHOWING: 'عرض',
   },
 })
 

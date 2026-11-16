@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import * as bookcarsTypes from ':bookcars-types'
+import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import Setting from '../models/Setting'
@@ -45,6 +46,31 @@ export const getSettings = async (req: Request, res: Response) => {
 }
 
 /**
+ * F8 / W5 S1 — connections status for the /settings Connections card.
+ * Booleans only: whether each external channel is configured (the
+ * credential is present in the environment). No secret is ever
+ * returned; a `true` only means "configured".
+ *
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getConnections = async (req: Request, res: Response) => {
+  try {
+    res.json({
+      stripe: Boolean(env.STRIPE_SECRET_KEY),
+      paypal: Boolean(env.PAYPAL_CLIENT_ID),
+      smtp: Boolean(env.SMTP_HOST),
+      push: Boolean(env.EXPO_ACCESS_TOKEN),
+    } satisfies bookcarsTypes.SettingsConnections)
+  } catch (err) {
+    logger.error(`[setting.getConnections] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
  * Update settings.
  *
  * @async
@@ -60,6 +86,19 @@ export const updateSettings = async (req: Request, res: Response) => {
       minPickupDropoffHour,
       maxPickupDropoffHour,
     }: bookcarsTypes.UpdateSettingsPayload = req.body
+    // F8 / W5 S4 — explicit validation, never trusting the Mongoose
+    // model validators alone: counts must be integers >= 1, hours
+    // integers 0-23. Empty strings, non-numbers, NaN, fractions and
+    // zero are all 400 (an empty string used to arrive as 0).
+    const isValidCount = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 1
+    const isValidHour = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 23
+    if ((typeof minPickupHours !== 'undefined' && !isValidCount(minPickupHours))
+      || (typeof minRentalHours !== 'undefined' && !isValidCount(minRentalHours))
+      || (typeof minPickupDropoffHour !== 'undefined' && !isValidHour(minPickupDropoffHour))
+      || (typeof maxPickupDropoffHour !== 'undefined' && !isValidHour(maxPickupDropoffHour))) {
+      res.status(400).send('Invalid settings')
+      return
+    }
     const settings = await Setting.findOne({})
 
     if (settings) {

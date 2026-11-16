@@ -15,6 +15,18 @@ export const getSettings = (): Promise<bookcarsTypes.Setting | null> =>
     .then((res) => res.data)
 
 /**
+ * F8 / W5 S1 — connections status (booleans only, no secrets).
+ *
+ * @returns {Promise<bookcarsTypes.SettingsConnections>}
+ */
+export const getConnections = (): Promise<bookcarsTypes.SettingsConnections> =>
+  axiosInstance
+    .get(
+      '/api/settings/connections',
+    )
+    .then((res) => res.data)
+
+/**
  * Update Settings.
  *
  * @param {bookcarsTypes.ValidateCountryPayload} data

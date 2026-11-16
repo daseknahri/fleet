@@ -12,6 +12,12 @@
  *  - clientType / clientStatus must be members of their enums;
  *  - `clientStatus` is a new, separate field (decision N5): nothing here
  *    ever reads or writes `blacklisted` / `active`.
+ *
+ * F5b (W2-18 / W2-05): the same treatment extends to the company fields
+ * (companyName / companyRegistration / companyContactName) and the
+ * consent fields (consentGiven / consentScope). `consentAt` is NOT
+ * normalised here: it is server-derived only (consentAtForTransition
+ * below) and any payload value is ignored by the controller.
  */
 import * as bookcarsTypes from ':bookcars-types'
 
@@ -24,22 +30,59 @@ export interface ClientIdentityFields {
   licenseExpiry?: Date | null
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentScope?: string[]
 }
 
 export const CLIENT_IDENTITY_STRING_LIMITS: Record<string, number> = {
   cinNumber: 50,
   passportNumber: 50,
   licenseNumber: 50,
+  companyName: 100,
+  companyRegistration: 100,
+  companyContactName: 100,
 }
 
 export const CLIENT_IDENTITY_DATE_KEYS = ['cinExpiry', 'passportExpiry', 'licenseExpiry'] as const
+
+/** F5b (W2-05): the consent purposes a client can agree to. */
+export const CONSENT_SCOPES = ['marketing', 'processing'] as const
 
 export const CLIENT_IDENTITY_KEYS = [
   ...Object.keys(CLIENT_IDENTITY_STRING_LIMITS),
   ...CLIENT_IDENTITY_DATE_KEYS,
   'clientType',
   'clientStatus',
+  'consentGiven',
+  'consentScope',
+  // `consentAt` is listed so the controller's strip branch (non-customer
+  // targets) removes it too — it is never accepted from a payload.
+  'consentAt',
 ]
+
+/**
+ * F5b (W2-05): server-side consent timestamp. The client never sends
+ * `consentAt` — it is derived from the consent transition: granting
+ * consent (false→true) stamps now, withdrawing it (→false) clears the
+ * stamp, and an omitted `consentGiven` leaves the stored stamp
+ * untouched. Returns `undefined` when the caller should leave the
+ * stored value alone.
+ */
+export const consentAtForTransition = (
+  storedConsentGiven: boolean | undefined,
+  newConsentGiven: boolean | undefined,
+): Date | null | undefined => {
+  if (typeof newConsentGiven === 'undefined') {
+    return undefined
+  }
+  if (newConsentGiven) {
+    return storedConsentGiven ? undefined : new Date()
+  }
+  return null
+}
 
 export type ClientIdentityNormalizeResult =
   | { ok: true, value: Partial<ClientIdentityFields>, present: Set<string> }
@@ -117,6 +160,59 @@ export const normalizeClientIdentityFields = (
     } else {
       present.add('clientStatus')
       value.clientStatus = raw as bookcarsTypes.ClientStatus
+    }
+  }
+
+  // F5b (W2-05): consent. `consentGiven` accepts a boolean, or — for
+  // spreadsheet rows — the words yes/no/true/false/1/0. `consentScope`
+  // accepts an array of purposes, or a comma-separated string (the
+  // import form). Both are validated against the known purposes; an
+  // unknown member is a field-level error. `consentAt` is never read
+  // here (server-derived; see consentAtForTransition).
+  if (Object.prototype.hasOwnProperty.call(input, 'consentGiven') && typeof input.consentGiven !== 'undefined') {
+    const raw = input.consentGiven
+    if (raw === null || raw === '') {
+      present.add('consentGiven')
+      value.consentGiven = undefined
+    } else if (typeof raw === 'boolean') {
+      present.add('consentGiven')
+      value.consentGiven = raw
+    } else if (typeof raw === 'string') {
+      const lowered = raw.trim().toLowerCase()
+      if (['true', 'yes', '1'].includes(lowered)) {
+        present.add('consentGiven')
+        value.consentGiven = true
+      } else if (['false', 'no', '0'].includes(lowered)) {
+        present.add('consentGiven')
+        value.consentGiven = false
+      } else {
+        return { ok: false, error: 'Invalid consent field: consentGiven', field: 'consentGiven' }
+      }
+    } else {
+      return { ok: false, error: 'Invalid consent field: consentGiven', field: 'consentGiven' }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'consentScope') && typeof input.consentScope !== 'undefined') {
+    const raw = input.consentScope
+    if (raw === null || raw === '') {
+      present.add('consentScope')
+      value.consentScope = []
+    } else {
+      const members = Array.isArray(raw)
+        ? raw
+        : typeof raw === 'string'
+          ? raw.split(',')
+          : null
+      if (members === null || members.some((m) => typeof m !== 'string')) {
+        return { ok: false, error: 'Invalid consent field: consentScope', field: 'consentScope' }
+      }
+      const cleaned = [...new Set(members.map((m) => (m as string).trim().toLowerCase()).filter(Boolean))]
+      if (cleaned.some((m) => !(CONSENT_SCOPES as readonly string[]).includes(m))) {
+        return { ok: false, error: 'Invalid consent field: consentScope', field: 'consentScope' }
+      }
+      present.add('consentScope')
+      value.consentScope = cleaned
     }
   }
 

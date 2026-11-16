@@ -186,6 +186,9 @@ describe('POST /api/create-car', () => {
 
     payload.loggedUser = SUPPLIER2_ID
     payload.name = 'BMW X3'
+    // F5a (W2-01): the plate is unique per agency now — the second car
+    // cannot reuse CAR1's plate under the same supplier.
+    payload.licensePlate = 'ABC-1235'
     payload.isDateBasedPrice = true
     payload.dateBasedPrices = [
       {
@@ -403,6 +406,9 @@ describe('PUT /api/update-car', () => {
     await car3.save()
 
     payload._id = car3._id.toString()
+    // F5a (W2-01): car3 takes its own plate — 'DEF-5678' already belongs
+    // to CAR2 under the same supplier after the update above.
+    payload.licensePlate = 'GHI-9012'
     payload.dateBasedPrices[0] = {
       _id: testHelper.GetRandromObjectIdAsString(),
       startDate: startDate1,

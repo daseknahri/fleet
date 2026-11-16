@@ -19,11 +19,37 @@ const dateBasedPriceSchema = z.object({
 export type DateBasedPrice = z.infer<typeof dateBasedPriceSchema>
 
 export const schema = z.object({
-  name: z.string(),
-  licensePlate: z.string().optional(),
+  // F5b (W2-22): the name must be non-blank — the server requires it
+  // and an empty name used to pass zod and fail server-side generic.
+  name: z.string().refine((val) => val.trim().length > 0, { message: commonStrings.FIELD_NOT_VALID }),
+  // F5b (W2-22): the plate is required server-side since F5a (create
+  // + update) — zod must say so too instead of passing an empty plate.
+  licensePlate: z.string().refine((val) => val.trim().length > 0, { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional).
+  make: z.string().optional(),
+  model: z.string().optional(),
+  year: z.string()
+    .refine((val) => !val || /^\d{4}$/.test(val), { message: strings.YEAR_NOT_VALID })
+    .refine(
+      (val) => {
+        if (!val) {
+          return true // if no value is provided, skip the validation
+        }
+        const year = Number.parseInt(val, 10)
+        return year >= 1900 && year <= new Date().getFullYear() + 1
+      },
+      { message: strings.YEAR_NOT_VALID }
+    )
+    .optional(),
+  odometerKm: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
+  insuranceProvider: z.string().optional(),
+  insurancePolicyNumber: z.string().optional(),
   supplier: supplierSchema.optional(),
   minimumAge: z.string()
-    .refine((val) => !val || /^\d{2}$/.test(val), { message: commonStrings.FIELD_NOT_VALID })
+    // F5b (W2-22): the minimum age is required server-side — an empty
+    // value used to pass zod and fail server-side generic.
+    .refine((val) => !!val && /^\d{2}$/.test(val), { message: commonStrings.FIELD_NOT_VALID })
     .refine(
       (val) => {
         if (!val) {
@@ -35,7 +61,9 @@ export const schema = z.object({
       { message: strings.MINIMUM_AGE_NOT_VALID }
     ),
   locations: z.array(optionSchema),
-  dailyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }),
+  // F5b (W2-22): the daily price is required server-side — an empty
+  // value used to pass zod and fail server-side generic.
+  dailyPrice: z.string().refine((val) => !!val && numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }),
   discountedDailyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   hourlyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }),
   discountedHourlyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
@@ -45,7 +73,9 @@ export const schema = z.object({
   discountedWeeklyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   monthlyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   discountedMonthlyPrice: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
-  deposit: z.string().refine((val) => !val || numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }),
+  // F5b (W2-22): the deposit is required server-side — an empty value
+  // used to pass zod and fail server-side generic.
+  deposit: z.string().refine((val) => !!val && numberRegex.test(val), { message: commonStrings.FIELD_NOT_VALID }),
   available: z.boolean(),
   fullyBooked: z.boolean(),
   comingSoon: z.boolean(),

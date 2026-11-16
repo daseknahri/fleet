@@ -25,6 +25,17 @@ const schema = new Schema<env.ContractInspection>({
   signatureFile: { type: String, maxlength: 200 },
   acknowledgedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   actor: { type: Schema.Types.ObjectId, ref: 'User' },
+  // F4 / W1 #7 — dispute flag (open while resolvedAt is
+  // absent). Metadata only: it never edits the record's evidence
+  // fields; an open dispute blocks completion.
+  dispute: {
+    reason: { type: String, maxlength: 1000, trim: true },
+    raisedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    raisedAt: { type: Date },
+    resolvedAt: { type: Date },
+    resolvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    resolution: { type: String, maxlength: 1000, trim: true },
+  },
 }, { timestamps: true, strict: true, collection: 'ContractInspection' })
 schema.index({ supplier: 1, booking: 1, type: 1, occurredAt: -1 })
 export default model<env.ContractInspection>('ContractInspection', schema)

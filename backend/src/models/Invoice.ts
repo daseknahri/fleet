@@ -2,6 +2,25 @@ import { Schema, model } from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 
+const deliverySchema = new Schema(
+  {
+    channel: { type: String, required: true, enum: Object.values(bookcarsTypes.InvoiceDeliveryChannel) },
+    at: { type: Date, required: true },
+    by: { type: Schema.Types.ObjectId, ref: 'User' },
+  },
+  { _id: false },
+)
+
+const unlinkLogSchema = new Schema(
+  {
+    payment: { type: Schema.Types.ObjectId, required: true, ref: 'RentalPayment' },
+    reason: { type: String, required: true, maxlength: 1000, trim: true },
+    at: { type: Date, required: true },
+    by: { type: Schema.Types.ObjectId, ref: 'User' },
+  },
+  { _id: false },
+)
+
 const schema = new Schema<env.Invoice>({
   supplier: { type: Schema.Types.ObjectId, required: true, ref: 'User', index: true },
   booking: { type: Schema.Types.ObjectId, required: true, ref: 'Booking', index: true },
@@ -11,10 +30,24 @@ const schema = new Schema<env.Invoice>({
   subtotal: { type: Number, required: true, min: 0 },
   taxAmount: { type: Number, required: true, min: 0 },
   taxRate: { type: Number, min: 0, max: 100, default: null },
+  // F7 / W3 B-3 — true when the tax was set by an explicit override
+  // (manual taxAmount, or a quote's verbatim tax) rather than computed
+  // from the supplier's configured VAT rate. The HT-vs-TTC basis is
+  // still an open ADR-001 decision; the flag only records provenance.
+  taxOverride: { type: Boolean, default: false },
   total: { type: Number, required: true, min: 0 },
   paidAmount: { type: Number, required: true, min: 0, default: 0 },
   paymentStatus: { type: String, required: true, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid', index: true },
   payments: [{ type: Schema.Types.ObjectId, ref: 'RentalPayment' }],
+  // F7 / W3 B-2 — snapshot of the paid state at void time (the live
+  // paidAmount / paymentStatus / payments are cleared on void, so no
+  // stale paid status remains on a cancelled document).
+  voidedPaidAmount: { type: Number, min: 0 },
+  voidedPaymentStatus: { type: String, enum: ['unpaid', 'partial', 'paid'] },
+  // F7 / W3 B-4 — delivery log (status tracking only, no sending).
+  deliveries: { type: [deliverySchema], default: undefined },
+  // F7 / W3 B-5 — log of payments unlinked from this invoice.
+  unlinkLog: { type: [unlinkLogSchema], default: undefined },
   approvalDecision: { type: String, enum: Object.values(bookcarsTypes.ApprovalDecision) },
   approvalDecidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   approvalDecidedAt: Date,

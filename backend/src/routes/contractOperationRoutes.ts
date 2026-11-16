@@ -16,6 +16,10 @@ router.get(routes.settlementPreview, authJwt.verifyToken, agencyAuth.requireAgen
 router.post(routes.charges, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.createCharge)
 router.get(routes.charges, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.listCharges)
 router.post(routes.decideCharge, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.DecideInvoices), controller.decideCharge)
+router.post(routes.disputeCharge, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.disputeCharge)
+router.post(routes.resolveChargeDispute, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.resolveChargeDispute)
+router.post(routes.disputeInspection, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.disputeInspection)
+router.post(routes.resolveInspectionDispute, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.resolveInspectionDispute)
 router.post(routes.snapshot, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.createSnapshot)
 router.get(routes.snapshotFile, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.getSnapshotFile)
 export default router

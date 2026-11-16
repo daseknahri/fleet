@@ -11,6 +11,7 @@ import {
   MenuItem,
   FormControlLabel,
   Switch,
+  Checkbox,
 } from '@mui/material'
 import { Info as InfoIcon } from '@mui/icons-material'
 import { useForm, useWatch } from 'react-hook-form'
@@ -80,7 +81,12 @@ const UpdateUser = () => {
       passportNumber: '',
       licenseNumber: '',
       clientType: '',
-      clientStatus: ''
+      clientStatus: '',
+      companyName: '',
+      companyRegistration: '',
+      companyContactName: '',
+      consentGiven: false,
+      consentScope: [],
     },
   })
 
@@ -94,6 +100,8 @@ const UpdateUser = () => {
   const licenseExpiry = useWatch({ control, name: 'licenseExpiry' })
   const clientType = useWatch({ control, name: 'clientType' })
   const clientStatus = useWatch({ control, name: 'clientStatus' })
+  const consentGiven = useWatch({ control, name: 'consentGiven' })
+  const consentScope = useWatch({ control, name: 'consentScope' })
   const payLater = useWatch({ control, name: 'payLater' })
   const licenseRequired = useWatch({ control, name: 'licenseRequired' })
   const notifyAdminOnNewCar = useWatch({ control, name: 'notifyAdminOnNewCar' })
@@ -193,6 +201,11 @@ const UpdateUser = () => {
               setValue('licenseExpiry', _user.licenseExpiry ? new Date(_user.licenseExpiry) : undefined)
               setValue('clientType', _user.clientType || bookcarsTypes.ClientType.Individual)
               setValue('clientStatus', _user.clientStatus || bookcarsTypes.ClientStatus.Active)
+              setValue('companyName', _user.companyName || '')
+              setValue('companyRegistration', _user.companyRegistration || '')
+              setValue('companyContactName', _user.companyContactName || '')
+              setValue('consentGiven', !!_user.consentGiven)
+              setValue('consentScope', _user.consentScope || [])
               setVisible(true)
               setLoading(false)
             } else {
@@ -227,6 +240,12 @@ const UpdateUser = () => {
       }
     }
     return true
+  }
+
+  // F5b (W2-05): toggle one consent purpose in the scope array.
+  const toggleConsentScope = (scope: string) => {
+    const current = consentScope || []
+    setValue('consentScope', current.includes(scope) ? current.filter((s) => s !== scope) : [...current, scope])
   }
 
   const onSubmit = async (data: FormFields) => {
@@ -275,6 +294,13 @@ const UpdateUser = () => {
         payload.licenseExpiry = data.licenseExpiry || undefined
         payload.clientType = data.clientType || undefined
         payload.clientStatus = data.clientStatus || undefined
+        // F5b (W2-18 / W2-05): company fields + consent. The scope is
+        // only meaningful with consent; without it an empty scope is sent.
+        payload.companyName = data.companyName || undefined
+        payload.companyRegistration = data.companyRegistration || undefined
+        payload.companyContactName = data.companyContactName || undefined
+        payload.consentGiven = data.consentGiven
+        payload.consentScope = data.consentGiven ? (data.consentScope || []) : []
       }
 
       const status = await UserService.updateUser(payload)
@@ -458,6 +484,72 @@ const UpdateUser = () => {
                       <MenuItem value={bookcarsTypes.ClientStatus.Blocked}>{commonStrings.CLIENT_STATUS_BLOCKED}</MenuItem>
                     </Select>
                   </FormControl>
+
+                  {clientType === bookcarsTypes.ClientType.Company && (
+                    <>
+                      <FormControl fullWidth margin="dense">
+                        <InputLabel className="required">{commonStrings.COMPANY_NAME}</InputLabel>
+                        <Input {...register('companyName')} type="text" autoComplete="off" error={!!errors.companyName} required />
+                        <FormHelperText error={!!errors.companyName}>
+                          {errors.companyName?.message || ''}
+                        </FormHelperText>
+                      </FormControl>
+
+                      <FormControl fullWidth margin="dense">
+                        <InputLabel>{commonStrings.COMPANY_REGISTRATION}</InputLabel>
+                        <Input {...register('companyRegistration')} type="text" autoComplete="off" />
+                      </FormControl>
+
+                      <FormControl fullWidth margin="dense">
+                        <InputLabel>{commonStrings.COMPANY_CONTACT_NAME}</InputLabel>
+                        <Input {...register('companyContactName')} type="text" autoComplete="off" />
+                      </FormControl>
+                    </>
+                  )}
+
+                  <FormControl fullWidth margin="dense">
+                    <FormControlLabel
+                      control={(
+                        <Switch
+                          {...register('consentGiven')}
+                          checked={consentGiven}
+                          onChange={(e) => setValue('consentGiven', e.target.checked)}
+                          color="primary"
+                        />
+                      )}
+                      label={commonStrings.CONSENT_GIVEN}
+                    />
+                  </FormControl>
+
+                  {consentGiven && (
+                    <>
+                      <FormControl fullWidth margin="dense">
+                        <FormControlLabel
+                          control={(
+                            <Checkbox
+                              checked={(consentScope || []).includes('marketing')}
+                              onChange={() => toggleConsentScope('marketing')}
+                              color="primary"
+                            />
+                          )}
+                          label={commonStrings.CONSENT_SCOPE_MARKETING}
+                        />
+                      </FormControl>
+
+                      <FormControl fullWidth margin="dense">
+                        <FormControlLabel
+                          control={(
+                            <Checkbox
+                              checked={(consentScope || []).includes('processing')}
+                              onChange={() => toggleConsentScope('processing')}
+                              color="primary"
+                            />
+                          )}
+                          label={commonStrings.CONSENT_SCOPE_PROCESSING}
+                        />
+                      </FormControl>
+                    </>
+                  )}
 
                   <FormControl fullWidth margin="dense">
                     <InputLabel>{commonStrings.CIN_NUMBER}</InputLabel>

@@ -36,6 +36,14 @@ routes.route(routeNames.createImage).post([authJwt.verifyToken, agencyAuth.requi
 routes.route(routeNames.updateImage).post([authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], carController.updateImage)
 routes.route(routeNames.deleteImage).post(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteImage)
 routes.route(routeNames.deleteTempImage).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteTempImage)
+// F5b (W2-14): gallery + car documents are ManageFleet work on the
+// owning agency's car (the :id routes pin the agency selector exactly
+// like delete-car). The gallery upload field is 'image' (like the
+// cover); the document upload field is 'file' (like client documents).
+routes.route(routeNames.uploadCarImage).post([authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], carController.uploadCarImage)
+routes.route(routeNames.deleteCarImage).post(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteCarImage)
+routes.route(routeNames.uploadCarDocument).post([authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], carController.uploadCarDocument)
+routes.route(routeNames.deleteCarDocument).delete(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteCarDocument)
 routes.route(routeNames.getCar).get(authJwt.verifyTokenOptional, carController.getCar)
 routes.route(routeNames.getCars).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet), carController.getCars)
 routes.route(routeNames.getBookingCars).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet), carController.getBookingCars)

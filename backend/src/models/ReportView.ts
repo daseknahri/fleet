@@ -20,6 +20,12 @@ const configSchema = new Schema<env.ReportViewConfig>({
     default: bookcarsTypes.ReportGroupBy.Car,
   },
   compare: { type: Boolean, required: true, default: false },
+  // F7 / W3 R-5 — the cash/bank channel scope this view was saved with.
+  scope: {
+    type: String,
+    enum: Object.values(bookcarsTypes.ReportScope),
+    default: bookcarsTypes.ReportScope.All,
+  },
 }, { _id: false })
 
 const schema = new Schema<env.ReportView>({

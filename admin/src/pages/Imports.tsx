@@ -142,6 +142,7 @@ const Imports = () => {
                   <Chip color="success" label={`${strings.VALID}: ${report.validRows}`} />
                   <Chip color={report.invalidRows > 0 ? 'error' : 'default'} label={`${strings.INVALID}: ${report.invalidRows}`} />
                   {!report.dryRun && <Chip color="primary" label={`${strings.CREATED}: ${report.created}`} />}
+                  {report.rolledBack && <Chip color="warning" label={strings.ROLLED_BACK} />}
                 </Box>
                 {report.errors.length === 0 ? (
                   <Alert severity="success">{strings.NO_ERRORS}</Alert>

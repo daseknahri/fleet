@@ -5,7 +5,7 @@ import Approval from '../models/Approval'
 import User from '../models/User'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { AgencyPermission, agencySupplierId, hasAgencyPermission } from '../utils/agencyAuthorization'
 import ContractCharge from '../models/ContractCharge'
 import Booking from '../models/Booking'
 import Invoice from '../models/Invoice'
@@ -37,13 +37,55 @@ const withNames = async <T extends { requestedBy?: unknown, decidedBy?: unknown 
     decidedByName: row.decidedBy ? names.get(String(row.decidedBy)) : undefined,
   }))
 }
+
+// F8 / W5 A5 — display-only enrichment: a queue subject navigates to
+// its record. Invoices open the invoice list filtered to the invoice;
+// contract charges open the booking the charge belongs to. Unknown or
+// deleted subjects get no link (the subject still renders as text).
+const withSubjectUrls = async <T extends { subject?: unknown, subjectType?: unknown }>(rows: T[]): Promise<(T & { subjectUrl?: string })[]> => {
+  const invoiceIds = rows
+    .filter((row) => row.subjectType === 'invoice' && mongoose.isValidObjectId(row.subject))
+    .map((row) => String(row.subject))
+  const chargeIds = rows
+    .filter((row) => row.subjectType === 'contract-charge' && mongoose.isValidObjectId(row.subject))
+    .map((row) => String(row.subject))
+  const [invoices, charges] = await Promise.all([
+    invoiceIds.length ? Invoice.find({ _id: { $in: invoiceIds } }).select('_id').lean() : Promise.resolve([] as { _id: unknown }[]),
+    chargeIds.length ? ContractCharge.find({ _id: { $in: chargeIds } }).select('_id booking').lean() : Promise.resolve([] as { _id: unknown, booking?: unknown }[]),
+  ])
+  const invoiceSet = new Set(invoices.map((invoice) => String(invoice._id)))
+  const chargeById = new Map(charges.map((charge) => [String(charge._id), charge]))
+  return rows.map((row) => {
+    if (row.subjectType === 'invoice' && invoiceSet.has(String(row.subject))) {
+      return { ...row, subjectUrl: `/invoices?id=${row.subject}` }
+    }
+    if (row.subjectType === 'contract-charge') {
+      const charge = chargeById.get(String(row.subject))
+      if (charge && charge.booking) {
+        return { ...row, subjectUrl: `/update-booking?b=${charge.booking}` }
+      }
+    }
+    return row
+  })
+}
+
 export const list = async (req: Request, res: Response) => {
   try {
- const rows = await Approval.find(scope(req)).sort({ createdAt: -1 }).lean()
- res.json(await withNames(rows)) 
-} catch (err) {
- logger.error('[approval.list]', err); res.status(400).send(i18n.t('ERROR')) 
-}
+    // F8 / W5 A3 — requesters (ReadApprovals without DecideInvoices)
+    // see only their own requests; deciders and the platform admin see
+    // the whole queue. Seeing is not deciding: decide still requires
+    // DecideInvoices and still 403s the requester (A4/H-010 gated).
+    const query: Record<string, unknown> = scope(req)
+    if (req.user?.type !== bookcarsTypes.UserType.Admin
+      && req.agency
+      && !hasAgencyPermission(req.agency, AgencyPermission.DecideInvoices)) {
+      query.requestedBy = req.user?._id
+    }
+    const rows = await Approval.find(query).sort({ createdAt: -1 }).lean()
+    res.json(await withSubjectUrls(await withNames(rows)))
+  } catch (err) {
+    logger.error('[approval.list]', err); res.status(400).send(i18n.t('ERROR'))
+  }
 }
 export const create = async (req: Request, res: Response) => {
   try {
@@ -53,12 +95,24 @@ export const create = async (req: Request, res: Response) => {
     if (!user || !mongoose.isValidObjectId(supplierId) || !subject || !subjectType || subject.length > 200 || subjectType.length > 100 || !Number.isFinite(amount) || reason.length > 1000) {
  res.status(400).send('Invalid approval request'); return 
 }
+    // F8 / W5 A5 — manual create uses a typed subject, not free text:
+    // the subject must be an existing invoice or contract charge of
+    // this agency. Free-form subjects are rejected (400).
+    if (!['invoice', 'contract-charge'].includes(subjectType) || !mongoose.isValidObjectId(subject)) {
+ res.status(400).send('Invalid approval subject'); return 
+}
+    const subjectExists = subjectType === 'invoice'
+      ? await Invoice.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
+      : await ContractCharge.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
+    if (!subjectExists) {
+ res.status(400).send('Unknown approval subject'); return 
+}
     const existing = await Approval.findOne({ supplier: supplierId, subject, subjectType, status: bookcarsTypes.ApprovalDecision.Pending })
     if (existing) {
  res.status(409).send('A pending approval already exists for this subject'); return 
 }
     const approval = await Approval.create({ supplier: supplierId, subject, subjectType, amount, currency: req.body?.currency || undefined, status: bookcarsTypes.ApprovalDecision.Pending, requestedBy: user._id, reason })
-    res.status(201).json((await withNames([approval.toObject()]))[0])
+    res.status(201).json((await withSubjectUrls(await withNames([approval.toObject()])))[0])
   } catch (err) {
  logger.error('[approval.create]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -108,7 +162,7 @@ export const decide = async (req: Request, res: Response) => {
         await charge.save()
       }
     }
-    res.json((await withNames([approval.toObject()]))[0])
+    res.json((await withSubjectUrls(await withNames([approval.toObject()])))[0])
   } catch (err) {
  logger.error('[approval.decide]', err); res.status(400).send(i18n.t('ERROR')) 
 }

@@ -13,5 +13,6 @@ routes.route(routeNames.current).get(authJwt.verifyToken, agencyAuth.requireAgen
 routes.route(routeNames.list).get(authJwt.verifyToken, agencyAuth.requireAgencyMemberRead, agencyMembershipController.list)
 routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyOwner, agencyMembershipController.create)
 routes.route(routeNames.update).put(authJwt.verifyToken, agencyAuth.requireAgencyOwner, agencyMembershipController.update)
+routes.route(routeNames.remove).delete(authJwt.verifyToken, agencyAuth.requireAgencyOwner, agencyMembershipController.remove)
 
 export default routes

@@ -40,6 +40,7 @@ const routes = {
   hasPassword: '/api/has-password/:id',
   uploadClientDocument: '/api/client-documents/:id',
   deleteClientDocument: '/api/delete-client-document/:id/:file',
+  verifyClientDocument: '/api/verify-client-document/:id/:file',
   getClientBalance: '/api/users/:id/balance',
   createLicense: '/api/create-license',
   updateLicense: '/api/update-license/:id',

@@ -78,6 +78,13 @@ const CreateCar = () => {
     defaultValues: {
       name: '',
       licensePlate: '',
+      // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance policy.
+      make: '',
+      model: '',
+      year: '',
+      odometerKm: '',
+      insuranceProvider: '',
+      insurancePolicyNumber: '',
       supplier: undefined,
       minimumAge: String(env.MINIMUM_AGE),
       locations: [],
@@ -213,7 +220,9 @@ const CreateCar = () => {
       }
 
       if (data.licensePlate) {
-        const res = await CarService.validateLicensePlate(data.licensePlate)
+        // F5b (F5a §7 edge): scope the pre-flight to the selected
+        // supplier — the server rule is per-agency.
+        const res = await CarService.validateLicensePlate(data.licensePlate, data.supplier?._id)
         if (res === 204) {
           helper.error(null, strings.LICENSE_PLATE_ALREADY_EXISTS)
           return
@@ -224,6 +233,14 @@ const CreateCar = () => {
         loggedUser: user!._id!,
         name: data.name,
         licensePlate: data.licensePlate || '',
+        // F5b (W2-12/W2-13/W2-19): identity + odometer + insurance policy
+        // — sent only when set; empty fields are omitted, never sent as ''.
+        make: data.make || undefined,
+        model: data.model || undefined,
+        year: data.year ? Number(data.year) : undefined,
+        odometerKm: data.odometerKm ? Number(data.odometerKm) : undefined,
+        insuranceProvider: data.insuranceProvider || undefined,
+        insurancePolicyNumber: data.insurancePolicyNumber || undefined,
         supplier: data.supplier?._id!,
         minimumAge: Number.parseInt(data.minimumAge, 10),
         locations: data.locations.map((l) => l._id),
@@ -392,16 +409,61 @@ const CreateCar = () => {
                 {...register('name')}
                 required
                 autoComplete="off"
+                error={!!errors.name}
               />
+              <FormHelperText error={!!errors.name}>
+                {errors.name?.message || ''}
+              </FormHelperText>
             </FormControl>
 
             <FormControl fullWidth margin="dense">
-              <InputLabel htmlFor="cc-license-plate">{strings.LICENSE_PLATE}</InputLabel>
+              <InputLabel className="required" htmlFor="cc-license-plate">{strings.LICENSE_PLATE}</InputLabel>
               <Input
                 id="cc-license-plate"
                 type="text"
                 {...register('licensePlate')}
                 autoComplete="off"
+                error={!!errors.licensePlate}
+              />
+              <FormHelperText error={!!errors.licensePlate}>
+                {errors.licensePlate?.message || ''}
+              </FormHelperText>
+            </FormControl>
+
+            {/* F5b (W2-12): vehicle identity — structured make/model/year. */}
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.MAKE}
+                {...register('make')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 100 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.MODEL}
+                {...register('model')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 100 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.YEAR}
+                {...register('year')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.year}
+                helperText={errors.year?.message}
+                onChange={() => {
+                  if (errors.year) {
+                    clearErrors('year')
+                  }
+                }}
               />
             </FormControl>
 
@@ -896,6 +958,28 @@ const CreateCar = () => {
               />
             </FormControl>
 
+            {/* F5b (W2-19): insurance policy data — provider + policy
+                number live next to the insurance expiry date above. */}
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.INSURANCE_PROVIDER}
+                {...register('insuranceProvider')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 200 } }}
+              />
+            </FormControl>
+
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.INSURANCE_POLICY_NUMBER}
+                {...register('insurancePolicyNumber')}
+                variant="standard"
+                autoComplete="off"
+                slotProps={{ htmlInput: { maxLength: 100 } }}
+              />
+            </FormControl>
+
             {/* Scorecard #17: garage block — informational only; it never
                 changes booking behaviour (that rides on the fleet status). */}
             <div className="info">
@@ -1159,6 +1243,24 @@ const CreateCar = () => {
                 onChange={() => {
                   if (errors.mileage) {
                     clearErrors('mileage')
+                  }
+                }}
+              />
+            </FormControl>
+
+            {/* F5b (W2-13): the car's current odometer reading — NOT the
+                km/day allowance above (`mileage`). */}
+            <FormControl fullWidth margin="dense">
+              <TextField
+                label={strings.ODOMETER_KM}
+                {...register('odometerKm')}
+                variant="standard"
+                autoComplete="off"
+                error={!!errors.odometerKm}
+                helperText={errors.odometerKm?.message}
+                onChange={() => {
+                  if (errors.odometerKm) {
+                    clearErrors('odometerKm')
                   }
                 }}
               />

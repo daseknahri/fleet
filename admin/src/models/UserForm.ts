@@ -1,12 +1,15 @@
 import { z } from 'zod'
 import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import { intervalToDuration } from 'date-fns'
+import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
 import env from '@/config/env.config'
 
 export const schema = z.object({
-  fullName: z.string(),
+  // F5b (W2-22): the full name must be non-blank — the server requires
+  // it and an empty name used to pass zod and fail server-side generic.
+  fullName: z.string().refine((val) => val.trim().length > 0, { message: commonStrings.FIELD_NOT_VALID }),
   email: z.string().email({ message: commonStrings.EMAIL_NOT_VALID }),
   phone: z.string().refine((val) => !val || isMobilePhone(val), { message: commonStrings.PHONE_NOT_VALID }).optional(),
   location: z.string().optional(),
@@ -28,12 +31,27 @@ export const schema = z.object({
   licenseExpiry: z.date().optional().nullable(),
   clientType: z.string().optional(),
   clientStatus: z.string().optional(),
+  companyName: z.string().max(100).optional(),
+  companyRegistration: z.string().max(100).optional(),
+  companyContactName: z.string().max(100).optional(),
+  consentGiven: z.boolean().optional(),
+  consentScope: z.array(z.string()).optional(),
   payLater: z.boolean().optional(),
   licenseRequired: z.boolean().optional(),
   minimumRentalDays: z.string().refine((val) => !val || /^\d+$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   priceChangeRate: z.string().refine((val) => !val || /^-?\d+(\.\d+)?$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   supplierCarLimit: z.string().refine((val) => !val || /^\d+$/.test(val), { message: commonStrings.FIELD_NOT_VALID }).optional(),
   notifyAdminOnNewCar: z.boolean().optional()
+}).superRefine((data, ctx) => {
+  // F5b (W2-18): a company client needs a company name — the same rule
+  // the server enforces (clientType is always set by the form).
+  if (data.clientType === bookcarsTypes.ClientType.Company && !data.companyName?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['companyName'],
+      message: commonStrings.COMPANY_REQUIRED,
+    })
+  }
 })
 
 export type FormFields = z.infer<typeof schema>

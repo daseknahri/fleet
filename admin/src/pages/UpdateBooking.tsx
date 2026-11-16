@@ -204,6 +204,14 @@ const UpdateBooking = () => {
   const [amendReason, setAmendReason] = useState('')
   const [amendExceptionReason, setAmendExceptionReason] = useState('')
   const [amendBusy, setAmendBusy] = useState(false)
+  // F3 / W1 #1 — staff cancel dialog (reason + explicit refund
+  // decision). The decision starts empty: staff must choose it — the
+  // code never defaults a refund. 'manual' leaves the refund to staff
+  // in the provider dashboard; 'full' refunds everything collected.
+  const [openCancelDialog, setOpenCancelDialog] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelRefundDecision, setCancelRefundDecision] = useState<bookcarsTypes.CancelRefundDecision | ''>('')
+  const [cancelBusy, setCancelBusy] = useState(false)
   // GA-PAR-12: online signing panel. The issued link is held only in
   // this component's state (it is the sole live copy of the capability
   // token); booking payloads carry only the derived signed state.
@@ -350,6 +358,41 @@ const UpdateBooking = () => {
       helper.error(err, helper.getErrorMessage(err))
     } finally {
       setAmendBusy(false)
+    }
+  }
+
+  // F3 / W1 #1 — staff cancel (reason + explicit refund decision).
+  // The backend executes the refund decision and sets status +
+  // lifecycle to Cancelled together; a failed provider refund refuses
+  // the cancel and the reason surfaces here.
+  const handleOpenCancel = () => {
+    if (!booking) {
+      return
+    }
+    setCancelReason('')
+    setCancelRefundDecision('')
+    setOpenCancelDialog(true)
+  }
+
+  const handleConfirmCancel = async () => {
+    if (!booking?._id) {
+      return
+    }
+    if (cancelReason.trim().length < 3 || cancelReason.trim().length > 1000 || !cancelRefundDecision) {
+      helper.error()
+      return
+    }
+    setCancelBusy(true)
+    try {
+      const result = await BookingService.cancelBookingStaff(booking._id, { reason: cancelReason.trim(), refundDecision: cancelRefundDecision })
+      setBooking(result.booking)
+      setValue('status', result.booking.status)
+      setOpenCancelDialog(false)
+      helper.info(strings.CANCEL_DONE)
+    } catch (err) {
+      helper.error(err, helper.getErrorMessage(err))
+    } finally {
+      setCancelBusy(false)
     }
   }
 
@@ -841,6 +884,11 @@ const UpdateBooking = () => {
               <FormControl fullWidth margin="dense">
                 <StatusList
                   disablePaymentStatuses
+                  // F3 / W1 #18 — a paid/deposit booking cannot be
+                  // cancelled by a status change; the cancel action
+                  // below is the way (the backend 400s otherwise).
+                  disableCancelled={!!booking && [bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(booking.status)}
+                  cancelDisabledReason={blStrings.CANCEL_DISABLED_PAID}
                   label={blStrings.STATUS}
                   value={status}
                   onChange={(value) => {
@@ -1196,6 +1244,12 @@ const UpdateBooking = () => {
                   <Button variant="contained" className="btn-secondary btn-margin-bottom" size="small" onClick={handleOpenAmend}>
                     {strings.AMEND_BOOKING}
                   </Button>
+                  {booking && ![bookcarsTypes.BookingStatus.Cancelled, bookcarsTypes.BookingStatus.Void].includes(booking.status)
+                    && ![bookcarsTypes.ContractLifecycle.Active, bookcarsTypes.ContractLifecycle.ReturnReview, bookcarsTypes.ContractLifecycle.Completed].includes(booking.lifecycle as bookcarsTypes.ContractLifecycle) && (
+                    <Button variant="contained" className="btn-margin-bottom" color="error" size="small" onClick={handleOpenCancel}>
+                      {strings.CANCEL_BOOKING}
+                    </Button>
+                  )}
                   <Button variant="contained" className="btn-secondary btn-margin-bottom" size="small" onClick={() => navigate('/')}>
                     {commonStrings.CANCEL}
                   </Button>
@@ -1307,6 +1361,34 @@ const UpdateBooking = () => {
               </Button>
               <Button onClick={handleConfirmAmend} variant="contained" disabled={amendBusy}>
                 {strings.AMEND_SUBMIT}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* F3 / W1 #1 — staff cancel: reason + explicit refund decision. */}
+          <Dialog maxWidth="sm" fullWidth open={openCancelDialog} onClose={() => setOpenCancelDialog(false)}>
+            <DialogTitle className="dialog-header">{strings.CANCEL_TITLE}</DialogTitle>
+            <DialogContent>
+              <TextField label={strings.CANCEL_REASON} multiline minRows={2} fullWidth margin="dense" required inputProps={{ maxLength: 1000 }} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+              <FormControl fullWidth margin="dense">
+                <InputLabel>{strings.CANCEL_REFUND_DECISION}</InputLabel>
+                <Select
+                  label={strings.CANCEL_REFUND_DECISION}
+                  value={cancelRefundDecision}
+                  onChange={(e) => setCancelRefundDecision(e.target.value as bookcarsTypes.CancelRefundDecision)}
+                >
+                  <MenuItem value="full">{strings.CANCEL_REFUND_FULL}</MenuItem>
+                  <MenuItem value="none">{strings.CANCEL_REFUND_NONE}</MenuItem>
+                  <MenuItem value="manual">{strings.CANCEL_REFUND_MANUAL}</MenuItem>
+                </Select>
+              </FormControl>
+            </DialogContent>
+            <DialogActions className="dialog-actions">
+              <Button onClick={() => setOpenCancelDialog(false)} variant="contained" className="btn-secondary">
+                {commonStrings.CANCEL}
+              </Button>
+              <Button onClick={handleConfirmCancel} variant="contained" color="error" disabled={cancelBusy || !cancelRefundDecision || cancelReason.trim().length < 3}>
+                {strings.CANCEL_SUBMIT}
               </Button>
             </DialogActions>
           </Dialog>

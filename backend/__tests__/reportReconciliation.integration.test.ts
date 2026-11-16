@@ -45,8 +45,16 @@ describe('Mongo-backed report reconciliation and export', () => {
     expect(response.body.metrics.revenueCollected).toBe(300)
     expect(response.body.metrics.depositsCollected).toBe(100)
     expect(response.body.metrics.expenses).toBe(50)
+    expect(response.body.metrics.paidExpenses).toBe(0)
+    expect(response.body.metrics.untrackedExpenses).toBe(1)
+    expect(response.body.metrics.untrackedExpenseAmount).toBe(50)
     expect(response.body.metrics.receivable).toBe(200)
-    expect(response.body.metrics.estimatedMargin).toBe(250)
+    expect(response.body.metrics.periodReceivable).toBe(200)
+    // F7 / W3 R-7 — cash basis: the expense is untracked (no
+    // paidAmount), so it counts as 0 paid and the margin is the full
+    // collected rent; the accrual figure survives as accruedMargin.
+    expect(response.body.metrics.estimatedMargin).toBe(300)
+    expect(response.body.metrics.accruedMargin).toBe(250)
   })
   it('exports the selected aggregate metrics without identity fields', async () => {
     const response = await request(app).get('/api/reports/summary.csv').set(env.X_ACCESS_TOKEN, token)

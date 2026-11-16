@@ -43,9 +43,11 @@ const strings = new LocalizedStrings({
     PICK_UP_CHECKLIST_ARRIVE_ON_TIME_CONTENT: "Les sociétés de location de voitures vous permettent uniquement de récupérer les clés à l'heure de prise en charge qui vous a été assignée. Votre voiture vous est généralement garantie pendant une durée limitée après l'heure de prise en charge prévue. Ensuite, elle sera probablement proposée à un autre client.",
     PICK_UP_CHECKLIST_DOCUMENTS_TITLE: 'Ce dont vous avez besoin',
     PICK_UP_CHECKLIST_DOCUMENTS_CONTENT: "Lors de la prise en charge du véhicule, vous aurez besoin d'un passeport ou une carte d'identité et un permis de conduire.",
+    INVALID_REQUEST: 'Email déjà enregistré ou autre erreur de validation.',
   },
   ar: {
-    BOOKING_HEADING: 'احجز الآن', BOOKING_OPTIONS: 'خيارات الحجز', BOOKING_DETAILS: 'تفاصيل الحجز', DAYS: 'أيام', CAR: 'مركبة', SUPPLIER: 'المورد', COST: 'التكلفة', DRIVER_DETAILS: 'بيانات السائق', EMAIL_INFO: 'ستتلقى رسالة تأكيد على هذا العنوان.', PHONE_INFO: 'للتواصل معك عند الحاجة.', PAYMENT: 'دفع آمن', CARD_NUMBER: 'رقم البطاقة', CARD_NUMBER_NOT_VALID: 'رقم بطاقة غير صالح', CARD_EXPIRY_NOT_VALID: 'تاريخ انتهاء غير صالح', CVV_NOT_VALID: 'رمز أمان غير صالح', BOOK: 'احجز الآن', SIGN_IN: 'تسجيل الدخول؟', SECURE_PAYMENT_INFO: 'بياناتك محمية بالدفع الآمن عبر SSL.', SUCCESS: 'تم الدفع بنجاح. أرسلنا إليك رسالة تأكيد.', PAY_LATER_SUCCESS: 'تم الحجز بنجاح. أرسلنا إليك رسالة تأكيد.', PAYMENT_OPTIONS: 'خيارات الدفع', PAY_LATER: 'الدفع عند الاستلام', PAY_LATER_INFO: 'ادفع المبلغ كاملًا عند استلام السيارة. قد يطبق تأمين مسترد.', PAY_DEPOSIT: 'ادفع العربون عبر الإنترنت وأكد الحجز', PAY_DEPOSIT_INFO: 'ادفع العربون لتأكيد الحجز. يستحق الرصيد المتبقي عند الاستلام.', DEPOSIT: 'العربون', PAY_ONLINE: 'ادفع كامل المبلغ عبر الإنترنت واحجز السيارة', PAY_ONLINE_INFO: 'أكد حجزك عبر الإنترنت وادفع المبلغ كاملًا عند الاستلام.', PAY_IN_FULL: 'ادفع كامل المبلغ عبر الإنترنت واحجز السيارة', PAY_IN_FULL_INFO: 'العربون مشمول. التعديل والإلغاء وفق الشروط.', PAYMENT_FAILED: 'فشل الدفع.', CHECKING: 'جار التحقق...', LICENSE_REQUIRED: 'رخصة قيادة مطلوبة', PRICE_FOR: 'السعر لمدة', DAY: 'يوم', PICK_UP_CHECKLIST_TITLE: 'قائمة استلام السيارة', PICK_UP_CHECKLIST_ARRIVE_ON_TIME_TITLE: 'الوصول في الوقت المحدد', PICK_UP_CHECKLIST_ARRIVE_ON_TIME_CONTENT: 'تأكد من الوصول في موعد الاستلام المحدد.', PICK_UP_CHECKLIST_DOCUMENTS_TITLE: 'المستندات المطلوبة', PICK_UP_CHECKLIST_DOCUMENTS_CONTENT: 'ستحتاج إلى جواز سفر أو بطاقة هوية ورخصة قيادة.'
+    BOOKING_HEADING: 'احجز الآن', BOOKING_OPTIONS: 'خيارات الحجز', BOOKING_DETAILS: 'تفاصيل الحجز', DAYS: 'أيام', CAR: 'مركبة', SUPPLIER: 'المورد', COST: 'التكلفة', DRIVER_DETAILS: 'بيانات السائق', EMAIL_INFO: 'ستتلقى رسالة تأكيد على هذا العنوان.', PHONE_INFO: 'للتواصل معك عند الحاجة.', PAYMENT: 'دفع آمن', CARD_NUMBER: 'رقم البطاقة', CARD_NUMBER_NOT_VALID: 'رقم بطاقة غير صالح', CARD_EXPIRY_NOT_VALID: 'تاريخ انتهاء غير صالح', CVV_NOT_VALID: 'رمز أمان غير صالح', BOOK: 'احجز الآن', SIGN_IN: 'تسجيل الدخول؟', SECURE_PAYMENT_INFO: 'بياناتك محمية بالدفع الآمن عبر SSL.', SUCCESS: 'تم الدفع بنجاح. أرسلنا إليك رسالة تأكيد.', PAY_LATER_SUCCESS: 'تم الحجز بنجاح. أرسلنا إليك رسالة تأكيد.', PAYMENT_OPTIONS: 'خيارات الدفع', PAY_LATER: 'الدفع عند الاستلام', PAY_LATER_INFO: 'ادفع المبلغ كاملًا عند استلام السيارة. قد يطبق تأمين مسترد.', PAY_DEPOSIT: 'ادفع العربون عبر الإنترنت وأكد الحجز', PAY_DEPOSIT_INFO: 'ادفع العربون لتأكيد الحجز. يستحق الرصيد المتبقي عند الاستلام.', DEPOSIT: 'العربون', PAY_ONLINE: 'ادفع كامل المبلغ عبر الإنترنت واحجز السيارة', PAY_ONLINE_INFO: 'أكد حجزك عبر الإنترنت وادفع المبلغ كاملًا عند الاستلام.', PAY_IN_FULL: 'ادفع كامل المبلغ عبر الإنترنت واحجز السيارة', PAY_IN_FULL_INFO: 'العربون مشمول. التعديل والإلغاء وفق الشروط.', PAYMENT_FAILED: 'فشل الدفع.', CHECKING: 'جار التحقق...', LICENSE_REQUIRED: 'رخصة قيادة مطلوبة', PRICE_FOR: 'السعر لمدة', DAY: 'يوم', PICK_UP_CHECKLIST_TITLE: 'قائمة استلام السيارة', PICK_UP_CHECKLIST_ARRIVE_ON_TIME_TITLE: 'الوصول في الوقت المحدد', PICK_UP_CHECKLIST_ARRIVE_ON_TIME_CONTENT: 'تأكد من الوصول في موعد الاستلام المحدد.', PICK_UP_CHECKLIST_DOCUMENTS_TITLE: 'المستندات المطلوبة', PICK_UP_CHECKLIST_DOCUMENTS_CONTENT: 'ستحتاج إلى جواز سفر أو بطاقة هوية ورخصة قيادة.',
+    INVALID_REQUEST: 'البريد الإلكتروني مسجل بالفعل أو خطأ آخر في التحقق.',
   },
   en: {
     BOOKING_HEADING: 'Book now',
@@ -88,6 +90,7 @@ const strings = new LocalizedStrings({
     PICK_UP_CHECKLIST_ARRIVE_ON_TIME_CONTENT: "Rental companies only allow you to get your keys at your allocated pick-up time, they'll usually hold your car for a limited time after you're due to pick it up - then it's likely to be passed to another customer.",
     PICK_UP_CHECKLIST_DOCUMENTS_TITLE: 'What you bring with you',
     PICK_UP_CHECKLIST_DOCUMENTS_CONTENT: "When you pick the car up, you'll need a passport or national ID card and a driver's license.",
+    INVALID_REQUEST: 'Email already registered or other validation error.',
   },
   es: {
     BOOKING_HEADING: 'Reservar ahora',
@@ -130,6 +133,7 @@ const strings = new LocalizedStrings({
     PICK_UP_CHECKLIST_ARRIVE_ON_TIME_CONTENT: 'Las empresas de alquiler solo te dan las llaves a la hora de recogida asignada. Normalmente, te reservarán el coche durante un tiempo limitado una vez transcurrida la hora prevista para recogerlo. Después, es probable que se lo alquilen a otro cliente.',
     PICK_UP_CHECKLIST_DOCUMENTS_TITLE: 'Qué llevar contigo',
     PICK_UP_CHECKLIST_DOCUMENTS_CONTENT: 'A la hora de recoger el vehículo deberás facilitar el pasaporte o el documento nacional de identidad y Todos los conductores deberán presentar su permiso de conducir.',
+    INVALID_REQUEST: 'Correo electrónico ya registrado u otro error de validación.',
   },
 })
 

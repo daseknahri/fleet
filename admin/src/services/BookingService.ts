@@ -196,6 +196,78 @@ export const issueSigningLink = (id: string): Promise<bookcarsTypes.SigningLinkR
     .then((res) => res.data)
 
 /**
+ * F3 / W1 #1 — staff cancel of a Booking (reason + explicit refund
+ * decision). The refund amount is never auto-decided: full refunds
+ * everything collected, none keeps it, manual leaves the refund to
+ * staff in the provider dashboard.
+ *
+ * @param {string} id
+ * @param {bookcarsTypes.CancelBookingPayload} data
+ * @returns {Promise<{ booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }>}
+ */
+export const cancelBookingStaff = (id: string, data: bookcarsTypes.CancelBookingPayload): Promise<{ booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/cancel`,
+      data,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * F3 / W1 #9 — the cancel-request queue: pending customer cancel
+ * requests with the amounts at stake.
+ *
+ * @param {string[]} suppliers
+ * @param {number} page
+ * @param {number} size
+ * @returns {Promise<bookcarsTypes.Result<bookcarsTypes.CancelRequestRow>>}
+ */
+export const getCancelRequests = (suppliers: string[], page: number, size: number): Promise<bookcarsTypes.Result<bookcarsTypes.CancelRequestRow>> =>
+  axiosInstance
+    .post(
+      `/api/cancel-requests/${page}/${size}/${UserService.getLanguage()}`,
+      { suppliers },
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * F3 / W1 #9 — decide a customer cancel request (approve executes the
+ * staff cancel; deny clears the flag).
+ *
+ * @param {string} id
+ * @param {bookcarsTypes.DecideCancelRequestPayload} data
+ * @returns {Promise<bookcarsTypes.Booking | { booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }>}
+ */
+export const decideCancelRequest = (id: string, data: bookcarsTypes.DecideCancelRequestPayload): Promise<bookcarsTypes.Booking | { booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/decide-cancel-request`,
+      data,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * F3 / W1 #3 — staff manual payment confirmation (cash at the counter).
+ * With `amount` it posts the collected cash first, then derives the
+ * status from the ledger; without it, it derives from posted payments.
+ *
+ * @param {string} id
+ * @param {bookcarsTypes.ConfirmManualPaymentPayload} data
+ * @returns {Promise<{ booking: bookcarsTypes.Booking, status: bookcarsTypes.BookingStatus, updated: boolean, outstandingBalance: number, currency: string, postedRent: number, depositPaid: number, conflict: boolean, message?: string }>}
+ */
+export const confirmManualPayment = (id: string, data: bookcarsTypes.ConfirmManualPaymentPayload): Promise<{ booking: bookcarsTypes.Booking, status: bookcarsTypes.BookingStatus, updated: boolean, outstandingBalance: number, currency: string, postedRent: number, depositPaid: number, conflict: boolean, message?: string }> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/confirm-payment`,
+      data,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
  * GA-PAR-12: Revoke every outstanding signing link for a Booking
  * (server-side nonce rotation).
  *

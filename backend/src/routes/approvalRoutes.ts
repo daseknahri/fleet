@@ -4,7 +4,7 @@ import authJwt from '../middlewares/authJwt'
 import agencyAuth from '../middlewares/agencyAuth'
 import * as controller from '../controllers/approvalController'
 const routes = express.Router()
-routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.DecideInvoices), controller.list)
+routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAnyAgencyPermission([agencyAuth.AgencyPermission.DecideInvoices, agencyAuth.AgencyPermission.ReadApprovals]), controller.list)
 routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.create)
 // The decide route's :id is an approval id, not an agency selector.
 // requireAgencyPermission reads params.id as a supplier candidate, which

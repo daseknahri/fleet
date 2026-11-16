@@ -53,6 +53,9 @@ interface UserListProps {
   // documents count). Default OFF so the staff list (pages/Users.tsx)
   // keeps byte-identical behaviour.
   clientMode?: boolean
+  // F5b (W2-04): client-list filters (Clients page toolbar), sent as
+  // GetUsersBody.filters.
+  filters?: bookcarsTypes.ClientListFilters
   onLoad?: bookcarsTypes.DataEvent<bookcarsTypes.User>
 }
 
@@ -63,6 +66,7 @@ const UserList = ({
   hideDesktopColumns,
   checkboxSelection,
   clientMode,
+  filters: userListFilters,
   onLoad
 }: UserListProps) => {
   const navigate = useNavigate()
@@ -129,7 +133,8 @@ const UserList = ({
 
         const payload: bookcarsTypes.GetUsersBody = {
           user: (_user && _user._id) || '',
-          types
+          types,
+          filters: userListFilters
         }
 
         const data = await UserService.getUsers(payload, keyword || '', _page + 1, pageSize)
@@ -352,11 +357,22 @@ const UserList = ({
           field: 'clientStatus',
           headerName: strings.CLIENT_STATUS,
           flex: 1,
-          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, string>) => (
-            <span className={`bs us-client-status-${(value || bookcarsTypes.ClientStatus.Active).toLowerCase()}`}>
-              {clientStatusLabel(value)}
-            </span>
-          ),
+          // F5b (W2-17): the chip shows the EFFECTIVE block state — a
+          // blacklisted client reads as blocked whatever its
+          // clientStatus says, because booking refuses both. The row
+          // class below follows the same rule; the two mechanisms are
+          // NOT merged on write (owner decision, see F5B-REPORT.md).
+          renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.User, string>) => {
+            const blocked = row.blacklisted || value === bookcarsTypes.ClientStatus.Blocked
+            return (
+              <span
+                className={`bs us-client-status-${blocked ? 'blocked' : (value || bookcarsTypes.ClientStatus.Active).toLowerCase()}`}
+                title={row.blacklisted ? commonStrings.BLACKLISTED_TOOLTIP : undefined}
+              >
+                {blocked ? clientStatusLabel(bookcarsTypes.ClientStatus.Blocked) : clientStatusLabel(value)}
+              </span>
+            )
+          },
           valueGetter: (value: string) => value,
         },
         {
@@ -405,7 +421,7 @@ const UserList = ({
         setPaginationModel(_paginationModel)
       }
     }
-  }, [userListUser, types, keyword]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userListUser, types, keyword, userListFilters]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (user && reloadColumns) {
@@ -534,7 +550,9 @@ const UserList = ({
           localeText={gridLocaleText}
           columnVisibilityModel={columnVisibilityModel}
           onColumnVisibilityModelChange={setColumnVisibilityModel}
-          getRowClassName={(params: any) => (params.row.blacklisted ? 'us-blacklisted' : '')}
+          // F5b (W2-17): effective-blocked rows (blacklisted OR
+          // clientStatus Blocked) share the blocked row style.
+          getRowClassName={(params: any) => ((params.row.blacklisted || params.row.clientStatus === bookcarsTypes.ClientStatus.Blocked) ? 'us-blacklisted' : '')}
           disableRowSelectionOnClick
         />
       )}

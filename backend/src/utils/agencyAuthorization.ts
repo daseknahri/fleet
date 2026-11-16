@@ -103,6 +103,12 @@ export enum AgencyPermission {
   ReadInvoices = 'readInvoices',
   ManageInvoices = 'manageInvoices',
   DecideInvoices = 'decideInvoices',
+  // F8 / W5 A3 — read the approvals queue without deciding. Requesters
+  // (Accountant, CounterAgent) hold it so they can see their own
+  // requests; deciding still requires DecideInvoices, and the list
+  // controller restricts non-deciders to their own rows. Addition-only,
+  // no existing role decision changes.
+  ReadApprovals = 'readApprovals',
   // GA-PAR-07: apporteur module — the one Queue-2 item sanctioned to touch
   // this matrix. It only ADDS capabilities; no existing role decision
   // changes (role-matrix items 2–5 stay open).
@@ -138,6 +144,7 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadInvoices,
     AgencyPermission.ManageInvoices,
     AgencyPermission.DecideInvoices,
+    AgencyPermission.ReadApprovals,
     AgencyPermission.ReadAgents,
     AgencyPermission.ManageAgents,
     AgencyPermission.ReadReminders,
@@ -163,6 +170,8 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadAgents,
     // GA-PAR-13: reminders are read-only for counter agents.
     AgencyPermission.ReadReminders,
+    // F8 / W5 A3: counter agents see their own approval requests.
+    AgencyPermission.ReadApprovals,
   ],
   [bookcarsTypes.AgencyRole.Accountant]: [
     AgencyPermission.ReadAgencyProfile,
@@ -184,6 +193,8 @@ export const rolePermissions: Record<bookcarsTypes.AgencyRole, readonly AgencyPe
     AgencyPermission.ReadAgents,
     // GA-PAR-13: reminders are read-only for accountants.
     AgencyPermission.ReadReminders,
+    // F8 / W5 A3: accountants see their own approval requests.
+    AgencyPermission.ReadApprovals,
   ],
   [bookcarsTypes.AgencyRole.Mechanic]: [
     AgencyPermission.ReadBookings,

@@ -53,25 +53,33 @@ import '@/assets/css/dashboard.css'
  * Semantics (coordinator decisions, do not silently change):
  * - Period amounts use whole-contract attribution: a contract counts in
  *   full in every period its [from,to] overlaps. No prorating.
- * - Collected / remaining use posted-only contractReceivable semantics:
- *   only RentalPayments with status posted (or legacy status-less),
- *   purpose rent (or legacy purpose-less), direction debit negative.
- *   Deposit-purpose payments are NEVER counted. Remaining per contract =
- *   max(0, rentalTotal - postedRent). Approved contract charges are not
- *   present in any list payload Phase A consumes, so they cannot be
- *   included here (see the PAR-09 builder report).
+ * - Collected / remaining use the F6 shared contractReceivable
+ *   definition (rentalTotal + APPROVED charges − posted rent, clamped
+ *   per booking; deposits never counted): the amounts and contracts
+ *   cards come from GET /api/dashboard/summary (Phase B server
+ *   aggregate) for Admin AND agency users, and the overdue list comes
+ *   from GET /api/rental-payments/overdue (same definition). No card
+ *   computes its own outstanding/overdue any more (F8 / W5 D2).
+ *   Roles without ReadPayments (CounterAgent, Mechanic) keep the
+ *   capped Phase A composition — they cannot call the aggregate, and
+ *   the overdue section shows an inline error with retry instead of a
+ *   wrong number.
  * - Bookings/cars are fetched at a 1,000-row page; a full page sets a
  *   partial-data flag shown on every card derived from that source.
  *   Payments / cash / schedules list endpoints are unpaged.
  * - GA-PAR-14 (Phase B): for agency users the period-KPI amounts and
  *   the period-contracts count come from GET /api/dashboard/summary
- *   (server-side aggregate, dictionary v2026-11-11.1 — contractAmount
+ *   (server-side aggregate, dictionary v2026-11-16.2 — contractAmount
  *   INCLUDES approved contract charges, exact at any scale, no fetch
  *   cap). If that endpoint errors, those two cards show their own
  *   inline error state; they NEVER fall back to the capped Phase A
- *   composition. All other cards keep the Phase A composition. The
- *   platform-Admin all-suppliers view keeps Phase A composition
- *   (it is not an agency path).
+ *   composition. The platform-Admin view uses the same endpoint with
+ *   the all-agency aggregate (no ?supplier=), so Admin and agency
+ *   totals agree exactly. The availability card also reads the
+ *   summary's server-side fleet block in summary mode (F8 / W5 D3);
+ *   the remaining cards keep the Phase A composition.
+ *   The platform-Admin all-suppliers view keeps Phase A composition
+ *   only for roles that cannot read the aggregate (see above).
  * - New aggregations never use the platform-Admin all-suppliers
  *   flattening: payments, cash and schedules are scoped by the backend
  *   from the caller's agency membership (agencySupplierId). The
@@ -230,6 +238,11 @@ const Dashboard = () => {
   const [schedulesBlock, setSchedulesBlock] = useState<ListBlock<bookcarsTypes.MaintenanceSchedule>>(emptyListBlock)
   const [cashBlock, setCashBlock] = useState<CashBlock>({ status: 'loading', sessions: [], movements: {}, movementErrors: {} })
   const [summaryBlock, setSummaryBlock] = useState<{ status: BlockStatus, data: bookcarsTypes.DashboardSummary | null }>({ status: 'loading', data: null })
+  // F8 / W5 D2 — the overdue list is the F6 shared definition
+  // (GET /api/rental-payments/overdue: outstanding includes APPROVED
+  // charges, overdue per the shared due rule). It is never recomputed
+  // client-side from posted rent.
+  const [overdueBlock, setOverdueBlock] = useState<{ status: BlockStatus, data: bookcarsTypes.OverdueReceivableResponse | null }>({ status: 'loading', data: null })
 
   const [period, setPeriod] = useState<PeriodKind>('month')
   const [customFrom, setCustomFrom] = useState('')
@@ -315,9 +328,27 @@ const Dashboard = () => {
     }
   }, [])
 
-  // GA-PAR-14 Phase B: period-KPI aggregate for agency users only.
+  // F8 / W5 D2 — the overdue list comes from the F6 endpoint (shared
+  // definition). On failure the section shows its own inline error with
+  // retry; it never falls back to a client-side rent-only computation.
+  const loadOverdue = useCallback(async () => {
+    setOverdueBlock((b) => ({ ...b, status: 'loading' }))
+    try {
+      const data = await RentalPaymentService.overdue()
+      setOverdueBlock({ status: 'ready', data })
+    } catch (error) {
+      setOverdueBlock((b) => ({ ...b, status: 'error' }))
+      helper.error(error)
+    }
+  }, [])
+
+  // GA-PAR-14 Phase B: period-KPI aggregate for agency users AND the
+  // platform Admin (F8 / W5 D2: Admin gets the all-agency aggregate, no
+  // ?supplier=). Roles without ReadPayments cannot call the endpoint and
+  // keep the Phase A composition — the loader no-ops for them instead
+  // of erroring.
   const loadSummary = useCallback(async () => {
-    if (isAdminRef.current) {
+    if (!isAdminRef.current && agencyPermissions && agencyPermissions.loaded && !agencyPermissions.can(AgencyPermission.ReadPayments)) {
       return
     }
     setSummaryBlock((b) => ({ ...b, status: 'loading' }))
@@ -333,14 +364,18 @@ const Dashboard = () => {
       setSummaryBlock((b) => ({ ...b, status: 'error' }))
       helper.error(error)
     }
-  }, [period, customFrom, customTo])
+  }, [period, customFrom, customTo, agencyPermissions])
 
   useEffect(() => {
-    if (user && !isAdminRef.current) {
-      void loadSummary()
+    if (!user) {
+      return
     }
+    if (!isAdminRef.current && agencyPermissions && agencyPermissions.loaded && !agencyPermissions.can(AgencyPermission.ReadPayments)) {
+      return
+    }
+    void loadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, period, customFrom, customTo])
+  }, [user, period, customFrom, customTo, agencyPermissions])
 
   const onLoad = useCallback(async (u?: User) => {
     if (!u) {
@@ -349,6 +384,7 @@ const Dashboard = () => {
       setPaymentsBlock((b) => ({ ...b, status: 'error' }))
       setSchedulesBlock((b) => ({ ...b, status: 'error' }))
       setCashBlock((b) => ({ ...b, status: 'error' }))
+      setOverdueBlock((b) => ({ ...b, status: 'error' }))
       return
     }
     setUser(u)
@@ -357,10 +393,16 @@ const Dashboard = () => {
     void loadPayments()
     void loadSchedules()
     void loadCash()
+    void loadOverdue()
     try {
+      // F8 / W5 D6 — the supplier filter is the AGENCY id, never the
+      // viewer's own _id: a staff member's _id is not an agency. The
+      // agency id arrives with the permissions (async, possibly after
+      // this load), so use it when it is already known and let the
+      // reload effect below correct the first load when it lands late.
       const supplierIds = helper.admin(u)
         ? bookcarsHelper.flattenSuppliers(await SupplierService.getAllSuppliers())
-        : [u._id || '']
+        : [agencySupplierRef.current || u._id || '']
       supplierIdsRef.current = supplierIds
       void loadBookings(supplierIds)
       void loadCars(supplierIds)
@@ -369,7 +411,26 @@ const Dashboard = () => {
       setCarsBlock((b) => ({ ...b, status: 'error' }))
       helper.error(error)
     }
-  }, [loadBookings, loadCars, loadPayments, loadSchedules, loadCash])
+  }, [loadBookings, loadCars, loadPayments, loadSchedules, loadCash, loadOverdue])
+
+  // F8 / W5 D6 — when the agency permissions land after the first
+  // load and carry a supplier id different from the ids the first
+  // load used (a staff member's own _id), reload bookings + cars with
+  // the real agency id. The backend's silent rewrite stays as a
+  // safety net, but the frontend no longer depends on it.
+  useEffect(() => {
+    if (!user || isAdminRef.current) {
+      return
+    }
+    const supplier = agencyPermissions?.supplier
+    if (!supplier || supplierIdsRef.current[0] === supplier) {
+      return
+    }
+    supplierIdsRef.current = [supplier]
+    void loadBookings([supplier])
+    void loadCars([supplier])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyPermissions, user])
 
   // ---- widget customisation (localStorage per user, no backend) ----
   useEffect(() => {
@@ -437,10 +498,14 @@ const Dashboard = () => {
     return map
   }, [paymentsBlock.data])
 
-  const outstandingOf = useCallback((booking: Booking) => {
-    const posted = postedRentByBooking.get(booking._id || '') || 0
-    return round2(Math.max(0, rentalTotalOf(booking) - posted))
-  }, [postedRentByBooking])
+  // F8 / W5 D2 — the overdue list is the F6 endpoint's rows (shared
+  // definition, charges included, overdue per the shared due rule).
+  // It is NOT derived from the capped bookings page or from posted
+  // rent alone.
+  const overdueRows = useMemo(
+    () => (overdueBlock.data?.rows || []).filter((row) => row.overdue),
+    [overdueBlock.data],
+  )
 
   const liveBookings = useMemo(() => bookingsBlock.data.filter((b) => !isExcluded(b)), [bookingsBlock.data])
 
@@ -462,18 +527,43 @@ const Dashboard = () => {
     return { total, collected, remaining }
   }, [periodBookings, postedRentByBooking])
 
-  const summaryMode = !!user && !helper.admin(user)
+  // F8 / W5 D2 — the summary aggregate serves Admin AND agency users;
+  // only roles without ReadPayments (CounterAgent, Mechanic) keep the
+  // capped Phase A composition. While permissions are still loading the
+  // aggregate is assumed (the loader no-ops once the role is known).
+  const summaryMode = !!user && (helper.admin(user) || !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ReadPayments))
 
   // Fleet statuses (scorecard #15): a car in maintenance or stopped is
   // NOT available, even when its `available` flag is true (a legacy car
   // with no stored status reads as in service).
+  // F8 / W5 D3 — availability is NOT the flag alone: a car out on a
+  // live booking overlapping now is on rent, even when its flag is
+  // true. The summary aggregate (fleet block) is the server-side
+  // version of the same rule; this client-side version serves only
+  // roles that cannot read the aggregate.
+  const onRentCarIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const booking of liveBookings) {
+      if (isCompleted(booking) || getBookingDate(booking, 'from') > now || getBookingDate(booking, 'to') < now) continue
+      const carId = typeof booking.car === 'string' ? booking.car : (booking.car as Car | undefined)?._id
+      if (carId) ids.add(String(carId))
+    }
+    return ids
+  }, [liveBookings, now])
+
   const availableCars = useMemo(
     () => carsBlock.data.filter(
       (car) => car.available
         && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Maintenance
-        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Stopped,
+        && car.operationalStatus !== bookcarsTypes.CarOperationalStatus.Stopped
+        && !(car._id && onRentCarIds.has(car._id)),
     ).length,
-    [carsBlock.data],
+    [carsBlock.data, onRentCarIds],
+  )
+
+  const onRentCars = useMemo(
+    () => carsBlock.data.filter((car) => car._id && onRentCarIds.has(car._id)).length,
+    [carsBlock.data, onRentCarIds],
   )
 
   // Credit due (GA-PAR-08 financing): omitted entirely when no car in the
@@ -550,10 +640,6 @@ const Dashboard = () => {
     .filter((b) => !isCompleted(b) && getBookingDate(b, 'from') <= now && getBookingDate(b, 'to') >= now)
     .sort((a, b) => getBookingDate(a, 'to') - getBookingDate(b, 'to')), [liveBookings, now])
 
-  const overdueBookings = useMemo(() => liveBookings
-    .filter((b) => !isCompleted(b) && getBookingDate(b, 'to') < now && outstandingOf(b) > 0)
-    .sort((a, b) => getBookingDate(a, 'to') - getBookingDate(b, 'to')), [liveBookings, now, outstandingOf])
-
   const departuresToday = useMemo(() => {
     const start = startOfDay(new Date()).getTime()
     const end = endOfDay(new Date()).getTime()
@@ -590,6 +676,47 @@ const Dashboard = () => {
   const openCashSessions = useMemo(() => cashBlock.sessions
     .filter((s) => s.status === bookcarsTypes.CashSessionStatus.Open)
     .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()), [cashBlock.sessions])
+
+  // F8 / W5 D5 — closed sessions: the last closed session per account
+  // and today's closed totals (counted balance at close). The
+  // sessions list itself is already unpaged (legacy full array), so
+  // no server change was needed for the closed side.
+  const closedCashSessions = useMemo(() => cashBlock.sessions
+    .filter((s) => s.status === bookcarsTypes.CashSessionStatus.Closed)
+    .sort((a, b) => new Date(b.closedAt || b.openedAt).getTime() - new Date(a.closedAt || a.openedAt).getTime()), [cashBlock.sessions])
+
+  const closedTodayByAccount = useMemo(() => {
+    const todayStart = startOfDay(new Date()).getTime()
+    const todayEnd = endOfDay(new Date()).getTime()
+    const totals: Record<string, { total: number, count: number }> = {}
+    for (const session of closedCashSessions) {
+      const closedAt = session.closedAt ? new Date(session.closedAt).getTime() : NaN
+      if (Number.isNaN(closedAt) || closedAt < todayStart || closedAt > todayEnd) continue
+      const amount = Number(session.countedClosingBalance ?? session.expectedClosingBalance ?? 0)
+      const entry = totals[session.account] || { total: 0, count: 0 }
+      entry.total = round2(entry.total + amount)
+      entry.count += 1
+      totals[session.account] = entry
+    }
+    return totals
+  }, [closedCashSessions])
+
+  // F8 / W5 D5 — a movement load that failed renders a retry, not a
+  // bare `—`: re-fetch that one session's movements only.
+  const retryMovements = useCallback(async (sessionId: string) => {
+    const scope = isAdminRef.current ? undefined : (agencySupplierRef.current || undefined)
+    try {
+      const movements = await CashService.movements(sessionId, scope)
+      setCashBlock((b) => ({
+        ...b,
+        movements: { ...b.movements, [sessionId]: movements || [] },
+        movementErrors: { ...b.movementErrors, [sessionId]: false },
+      }))
+    } catch (error) {
+      setCashBlock((b) => ({ ...b, movementErrors: { ...b.movementErrors, [sessionId]: true } }))
+      helper.error(error)
+    }
+  }, [])
 
   const treasuryExpected = useCallback((session: bookcarsTypes.CashSession): number | null => {
     if (session.expectedClosingBalance !== undefined && session.expectedClosingBalance !== null) {
@@ -716,9 +843,16 @@ const Dashboard = () => {
           {renderCustomControls('kpi', 'availability')}
         </div>
         <Typography className="agency-dashboard__metric-label">{strings.AVAILABLE_CARS}</Typography>
-        {blockBody(carsBlock.status, () => void loadCars(supplierIdsRef.current), (
+        {summaryMode ? blockBody(summaryBlock.status, () => void loadSummary(), (
+          <>
+            <Typography component="p" className="agency-dashboard__metric-value">{`${summaryBlock.data?.fleet?.available ?? 0} / ${summaryBlock.data?.fleet?.total ?? 0}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{`${summaryBlock.data?.fleet?.onRent ?? 0} ${strings.ON_RENT}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{strings.READY_TO_RENT}</Typography>
+          </>
+        )) : blockBody(carsBlock.status, () => void loadCars(supplierIdsRef.current), (
           <>
             <Typography component="p" className="agency-dashboard__metric-value">{`${availableCars} / ${carsBlock.data.length}`}</Typography>
+            <Typography className="agency-dashboard__metric-detail">{`${onRentCars} ${strings.ON_RENT}`}</Typography>
             <Typography className="agency-dashboard__metric-detail">{strings.READY_TO_RENT}</Typography>
             {partialChip(carsBlock.partial)}
           </>
@@ -767,10 +901,27 @@ const Dashboard = () => {
               {[bookcarsTypes.CashAccountType.Cash, bookcarsTypes.CashAccountType.Bank].map((account) => {
                 const session = openCashSessions.find((s) => s.account === account)
                 const expected = session ? treasuryExpected(session) : null
+                const lastClosed = closedCashSessions.find((s) => s.account === account)
+                const closedToday = closedTodayByAccount[account]
                 return (
-                  <Typography className="agency-dashboard__metric-detail" key={account}>
-                    {`${account === bookcarsTypes.CashAccountType.Bank ? strings.TREASURY_BANK : strings.TREASURY_CASH}: ${session ? (expected === null ? '—' : formatAmount(expected)) : strings.NO_OPEN_SESSION}`}
-                  </Typography>
+                  <React.Fragment key={account}>
+                    <Typography className="agency-dashboard__metric-detail">
+                      {`${account === bookcarsTypes.CashAccountType.Bank ? strings.TREASURY_BANK : strings.TREASURY_CASH}: ${session ? (expected === null ? '—' : formatAmount(expected)) : strings.NO_OPEN_SESSION}`}
+                    </Typography>
+                    {session && session._id && expected === null && cashBlock.movementErrors[session._id] && (
+                      <Button size="small" onClick={() => void retryMovements(session._id as string)}>{strings.RETRY}</Button>
+                    )}
+                    {lastClosed && (
+                      <Typography className="agency-dashboard__metric-detail">
+                        {`${strings.TREASURY_LAST_CLOSED}: ${formatDay(lastClosed.closedAt || lastClosed.openedAt)} — ${formatAmount(Number(lastClosed.countedClosingBalance ?? lastClosed.expectedClosingBalance ?? 0))}`}
+                      </Typography>
+                    )}
+                    {closedToday && closedToday.count > 0 && (
+                      <Typography className="agency-dashboard__metric-detail">
+                        {`${strings.TREASURY_CLOSED_TODAY}: ${formatAmount(closedToday.total)}`}
+                      </Typography>
+                    )}
+                  </React.Fragment>
                 )
               })}
               <Typography className="agency-dashboard__metric-detail">{strings.EXPECTED_BALANCE}</Typography>
@@ -831,6 +982,9 @@ const Dashboard = () => {
       <CardContent>
         <div className="agency-dashboard__panel-heading">
           <Typography component="h2" className="agency-dashboard__panel-title">{strings.EXPIRING_DOCUMENTS}</Typography>
+          {summaryMode && summaryBlock.status === 'ready' && (
+            <Typography className="agency-dashboard__metric-detail">{`${summaryBlock.data?.documentsExpiring ?? 0} ${strings.EXPIRING_TOTAL}`}</Typography>
+          )}
           <span>{partialChip(carsBlock.partial || schedulesBlock.partial)}{renderCustomControls('attention', 'documents')}</span>
         </div>
         {documentsData.usesSchedules && <Chip size="small" label={strings.INCLUDES_SCHEDULES} className="agency-dashboard__source-chip" />}
@@ -884,19 +1038,19 @@ const Dashboard = () => {
           <span>{partialChip(bookingsBlock.partial)}{renderCustomControls('attention', 'active')}</span>
         </div>
         {blockBody(bookingsBlock.status, () => void loadBookings(supplierIdsRef.current), (
-          activeBookings.length === 0 && (paymentsBlock.status !== 'ready' || overdueBookings.length === 0)
+          activeBookings.length === 0 && overdueRows.length === 0 && overdueBlock.status === 'ready'
             ? <div className="agency-dashboard__empty"><Typography>{strings.NO_ACTIVE}</Typography></div> : (
               <>
-                {paymentsBlock.status === 'ready' && overdueBookings.length > 0 && (
+                {overdueBlock.status === 'ready' && overdueRows.length > 0 && (
                   <>
-                    <Typography className="agency-dashboard__panel-copy">{`${strings.OVERDUE_CONTRACTS}: ${overdueBookings.length}`}</Typography>
+                    <Typography className="agency-dashboard__panel-copy">{`${strings.OVERDUE_CONTRACTS}: ${overdueRows.length}`}</Typography>
                     <div className="agency-dashboard__booking-list">
-                      {overdueBookings.slice(0, 5).map((b) => bookingRow(b, 'to', strings.RETURN_LABEL, `${strings.OVERDUE_CONTRACTS} · ${formatAmount(outstandingOf(b))}`))}
+                      {overdueRows.slice(0, 5).map((row) => bookingRow(row.booking, 'to', strings.RETURN_LABEL, `${strings.OVERDUE_CONTRACTS} · ${formatAmount(row.outstandingBalance)}`))}
                     </div>
                   </>
                 )}
-                {paymentsBlock.status === 'error' && (
-                  <span className="agency-dashboard__inline-error">{strings.BLOCK_ERROR} <Button size="small" onClick={() => void loadPayments()}>{strings.RETRY}</Button></span>
+                {overdueBlock.status === 'error' && (
+                  <span className="agency-dashboard__inline-error">{strings.BLOCK_ERROR} <Button size="small" onClick={() => void loadOverdue()}>{strings.RETRY}</Button></span>
                 )}
                 <div className="agency-dashboard__booking-list">{activeBookings.slice(0, 5).map((b) => bookingRow(b, 'to', strings.RETURN_LABEL))}</div>
               </>

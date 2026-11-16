@@ -39,8 +39,15 @@ import Invoice from '../src/models/Invoice'
  *                       (Nov 20 payment of 999 and the pending 500 excluded)
  *   depositsCollected = 100
  *   expenses          = 50 + 25.5 = 75.5 (October expense of 999 excluded)
- *   receivable        = (700 snapshot + 900 price) - 400 = 1200
- *   estimatedMargin   = 400 - 75.5 = 324.5   (dictionary 4.1.1, as approved)
+ *   receivable        = bk1 max(0, 700 + 0 charges - (300 + 150 - 50 + 999
+ *                       all-dates rent)) = 0 + bk2 max(0, 900 - 0) = 900
+ *                       (F7 / W3 R-2: the shared definition counts the
+ *                       Nov 20 payment of 999 even though it falls
+ *                       outside the window; the old period-dated figure
+ *                       survives as periodReceivable = 1600 - 400 = 1200)
+ *   estimatedMargin   = 400 - 0 paid = 400 (F7 / W3 R-7: cash basis;
+ *                       both in-window expenses are untracked, so
+ *                       paidExpenses = 0 and accruedMargin = 324.5)
  *   contracts         = 2 (cancelled and December bookings excluded)
  *   bookedVehicleDays = 2 (Nov 11->13) + 2 (Nov 18 -> window end, ceil) = 4
  *   fleetCapacityDays = 2 cars x 10 days = 20 (downtime NOT subtracted, 4.1.2a)
@@ -117,11 +124,16 @@ afterAll(async () => {
   await databaseHelper.close()
 })
 
-describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-02.1 verification', () => {
+describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-16.2 verification', () => {
   it('matches every hand-computed metric for the date-only range the UI sends', async () => {
     const res = await request(app).get('/api/reports/summary?from=2026-11-10&to=2026-11-19').set(env.X_ACCESS_TOKEN, token)
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-02.1')
+    // F7 / W3 R-2 + R-7 — the pin tracks the dictionary version; the
+    // dictionary bumped to 2026-11-16.1 for the shared receivable
+    // definition (the Nov 20 payment now counts) and the cash-basis
+    // net/margin (untracked expenses count as 0 paid); F8 / W5 D2
+    // bumped it to 2026-11-16.2 (dashboard summary serves Admin too).
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.2')
     expect(res.body.currency).toBe(env.BASE_CURRENCY.toUpperCase())
     expect(res.body.timezone).toBe('Africa/Casablanca')
     // Casablanca day boundaries for the selected local days, then every
@@ -135,8 +147,13 @@ describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-02.1 verifica
       revenueCollected: 400,
       depositsCollected: 100,
       expenses: 75.5,
-      receivable: 1200,
-      estimatedMargin: 324.5,
+      paidExpenses: 0,
+      untrackedExpenses: 2,
+      untrackedExpenseAmount: 75.5,
+      receivable: 900,
+      periodReceivable: 1200,
+      estimatedMargin: 400,
+      accruedMargin: 324.5,
       bookedVehicleDays: 4,
       fleetCapacityDays: 20,
       utilizationPercent: 20,
@@ -157,6 +174,8 @@ describe('GA-P2-REPORT-DEFINITIONS-01 - metric dictionary v2026-11-02.1 verifica
     const m = res.body.metrics
     expect(m.revenueCollected).toBe(100) // 150 credit - 50 debit; pending 500 excluded
     expect(m.expenses).toBe(0)
+    expect(m.paidExpenses).toBe(0)
+    expect(m.accruedMargin).toBe(100)
     expect(m.contracts).toBe(0)
     expect(m.bookedVehicleDays).toBe(0)
     expect(m.fleetCapacityDays).toBe(4) // 2 cars x 2 days

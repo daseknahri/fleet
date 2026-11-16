@@ -2149,53 +2149,57 @@ describe('POST /api/verify-recaptcha/:token/:ip', () => {
     const ip = '127.0.0.1'
     const recaptchaToken = 'xxxxxxxxxxxxx'
 
-    // test success (valid)
-    jest.unstable_mockModule('axios', () => ({
-      default: {
-        get: jest.fn(() => Promise.resolve({ data: { success: true } })),
-      },
-    }))
-    jest.resetModules()
+    const mockSiteVerify = (data: unknown) => {
+      jest.unstable_mockModule('axios', () => ({
+        default: {
+          post: jest.fn(() => Promise.resolve({ data })),
+        },
+      }))
+      jest.resetModules()
+    }
+    const mockSiteVerifyError = () => {
+      jest.unstable_mockModule('axios', () => ({
+        default: {
+          post: jest.fn(() => Promise.reject(new Error('mock error'))),
+        },
+      }))
+      jest.resetModules()
+    }
+    const postVerify = async (token: string) => {
+      let statusCode = 0
+      await jest.isolateModulesAsync(async () => {
+        const newApp = (await import('../src/app.js')).default
 
-    await jest.isolateModulesAsync(async () => {
-      const newApp = (await import('../src/app.js')).default
+        const res = await request(newApp)
+          .post(`/api/verify-recaptcha/${token}/${ip}`)
+        statusCode = res.statusCode
+      })
+      return statusCode
+    }
 
-      const res = await request(newApp)
-        .post(`/api/verify-recaptcha/${recaptchaToken}/${ip}`)
-      expect(res.statusCode).toBe(200)
-    })
+    // test success (valid token, action submit, score above the minimum)
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postVerify(recaptchaToken)).toBe(200)
+
+    // test failure (valid token, score below the minimum)
+    mockSiteVerify({ success: true, action: 'submit', score: 0.1 })
+    expect(await postVerify(recaptchaToken)).toBe(204)
+
+    // test failure (valid token, wrong action)
+    mockSiteVerify({ success: true, action: 'login', score: 0.9 })
+    expect(await postVerify(recaptchaToken)).toBe(204)
 
     // test failure (not valid)
-    jest.unstable_mockModule('axios', () => ({
-      default: {
-        get: jest.fn(() => Promise.resolve({ data: { success: false } })),
-      },
-    }))
-    jest.resetModules()
+    mockSiteVerify({ success: false, action: 'submit', score: 0.9 })
+    expect(await postVerify(recaptchaToken)).toBe(204)
 
-    await jest.isolateModulesAsync(async () => {
-      const newApp = (await import('../src/app.js')).default
+    // test failure (verification service error)
+    mockSiteVerifyError()
+    expect(await postVerify(recaptchaToken)).toBe(503)
 
-      const res = await request(newApp)
-        .post(`/api/verify-recaptcha/${recaptchaToken}/${ip}`)
-      expect(res.statusCode).toBe(204)
-    })
-
-    // test failure (error)
-    jest.unstable_mockModule('axios', () => ({
-      default: {
-        get: jest.fn(() => Promise.reject(new Error('mock error'))),
-      },
-    }))
-    jest.resetModules()
-
-    await jest.isolateModulesAsync(async () => {
-      const newApp = (await import('../src/app.js')).default
-
-      const res = await request(newApp)
-        .post(`/api/verify-recaptcha/${recaptchaToken}/${ip}`)
-      expect(res.statusCode).toBe(400)
-    })
+    // test failure (token too long)
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postVerify('x'.repeat(4097))).toBe(400)
   })
 })
 
@@ -2209,23 +2213,47 @@ describe('POST /api/send-email', () => {
       message: 'test message',
       isContactForm: true,
     }
-    let res = await request(app)
-      .post('/api/send-email')
-      .set('Origin', env.FRONTEND_HOST)
-      .send(payload)
-    expect(res.statusCode).toBe(200)
+    // The F1 runner loads backend/.env.docker into the jest env, where
+    // BC_RECAPTCHA_SECRET is a configured non-placeholder secret, so
+    // RECAPTCHA_REQUIRED is true at app import and the gate is on: the
+    // success cases must send a token the mocked siteverify accepts.
+    // Same axios.post mock + re-import pattern as the gate test below —
+    // the shared top-level app cannot be re-mocked per case. (With the
+    // gate off, e.g. a placeholder secret, the token is simply ignored
+    // and the same assertions still hold.)
+    const mockSiteVerify = (data: unknown) => {
+      jest.unstable_mockModule('axios', () => ({
+        default: {
+          post: jest.fn(() => Promise.resolve({ data })),
+        },
+      }))
+      jest.resetModules()
+    }
+    const postSendEmail = async (body: bookcarsTypes.SendEmailPayload) => {
+      let statusCode = 0
+      await jest.isolateModulesAsync(async () => {
+        const newApp = (await import('../src/app.js')).default
+
+        const res = await request(newApp)
+          .post('/api/send-email')
+          .set('Origin', env.FRONTEND_HOST)
+          .send(body)
+        statusCode = res.statusCode
+      })
+      return statusCode
+    }
+
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(200)
 
     // test success (newsletter form)
     payload.isContactForm = false
     payload.message = ''
-    res = await request(app)
-      .post('/api/send-email')
-      .set('Origin', env.FRONTEND_HOST)
-      .send(payload)
-    expect(res.statusCode).toBe(200)
+    mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+    expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(200)
 
     // test failure (no Origin)
-    res = await request(app)
+    let res = await request(app)
       .post('/api/send-email')
       .send(payload)
     expect(res.statusCode).toBe(400)
@@ -2236,5 +2264,73 @@ describe('POST /api/send-email', () => {
       .set('Origin', 'https://unknown.com')
       .send(payload)
     expect(res.statusCode).toBe(500)
+  })
+
+  it('should enforce server-side reCAPTCHA when required', async () => {
+    // Force RECAPTCHA_REQUIRED on the re-imported app: a configured
+    // (non-placeholder) secret makes the gate active outside production.
+    const prevSecret = process.env.BC_RECAPTCHA_SECRET
+    process.env.BC_RECAPTCHA_SECRET = 'test-secret'
+    try {
+      const payload: bookcarsTypes.SendEmailPayload = {
+        from: 'no-reply@bookcars.ma',
+        to: 'test@test.com',
+        subject: 'test',
+        message: 'test message',
+        isContactForm: true,
+      }
+
+      const mockSiteVerify = (data: unknown) => {
+        jest.unstable_mockModule('axios', () => ({
+          default: {
+            post: jest.fn(() => Promise.resolve({ data })),
+          },
+        }))
+        jest.resetModules()
+      }
+      const mockSiteVerifyError = () => {
+        jest.unstable_mockModule('axios', () => ({
+          default: {
+            post: jest.fn(() => Promise.reject(new Error('mock error'))),
+          },
+        }))
+        jest.resetModules()
+      }
+      const postSendEmail = async (body: bookcarsTypes.SendEmailPayload) => {
+        let statusCode = 0
+        await jest.isolateModulesAsync(async () => {
+          const newApp = (await import('../src/app.js')).default
+
+          const res = await request(newApp)
+            .post('/api/send-email')
+            .set('Origin', env.FRONTEND_HOST)
+            .send(body)
+          statusCode = res.statusCode
+        })
+        return statusCode
+      }
+
+      // test failure (no reCAPTCHA token)
+      mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+      expect(await postSendEmail(payload)).toBe(400)
+
+      // test success (valid token, score above the minimum)
+      mockSiteVerify({ success: true, action: 'submit', score: 0.9 })
+      expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(200)
+
+      // test failure (valid token, score below the minimum)
+      mockSiteVerify({ success: true, action: 'submit', score: 0.1 })
+      expect(await postSendEmail({ ...payload, recaptchaToken: 'low-score-token' })).toBe(400)
+
+      // test failure (verification service error)
+      mockSiteVerifyError()
+      expect(await postSendEmail({ ...payload, recaptchaToken: 'valid-token' })).toBe(503)
+    } finally {
+      if (prevSecret === undefined) {
+        delete process.env.BC_RECAPTCHA_SECRET
+      } else {
+        process.env.BC_RECAPTCHA_SECRET = prevSecret
+      }
+    }
   })
 })

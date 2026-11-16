@@ -36,3 +36,12 @@ export const update = (
 ): Promise<bookcarsTypes.AgencyMembership> => axiosInstance
   .put(`/api/agency-memberships/${encodeURIComponent(supplierId)}/${encodeURIComponent(membershipId)}`, data, { withCredentials: true })
   .then((res) => res.data)
+
+// F8 / W5 T4 — remove the membership row only; the staff User stays
+// and can be re-linked later.
+export const remove = (
+  supplierId: string,
+  membershipId: string,
+): Promise<void> => axiosInstance
+  .delete(`/api/agency-memberships/${encodeURIComponent(supplierId)}/${encodeURIComponent(membershipId)}`, { withCredentials: true })
+  .then(() => undefined)

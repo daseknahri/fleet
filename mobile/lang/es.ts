@@ -208,6 +208,8 @@ export const es = {
   TO_DATE_EMPTY: 'Por favor, ingrese la fecha de devolución.',
   TO_TIME_EMPTY: 'Por favor, ingrese la hora de devolución.',
   PAYMENT_FAILED: 'Pago fallido.',
+  PAYMENT_CANCELED_TITLE: 'Pago cancelado',
+  CHECKOUT_INVALID_REQUEST: 'Ya existe una cuenta con este correo electrónico o se proporcionaron datos no válidos. Su autorización de pago fue cancelada y no se le cobró. Por favor, inicie sesión para continuar.',
   ERROR: 'Error',
   LOGIN_ERROR: 'Autenticación fallida.',
   OR: 'o',

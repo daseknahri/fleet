@@ -357,6 +357,12 @@ export const convert = async (req: Request, res: Response) => {
       if (err instanceof InvoiceCreationError && err.code === 'ACTIVE_INVOICE_EXISTS') {
         res.status(409).send('An active invoice already exists for this contract'); return
       }
+      // F7 / W3 B-3 — a quote whose tax does not validate (e.g. a
+      // taxAmount that does not match its taxRate) is refused with
+      // 400 rather than converting into a wrong-tax invoice.
+      if (err instanceof InvoiceCreationError && err.code === 'INVALID_TAX') {
+        res.status(400).send(err.message || 'Invalid tax amount'); return
+      }
       throw err
     }
     quote.status = bookcarsTypes.QuoteStatus.Converted

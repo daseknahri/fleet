@@ -17,7 +17,17 @@ const routes = {
   getBookings: '/api/bookings/:page/:size/:language',
   hasBookings: '/api/has-bookings/:driver',
   cancelBooking: '/api/cancel-booking/:id',
+  // F3 / W1 #1 + #9 + #3 — staff cancel workflow, cancel-request queue
+  // + decision, manual payment confirmation. ManageBookings work, same
+  // capability as update/updateStatus.
+  cancelBookingStaff: '/api/bookings/:id/cancel',
+  getCancelRequests: '/api/cancel-requests/:page/:size/:language',
+  decideCancelRequest: '/api/bookings/:id/decide-cancel-request',
+  confirmManualPayment: '/api/bookings/:id/confirm-payment',
   amend: '/api/bookings/:id/amend',
+  // F4 / W1 #7 — no-show marking + overdue (late-return) list.
+  markNoShow: '/api/bookings/:id/mark-no-show',
+  getOverdueBookings: '/api/overdue-bookings/:page/:size/:language',
 }
 
 export default routes

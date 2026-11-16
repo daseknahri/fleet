@@ -16,6 +16,20 @@ const schema = new Schema<env.CashSession>({
   countedClosingBalance: { type: Number, min: 0 },
   discrepancy: Number,
   closingNote: { type: String, maxlength: 1000, trim: true },
+  // F6 / W3 C-1 — previous counted close this opening chained from, and
+  // the recorded reason when the opening differs from it.
+  previousClosingBalance: { type: Number, min: 0 },
+  openingDifferenceReason: { type: String, maxlength: 1000, trim: true },
+  // F6 / W3 C-4 — pending entries explicitly carried through a close,
+  // and the discrepancy approval (tolerance is zero: any discrepancy
+  // needs an explicit approval + reason).
+  pendingCarriedCount: { type: Number, min: 0 },
+  pendingCarriedIn: { type: Number, min: 0 },
+  pendingCarriedOut: { type: Number, min: 0 },
+  pendingCarryReason: { type: String, maxlength: 1000, trim: true },
+  discrepancyReason: { type: String, maxlength: 1000, trim: true },
+  discrepancyApprovedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  discrepancyApprovedAt: Date,
 }, { timestamps: true, strict: true, collection: 'CashSession' })
 
 schema.index({ supplier: 1, account: 1, status: 1 }, { partialFilterExpression: { status: bookcarsTypes.CashSessionStatus.Open }, unique: true })

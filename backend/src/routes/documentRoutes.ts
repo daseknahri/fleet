@@ -9,5 +9,6 @@ routes.route(routeNames.downloadContract).get(authJwt.verifyToken, documentContr
 routes.route(routeNames.downloadLicense).get(authJwt.verifyToken, documentController.downloadLicense)
 routes.route(routeNames.downloadMaintenanceReceipt).get(authJwt.verifyToken, documentController.downloadMaintenanceReceipt)
 routes.route(routeNames.downloadClientDocument).get(authJwt.verifyToken, documentController.downloadClientDocument)
+routes.route(routeNames.downloadCarDocument).get(authJwt.verifyToken, documentController.downloadCarDocument)
 
 export default routes

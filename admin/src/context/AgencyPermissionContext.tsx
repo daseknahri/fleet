@@ -32,6 +32,7 @@ export const AgencyPermission = {
   ReadInvoices: 'readInvoices',
   ManageInvoices: 'manageInvoices',
   DecideInvoices: 'decideInvoices',
+  ReadApprovals: 'readApprovals',
   ReadAgents: 'readAgents',
   ManageAgents: 'manageAgents',
   ReadReminders: 'readReminders',

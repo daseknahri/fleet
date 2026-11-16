@@ -8,6 +8,7 @@ import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissi
 import env from '@/config/env.config'
 import { strings } from '@/lang/bookings'
 import { strings as trashStrings } from '@/lang/trash'
+import { strings as cancelStrings } from '@/lang/cancel-requests'
 import * as helper from '@/utils/helper'
 import BookingList from '@/components/BookingList'
 import SupplierFilter from '@/components/SupplierFilter'
@@ -91,6 +92,11 @@ const Bookings = () => {
                 {canManageBookings && (
                   <Button variant="text" size="small" onClick={() => navigate('/trash')}>
                     {trashStrings.VIEW_TRASH}
+                  </Button>
+                )}
+                {canManageBookings && (
+                  <Button variant="text" size="small" onClick={() => navigate('/cancel-requests')}>
+                    {cancelStrings.TITLE}
                   </Button>
                 )}
                 {admin

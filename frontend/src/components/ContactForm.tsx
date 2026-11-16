@@ -71,6 +71,7 @@ const ContactForm = ({ user, className }: ContactFormProps) => {
         subject: data.subject,
         message: data.message,
         isContactForm: true,
+        recaptchaToken,
       }
       const status = await UserService.sendEmail(payload)
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useId, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, FormControl, InputLabel, Link, MenuItem, Select, TextField, Typography } from '@mui/material'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import Layout from '@/components/Layout'
 import * as ApprovalService from '@/services/ApprovalService'
@@ -10,6 +10,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import { strings } from '@/lang/approvals'
 import env from '@/config/env.config'
 import { useUserContext, UserContextType } from '@/context/UserContext'
+import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 
 const uiLocale = () => {
   const language = UserService.getLanguage()
@@ -38,6 +39,13 @@ const subjectTypeLabel = (subjectType: string) => (subjectType === 'invoice'
 
 const Approbations = () => {
   const { user } = useUserContext() as UserContextType
+  // F8 / W5 A3 — the queue is readable by requesters (ReadApprovals),
+  // but deciding stays with deciders (DecideInvoices) and creating
+  // stays with ManageInvoices. The buttons/form hide for viewers who
+  // lack the permission; the backend enforces the same rule.
+  const agencyPermissions = useAgencyPermissions()
+  const canDecide = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.DecideInvoices)
+  const canCreate = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageInvoices)
   const [approvals, setApprovals] = useState<ApprovalService.Approval[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -49,8 +57,16 @@ const Approbations = () => {
   const [agencyFilter, setAgencyFilter] = useState('')
   const agencyFilterLabelId = useId()
   const formAgencyLabelId = useId()
+  // F8 / W5 A6 — status/type filters + client-side pagination (page size
+  // 10). The page resets whenever a filter changes so the list never
+  // lands on an empty page.
+  const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [page, setPage] = useState(0)
+  const statusFilterLabelId = useId()
+  const typeFilterLabelId = useId()
   const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({})
-  const [form, setForm] = useState({ supplier: '', subject: '', subjectType: '', amount: '', currency: 'MAD', reason: '' })
+  const [form, setForm] = useState({ supplier: '', subject: '', subjectType: 'invoice', amount: '', currency: 'MAD', reason: '' })
 
   const load = useCallback(async (currentUser?: bookcarsTypes.User) => {
     if (!currentUser) {
@@ -157,7 +173,7 @@ const Approbations = () => {
         currency: form.currency || undefined,
         reason: form.reason.trim() || undefined,
       })
-      setForm((current) => ({ ...current, subject: '', subjectType: '', amount: '', reason: '' }))
+      setForm((current) => ({ ...current, subject: '', subjectType: 'invoice', amount: '', reason: '' }))
       await load(user || undefined)
     } catch (err) {
       setActionError(helper.getErrorMessage(err, strings.ACTION_ERROR))
@@ -166,9 +182,15 @@ const Approbations = () => {
     }
   }
 
-  const visible = helper.admin(user) && agencyFilter
+  const filtered = (helper.admin(user) && agencyFilter
     ? approvals.filter((approval) => approval.supplier === agencyFilter)
-    : approvals
+    : approvals)
+    .filter((approval) => (!statusFilter || approval.status === statusFilter)
+      && (!typeFilter || approval.subjectType === typeFilter))
+  const PAGE_SIZE = 10
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageIndex = Math.min(page, pageCount - 1)
+  const visible = filtered.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE)
 
   return (
     <Layout strict onLoad={load}>
@@ -182,12 +204,29 @@ const Approbations = () => {
             {helper.admin(user) && (
               <FormControl size="small" sx={{ minWidth: 220 }}>
                 <InputLabel id={agencyFilterLabelId}>{strings.AGENCY}</InputLabel>
-                <Select label={strings.AGENCY} labelId={agencyFilterLabelId} value={agencyFilter} onChange={(e) => setAgencyFilter(e.target.value)}>
+                <Select label={strings.AGENCY} labelId={agencyFilterLabelId} value={agencyFilter} onChange={(e) => { setAgencyFilter(e.target.value); setPage(0) }}>
                   <MenuItem value="">{strings.ALL_AGENCIES}</MenuItem>
                   {suppliers.map((supplier) => <MenuItem key={supplier._id} value={supplier._id}>{supplier.fullName}</MenuItem>)}
                 </Select>
               </FormControl>
             )}
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id={statusFilterLabelId}>{strings.STATUS}</InputLabel>
+              <Select label={strings.STATUS} labelId={statusFilterLabelId} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}>
+                <MenuItem value="">{strings.ALL}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Pending}>{strings.PENDING}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Approved}>{strings.APPROVED}</MenuItem>
+                <MenuItem value={bookcarsTypes.ApprovalDecision.Rejected}>{strings.REJECTED}</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel id={typeFilterLabelId}>{strings.SUBJECT_TYPE}</InputLabel>
+              <Select label={strings.SUBJECT_TYPE} labelId={typeFilterLabelId} value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}>
+                <MenuItem value="">{strings.ALL}</MenuItem>
+                <MenuItem value="invoice">{strings.TYPE_INVOICE}</MenuItem>
+                <MenuItem value="contract-charge">{strings.TYPE_CONTRACT_CHARGE}</MenuItem>
+              </Select>
+            </FormControl>
             <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => load(user || undefined)}>{strings.REFRESH}</Button>
           </Box>
         </Box>
@@ -203,7 +242,11 @@ const Approbations = () => {
               <Card key={approval._id}>
                 <CardContent>
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Typography variant="h6" component="h2">{approval.subject}</Typography>
+                    <Typography variant="h6" component="h2">
+                      {approval.subjectUrl
+                        ? <Link href={approval.subjectUrl}>{approval.subject}</Link>
+                        : approval.subject}
+                    </Typography>
                     <Chip size="small" label={subjectTypeLabel(approval.subjectType)} />
                     <Chip size="small" color={statusColor(approval.status)} label={statusLabel(approval.status)} />
                   </Box>
@@ -219,7 +262,7 @@ const Approbations = () => {
                     </Typography>
                   )}
                   {approval.reason && <Typography variant="body2">{`${strings.REASON}: ${approval.reason}`}</Typography>}
-                  {approval.status === bookcarsTypes.ApprovalDecision.Pending && (
+                  {approval.status === bookcarsTypes.ApprovalDecision.Pending && canDecide && (
                     <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                       <TextField
                         size="small"
@@ -237,7 +280,15 @@ const Approbations = () => {
             ))}
           </Box>
         )}
+        {!loading && !error && filtered.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 2, flexWrap: 'wrap' }}>
+            <span>{strings.SHOWING} {pageIndex * PAGE_SIZE + 1}–{Math.min((pageIndex + 1) * PAGE_SIZE, filtered.length)} / {filtered.length}</span>
+            <Button variant="outlined" size="small" disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>{strings.PREVIOUS}</Button>
+            <Button variant="outlined" size="small" disabled={pageIndex >= pageCount - 1} onClick={() => setPage(pageIndex + 1)}>{strings.NEXT}</Button>
+          </Box>
+        )}
         <Divider sx={{ my: 3 }} />
+        {canCreate && (
         <Card>
           <CardContent>
             <Typography variant="h6" component="h2">{strings.NEW_TITLE}</Typography>
@@ -251,13 +302,20 @@ const Approbations = () => {
                 </FormControl>
               )}
               <TextField size="small" label={strings.SUBJECT} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              <TextField size="small" label={strings.SUBJECT_TYPE} value={form.subjectType} onChange={(e) => setForm({ ...form, subjectType: e.target.value })} />
+              <FormControl size="small">
+                <InputLabel id={`${formAgencyLabelId}-type`}>{strings.SUBJECT_TYPE}</InputLabel>
+                <Select label={strings.SUBJECT_TYPE} labelId={`${formAgencyLabelId}-type`} value={form.subjectType} onChange={(e) => setForm({ ...form, subjectType: e.target.value })}>
+                  <MenuItem value="invoice">{strings.TYPE_INVOICE}</MenuItem>
+                  <MenuItem value="contract-charge">{strings.TYPE_CONTRACT_CHARGE}</MenuItem>
+                </Select>
+              </FormControl>
               <TextField size="small" label={strings.AMOUNT} type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
               <TextField size="small" label={strings.REASON} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
             </Box>
             <Button sx={{ mt: 2 }} variant="contained" disabled={busy || !form.subject.trim() || !form.subjectType.trim() || !form.amount} onClick={create}>{strings.CREATE}</Button>
           </CardContent>
         </Card>
+        )}
       </div>
     </Layout>
   )

@@ -376,6 +376,16 @@ export const CDN_TEMP_MAINTENANCE = __env__('BC_CDN_TEMP_MAINTENANCE', true)
 export const CDN_CLIENT_DOCUMENTS = path.join(path.dirname(CDN_LICENSES), 'client-documents')
 
 /**
+ * Private car-documents store (F5b, W2-14). Same pattern as
+ * CDN_CLIENT_DOCUMENTS: a sibling of the licenses store, so no new
+ * environment variable is required. The files in it are only delivered
+ * through the authenticated, agency-scoped documentController download.
+ *
+ * @type {string}
+ */
+export const CDN_CAR_DOCUMENTS = path.join(path.dirname(CDN_LICENSES), 'car-documents')
+
+/**
  * Allowed maintenance receipt extensions.
  *
  * @type {string[]}
@@ -448,6 +458,19 @@ stripeSessionExpireAt = stripeSessionExpireAt <= 82800 ? stripeSessionExpireAt :
 export const STRIPE_SESSION_EXPIRE_AT = stripeSessionExpireAt
 
 /**
+ * Stripe webhook endpoint secret (Stripe Dashboard → Developers →
+ * Webhooks → the endpoint's Signing secret). Required for signature
+ * verification of Stripe webhook events (F2 / W4 GAP-04). Empty means
+ * the webhook endpoint refuses every event (fail closed). The value is
+ * never logged and must come from the environment — never hardcode it.
+ * The handler also re-reads `BC_STRIPE_WEBHOOK_SECRET` per request
+ * (see stripeController.handleStripeWebhook).
+ *
+ * @type {string}
+ */
+export const STRIPE_WEBHOOK_SECRET = __env__('BC_STRIPE_WEBHOOK_SECRET', false, '')
+
+/**
  * Indicates whether PayPal is used in sandbox mode or production.
  *
  * @type {boolean}
@@ -498,6 +521,22 @@ export const ADMIN_EMAIL = __env__('BC_ADMIN_EMAIL', false)
  * @type {string}
  */
 export const RECAPTCHA_SECRET = __env__('BC_RECAPTCHA_SECRET', false)
+
+/**
+ * Require server-side reCAPTCHA verification when configured, and always in production.
+ *
+ * @type {boolean}
+ */
+export const RECAPTCHA_REQUIRED = process.env.NODE_ENV === 'production'
+  || Boolean(RECAPTCHA_SECRET && RECAPTCHA_SECRET !== 'RECAPTCHA_SECRET')
+
+/**
+* Minimum acceptable score for Google reCAPTCHA v3 verification (0.0 to 1.0).
+* Default is 0.5.
+*
+* @type {number}
+*/
+export const RECAPTCHA_MIN_SCORE = Number.parseFloat(__env__('BC_RECAPTCHA_MIN_SCORE', false, '0.5'))
 
 /**
  * Timezone for cenverting dates from UTC to local time.
@@ -655,6 +694,12 @@ export interface User extends Document {
   licenseExpiry?: Date
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: bookcarsTypes.ClientDocument[]
   /** GA-PAR-22: trash / restore (client rows only — see User.ts). */
   deletedAt?: Date | null
@@ -712,6 +757,12 @@ export interface UserInfo {
   licenseExpiry?: Date
   clientType?: bookcarsTypes.ClientType
   clientStatus?: bookcarsTypes.ClientStatus
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: bookcarsTypes.ClientDocument[]
   /** GA-PAR-22: trash fields (single-get returns them; lists omit the history). */
   deletedAt?: Date | null
@@ -783,6 +834,15 @@ export interface ContractInspection extends Document {
   signatureFile?: string
   acknowledgedBy?: Types.ObjectId
   actor?: Types.ObjectId
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: {
+    reason: string
+    raisedBy?: Types.ObjectId
+    raisedAt: Date
+    resolvedAt?: Date
+    resolvedBy?: Types.ObjectId
+    resolution?: string
+  }
 }
 
 /** GA-PAR-06: per-agency return & settlement rates (new collection; the global Setting singleton is untouched). */
@@ -823,6 +883,30 @@ export interface Booking extends Document {
   additionalDriver?: boolean
   _additionalDriver?: Types.ObjectId
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request. */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request. */
+  cancelRequestBy?: Types.ObjectId
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: Types.ObjectId
+  /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
+  cancellationRecord?: {
+    reason: string
+    cancelledBy?: Types.ObjectId
+    cancelledAt?: Date
+    refundDecision?: bookcarsTypes.CancelRefundDecision
+    refundStatus?: bookcarsTypes.CancelRefundStatus
+    rentPaid?: number
+    depositPaid?: number
+    refundedRent?: number
+    refundedDeposit?: number
+    refundProviderReferences?: string[]
+    refundedAt?: Date
+    requestedBy?: Types.ObjectId
+    requestedAt?: Date
+  }
   price: number
   sessionId?: string
   paymentIntentId?: string
@@ -863,6 +947,17 @@ export interface Booking extends Document {
     priceDelta: number
     basisDailyRate?: number
     basisDays?: number
+    /** F4 / W1 #6 — the correction this amendment recorded, if any. */
+    correction?: {
+      pickupLocationBefore?: string
+      pickupLocationAfter?: string
+      dropOffLocationBefore?: string
+      dropOffLocationAfter?: string
+      carBefore?: string
+      carAfter?: string
+      optionsBefore?: { cancellation: boolean, amendments: boolean, theftProtection: boolean, collisionDamageWaiver: boolean, fullInsurance: boolean, additionalDriver: boolean }
+      optionsAfter?: { cancellation: boolean, amendments: boolean, theftProtection: boolean, collisionDamageWaiver: boolean, fullInsurance: boolean, additionalDriver: boolean }
+    }
   }[]
   /** GA-PAR-10: recorded overlap exception (server-stamped). */
   overlapException?: {
@@ -952,6 +1047,26 @@ export interface ReminderFiring extends Document {
   updatedAt?: Date
 }
 
+/** F8 / W5 N3 — one delivery attempt of one notification to one recipient. */
+export interface NotificationDelivery extends Document {
+  supplier: Types.ObjectId
+  templateKey: bookcarsTypes.NotificationTemplateKey
+  subjectType?: string
+  subjectId?: string
+  dedupeKey: string
+  channel: bookcarsTypes.NotificationDeliveryChannel
+  recipient: Types.ObjectId
+  subject?: string
+  body: string
+  status: bookcarsTypes.NotificationDeliveryStatus
+  attempts: number
+  lastError?: string
+  providerId?: string
+  sentAt?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 /** ReportView config document shape (GA-PAR-14, scorecard #40). */
 export interface ReportViewConfig {
   from?: string
@@ -960,6 +1075,8 @@ export interface ReportViewConfig {
   carId?: string
   groupBy: bookcarsTypes.ReportGroupBy
   compare: boolean
+  // F7 / W3 R-5 — the cash/bank channel scope this view was saved with.
+  scope?: bookcarsTypes.ReportScope
 }
 
 /** Saved reports-builder view document (GA-PAR-14). */
@@ -986,6 +1103,15 @@ export interface ContractCharge extends Document {
   decidedBy?: Types.ObjectId
   decidedAt?: Date
   decisionNote?: string
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: {
+    reason: string
+    raisedBy?: Types.ObjectId
+    raisedAt: Date
+    resolvedAt?: Date
+    resolvedBy?: Types.ObjectId
+    resolution?: string
+  }
 }
 
 export interface Approval extends Document {
@@ -1032,10 +1158,23 @@ export interface Invoice extends Document {
   subtotal: number
   taxAmount: number
   taxRate?: number | null
+  // F7 / W3 B-3 — true when the tax was set by an explicit override
+  // (manual taxAmount, or a quote's verbatim tax) rather than computed
+  // from the supplier's configured VAT rate. The HT-vs-TTC basis is
+  // still an open ADR-001 decision; the flag only records provenance.
+  taxOverride?: boolean
   total: number
   paidAmount: number
   paymentStatus: 'unpaid' | 'partial' | 'paid'
   payments?: Types.ObjectId[]
+  // F7 / W3 B-2 — snapshot of the paid state at void time (the live
+  // paidAmount / paymentStatus / payments are cleared on void).
+  voidedPaidAmount?: number
+  voidedPaymentStatus?: 'unpaid' | 'partial' | 'paid'
+  // F7 / W3 B-4 — delivery log (status tracking only, no sending).
+  deliveries?: Array<{ channel: bookcarsTypes.InvoiceDeliveryChannel, at: Date, by?: Types.ObjectId }>
+  // F7 / W3 B-5 — log of payments unlinked from this invoice.
+  unlinkLog?: Array<{ payment: Types.ObjectId, reason: string, at: Date, by?: Types.ObjectId }>
   issuedAt?: Date
   issuedBy?: Types.ObjectId
   voidedAt?: Date
@@ -1086,6 +1225,18 @@ export interface CashSession extends Document {
   countedClosingBalance?: number
   discrepancy?: number
   closingNote?: string
+  // F6 / W3 C-1 — previous counted close this opening chained from.
+  previousClosingBalance?: number
+  openingDifferenceReason?: string
+  // F6 / W3 C-4 — pending entries carried through a close + discrepancy
+  // approval (tolerance is zero).
+  pendingCarriedCount?: number
+  pendingCarriedIn?: number
+  pendingCarriedOut?: number
+  pendingCarryReason?: string
+  discrepancyReason?: string
+  discrepancyApprovedBy?: Types.ObjectId
+  discrepancyApprovedAt?: Date
 }
 
 /** Cash movement document. */
@@ -1103,6 +1254,13 @@ export interface CashMovement extends Document {
   confirmedAt?: Date
   idempotencyKey?: string
   transferId?: Types.ObjectId
+  // F6 / W3 C-7 — the ledger cash payment this movement was created
+  // from, and that payment's purpose (deposit cash is held, never income).
+  rentalPayment?: Types.ObjectId
+  purpose?: bookcarsTypes.RentalPaymentPurpose
+  // F7 / W3 M-2 — the expense payment this movement was created from
+  // (cash expense payments only; same confirmed-Out pattern as C-7).
+  expensePayment?: Types.ObjectId
   reference?: string
   note?: string
   actor?: Types.ObjectId
@@ -1113,16 +1271,46 @@ export interface MaintenanceExpense extends Document {
   supplier: Types.ObjectId
   // GA-PAR-16: optional — a general expense is tied to no car.
   car?: Types.ObjectId | null
+  // F7 / W3 M-5 — the work order this expense belongs to, if any.
+  workOrder?: Types.ObjectId | null
   date: Date
   type: bookcarsTypes.MaintenanceExpenseType
   amount: number
   // GA-PAR-16: null/absent = untracked/legacy. Payment status is
   // derived in payloads, never stored on the document.
+  // F7 / W3 M-2: once payment records exist, paidAmount is the SUM of
+  // those records, recomputed server-side — never typed in by hand.
   paidAmount?: number | null
   mileage?: number
   vendor?: string
   note?: string
   receipt?: string
+}
+
+/** F7 / W3 M-2 — one append-only payment record against an expense. */
+export interface MaintenanceExpensePayment extends Document {
+  supplier: Types.ObjectId
+  expense: Types.ObjectId
+  date: Date
+  amount: number
+  currency: string
+  method: bookcarsTypes.RentalPaymentMethod
+  reference?: string
+  note?: string
+  cashMovement?: Types.ObjectId
+  actor?: Types.ObjectId
+}
+
+/** F7 / W3 M-7 — append-only audit trail for maintenance expenses. */
+export interface MaintenanceExpenseAudit extends Document {
+  supplier: Types.ObjectId
+  // The expense id is kept after the expense is deleted, so the trail
+  // survives a hard delete (plain ObjectId, deliberately no ref).
+  expense: Types.ObjectId
+  action: bookcarsTypes.MaintenanceExpenseAuditAction
+  actor?: Types.ObjectId
+  reason?: string
+  changes?: Array<{ field: string, before?: string | number | null, after?: string | number | null }>
 }
 
 /** Maintenance schedule document. */
@@ -1175,7 +1363,23 @@ export interface RentalPayment extends Document {
   confirmedBy?: Types.ObjectId
   confirmedAt?: Date
   reversedFrom?: Types.ObjectId
+  refundProviderReference?: string
+  refundedAt?: Date
   settledAt?: Date
+  // F2 / W4 GAP-10 — provider-settled leg of a provider checkout posting:
+  // the amount the provider actually settled, in the payment currency,
+  // at the snapshot FX rate. The base-currency `amount`/`currency` above
+  // still post under the ledger's purpose caps; these fields are
+  // informational only and never enter the recorded totals, so a
+  // foreign-currency charge reconciles to provider settlement exactly.
+  settledAmount?: number
+  settledCurrency?: string
+  fxRate?: number
+  fxSource?: string
+  fxAt?: Date
+  // F6 / W3 C-7 — the cash session this cash-method payment is linked
+  // into (unset while no open cash session exists at posting time).
+  cashSession?: Types.ObjectId
   reference?: string
   note?: string
 }
@@ -1248,6 +1452,13 @@ export interface Car extends Document {
   supplier: Types.ObjectId
   minimumAge: number
   locations: Types.ObjectId[]
+  // F5b (W2-12/W2-13): vehicle identity + odometer reading (all
+  // optional). `odometerKm` is the current odometer reading — NOT
+  // `mileage` below, which is the km/day rental allowance.
+  make?: string
+  model?: string
+  year?: number
+  odometerKm?: number
 
   hourlyPrice: number | null
   discountedHourlyPrice: number | null
@@ -1274,6 +1485,10 @@ export interface Car extends Document {
   gearbox: bookcarsTypes.GearboxType
   aircon: boolean
   image: string | null
+  // F5b (W2-14): additional gallery photos beyond the cover `image`.
+  images?: string[]
+  // F5b (W2-14): privately stored car documents.
+  documents?: bookcarsTypes.CarDocument[]
   seats: number
   doors: number
   fuelPolicy: bookcarsTypes.FuelPolicy
@@ -1299,6 +1514,11 @@ export interface Car extends Document {
   trashHistory?: TrashHistoryRow[]
   // GA-PAR-08: financing block + document expiry dates (all optional)
   financing?: CarFinancing
+  // F5b (W2-19): insurance policy data (provider + policy number live
+  // next to the insurance expiry date; the policy file lives in the
+  // `documents` array with kind `insurance`).
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
   insuranceExpiryDate?: Date
   technicalInspectionExpiryDate?: Date
   vignetteExpiryDate?: Date
@@ -1366,6 +1586,16 @@ export interface BookingInfo {
   additionalDriver?: boolean
   _additionalDriver?: Types.ObjectId
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request. */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request. */
+  cancelRequestBy?: Types.ObjectId
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: Types.ObjectId
+  /** F3 / W1 #1 — staff cancellation record (see bookcars-types). */
+  cancellationRecord?: Booking['cancellationRecord']
   price: number
   /** GA-PAR-22: trash fields (lists carry the scalars, never the history). */
   deletedAt?: Date | null

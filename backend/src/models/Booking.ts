@@ -105,12 +105,58 @@ const bookingSchema = new Schema<env.Booking>(
       type: Boolean,
       default: false,
     },
+    // F3 / W1 #9 — when the customer filed the cancel request
+    // (server-stamped by cancelBooking; cleared on decide/cancel).
+    cancelRequestAt: {
+      type: Date,
+    },
+    // F3 / W1 #9 — who filed the cancel request (server-stamped).
+    cancelRequestBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    // F4 / W1 #7 — server-stamped no-show record (mark-no-show). No
+    // refund/fee decision is recorded here (ADR-001-gated).
+    noShowAt: {
+      type: Date,
+    },
+    noShowBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    // F3 / W1 #1 — staff cancellation record. The refund decision is
+    // the staff member's explicit choice at approval time; the code
+    // never auto-decides a refund amount (ADR-001 gated, GAPS.md §5).
+    cancellationRecord: {
+      reason: { type: String, maxlength: 1000 },
+      cancelledBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      cancelledAt: { type: Date },
+      refundDecision: { type: String, enum: ['full', 'none', 'manual'] },
+      refundStatus: { type: String, enum: ['none', 'refunded', 'pending'] },
+      rentPaid: { type: Number, min: 0 },
+      depositPaid: { type: Number, min: 0 },
+      refundedRent: { type: Number, min: 0 },
+      refundedDeposit: { type: Number, min: 0 },
+      refundProviderReferences: [{ type: String }],
+      refundedAt: { type: Date },
+      requestedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      requestedAt: { type: Date },
+    },
     sessionId: {
       type: String,
       index: true,
     },
+    // F4 / W1 #15 — restores upstream's sparse-unique backstop against
+    // one PaymentIntent finalising two bookings (removed in GA without
+    // a cited decision; the finalisation guard was the only backstop).
+    // Sparse: bookings without an intent (pay-later, manual) are
+    // untouched. DEPLOY PRECONDITION: the target database must be
+    // checked for duplicate paymentIntentId values BEFORE deploy —
+    // duplicates fail the boot (initialize() -> createIndexes()).
     paymentIntentId: {
       type: String,
+      unique: true,
+      sparse: true,
     },
     customerId: {
       type: String,
@@ -171,6 +217,32 @@ const bookingSchema = new Schema<env.Booking>(
       priceDelta: { type: Number },
       basisDailyRate: { type: Number },
       basisDays: { type: Number },
+      // F4 / W1 #6 — the correction this amendment recorded, if any
+      // (only the fields that actually changed are present).
+      correction: {
+        pickupLocationBefore: { type: String },
+        pickupLocationAfter: { type: String },
+        dropOffLocationBefore: { type: String },
+        dropOffLocationAfter: { type: String },
+        carBefore: { type: String },
+        carAfter: { type: String },
+        optionsBefore: {
+          cancellation: { type: Boolean },
+          amendments: { type: Boolean },
+          theftProtection: { type: Boolean },
+          collisionDamageWaiver: { type: Boolean },
+          fullInsurance: { type: Boolean },
+          additionalDriver: { type: Boolean },
+        },
+        optionsAfter: {
+          cancellation: { type: Boolean },
+          amendments: { type: Boolean },
+          theftProtection: { type: Boolean },
+          collisionDamageWaiver: { type: Boolean },
+          fullInsurance: { type: Boolean },
+          additionalDriver: { type: Boolean },
+        },
+      },
     }],
     // GA-PAR-07: apporteur commission SNAPSHOT captured at booking time
     // (mode/value = the agent default or the per-contract override then in
@@ -196,6 +268,12 @@ const bookingSchema = new Schema<env.Booking>(
       amountDueNow: Number,
       amountDueNowInPaymentCurrency: Number,
       quotedAt: Date,
+      // F2 / W4 GAP-10 — FX rate behind amountDueNowInPaymentCurrency
+      // (payment-currency units per 1 base-currency unit) + its source
+      // and capture time. Optional: pre-F2 snapshots carry no rate.
+      fxRate: Number,
+      fxSource: String,
+      fxAt: Date,
     },
     // GA-PAR-12: online client signing. `signingNonce` is the revocation
     // anchor for signing links: issue mints an HMAC capability token over

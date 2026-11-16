@@ -27,8 +27,19 @@ const Scheduler = () => {
   const [admin, setAdmin] = useState(false)
   const [allSuppliers, setAllSuppliers] = useState<bookcarsTypes.User[]>([])
   const [suppliers, setSuppliers] = useState<string[]>()
-  const [statuses, setStatuses] = useState(helper.getBookingStatuses().map((status) => status.value))
   const [filter, setFilter] = useState<bookcarsTypes.Filter | null>()
+  // F8 / W5 C3 — vehicle-by-day grid (one month table per vehicle).
+  const [grid, setGrid] = useState(false)
+  // F8 / W5 C5 — Void/Cancelled bookings are hidden by default (with
+  // a toggle to show them in the status filter); the scheduler only
+  // ever fetched the live statuses below.
+  const [statuses, setStatuses] = useState([
+    bookcarsTypes.BookingStatus.Pending,
+    bookcarsTypes.BookingStatus.Deposit,
+    bookcarsTypes.BookingStatus.Paid,
+    bookcarsTypes.BookingStatus.PaidInFull,
+    bookcarsTypes.BookingStatus.Reserved,
+  ])
 
   const handleSupplierFilterChange = (_suppliers: string[]) => {
     setSuppliers(_suppliers)
@@ -86,7 +97,22 @@ const Scheduler = () => {
                 <StatusFilter
                   onChange={handleStatusFilterChange}
                   className="cl-status-filter"
+                  initialStatuses={statuses}
                 />
+                <Button
+                  variant={grid ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setGrid(true)}
+                >
+                  {strings.GRID_VIEW}
+                </Button>
+                <Button
+                  variant={grid ? 'outlined' : 'contained'}
+                  size="small"
+                  onClick={() => setGrid(false)}
+                >
+                  {strings.MONTH_VIEW}
+                </Button>
                 <VehicleSchedulerFilter
                   onSubmit={handleVehicleSchedulerFilterSubmit}
                   className="cl-scheduler-filter"
@@ -100,7 +126,10 @@ const Scheduler = () => {
               suppliers={suppliers}
               statuses={statuses}
               filter={filter!}
+              user={user}
               language={user.language!}
+              canCreate={canManageBookings}
+              grid={grid}
             />
           </div>
         </div>

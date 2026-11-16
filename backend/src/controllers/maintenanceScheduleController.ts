@@ -4,6 +4,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import { resolveScheduleDue } from '../utils/maintenanceSchedule'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
@@ -66,9 +67,14 @@ const carInScope = async (carId: string, supplierId?: string, admin = false) => 
 
 const present = (row: env.MaintenanceSchedule) => {
   const item = row.toObject ? row.toObject() : row
-  if (item.status !== bookcarsTypes.MaintenanceScheduleStatus.Completed) {
-item.status = dueStatus(new Date(item.nextDueDate))
-}
+  // F7 / W3 M-4 — the live status merges the date leg and the mileage
+  // leg (utils/maintenanceSchedule.ts): the stored status is date-only
+  // and can be stale, so the payload always carries the merged status
+  // plus whether mileage is the trigger. Completed stays Completed.
+  const due = resolveScheduleDue(item as unknown as Parameters<typeof resolveScheduleDue>[0])
+  item.status = due.status
+  ;(item as unknown as Record<string, unknown>).dueByMileage = due.dueByMileage
+  ;(item as unknown as Record<string, unknown>).effectiveNextDueMileage = due.effectiveNextDueMileage
   return item
 }
 
@@ -79,7 +85,7 @@ export const list = async (req: Request, res: Response) => {
     if (Object.values(bookcarsTypes.MaintenanceScheduleStatus).includes(requestedStatus as bookcarsTypes.MaintenanceScheduleStatus)) {
 query.status = requestedStatus
 }
-    const rows = await MaintenanceSchedule.find(query).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate').populate('supplier', 'fullName')
+    const rows = await MaintenanceSchedule.find(query).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate odometerKm').populate('supplier', 'fullName')
     res.json(rows.map(present))
   } catch (err) {
  logger.error('[maintenanceSchedule.list]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -99,7 +105,7 @@ export const create = async (req: Request, res: Response) => {
  res.status(404).send('Vehicle not found'); return 
 }
     const row = await MaintenanceSchedule.create({ ...payload, supplier: car.supplier })
-    await row.populate([{ path: 'car', select: 'name licensePlate' }, { path: 'supplier', select: 'fullName' }])
+    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }])
     res.status(201).json(present(row))
   } catch (err) {
  logger.error('[maintenanceSchedule.create]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -122,7 +128,7 @@ export const update = async (req: Request, res: Response) => {
 }
     Object.assign(row, payload, { car: car._id })
     await row.save()
-    await row.populate([{ path: 'car', select: 'name licensePlate' }, { path: 'supplier', select: 'fullName' }])
+    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }])
     res.json(present(row))
   } catch (err) {
  logger.error('[maintenanceSchedule.update]', err); res.status(400).send(i18n.t('ERROR')) 

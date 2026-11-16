@@ -14,6 +14,8 @@
 .agency-payments__panel-title { padding:16px; font-weight:700; font-size:16px; border-bottom:1px solid #edf1f0; background:#fbfcfc; }
 .agency-payments__toolbar { display:flex; gap:12px; padding:16px; border-bottom:1px solid #edf1f0; }
 .agency-payments__toolbar .MuiTextField-root { flex:1; }
+/* F6 / W3 X-1 — server-pagination pager for the payments table. */
+.agency-payments__pager { display:flex; gap:12px; align-items:center; justify-content:flex-end; padding:14px 16px; border-top:1px solid #edf1f0; color:#5a6d71; font-size:13px; }
 .agency-payments__table-head,.agency-payments__row { display:grid; gap:12px; align-items:center; padding:14px 16px; }
 .agency-payments__table-head { color:#5a6d71; font-size:12px; font-weight:700; background:#f8faf9; }
 .agency-payments__payments-head,.agency-payments__payments-row { grid-template-columns:1fr 1.1fr 1.1fr 1.3fr .9fr 1fr 1fr .8fr 1.3fr 1.1fr; }

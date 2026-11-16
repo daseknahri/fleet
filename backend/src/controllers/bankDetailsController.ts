@@ -4,6 +4,7 @@ import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import BankDetails from '../models/BankDetails'
+import { isValidIban, isValidSwiftBic } from '../utils/bankValidation'
 
 /**
  * Upsert BankDetails.
@@ -28,6 +29,15 @@ export const upsert = async (req: Request, res: Response) => {
       swiftBic,
       showBankDetailsPage,
     } = body
+
+    // F8 / W5 S5 — same IBAN (mod-97) + SWIFT validation as the form:
+    // a non-empty value must be valid (empty stays allowed — the form's
+    // HTML `required` blocks an empty submit in the browser).
+    if ((typeof iban === 'string' && iban.trim() && !isValidIban(iban))
+      || (typeof swiftBic === 'string' && swiftBic.trim() && !isValidSwiftBic(swiftBic))) {
+      res.status(400).send('Invalid bank details')
+      return
+    }
 
     if (bankDetails) {
       bankDetails.accountHolder = accountHolder

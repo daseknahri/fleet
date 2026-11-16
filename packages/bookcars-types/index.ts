@@ -29,11 +29,51 @@ export enum ClientDocumentKind {
   Other = 'other',
 }
 
+/** F5b (W2-06): verification state of one client document. New uploads
+ * are `pending`; an operator with document-management rights marks them
+ * `verified` or `rejected` through the verify endpoint. */
+export enum ClientDocumentStatus {
+  Pending = 'pending',
+  Verified = 'verified',
+  Rejected = 'rejected',
+}
+
+/** F5b (W2-14): kinds of privately stored car documents. */
+export enum CarDocumentKind {
+  Insurance = 'insurance',
+  TechnicalInspection = 'technicalInspection',
+  Vignette = 'vignette',
+  Other = 'other',
+}
+
 /** GA-PAR-04: one privately stored client document (identity pack). */
 export interface ClientDocument {
   kind: ClientDocumentKind | string
   file: string
   originalName?: string
+  uploadedAt?: Date
+  /** F5b (W2-06): verification state (default `pending`); `verifiedBy` /
+   * `verifiedAt` record who decided it and when (the decision instant
+   * for both `verified` and `rejected`). There is no separate "expired"
+   * state — expiry is derived in the UI from the linked identity date
+   * (kind cin → cinExpiry, passport → passportExpiry, license →
+   * licenseExpiry). */
+  status?: ClientDocumentStatus | string
+  verifiedBy?: string
+  verifiedAt?: Date
+}
+
+/** F5b (W2-14): one privately stored car document. `expiryDate` is the
+ * document's own expiry (e.g. the insurance policy's end date) and is
+ * independent of the car's `insuranceExpiryDate` field — the operator
+ * may store the file without re-typing the date, or the other way
+ * round. The file itself lives in the private car-documents store;
+ * only the owning agency / admin can download it. */
+export interface CarDocument {
+  kind: CarDocumentKind | string
+  file: string
+  originalName?: string
+  expiryDate?: Date
   uploadedAt?: Date
 }
 
@@ -148,6 +188,13 @@ export enum CashMovementSource {
   Manual = 'manual',
   Transfer = 'transfer',
   Adjustment = 'adjustment',
+  // F6 / W3 C-7 — a movement created automatically from a ledger cash
+  // payment (RentalPayment with method cash), linked to that payment.
+  RentalPayment = 'rentalPayment',
+  // F7 / W3 M-2 — a movement created automatically from a cash expense
+  // payment (MaintenanceExpensePayment with method cash), linked to
+  // that payment. Same confirmed-Out pattern as RentalPayment.
+  ExpensePayment = 'expensePayment',
 }
 
 export enum InvoiceStatus {
@@ -441,6 +488,9 @@ export interface CreateAgencyMembershipPayload {
   fullName?: string
   password?: string
   role: AgencyRole
+  // F8 / W5 T4 — optional initial status: Active (default) or Pending
+  // ("created but not yet activated"). No invitation email is ever sent.
+  status?: AgencyMembershipStatus
 }
 
 export interface UpdateAgencyMembershipPayload {
@@ -465,6 +515,8 @@ export interface ContractInspection {
   signatureFile?: string
   acknowledgedBy?: string | User
   actor?: string | User
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: ContractDispute
   createdAt?: Date
 }
 
@@ -537,6 +589,14 @@ export interface SettlementPreview {
   lines: SettlementPreviewLine[]
   unavailable: SettlementPreviewOmission[]
   omissions: SettlementPreviewOmission[]
+  /** F4 / W1 #7 — late return, informational only (no amount, no fee:
+   * any late fee is ADR-001-gated). Present only when the return
+   * inspection's occurredAt is past the booking's scheduled `to`. */
+  lateReturn?: {
+    returnedAt: Date
+    dueAt: Date
+    lateHours: number
+  }
 }
 
 /** GA-PAR-22 — one trash-history row (append-only, per document). */
@@ -586,6 +646,9 @@ export interface Booking {
   to: Date
   status: BookingStatus
   lifecycle?: ContractLifecycle
+  /** F4 / W1 #7 — computed read-model flag (lifecycle Active + past
+   * `to`); never stored, set by getBooking / list endpoints. */
+  overdue?: boolean
   cancellation?: boolean
   amendments?: boolean
   theftProtection?: boolean
@@ -594,6 +657,16 @@ export interface Booking {
   additionalDriver?: boolean
   _additionalDriver?: string | AdditionalDriver
   cancelRequest?: boolean
+  /** F3 / W1 #9 — when the customer filed the cancel request (server-stamped). */
+  cancelRequestAt?: Date
+  /** F3 / W1 #9 — who filed the cancel request (server-stamped). */
+  cancelRequestBy?: string | User
+  /** F4 / W1 #7 — server-stamped no-show record (mark-no-show). */
+  noShowAt?: Date
+  /** F4 / W1 #7 — who marked the booking as a no-show. */
+  noShowBy?: string | User
+  /** F3 / W1 #1 — staff cancellation record (reason, refund decision, amounts at stake). */
+  cancellationRecord?: BookingCancellationRecord
   price?: number
   sessionId?: string
   paymentIntentId?: string
@@ -639,6 +712,94 @@ export interface Booking {
 }
 
 /**
+ * F3 / W1 #1 + #9 — the staff cancellation record written by the cancel
+ * workflow (never client-supplied). The refund amount is NEVER auto-decided
+ * by the code: `refundDecision` is the staff member's explicit choice at
+ * approval time (ADR-001 deposit release/retain/refund rules are an open
+ * owner decision — see GAPS.md §5). `full` reverses every posted payment
+ * (provider refund first, via the F1 reversal path); `none` keeps the money
+ * collected; `manual` cancels now and leaves the refund to staff in the
+ * provider dashboard (`refundStatus: 'pending'`). `rentPaid` /
+ * `depositPaid` are the computed amounts at stake at cancel time, so staff
+ * can see exactly what the decision covers. A partial refund is NOT
+ * executed by this workflow — it stays a `manual` (pending) step.
+ */
+export type CancelRefundDecision = 'full' | 'none' | 'manual'
+
+export type CancelRefundStatus = 'none' | 'refunded' | 'pending'
+
+export interface BookingCancellationRecord {
+  reason: string
+  cancelledBy: string
+  cancelledAt: Date
+  refundDecision: CancelRefundDecision
+  refundStatus: CancelRefundStatus
+  /** Posted rent collected at cancel time (base currency). */
+  rentPaid: number
+  /** Posted deposit collected at cancel time (base currency). */
+  depositPaid: number
+  /** Rent actually reversed (0 unless the decision executed a refund). */
+  refundedRent: number
+  /** Deposit actually reversed (0 unless the decision executed a refund). */
+  refundedDeposit: number
+  /** Provider refund references returned by executed reversals, if any. */
+  refundProviderReferences?: string[]
+  refundedAt?: Date
+  /** Who filed the customer cancel request this cancellation answers, if any. */
+  requestedBy?: string
+  requestedAt?: Date
+}
+
+/** F3 / W1 #1 — staff cancel payload (POST /api/bookings/:id/cancel). */
+export interface CancelBookingPayload {
+  reason: string
+  refundDecision: CancelRefundDecision
+}
+
+/** F3 / W1 #9 — cancel-request decision payload. */
+export interface DecideCancelRequestPayload {
+  decision: 'approve' | 'deny'
+  reason: string
+  /** Required when approving; ignored when denying. */
+  refundDecision?: CancelRefundDecision
+}
+
+/** F3 / W1 #3 — staff manual payment-confirmation payload. */
+export interface ConfirmManualPaymentPayload {
+  /** Cash (or other method) amount just collected. Omit to confirm from already-posted payments only. */
+  amount?: number
+  method?: RentalPaymentMethod
+  /** Purpose of a collected amount (default Rent — the amount due now is rent + approved charges). */
+  purpose?: RentalPaymentPurpose
+  currency?: string
+  note?: string
+  reference?: string
+}
+
+/** F3 / W1 #9 — one row of the cancel-request queue. */
+export interface CancelRequestRow {
+  booking: Booking
+  currency: string
+  /** Posted rent collected so far (base currency). */
+  rentPaid: number
+  /** Posted deposit collected so far (base currency). */
+  depositPaid: number
+  /** Rent + approved charges still outstanding (base currency). */
+  outstandingBalance: number
+  requestedAt?: Date
+}
+
+/** F4 / W1 #7 — one row of the overdue (late-return) list. */
+export interface OverdueBookingRow {
+  booking: Booking
+  currency: string
+  /** The scheduled return time the booking is overdue since. */
+  overdueSince: Date
+  /** Whole hours past the scheduled return (ceiled, helper.hours). */
+  overdueHours: number
+}
+
+/**
  * GA-PAR-12 — the recorded online client signature on a booking.
  * `file` is the stored PNG name inside the private contracts store
  * (served only through authenticated routes); `contentHash` is the
@@ -679,6 +840,19 @@ export interface SignBookingPayload {
   signaturePngBase64: string
 }
 
+/** F4 / W1 #6 — the correction an amendment recorded (only the fields
+ * that actually changed are present). */
+export interface BookingAmendmentCorrection {
+  pickupLocationBefore?: string
+  pickupLocationAfter?: string
+  dropOffLocationBefore?: string
+  dropOffLocationAfter?: string
+  carBefore?: string
+  carAfter?: string
+  optionsBefore?: CarOptions
+  optionsAfter?: CarOptions
+}
+
 /**
  * GA-PAR-11 — one recorded contract amendment (POST /api/bookings/:id/amend).
  * `by`/`at` are stamped server-side; `reason` is the only operator text.
@@ -699,6 +873,8 @@ export interface BookingAmendment {
   priceDelta: number
   basisDailyRate?: number
   basisDays?: number
+  /** F4 / W1 #6 — the correction this amendment recorded, if any. */
+  correction?: BookingAmendmentCorrection
 }
 
 /** GA-PAR-11 — payload for POST /api/bookings/:id/amend. */
@@ -710,6 +886,21 @@ export interface AmendBookingPayload {
    * from an agency Owner/Manager, and only stamped when a conflict
    * was actually bypassed. Maintenance conflicts are never bypassed. */
   overlapException?: { reason: string }
+
+  /** F4 / W1 #6 — correction inputs (see bookingAmendmentController):
+   * new pickup/drop-off locations, a replacement vehicle, add-on
+   * option corrections (present + boolean only), and the additional
+   * driver details (required when turning that option on). */
+  pickupLocation?: string
+  dropOffLocation?: string
+  car?: string
+  cancellation?: boolean
+  amendments?: boolean
+  theftProtection?: boolean
+  collisionDamageWaiver?: boolean
+  fullInsurance?: boolean
+  additionalDriver?: boolean
+  additionalDriverDetails?: { fullName: string, email: string, phone: string, birthDate: string | Date }
 }
 
 /**
@@ -761,6 +952,23 @@ export interface BookingFinancialSnapshot {
   amountDueNow: number
   amountDueNowInPaymentCurrency: number
   quotedAt: Date
+  /**
+   * F2 / W4 GAP-10 — FX rate behind `amountDueNowInPaymentCurrency`:
+   * payment-currency units per 1 base-currency unit (1 when the
+   * currencies match). Optional: snapshots written before this field
+   * existed carry no rate, and the ledger derives the ratio from the
+   * two stored amounts instead. Never `required` (F1 lesson: a required
+   * field would break legacy snapshot-less rows).
+   */
+  fxRate?: number
+  /**
+   * F2 / W4 GAP-10 — where `fxRate` came from: `'easy-currencies'` for
+   * a live conversion, `'identity'` when `paymentCurrency` is the base
+   * currency and no conversion happened.
+   */
+  fxSource?: string
+  /** F2 / W4 GAP-10 — when the rate was captured (== `quotedAt`). */
+  fxAt?: Date
 }
 
 export interface CheckoutPayload {
@@ -873,6 +1081,15 @@ export interface CreateCarPayload {
   supplier: string
   minimumAge: number
   locations: string[]
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional; the gallery and the car documents are
+  // managed through their own endpoints, never through this payload).
+  make?: string
+  model?: string
+  year?: number | null
+  odometerKm?: number | null
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
 
   // price fields
   hourlyPrice: number | null
@@ -1013,6 +1230,16 @@ export interface CreateUserPayload {
   licenseExpiry?: string | Date | null
   clientType?: ClientType | string
   clientStatus?: ClientStatus | string
+  /** F5b (W2-18): company-client fields (clientType=Company only;
+   * `companyName` is required for company clients). */
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  /** F5b (W2-05): consent. `consentAt` is server-derived (see
+   * clientIdentity.consentAtForTransition) and is never accepted from
+   * a payload — it is deliberately absent from this interface. */
+  consentGiven?: boolean
+  consentScope?: string[]
 }
 
 export interface UpdateUserPayload extends CreateUserPayload {
@@ -1146,9 +1373,18 @@ export interface User {
   licenseExpiry?: Date
   clientType?: ClientType | string
   clientStatus?: ClientStatus | string
+  companyName?: string
+  companyRegistration?: string
+  companyContactName?: string
+  consentGiven?: boolean
+  consentAt?: Date | null
+  consentScope?: string[]
   clientDocuments?: ClientDocument[]
   clientDocumentsCount?: number
   balanceDue?: number
+  /** F5b (W2-04): per-row document flags (customer rows only). */
+  documentsMissing?: boolean
+  documentsExpired?: boolean
   /** GA-PAR-22: trash / restore (client rows only — see backend models/User.ts). */
   deletedAt?: Date | null
   deletedBy?: string | User
@@ -1220,6 +1456,20 @@ export interface Car {
   supplier: User
   minimumAge: number
   locations: Location[]
+  // F5b (W2-12/W2-13/W2-19): vehicle identity + odometer + insurance
+  // policy (all optional). `odometerKm` is the car's current odometer
+  // reading — NOT `mileage`, which is the km/day rental allowance.
+  make?: string
+  model?: string
+  year?: number
+  odometerKm?: number
+  insuranceProvider?: string
+  insurancePolicyNumber?: string
+  // F5b (W2-14): additional gallery photos beyond the cover `image`
+  // (the cover stays `image` for backwards compatibility) and the
+  // privately stored car documents.
+  images?: string[]
+  documents?: CarDocument[]
 
   // price fields
   dailyPrice: number
@@ -1292,6 +1542,32 @@ export interface Car {
   [propKey: string]: any
 }
 
+/**
+ * F4 / W1 #7 — a dispute raised against a contract charge or inspection
+ * record (roadmap §3). A metadata flag only: it never edits the
+ * record's evidence. Open while `resolvedAt` is absent; resolving
+ * stamps who/when and the resolution. An open dispute blocks
+ * `complete`.
+ */
+export interface ContractDispute {
+  reason: string
+  raisedBy?: string | User
+  raisedAt: Date
+  resolvedAt?: Date
+  resolvedBy?: string | User
+  resolution?: string
+}
+
+/** F4 / W1 #7 — raise a dispute on a charge/inspection record. */
+export interface DisputeContractRecordPayload {
+  reason: string
+}
+
+/** F4 / W1 #7 — resolve an open dispute. */
+export interface ResolveContractDisputePayload {
+  resolution: string
+}
+
 export interface ContractCharge {
   _id?: string
   supplier: string | User
@@ -1306,6 +1582,8 @@ export interface ContractCharge {
   decidedBy?: string | User
   decidedAt?: Date
   decisionNote?: string
+  /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
+  dispute?: ContractDispute
   createdAt?: Date
   updatedAt?: Date
 }
@@ -1333,10 +1611,28 @@ export interface Invoice {
   subtotal: number
   taxAmount: number
   taxRate?: number | null
+  /** F7 / W3 B-3 — true when the tax was set by an explicit override
+   * (manual taxAmount, or a quote's verbatim tax) rather than computed
+   * from the supplier's configured VAT rate. The HT-vs-TTC basis is
+   * still an open ADR-001 decision; the flag only records provenance. */
+  taxOverride?: boolean
   total: number
   paidAmount?: number
   paymentStatus?: 'unpaid' | 'partial' | 'paid'
   payments?: string[]
+  // F7 / W3 B-2 — what the invoice looked like when it was voided.
+  // Voiding clears paidAmount / paymentStatus / payments (see
+  // voidInvoice); the snapshot keeps the record of what was paid
+  // before the void, so a voided invoice never shows a stale paid
+  // status and the money is never silently forgotten.
+  voidedPaidAmount?: number
+  voidedPaymentStatus?: 'unpaid' | 'partial' | 'paid'
+  // F7 / W3 B-4 — delivery log (status tracking ONLY: no sending is
+  // built — SMTP/Resend is owner-decision pending, SMS/WhatsApp
+  // adapters are gated). One entry per recorded delivery.
+  deliveries?: Array<{ channel: InvoiceDeliveryChannel, at: Date, by?: string | User }>
+  // F7 / W3 B-5 — log of payments unlinked from this invoice.
+  unlinkLog?: Array<{ payment: string, reason: string, at: Date, by?: string | User }>
   issuedAt?: Date
   issuedBy?: string | User
   voidedAt?: Date
@@ -1345,6 +1641,16 @@ export interface Invoice {
   createdAt?: Date
   updatedAt?: Date
 }
+
+/** F7 / W3 B-4 — invoice delivery channels (tracking only, no sending). */
+export enum InvoiceDeliveryChannel {
+  Print = 'print',
+  Email = 'email',
+  Whatsapp = 'whatsapp',
+}
+
+export interface RecordInvoiceDeliveryPayload { channel: InvoiceDeliveryChannel }
+export interface UnlinkInvoicePaymentPayload { payment: string, reason: string }
 
 export interface CreateInvoicePayload { booking: string; taxAmount?: number }
 export interface VoidInvoicePayload { reason: string }
@@ -1609,6 +1915,9 @@ export interface ReportViewConfig {
   carId?: string
   groupBy: ReportGroupBy
   compare: boolean
+  // F7 / W3 R-5 — the cash/bank channel scope this view was saved
+  // with; applying the view restores it (it used to force scope All).
+  scope?: ReportScope
 }
 
 /** GA-PAR-14 — saved reports-builder view (owned by one user). */
@@ -1634,7 +1943,9 @@ export interface UpdateReportViewPayload {
   config?: ReportViewConfig
 }
 
-/** GA-PAR-14 — one reports-builder result row. */
+/** GA-PAR-14 — one reports-builder result row.
+ * F7 / W3 R-7 — `net` is CASH-basis (collected − paidExpenses);
+ * `netAccrued` is the accrual figure (collected − expenses). */
 export interface ReportBuilderRow {
   key: string
   carId?: string
@@ -1642,7 +1953,10 @@ export interface ReportBuilderRow {
   collected: number
   remaining: number
   expenses: number
+  /** F7 / W3 R-7 — Σ MaintenanceExpense.paidAmount for the row. */
+  paidExpenses: number
   net: number
+  netAccrued: number
   bookingsCount: number
   occupancyPct?: number
 }
@@ -1652,7 +1966,13 @@ export interface ReportBuilderTotals {
   collected: number
   remaining: number
   expenses: number
+  /** F7 / W3 R-7 — Σ MaintenanceExpense.paidAmount for the period. */
+  paidExpenses: number
   net: number
+  netAccrued: number
+  /** F7 / W3 R-7 — expenses whose paidAmount is null (untracked). */
+  untrackedExpenses: number
+  untrackedExpenseAmount: number
   bookingsCount: number
   occupancyPct?: number
 }
@@ -1694,6 +2014,8 @@ export interface ReportDrilldownResult {
   groupBy: ReportGroupBy
   carId?: string
   bucket?: string
+  // F7 / W3 R-5 — the scope the drill-down was computed under.
+  scope: ReportScope
   limit: number
   bookings: Array<{ id: string, reference: string | null, carId: string, from: string, to: string, contractAmount: number, collected: number, remaining: number }>
   payments: Array<{ id: string, bookingId: string, date: string, amount: number }>
@@ -1702,7 +2024,7 @@ export interface ReportDrilldownResult {
 }
 
 /** GA-PAR-09 Phase B / GA-PAR-14 — dashboard period aggregate. */
-/** GA-PAR-17 — payments collections summary (dictionary v2026-11-11.2). */
+/** GA-PAR-17 — payments collections summary (dictionary v2026-11-15.1). */
 export interface CollectionsSummary {
   metricDictionaryVersion: string
   currency: string
@@ -1711,6 +2033,11 @@ export interface CollectionsSummary {
   remaining: number
   collectionRatePct: number | null
   bookingsCount: number
+  // F6 / W3 X-1 — net posted payments (rent + deposits, debits
+  // negative), agency-wide. The Payments page's TOTAL card used to
+  // sum this client-side from the full payment list; the list is
+  // server-paginated now, so the server computes it.
+  postedNetTotal: number
 }
 
 export interface DashboardSummary {
@@ -1724,6 +2051,14 @@ export interface DashboardSummary {
   collected: number
   remaining: number
   contracts: number
+  // F8 / W5 D3 + D4 — server-side fleet counts, exact at any scale:
+  // total live cars, cars available right now (flag + in service and
+  // NOT out on a live booking overlapping now), and cars on rent.
+  fleet: { total: number, available: number, onRent: number }
+  // F8 / W5 D4 — server-side count of expiring documents (same rule
+  // as the documents widget): exact total, while the widget's list
+  // stays capped at 10 rows.
+  documentsExpiring: number
 }
 
 /**
@@ -1766,6 +2101,22 @@ export interface CashSession {
   countedClosingBalance?: number
   discrepancy?: number
   closingNote?: string
+  // F6 / W3 C-1 — the previous closed session's counted balance this
+  // opening was chained from (undefined on a first session), and the
+  // operator's recorded reason when the opening differs from it.
+  previousClosingBalance?: number
+  openingDifferenceReason?: string
+  // F6 / W3 C-4 — pending entries explicitly carried through a close
+  // (counts/totals at close time + the recorded carry reason), and the
+  // discrepancy approval (tolerance is zero: any discrepancy needs an
+  // explicit approval + reason recorded here).
+  pendingCarriedCount?: number
+  pendingCarriedIn?: number
+  pendingCarriedOut?: number
+  pendingCarryReason?: string
+  discrepancyReason?: string
+  discrepancyApprovedBy?: string | User
+  discrepancyApprovedAt?: Date
   createdAt?: Date
   updatedAt?: Date
 }
@@ -1780,6 +2131,18 @@ export interface CashMovement {
   direction: CashMovementDirection
   amount: number
   source: CashMovementSource
+  // F6 / W3 C-4 — counter-agent entries stay 'pending' until confirmed
+  // (owner decision 1.5); movements written before the status field
+  // existed carry no status and count as confirmed.
+  status?: 'pending' | 'confirmed'
+  confirmedBy?: string | User
+  confirmedAt?: Date
+  // F6 / W3 C-7 — the ledger cash payment this movement was created
+  // from (cash-method RentalPayment), and that payment's purpose: a
+  // deposit-purpose movement is drawer cash held as a liability, never
+  // income. Manual movements carry no purpose.
+  rentalPayment?: string | RentalPayment
+  purpose?: RentalPaymentPurpose
   idempotencyKey?: string
   transferId?: string
   reference?: string
@@ -1792,7 +2155,11 @@ export interface OpenCashSessionPayload {
   supplier?: string
   account: CashAccountType
   currency?: string
-  openingBalance: number
+  // F6 / W3 C-1 — optional: omitted means "chain from the previous
+  // closed session's counted balance". An explicit value that differs
+  // from the chained balance requires openingDifferenceReason.
+  openingBalance?: number
+  openingDifferenceReason?: string
 }
 
 export interface CreateCashMovementPayload {
@@ -1809,6 +2176,14 @@ export interface CreateCashMovementPayload {
 export interface CloseCashSessionPayload {
   countedClosingBalance: number
   closingNote?: string
+  // F6 / W3 C-4 — closing with pending entries requires an explicit
+  // acknowledgement + carry reason (they are carried, never silently
+  // ignored); any nonzero discrepancy requires an explicit approval +
+  // reason (tolerance is zero).
+  acknowledgePending?: boolean
+  pendingCarryReason?: string
+  discrepancyApproved?: boolean
+  discrepancyReason?: string
 }
 
 export interface CreateCashTransferPayload {
@@ -1836,6 +2211,10 @@ export interface MaintenanceWorkOrder {
   vendor?: string
   note?: string
   expense?: string
+  // F7 / W3 M-5 — server-computed from linked expenses (list only):
+  // the total amount and count of expenses linked to this work order.
+  expenseTotal?: number
+  expenseCount?: number
   createdAt?: Date
   updatedAt?: Date
 }
@@ -1858,10 +2237,14 @@ export interface MaintenanceExpense {
   supplier: string | User
   // GA-PAR-16: car is OPTIONAL — a general expense is tied to no car.
   car?: string | Car | null
+  // F7 / W3 M-5 — the work order this expense belongs to, if any.
+  workOrder?: string | MaintenanceWorkOrder | null
   date: Date
   type: MaintenanceExpenseType
   amount: number
   // GA-PAR-16: null = untracked/legacy (no payment state recorded).
+  // F7 / W3 M-2: once payment records exist, paidAmount is the SUM of
+  // those records, recomputed server-side — never typed in by hand.
   paidAmount?: number | null
   // GA-PAR-16: derived by the backend in every payload, never stored.
   paymentStatus?: MaintenanceExpensePaymentStatus
@@ -1876,16 +2259,81 @@ export interface MaintenanceExpense {
 export interface UpsertMaintenanceExpensePayload {
   // GA-PAR-16: optional — omit/null for a general (car-less) expense.
   car?: string | null
+  // F7 / W3 M-5: omit = leave unchanged on update / unlinked on
+  // create; null = unlink; an id must exist, belong to the expense's
+  // agency, and (when the expense has a car) to that same car.
+  workOrder?: string | null
   date: Date | string
   type: MaintenanceExpenseType
   amount: number
   // GA-PAR-16: omit = leave unchanged on update / untracked on create;
   // null = untracked; a number must satisfy 0 <= paidAmount <= amount.
+  // F7 / W3 M-2: a NUMBER is rejected by the server (400) — paid
+  // amounts are recorded only via the payment endpoint, backed by a
+  // MaintenanceExpensePayment record.
   paidAmount?: number | null
   mileage?: number
   vendor?: string
   note?: string
   receipt?: string | null
+}
+
+/**
+ * F7 / W3 M-2 — one payment record against a maintenance expense.
+ * Append-only: payments are never edited or deleted, so `paidAmount`
+ * on the expense always traces to these records (and, for cash, to a
+ * CashMovement in the open cash session).
+ */
+export interface MaintenanceExpensePayment {
+  _id?: string
+  supplier: string | User
+  expense: string | MaintenanceExpense
+  date: Date
+  amount: number
+  currency: string
+  method: RentalPaymentMethod
+  reference?: string
+  note?: string
+  // F7 / W3 M-2 — the confirmed cash-session Out created from this
+  // payment when method is cash (null when no open session in the
+  // same currency existed; the payment still records, unlinked).
+  cashMovement?: string | null
+  actor?: string | User
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface CreateMaintenanceExpensePaymentPayload {
+  date: Date | string
+  amount: number
+  method: RentalPaymentMethod
+  reference?: string
+  note?: string
+}
+
+/**
+ * F7 / W3 M-7 — append-only audit trail for maintenance expenses,
+ * following the RentalPayment pattern (the payment ledger is
+ * append-only; expenses now get the same treatment). The `expense`
+ * id is kept after the expense is deleted, so the trail survives
+ * a hard delete.
+ */
+export enum MaintenanceExpenseAuditAction {
+  Created = 'created',
+  Updated = 'updated',
+  Deleted = 'deleted',
+}
+
+export interface MaintenanceExpenseAudit {
+  _id?: string
+  supplier: string | User
+  expense: string
+  action: MaintenanceExpenseAuditAction
+  actor?: string | User
+  reason?: string
+  changes?: Array<{ field: string, before?: string | number | null, after?: string | number | null }>
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 export interface MaintenanceSchedule {
@@ -1901,6 +2349,11 @@ export interface MaintenanceSchedule {
   nextDueDate: Date
   nextDueMileage?: number
   status: MaintenanceScheduleStatus
+  // F7 / W3 M-4 — live-computed by the server (present()): whether the
+  // schedule is overdue by mileage, and the effective next-due mileage
+  // (stored nextDueMileage, else lastServiceMileage + intervalKm).
+  dueByMileage?: boolean
+  effectiveNextDueMileage?: number | null
   note?: string
   createdAt?: Date
   updatedAt?: Date
@@ -1967,6 +2420,12 @@ export interface RentalPayment {
   actor?: string | User
   reversedFrom?: string | RentalPayment
   settledAt?: Date
+  // F6 / W3 C-7 — the cash session this cash-method payment was linked
+  // into (the drawer movement created for it, if any). Unset when no
+  // open cash session existed at posting/confirmation time; the payment
+  // is then listed as unlinked by the journal reconciliation until an
+  // operator links it.
+  cashSession?: string | CashSession
   reference?: string
   note?: string
   createdAt?: Date
@@ -1980,10 +2439,121 @@ export interface CreateRentalPaymentPayload {
   currency?: string
   method: RentalPaymentMethod
   purpose?: RentalPaymentPurpose
+  // F6 / W3 P-8 — an explicit 'debit' records a manual debit /
+  // standalone refund entry (ledger only, source forced to Adjustment,
+  // accountant-or-above only, reason required). Omitted means credit.
+  direction?: RentalPaymentDirection
+  reason?: string
   idempotencyKey?: string
   providerReference?: string
   reference?: string
   note?: string
+}
+
+// F6 / W3 P-8 — edit of a stuck Pending ledger entry (never-posted
+// money only): the fields an operator may correct before the entry can
+// confirm. Posted/Reversed entries are append-only and cannot be edited.
+export interface UpdateRentalPaymentPayload {
+  date?: Date
+  amount?: number
+  method?: RentalPaymentMethod
+  purpose?: RentalPaymentPurpose
+  reference?: string
+  note?: string
+}
+
+// F6 / W3 X-1 — server-side pagination envelope for the finance list
+// endpoints (payments, invoices, expenses, cash sessions/movements).
+// `total` is the full filtered count, not the page size.
+export interface PagedResult<T> {
+  rows: T[]
+  total: number
+  page: number
+  size: number
+}
+
+// F6 / W3 C-5 — one cash-journal row: a session movement (confirmed or
+// pending), enriched with its linked ledger payment when the movement
+// was created from one (C-7). Deposits are identified by `purpose`, so
+// the journal can keep them out of income.
+export interface CashJournalRow {
+  id: string
+  date: Date
+  direction: CashMovementDirection
+  source: CashMovementSource
+  status: 'pending' | 'confirmed'
+  purpose?: RentalPaymentPurpose
+  reference?: string
+  note?: string
+  amount: number
+  rentalPayment?: string
+  bookingReference?: string
+}
+
+// F6 / W3 C-5 — journal headline figures, all computed server-side from
+// the session's movements under one scope. Only settled/confirmed
+// movements count: pending entries are reported separately and never in
+// income/expenses; deposit-purpose cash is held as a liability, never
+// income; net = income − expenses (deposits excluded). expectedBalance
+// is the drawer's expected close (opening + income + deposits −
+// expenses) under the same confirmed-only rule close() uses.
+export interface CashJournalTotals {
+  openingBalance: number
+  income: number
+  expenses: number
+  deposits: number
+  net: number
+  pendingIn: number
+  pendingOut: number
+  expectedBalance: number
+  currency: string
+}
+
+// F6 / W3 C-7 — a cash-method ledger payment with no drawer movement
+// (posted while no cash session was open, or before the linkage
+// existed). Listed by the journal reconciliation so the two books'
+// difference is visible, never silently dropped.
+export interface UnlinkedCashPaymentRow {
+  id: string
+  date: Date
+  bookingReference?: string
+  purpose: RentalPaymentPurpose
+  direction: RentalPaymentDirection
+  status: RentalPaymentStatus
+  amount: number
+  currency: string
+}
+
+export interface CashJournalResponse {
+  session: CashSession
+  rows: CashJournalRow[]
+  totals: CashJournalTotals
+  unlinkedCashPayments: UnlinkedCashPaymentRow[]
+  unlinkedCashTotal: number
+  total: number
+  page: number
+  size: number
+}
+
+// F6 / W3 P-3 — one row of the shared outstanding/receivable table:
+// the same definition every surface uses (see
+// utils/contractReceivable.ts): outstanding = max(0, rentalTotal +
+// APPROVED charges − posted rent), overdue only once the due date
+// (rental end) has passed. Deposits are held, never netted.
+export interface OverdueReceivableRow {
+  booking: Booking
+  outstandingBalance: number
+  depositHeld: number
+  dueAt?: Date
+  overdue: boolean
+  currency: string
+}
+
+export interface OverdueReceivableResponse {
+  metricDictionaryVersion: string
+  rows: OverdueReceivableRow[]
+  outstandingTotal: number
+  overdueTotal: number
 }
 
 export interface Data<T> {
@@ -2013,6 +2583,45 @@ export interface NotificationCounter {
   count: number
 }
 
+// F8 / W5 N3 — notification templates + delivery log. One template key
+// per notification kind; the delivery log records every send attempt
+// (in-app, email, push) per recipient so a failed send can be retried.
+export type NotificationTemplateKey =
+  | 'auto.pickup'
+  | 'auto.return'
+  | 'auto.overdue'
+  | 'auto.expiry'
+  | 'weekly.recap'
+  | 'reminder.manual'
+  | 'contract.signed'
+
+export type NotificationDeliveryChannel = 'inApp' | 'email' | 'push'
+
+export type NotificationDeliveryStatus = 'queued' | 'sent' | 'failed'
+
+export interface NotificationDelivery {
+  _id?: string
+  supplier: string | User
+  templateKey: NotificationTemplateKey
+  subjectType?: string
+  subjectId?: string
+  // Exactly-once key for the event (e.g. `pickup:<bookingId>:2026-11-17`);
+  // the unique index covers templateKey + subjectType + subjectId +
+  // dedupeKey + channel + recipient.
+  dedupeKey: string
+  channel: NotificationDeliveryChannel
+  recipient: string | User
+  subject?: string
+  body: string
+  status: NotificationDeliveryStatus
+  attempts: number
+  lastError?: string
+  providerId?: string
+  sentAt?: Date | string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 export interface ResultData<T> {
   pageInfo: { totalRecords: number }
   resultData: T[]
@@ -2023,9 +2632,18 @@ export interface ResultData<T> {
 
 export type Result<T> = [ResultData<T>] | [] | undefined | null
 
+/** F5b (W2-04): client-list filters (Clients page toolbar). */
+export interface ClientListFilters {
+  clientStatus?: ClientStatus | string
+  clientType?: ClientType | string
+  missingDocs?: boolean
+  hasContracts?: boolean
+}
+
 export interface GetUsersBody {
   user: string
   types: UserType[]
+  filters?: ClientListFilters
 }
 
 export interface CreatePaymentPayload {
@@ -2072,6 +2690,7 @@ export interface SendEmailPayload {
   subject: string
   message: string
   isContactForm: boolean
+  recaptchaToken?: string
 }
 
 export interface Response<T> {
@@ -2110,6 +2729,15 @@ export interface UpdateSettingsPayload {
   minRentalHours: number
   minPickupDropoffHour: number
   maxPickupDropoffHour: number
+}
+
+// F8 / W5 S1 — connections status for /settings: booleans only, no
+// secrets. `true` means the credential is present in the environment.
+export interface SettingsConnections {
+  stripe: boolean
+  paypal: boolean
+  smtp: boolean
+  push: boolean
 }
 
 // 
@@ -2163,6 +2791,8 @@ export interface ImportRowError {
 /**
  * GA-PAR-15 — import report, identical in shape for dry-run and commit.
  * `created` is 0 on a dry run (a dry run persists nothing).
+ * F5b (W2-15): `rolledBack` is true when a commit-phase failure
+ * stopped the run and the rows created so far were rolled back.
  */
 export interface ImportReport {
   entity: ImportEntity
@@ -2172,6 +2802,7 @@ export interface ImportReport {
   invalidRows: number
   created: number
   errors: ImportRowError[]
+  rolledBack?: boolean
 }
 
 /**
