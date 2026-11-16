@@ -138,7 +138,11 @@ describe('current server-priced provider callback contract', () => {
     })
     const response = await request(app).post(`/api/check-checkout-session/${booking.sessionId}`)
     expect(response.status).toBe(409)
-    expect(stripeIntentRetrieve).not.toHaveBeenCalled()
+    // GAP-05: a paid session with mismatched metadata is refund-checked
+    // before answering — the intent IS retrieved to see whether it
+    // succeeded (refundSucceededIntent); here the mock intent is not
+    // succeeded, so no refund is issued.
+    expect(stripeIntentRetrieve).toHaveBeenCalledWith('pi_current_mismatch')
     expect(stripeRefundCreate).not.toHaveBeenCalled()
   })
 

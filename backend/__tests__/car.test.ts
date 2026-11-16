@@ -180,7 +180,10 @@ describe('POST /api/create-car', () => {
     const startDate1 = new Date()
     const endDate1 = new Date(startDate1)
     endDate1.setDate(endDate1.getDate() + 1)
+    // F5b (W2-10): back-to-back means next start = previous end + 1 day;
+    // a start equal to the previous end is an overlap (400).
     const startDate2 = new Date(endDate1)
+    startDate2.setDate(startDate2.getDate() + 1)
     const endDate2 = new Date(startDate2)
     endDate2.setDate(endDate2.getDate() + 1)
 
@@ -231,6 +234,11 @@ describe('POST /api/create-car', () => {
     await notificationCounter.save()
 
     // test failure (no image)
+    // L6: fresh plate — the payload still carries CAR2's plate
+    // ('ABC-1235' under SUPPLIER2_ID) and the duplicate-plate check
+    // runs before the image check, so these cases would 409
+    // PLATE_IN_USE instead of exercising the image validation.
+    payload.licensePlate = 'ABC-1236'
     payload.image = undefined
     res = await request(app)
       .post('/api/create-car')
@@ -259,11 +267,14 @@ describe('PUT /api/update-car', () => {
     startDate1.setDate(startDate1.getDate() + 1)
     const endDate1 = new Date(startDate1)
     endDate1.setDate(endDate1.getDate() + 2)
+    // F5b (W2-10): as in create above — back-to-back is previous end + 1 day.
     const startDate2 = new Date(endDate1)
+    startDate2.setDate(startDate2.getDate() + 1)
     const endDate2 = new Date(startDate2)
     endDate2.setDate(endDate2.getDate() + 2)
 
     const startDate3 = new Date(endDate2)
+    startDate3.setDate(startDate3.getDate() + 1)
     const endDate3 = new Date(startDate3)
     endDate3.setDate(endDate3.getDate() + 2)
 
@@ -1067,7 +1078,9 @@ describe('GET /api/validate-license-plate/:licensePlate', () => {
       .set(env.X_ACCESS_TOKEN, token)
 
     expect(res.statusCode).toBe(400)
-    expect(res.text).toContain('DB') // or the localized DB_ERROR message
+    // Catches send the generic i18n.t('ERROR') ('Internal Error: ') —
+    // never DB_ERROR or the thrown message — so assert that string.
+    expect(res.text).toContain('Internal Error')
 
     // restore original function
     spy.mockRestore()
@@ -1108,7 +1121,9 @@ describe('GET /api/validate-license-plate/:id/:licensePlate', () => {
       .set(env.X_ACCESS_TOKEN, token)
 
     expect(res.statusCode).toBe(400)
-    expect(res.text).toContain('DB') // or the localized DB_ERROR message
+    // Catches send the generic i18n.t('ERROR') ('Internal Error: ') —
+    // never DB_ERROR or the thrown message — so assert that string.
+    expect(res.text).toContain('Internal Error')
 
     // restore original function
     spy.mockRestore()
@@ -1121,10 +1136,33 @@ describe('DELETE /api/delete-car/:id', () => {
   it('should delete a car', async () => {
     const token = await testHelper.signinAsAdmin()
 
-    // test success
+    // GA-PAR-22: deleteCar is purge-from-trash ONLY — a live car
+    // refuses 409 NOT_TRASHED, and a purge without a reason 400s
+    // PURGE_REASON. Probe both guards on CAR1 first.
     let res = await request(app)
       .delete(`/api/delete-car/${CAR1_ID}`)
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
+    expect(res.statusCode).toBe(409)
+    expect(res.text).toContain('NOT_TRASHED')
+
+    // test success (trash first, then purge with a reason)
+    res = await request(app)
+      .post(`/api/trash-car/${CAR1_ID}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test trash' })
+    expect(res.statusCode).toBe(200)
+
+    res = await request(app)
+      .delete(`/api/delete-car/${CAR1_ID}`)
+      .set(env.X_ACCESS_TOKEN, token)
+    expect(res.statusCode).toBe(400)
+    expect(res.text).toContain('PURGE_REASON')
+
+    res = await request(app)
+      .delete(`/api/delete-car/${CAR1_ID}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(200)
 
     // test success (date based prices)
@@ -1132,8 +1170,14 @@ describe('DELETE /api/delete-car/:id', () => {
     let dbps = await DateBasedPrice.find({ _id: { $in: car?.dateBasedPrices } })
     expect(dbps.length).toBe(3)
     res = await request(app)
+      .post(`/api/trash-car/${CAR2_ID}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test trash' })
+    expect(res.statusCode).toBe(200)
+    res = await request(app)
       .delete(`/api/delete-car/${CAR2_ID}`)
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(200)
     dbps = await DateBasedPrice.find({ _id: { $in: car?.dateBasedPrices } })
     expect(dbps.length).toBe(0)
@@ -1165,8 +1209,14 @@ describe('DELETE /api/delete-car/:id', () => {
     })
     await car.save()
     res = await request(app)
+      .post(`/api/trash-car/${car._id.toString()}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test trash' })
+    expect(res.statusCode).toBe(200)
+    res = await request(app)
       .delete(`/api/delete-car/${car._id.toString()}`)
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(200)
 
     // test success (image not found)
@@ -1196,20 +1246,32 @@ describe('DELETE /api/delete-car/:id', () => {
     })
     await car.save()
     res = await request(app)
+      .post(`/api/trash-car/${car._id.toString()}`)
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test trash' })
+    expect(res.statusCode).toBe(200)
+    res = await request(app)
       .delete(`/api/delete-car/${car._id.toString()}`)
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(200)
 
     // test success (car not found)
+    // The reason is validated before the lookup, so the 204 path
+    // needs a valid reason — without one this 400s PURGE_REASON.
     res = await request(app)
       .delete(`/api/delete-car/${testHelper.GetRandromObjectIdAsString()}`)
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(204)
 
     // test failure (wrong car id)
+    // A valid reason is sent so the 400 comes from the invalid id
+    // (CastError), not from the missing-reason guard.
     res = await request(app)
       .delete('/api/delete-car/0')
       .set(env.X_ACCESS_TOKEN, token)
+      .send({ reason: 'test purge' })
     expect(res.statusCode).toBe(400)
 
     await testHelper.signout(token)

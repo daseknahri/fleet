@@ -646,7 +646,18 @@ export const create = async (req: Request, res: Response) => {
         </p>`,
     }
 
-    await mailHelper.sendMail(mailOptions)
+    // F5b (W2-05/07/16/18): the client record is already persisted
+    // above — the activation email is a notification side effect, so a
+    // mail failure (e.g. SMTP unreachable from this host) must not turn
+    // the create into a 400. The caller would retry and hit the
+    // duplicate-email 409 for a client that already exists. Log the
+    // failure and still report success; the client can be activated
+    // from the Clients page (its Token above is already stored).
+    try {
+      await mailHelper.sendMail(mailOptions)
+    } catch (mailErr) {
+      logger.error(`[user.create] ${i18n.t('SMTP_ERROR')}`, mailErr)
+    }
     res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.create] ${i18n.t('ERROR')} ${JSON.stringify(body)}`, err)

@@ -885,7 +885,15 @@ ${i18n.t('REGARDS')}<br>
 </p>`,
               }
 
-              await mailHelper.sendMail(mailOptions)
+              // F5a: the notification record above is already saved —
+              // the mail is a side effect. A mail failure (e.g. SMTP
+              // unreachable from this host) must not turn the
+              // already-created car into a 400.
+              try {
+                await mailHelper.sendMail(mailOptions)
+              } catch (mailErr) {
+                logger.error(`[car.create] ${i18n.t('SMTP_ERROR')}`, mailErr)
+              }
             }
           }
         }
@@ -1155,14 +1163,36 @@ export const update = async (req: Request, res: Response) => {
           return
         }
         // F5b (W2-11): a row id in the payload must belong to THIS car —
-        // a crafted payload must not overwrite another car's row.
+        // a crafted payload must not overwrite another car's row. Only
+        // an id that EXISTS under another car is rejected: a nonexistent
+        // id (stale form state, bogus id) overwrites nothing — the merge
+        // loop below drops it (findById returns null) — so it is allowed
+        // through instead of failing the whole update. That tolerance is
+        // what the upstream car.test.ts car3 case locks in (random id,
+        // 200, 2 rows kept).
         const ownedRowIds = new Set(car.dateBasedPrices.map((id) => id.toString()))
         if (Array.isArray(dateBasedPrices)) {
+          const foreignCandidates: { index: number, id: string }[] = []
           for (let i = 0; i < dateBasedPrices.length; i += 1) {
             const row = dateBasedPrices[i] as { _id?: unknown } | null | undefined
             if (row && typeof row === 'object' && row._id && !ownedRowIds.has(String(row._id))) {
-              res.status(400).send(`Invalid dateBasedPrices[${i}]._id`)
-              return
+              foreignCandidates.push({ index: i, id: String(row._id) })
+            }
+          }
+          if (foreignCandidates.length > 0) {
+            // An id that is not a valid ObjectId cannot exist in the
+            // collection; the merge loop below answers it with the
+            // generic 400 from the outer catch (as it did for
+            // unresolvable ids before this check existed).
+            const checkable = foreignCandidates.filter((c) => mongoose.isValidObjectId(c.id))
+            if (checkable.length > 0) {
+              const existing = await DateBasedPrice.find({ _id: { $in: checkable.map((c) => c.id) } }).select('_id').lean()
+              const existingIds = new Set(existing.map((doc) => doc._id.toString()))
+              const firstForeign = checkable.find((c) => existingIds.has(c.id))
+              if (firstForeign) {
+                res.status(400).send(`Invalid dateBasedPrices[${firstForeign.index}]._id`)
+                return
+              }
             }
           }
         }

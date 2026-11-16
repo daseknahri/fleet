@@ -22,14 +22,62 @@ import LocationValue from '../src/models/LocationValue'
 // Workstream A, cluster F2 — FX cache + 503 (W4 GAP-02) and FX snapshot
 // + settled ledger legs (W4 GAP-10), following the
 // finalisationIntegrity harness. The rate service is mocked at the
-// easy-currencies boundary (no network); the providers are mocked
+// ':currency-converter' boundary (no network — see the L5 note on
+// mockConvert below); the providers are mocked
 // (no Stripe credentials, no live money) against the real Mongo-backed
 // app.
 
+// L5 — the rate service is mocked at the ':currency-converter'
+// boundary, NOT at 'easy-currencies'. convertPrice is
+// bookcarsHelper.convertPrice; the helper imports the converter
+// module, and the converter imports easy-currencies from ITS OWN
+// location (packages/currency-converter/), so
+// jest.unstable_mockModule('easy-currencies') — resolved from THIS
+// file — registers against backend/node_modules/easy-currencies, a
+// DIFFERENT copy from the one the converter loads (its nested
+// node_modules copy, installed by build:packages). The L34 run
+// proved it: live 0.0913 rates (9.13 / 18.26) with mockConvert
+// called 0 times. Mocking the converter module itself puts the fake
+// on the exact module the helper imports; it is registered by the
+// relative path to its built index.js because the ':…' alias is NOT
+// rewritten inside a mockModule specifier (babel-plugin-module-resolver
+// only rewrites import/require calls — an alias specifier fails
+// registration with 'Cannot find module'). The fake keeps the
+// converter's observable contract: constructor({ from, to, amount })
+// + async convert() returning the converted amount. mockConvert
+// counts the convert() calls, so the cache assertions below still
+// count rate-service calls; a throwing mockConvert rejects, as the
+// real Convert failure would. `currencies` is the converter's own
+// code list, verbatim, so checkCurrency behaves identically under
+// the mock. No product file changes; no network.
 const mockConvert: any = jest.fn()
-jest.unstable_mockModule('easy-currencies', () => ({
+jest.unstable_mockModule('../../packages/currency-converter/index.js', () => ({
   __esModule: true,
-  Convert: mockConvert,
+  default: class MockCurrencyConverter {
+    params: { from: string, to: string, amount: number }
+    constructor(params: { from: string, to: string, amount: number }) {
+      this.params = params
+    }
+    async convert() {
+      return mockConvert(this.params.amount, this.params.from, this.params.to)
+    }
+  },
+  currencies: [
+    'USD', 'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AUD', 'AWG',
+    'AZN', 'BAM', 'BBD', 'BDT', 'BGN', 'BIF', 'BMD', 'BND', 'BOB', 'BRL',
+    'BSD', 'BWP', 'BYN', 'BZD', 'CAD', 'CDF', 'CHF', 'CLP', 'CNY', 'COP',
+    'CRC', 'CVE', 'CZK', 'DJF', 'DKK', 'DOP', 'DZD', 'EGP', 'ETB', 'EUR',
+    'FJD', 'FKP', 'GBP', 'GEL', 'GIP', 'GMD', 'GNF', 'GTQ', 'GYD', 'HKD',
+    'HNL', 'HTG', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JMD', 'JPY', 'KES',
+    'KGS', 'KHR', 'KMF', 'KRW', 'KYD', 'KZT', 'LAK', 'LBP', 'LKR', 'LRD',
+    'LSL', 'MAD', 'MDL', 'MGA', 'MKD', 'MMK', 'MNT', 'MOP', 'MUR', 'MVR',
+    'MWK', 'MXN', 'MYR', 'MZN', 'NAD', 'NGN', 'NIO', 'NOK', 'NPR', 'NZD',
+    'PAB', 'PEN', 'PGK', 'PHP', 'PKR', 'PLN', 'PYG', 'QAR', 'RON', 'RSD',
+    'RUB', 'RWF', 'SAR', 'SBD', 'SCR', 'SEK', 'SGD', 'SHP', 'SLE', 'SOS',
+    'SRD', 'STD', 'SZL', 'THB', 'TJS', 'TOP', 'TRY', 'TTD', 'TWD', 'TZS',
+    'UAH', 'UGX', 'UYU', 'UZS', 'VND', 'VUV', 'WST', 'XAF', 'XCD', 'XOF',
+    'XPF', 'YER', 'ZAR', 'ZMW'
+  ],
 }))
 
 const stripeSessionRetrieve: any = jest.fn()
@@ -136,11 +184,10 @@ const makeFixture = async (
 // 1 MAD = 0.10 USD. Set per test file run in beforeEach (afterEach
 // resetAllMocks clears implementations).
 const setDefaultRates = () => {
-  mockConvert.mockImplementation((amount: number) => ({
-    from: (_from: string) => ({
-      to: (to: string) => Promise.resolve(amount * (to === 'EUR' ? 0.092 : to === 'USD' ? 0.1 : 1)),
-    }),
-  }))
+  // mockConvert IS the mocked CurrencyConverter.convert(): it takes
+  // (amount, from, to) and returns the converted amount.
+  mockConvert.mockImplementation((amount: number, _from: string, to: string) =>
+    Promise.resolve(amount * (to === 'EUR' ? 0.092 : to === 'USD' ? 0.1 : 1)))
 }
 
 const paymentsOf = async (bookingId: mongoose.Types.ObjectId) =>

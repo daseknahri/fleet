@@ -168,7 +168,11 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     const res = await tryBooking(W_OVERLAP.from, W_OVERLAP.to)
     const persisted = await Booking.countDocuments({ car: car._id, from: new Date(W_OVERLAP.from), to: new Date(W_OVERLAP.to) })
     record('a-overlap-denied', { status: res.status, bodyExcerpt: String(res.text || '').slice(0, 200), window: W_OVERLAP, persistedBookingsForWindow: persisted })
-    expect(res.status).toBe(400)
+    // GA-PAR-10: availability conflicts surface as 409 on create, the
+    // same 409 the checkout/update/updateStatus funnels return (see
+    // bookingController.create + f4Lifecycle overlapping-booking 409s).
+    // The 409 body carries the 'no longer available' message.
+    expect(res.status).toBe(409)
     expect(String(res.text || '')).toContain('no longer available')
     expect(persisted).toBe(0)
   }, 30000)
@@ -229,7 +233,9 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     const denied = await tryBooking(W2.from, W2.to)
     const persisted = await Booking.countDocuments({ car: car._id, from: new Date(W2.from), to: new Date(W2.to) })
     record('c-inprogress-overlap-denied', { status: denied.status, bodyExcerpt: String(denied.text || '').slice(0, 200), window: W2, persistedBookingsForWindow: persisted })
-    expect(denied.status).toBe(400)
+    // 409 per GA-PAR-10 (see above); the in-progress work order still
+    // blocks, nothing is persisted.
+    expect(denied.status).toBe(409)
     expect(persisted).toBe(0)
     const removed = await request(app).delete(`/api/maintenance-work-orders/${wo2._id}`).set(env.X_ACCESS_TOKEN, token)
     record('c-delete-work-order', { status: removed.status })

@@ -382,7 +382,12 @@ const raiseDispute = async (
       if (!charge) {
  res.sendStatus(404); return 
 }
-      if (charge.dispute && !charge.dispute.resolvedAt) {
+      // A dispute is open only once raised: Mongoose materialises the
+      // single-nested `dispute` subdocument as {} on every load, so
+      // testing the subdocument itself is always truthy and the first
+      // raise 409s. `raisedAt` is the signal — the same definition
+      // `complete` already uses (raisedAt exists, resolvedAt does not).
+      if (charge.dispute?.raisedAt && !charge.dispute.resolvedAt) {
  res.status(409).send('This charge already has an open dispute'); return 
 }
       charge.dispute = { reason, raisedBy: actor, raisedAt: now }
@@ -394,7 +399,9 @@ const raiseDispute = async (
     if (!inspection) {
  res.sendStatus(404); return 
 }
-    if (inspection.dispute && !inspection.dispute.resolvedAt) {
+    // Same Mongoose-materialised-subdocument note as the charge raise
+    // above: `raisedAt`, not the subdocument, marks an open dispute.
+    if (inspection.dispute?.raisedAt && !inspection.dispute.resolvedAt) {
  res.status(409).send('This inspection already has an open dispute'); return 
 }
     inspection.dispute = { reason, raisedBy: actor, raisedAt: now }
@@ -428,7 +435,11 @@ const resolveDispute = async (
       if (!charge) {
  res.sendStatus(404); return 
 }
-      if (!charge.dispute || charge.dispute.resolvedAt) {
+      // A never-raised dispute is also an empty materialised subdocument,
+      // so `!charge.dispute` is never true and resolving one would stamp
+      // a resolution onto a dispute that was never raised. `raisedAt` is
+      // the open-dispute signal here too.
+      if (!charge.dispute?.raisedAt || charge.dispute.resolvedAt) {
  res.status(409).send('This charge has no open dispute to resolve'); return 
 }
       charge.dispute.resolvedAt = new Date()
@@ -442,7 +453,9 @@ const resolveDispute = async (
     if (!inspection) {
  res.sendStatus(404); return 
 }
-    if (!inspection.dispute || inspection.dispute.resolvedAt) {
+    // Same as the charge resolve above: no `raisedAt` means no open
+    // dispute to resolve.
+    if (!inspection.dispute?.raisedAt || inspection.dispute.resolvedAt) {
  res.status(409).send('This inspection has no open dispute to resolve'); return 
 }
     inspection.dispute.resolvedAt = new Date()

@@ -235,10 +235,12 @@ const build = async (req: Request) => {
   const [payments, expenses, bookings, fleet, invoices] = await Promise.all([
     RentalPayment.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to }, status: types.RentalPaymentStatus.Posted } }, { $group: { _id: '$purpose', total: { $sum: { $cond: [{ $eq: ['$direction', types.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } } } }]),
     // F7 / W3 R-7 — the expense aggregate also sums paidAmount
-    // (null = untracked, counted as 0 paid) and counts the untracked
-    // rows separately, so an unpaid bill is never silently counted
-    // as spent or as unspent.
-    MaintenanceExpense.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$amount' }, paidTotal: { $sum: { $ifNull: ['$paidAmount', 0] } }, untrackedCount: { $sum: { $cond: [{ $eq: ['$paidAmount', null] }, 1, 0] } }, untrackedAmount: { $sum: { $cond: [{ $eq: ['$paidAmount', null] }, '$amount', 0] } }, count: { $sum: 1 } } }]),
+    // (null or absent = untracked, counted as 0 paid) and counts the
+    // untracked rows separately, so an unpaid bill is never silently
+    // counted as spent or as unspent. NB: $eq against null does NOT
+    // match a missing field in aggregation (SERVER-20166); $ifNull
+    // normalises absent to null first.
+    MaintenanceExpense.aggregate([{ $match: { supplier, date: { $gte: from, $lte: to } } }, { $group: { _id: null, total: { $sum: '$amount' }, paidTotal: { $sum: { $ifNull: ['$paidAmount', 0] } }, untrackedCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$paidAmount', null] }, null] }, 1, 0] } }, untrackedAmount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$paidAmount', null] }, null] }, '$amount', 0] } }, count: { $sum: 1 } } }]),
     Booking.find({ supplier, from: { $lt: to }, to: { $gt: from }, status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] }, deletedAt: null }).select('_id from to price financialSnapshot lifecycle').lean(),
     // GA-PAR-22: the fleet figure behind the old summary counts live cars only.
     Car.countDocuments({ supplier, deletedAt: null }),

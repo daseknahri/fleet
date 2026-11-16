@@ -598,7 +598,11 @@ createdIds.payments.push(payment._id)
     const source = await request(app)
       .post('/api/cash/sessions')
       .set(env.X_ACCESS_TOKEN, tokenA)
-      .send({ account: bookcarsTypes.CashAccountType.Cash, openingBalance: 100 })
+      // F6 / W3 C-1 chained opening: the earlier test in this file closed
+      // a (supplierA, cash) session at 25, so opening at 100 differs from
+      // the chain and needs a recorded opening difference reason (same
+      // pattern as cashLedgerF6 / financeF7).
+      .send({ account: bookcarsTypes.CashAccountType.Cash, openingBalance: 100, openingDifferenceReason: 'P0 fixture' })
     expect(source.status).toBe(201)
     createdIds.cashSessions.push(source.body._id)
 

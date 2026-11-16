@@ -45,6 +45,13 @@ jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
 // fake also carries the lifecycle methods setupTests.ts calls on the
 // real client (quit/disconnect) and no-op cache reads, so no other
 // importer of the module breaks.
+// ORDERING (L4d): this mock only reaches the limiter because
+// setupTests.ts imports redis lazily inside afterAll. A static redis
+// import in setupTests would load the real client before this file
+// evaluates, and jest.unstable_mockModule cannot replace an
+// already-loaded ESM module - the limiter would keep the real client,
+// fail open against the unreachable host-side Redis, and the burst
+// would see 0x429. Do not re-add a top-level redis import to setupTests.
 const mockBuckets = new Map<string, { tokens: number, lastTime: number }>()
 const mockRedis = {
   eval: async (_script: string, _numKeys: number, key: string, capacity: number, refillRateMs: number, now: number) => {
@@ -103,8 +110,6 @@ const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
 
-const cookieFor = (token: string) => `${env.X_ACCESS_TOKEN}=${token};`
-const adminCookie = () => cookieFor(adminToken)
 
 const makeFixture = async (label: string, opts: { payLater?: boolean } = {}) => {
   const supplier = await User.create({
@@ -154,6 +159,13 @@ const makeBooking = async (fixture: any, overrides: Record<string, unknown> = {}
 
 beforeAll(async () => {
   app = (await import('../src/app')).default
+  // GUARD (L5): the burst tests below only mean something if this
+  // file's redis mock actually reached the limiter. If anything
+  // pre-loads the real client (e.g. a static redis import added to
+  // setupTests.ts), the mock cannot replace it, the limiter fails
+  // open against the unreachable host-side Redis, and the burst
+  // would report 0x429 with no diagnosis. Fail fast here instead.
+  expect((await import('../src/config/redis.js')).default).toBe(mockRedis)
   finalizePaidCheckoutBooking = (await import('../src/controllers/bookingController')).finalizePaidCheckoutBooking
   await databaseHelper.connect(env.DB_URI, false, false)
   const passwordHash = await authHelper.hashPassword('Un1tTest5')
@@ -204,11 +216,11 @@ describe('F4 / W1 #4 — back-to-back rentals do not conflict', () => {
       },
     })
     // Touching: pickup exactly at the previous return (same-day turnaround).
-    const touching = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()]).send(payload(aTo, new Date(Date.now() + 5 * DAY)))
+    const touching = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send(payload(aTo, new Date(Date.now() + 5 * DAY)))
     expect(touching.status).toBe(200)
     fixtureBookingIds.push(touching.body._id)
     // Real overlap: pickup one hour before the previous return.
-    const overlapping = await request(app).post('/api/create-booking').set('Cookie', [adminCookie()])
+    const overlapping = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken)
       .send(payload(new Date(aTo.getTime() - 3600000), new Date(Date.now() + 5 * DAY)))
     expect(overlapping.status).toBe(409)
   })
@@ -286,7 +298,7 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
     } as any)
     fixtureBookingIds.push(booking._id)
     const response = await request(app).post(`/api/bookings/${booking._id.toString()}/confirm-payment`)
-      .set('Cookie', [adminCookie()]).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
+      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
     expect(response.status).toBe(200)
     expect(response.body.updated).toBe(true)
     expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
@@ -297,30 +309,42 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
 })
 
 describe('F4 / W1 #8 — the public checkout surface is rate-limited', () => {
-  // The limiter is keyed on IP only and the burst is 15 rapid invalid
-  // requests against a capacity-10 bucket (1 token per 2 s): the first
-  // 10 pass the limiter (and 400 on the invalid body) and at least two
-  // of the rest are 429. The count — not an exact split — is asserted
-  // so a slow CI runner refilling one token mid-burst cannot flake it.
-  // Without the limiter wired, zero requests would be 429.
+  // The limiter is keyed on IP only. The burst fires past the
+  // CONFIGURED bucket (env.RATE_LIMIT_CAPACITY, 1 token per 2 s):
+  // the first `capacity` requests pass the limiter (and 400 on the
+  // invalid body) and at least two of the rest are 429. The count —
+  // not an exact split — is asserted so a slow CI runner refilling
+  // one token mid-burst cannot flake it. Without the limiter wired,
+  // zero requests would be 429.
+  // L5: the burst MUST scale with the configured capacity. The old
+  // hardcoded burst of 15 assumed capacity 10 (the code default and
+  // the .env.docker.example value), but the shipped .env.docker sets
+  // BC_RATE_LIMIT_CAPACITY=100 — and the live test env demonstrably
+  // loads .env.docker values (BC_REDIS_URL=redis://redis:6379 and
+  // BC_SMTP_HOST=mailpit both surface as ENOTFOUND hostnames in the
+  // logs). A burst of 15 against a capacity-100 bucket can never
+  // 429, which is exactly the L34 result (0x429, first 10 are 400)
+  // with the L4d mock fix already in place. No product or env change:
+  // the test reads the budget the limiter itself was built with.
   const burst = async (url: string) => {
+    const capacity = env.RATE_LIMIT_CAPACITY
     const statuses: number[] = []
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < capacity + 5; i++) {
       const res = await request(app).post(url).set('x-test-rate-limit', '1').send({})
       statuses.push(res.status)
     }
-    return statuses
+    return { statuses, capacity }
   }
 
   it('429s a burst of invalid checkouts once the bucket is empty', async () => {
-    const statuses = await burst('/api/checkout')
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true)
+    const { statuses, capacity } = await burst('/api/checkout')
+    expect(statuses.slice(0, capacity).every((s) => s === 400)).toBe(true)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(2)
   })
 
   it('429s a burst of invalid payment-intent confirmations the same way', async () => {
-    const statuses = await burst('/api/confirm-payment-intent')
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true)
+    const { statuses, capacity } = await burst('/api/confirm-payment-intent')
+    expect(statuses.slice(0, capacity).every((s) => s === 400)).toBe(true)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(2)
   })
 
@@ -365,12 +389,18 @@ describe('F4 / W1 #10 — a checkout conflict leaves no orphan guest', () => {
 describe('F4 / W1 #15 — paymentIntentId is a sparse-unique backstop', () => {
   it('builds the sparse-unique index, refuses a duplicate intent, allows many without one', async () => {
     await Booking.createIndexes()
-    const indexes = await Booking.collection.getIndexes() as Record<string, { key?: Record<string, number>, unique?: boolean, sparse?: boolean }>
-    const index = indexes.paymentIntentId_1
+    // getIndexes() is Mongoose's alias for indexInformation() with no
+    // options, i.e. the COMPACT form { name: [[field, direction]] } -
+    // it has no key/unique/sparse members. The full form comes from
+    // indexes() (full: true by default).
+    const compact = await Booking.collection.getIndexes()
+    expect(compact.paymentIntentId_1).toEqual([['paymentIntentId', 1]])
+    const full = await Booking.collection.indexes()
+    const index = full.find((idx) => idx.name === 'paymentIntentId_1')
     expect(index).toBeDefined()
-    expect(index.key?.paymentIntentId).toBe(1)
-    expect(index.unique).toBe(true)
-    expect(index.sparse).toBe(true)
+    expect(index?.key?.paymentIntentId).toBe(1)
+    expect(index?.unique).toBe(true)
+    expect(index?.sparse).toBe(true)
 
     const fixture = await makeFixture('payment-intent-index')
     const first = await makeBooking(fixture, { paymentIntentId: `pi_f4_dup_${rand()}` })
@@ -386,7 +416,7 @@ describe('F4 / W1 #16 — getBooking falls back when a language value is missing
   it('returns the English location name for an Arabic read of an English-only location', async () => {
     const fixture = await makeFixture('location-fallback')
     const booking = await makeBooking(fixture)
-    const response = await request(app).get(`/api/booking/${booking._id.toString()}/ar`).set('Cookie', [adminCookie()])
+    const response = await request(app).get(`/api/booking/${booking._id.toString()}/ar`).set(env.X_ACCESS_TOKEN, adminToken)
     expect(response.status).toBe(200)
     expect(response.body.pickupLocation.name).toBe('F4 Airport location-fallback')
     expect(response.body.dropOffLocation.name).toBe('F4 Airport location-fallback')
