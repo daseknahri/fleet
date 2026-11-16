@@ -159,6 +159,13 @@ const makeBooking = async (fixture: any, overrides: Record<string, unknown> = {}
 
 beforeAll(async () => {
   app = (await import('../src/app')).default
+  // GUARD (L5): the burst tests below only mean something if this
+  // file's redis mock actually reached the limiter. If anything
+  // pre-loads the real client (e.g. a static redis import added to
+  // setupTests.ts), the mock cannot replace it, the limiter fails
+  // open against the unreachable host-side Redis, and the burst
+  // would report 0x429 with no diagnosis. Fail fast here instead.
+  expect((await import('../src/config/redis.js')).default).toBe(mockRedis)
   finalizePaidCheckoutBooking = (await import('../src/controllers/bookingController')).finalizePaidCheckoutBooking
   await databaseHelper.connect(env.DB_URI, false, false)
   const passwordHash = await authHelper.hashPassword('Un1tTest5')
@@ -302,30 +309,42 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
 })
 
 describe('F4 / W1 #8 — the public checkout surface is rate-limited', () => {
-  // The limiter is keyed on IP only and the burst is 15 rapid invalid
-  // requests against a capacity-10 bucket (1 token per 2 s): the first
-  // 10 pass the limiter (and 400 on the invalid body) and at least two
-  // of the rest are 429. The count — not an exact split — is asserted
-  // so a slow CI runner refilling one token mid-burst cannot flake it.
-  // Without the limiter wired, zero requests would be 429.
+  // The limiter is keyed on IP only. The burst fires past the
+  // CONFIGURED bucket (env.RATE_LIMIT_CAPACITY, 1 token per 2 s):
+  // the first `capacity` requests pass the limiter (and 400 on the
+  // invalid body) and at least two of the rest are 429. The count —
+  // not an exact split — is asserted so a slow CI runner refilling
+  // one token mid-burst cannot flake it. Without the limiter wired,
+  // zero requests would be 429.
+  // L5: the burst MUST scale with the configured capacity. The old
+  // hardcoded burst of 15 assumed capacity 10 (the code default and
+  // the .env.docker.example value), but the shipped .env.docker sets
+  // BC_RATE_LIMIT_CAPACITY=100 — and the live test env demonstrably
+  // loads .env.docker values (BC_REDIS_URL=redis://redis:6379 and
+  // BC_SMTP_HOST=mailpit both surface as ENOTFOUND hostnames in the
+  // logs). A burst of 15 against a capacity-100 bucket can never
+  // 429, which is exactly the L34 result (0x429, first 10 are 400)
+  // with the L4d mock fix already in place. No product or env change:
+  // the test reads the budget the limiter itself was built with.
   const burst = async (url: string) => {
+    const capacity = env.RATE_LIMIT_CAPACITY
     const statuses: number[] = []
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < capacity + 5; i++) {
       const res = await request(app).post(url).set('x-test-rate-limit', '1').send({})
       statuses.push(res.status)
     }
-    return statuses
+    return { statuses, capacity }
   }
 
   it('429s a burst of invalid checkouts once the bucket is empty', async () => {
-    const statuses = await burst('/api/checkout')
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true)
+    const { statuses, capacity } = await burst('/api/checkout')
+    expect(statuses.slice(0, capacity).every((s) => s === 400)).toBe(true)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(2)
   })
 
   it('429s a burst of invalid payment-intent confirmations the same way', async () => {
-    const statuses = await burst('/api/confirm-payment-intent')
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true)
+    const { statuses, capacity } = await burst('/api/confirm-payment-intent')
+    expect(statuses.slice(0, capacity).every((s) => s === 400)).toBe(true)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(2)
   })
 

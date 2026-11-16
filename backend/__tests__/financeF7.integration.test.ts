@@ -697,7 +697,13 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
       status: types.MaintenanceScheduleStatus.Completed,
     })
     const created = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
-    expect(created.status).toBe(201)
+    // L5: create-booking answers 200 on success — bookingController.create
+    // ends with res.json(booking) (never 201). f4Lifecycle W1 #4 and
+    // booking.test.ts both assert 200 for a successful create; 201 here
+    // was the test's mistake, not a product regression. (No dedupe or
+    // cross-test pollution: create has no idempotency replay — the 200
+    // is the handler's normal success status.)
+    expect(created.status).toBe(200)
     bookingId = created.body._id
 
     // Reopen the schedule (status back to a derived one) so it is
@@ -728,6 +734,6 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
     expect(restored.status).toBe(200)
 
     const fresh = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-28T10:00:00.000Z', '2026-12-30T10:00:00.000Z'))
-    expect(fresh.status).toBe(201)
+    expect(fresh.status).toBe(200)
   })
 })
