@@ -22,6 +22,7 @@ import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { approvalRequiredFor, mirrorApprovalDecision, produceApprovalRequest } from '../utils/approvalProducer'
+import { isSelfApproval } from '../utils/approvalPolicy'
 import { trashedMessage } from '../utils/trash'
 import { contractSnapshotQrPayload, generateContractQrPng, renderContractSnapshotPdf } from '../utils/contractSnapshotPdf'
 import { contractTermsSha256 } from '../utils/contractTerms'
@@ -320,6 +321,13 @@ export const decideCharge = async (req: Request, res: Response) => {
     if (!charge) {
  res.sendStatus(404); return 
 }
+    // Approvals policy, decision 1.4 (owner-approved defaults
+    // 2026-11-17): the requester can never decide their own charge -
+    // the same rule as the approvals queue decide endpoint, which
+    // this path bypasses (it settles the charge record directly).
+    if (isSelfApproval(charge.requestedBy, actor)) {
+      res.status(403).send('The requester cannot decide their own contract charge'); return
+    }
     charge.status = decision as bookcarsTypes.ApprovalDecision; charge.decidedBy = actor; charge.decidedAt = new Date(); charge.decisionNote = note || undefined
     await charge.save()
     // Mirror the decision onto the queue record (decision 1.6: the

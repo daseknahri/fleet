@@ -394,4 +394,112 @@ describe('Approvals producer wiring (GA-P1-APPROVALS-PRODUCER-02)', () => {
     expect(closed2.body.expectedClosingBalance).toBe(1500)
     expect(closed2.body.discrepancy).toBe(0)
   })
+
+  describe('Approvals policy defaults 2026-11-17 (GA-P10-DECISIONS-01 + owner approval)', () => {
+    it('a charge requester cannot decide their own charge; another decider can', async () => {
+      const charge = await request(app).post(`/api/contract-operations/${bookingBig._id}/charges`).set(env.X_ACCESS_TOKEN, managerToken)
+        .send({ type: bookcarsTypes.ContractChargeType.Fee, reason: 'GA Q10 policy self-decide', amount: 11000, currency: 'MAD' })
+      expect(charge.status).toBe(201)
+      ids.charges.push(charge.body._id)
+
+      // Self-decide as the same manager who created the charge -> 403
+      const self = await request(app).post(`/api/contract-operations/${bookingBig._id}/charges/${charge.body._id}/decide`)
+        .set(env.X_ACCESS_TOKEN, managerToken).send({ decision: 'approved', note: 'self attempt' })
+      expect(self.status).toBe(403)
+      const stillPending = await ContractCharge.findById(charge.body._id)
+      expect(stillPending?.status).toBe(bookcarsTypes.ApprovalDecision.Pending)
+
+      // The Owner, a different decider, can decide it
+      const decided = await request(app).post(`/api/contract-operations/${bookingBig._id}/charges/${charge.body._id}/decide`)
+        .set(env.X_ACCESS_TOKEN, tokenA).send({ decision: 'approved', note: 'owner decision' })
+      expect(decided.status).toBe(200)
+      expect(decided.body.status).toBe(bookcarsTypes.ApprovalDecision.Approved)
+    })
+
+    it('a manual refund at/above 10,000 MAD stays pending until a non-requester approves it', async () => {
+      const booking = await makeBooking(20000, 'refund')
+      const rent = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: booking._id.toString(), date: new Date().toISOString(), amount: 20000, method: bookcarsTypes.RentalPaymentMethod.Cash, idempotencyKey: `ga-q10-refund-rent-${suffix}` })
+      expect(rent.status).toBe(201)
+      expect(rent.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
+      ids.payments.push(rent.body._id)
+
+      const refund = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: booking._id.toString(), date: new Date().toISOString(), amount: 12000, direction: bookcarsTypes.RentalPaymentDirection.Debit, method: bookcarsTypes.RentalPaymentMethod.Cash, reason: 'GA Q10 policy refund', idempotencyKey: `ga-q10-refund-debit-${suffix}` })
+      expect(refund.status).toBe(201)
+      expect(refund.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Pending)
+      ids.payments.push(refund.body._id)
+
+      const list = await listApprovals(tokenA)
+      const approval = list.find((row) => row.subject === refund.body._id && row.subjectType === 'rental-payment')
+      expect(approval).toBeTruthy()
+      expect(approval.status).toBe(bookcarsTypes.ApprovalDecision.Pending)
+      expect(approval.amount).toBe(12000)
+
+      const blocked = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
+      expect(blocked.status).toBe(409)
+
+      const selfDecide = await request(app).post(`/api/approvals/${approval._id}/decide`).set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ decision: 'approved', reason: 'self attempt' })
+      expect(selfDecide.status).toBe(403)
+
+      const decided = await request(app).post(`/api/approvals/${approval._id}/decide`).set(env.X_ACCESS_TOKEN, managerToken)
+        .send({ decision: 'approved', reason: 'policy refund approve' })
+      expect(decided.status).toBe(200)
+      expect(decided.body.status).toBe(bookcarsTypes.ApprovalDecision.Approved)
+
+      const confirmed = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
+      expect(confirmed.status).toBe(200)
+      expect(confirmed.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
+    })
+
+    it('a manual refund below 10,000 MAD posts immediately with no queue request', async () => {
+      const booking = await makeBooking(20000, 'refundsmall')
+      const rent = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: booking._id.toString(), date: new Date().toISOString(), amount: 20000, method: bookcarsTypes.RentalPaymentMethod.Cash, idempotencyKey: `ga-q10-refundsmall-rent-${suffix}` })
+      expect(rent.status).toBe(201)
+      ids.payments.push(rent.body._id)
+
+      const refund = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: booking._id.toString(), date: new Date().toISOString(), amount: 500, direction: bookcarsTypes.RentalPaymentDirection.Debit, method: bookcarsTypes.RentalPaymentMethod.Cash, reason: 'GA Q10 small refund', idempotencyKey: `ga-q10-refundsmall-debit-${suffix}` })
+      expect(refund.status).toBe(201)
+      expect(refund.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
+      ids.payments.push(refund.body._id)
+
+      const list = await listApprovals(tokenA)
+      expect(list.some((row) => row.subject === refund.body._id)).toBe(false)
+    })
+
+    it('a price reduction of 10,000 MAD or more needs approval before it can be saved', async () => {
+      const booking = await makeBooking(20000, 'pricegate')
+      const fetched = await request(app).get(`/api/booking/${booking._id}/en`).set(env.X_ACCESS_TOKEN, tokenA)
+      expect(fetched.status).toBe(200)
+      // GET returns populated refs; the update endpoint expects ids, as
+      // the admin client sends them - convert before resubmitting.
+      const b = fetched.body
+      const payload = {
+        ...b,
+        supplier: b.supplier._id, car: b.car._id, driver: b.driver._id,
+        pickupLocation: b.pickupLocation._id, dropOffLocation: b.dropOffLocation._id,
+        price: 8000,
+      }
+
+      const blocked = await request(app).put('/api/update-booking').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: payload })
+      expect(blocked.status).toBe(409)
+
+      const created = await request(app).post('/api/approvals').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ supplier: supplierA._id.toString(), subject: booking._id.toString(), subjectType: 'booking', amount: 12000, currency: 'MAD', reason: 'GA Q10 policy price override' })
+      expect(created.status).toBe(201)
+
+      const decided = await request(app).post(`/api/approvals/${created.body._id}/decide`).set(env.X_ACCESS_TOKEN, managerToken)
+        .send({ decision: 'approved', reason: 'policy price approve' })
+      expect(decided.status).toBe(200)
+
+      const updated = await request(app).put('/api/update-booking').set(env.X_ACCESS_TOKEN, tokenA)
+        .send({ booking: payload })
+      expect(updated.status).toBe(200)
+      expect(updated.body.price).toBe(8000)
+    })
+  })
 })

@@ -5,25 +5,17 @@ import Approval from '../models/Approval'
 /**
  * Approvals producer wiring (GA-P1-APPROVALS-PRODUCER-02).
  *
- * Owner decisions recorded in GA-P10-DECISIONS-01 (2026-11-05, decision
- * pack section 1, all defaults approved):
- * - 1.1 triggers: invoice issued + contract charge created.
- * - 1.2 threshold: a request is produced only at or above
- *   APPROVAL_THRESHOLD (10,000, the pack's adopted figure). Amounts are
- *   compared in the record's own currency; the deployment currency is MAD.
- * - 1.3 deciders: Owner + Manager (existing DecideInvoices permission).
- * - 1.4 single decider; the requester never decides their own request
- *   (enforced in the approvals decide endpoint).
- * - 1.5 blocking at/above the threshold (the domain flow checks the
- *   request state before it can complete).
- * - 1.6 the Approval queue record is the single source of truth.
+ * The policy itself lives in ./approvalPolicy (owner-approved
+ * defaults 2026-11-17 + Decision Pack GA-P10-DECISIONS-01 section 1):
+ * triggers refund / discount / price override / manual charge above
+ * 10,000 MAD, approver Owner + Manager, no self-approval, blocking.
+ * This module is the producer that opens queue requests for the
+ * invoice-issued and contract-charge-created triggers; the rental
+ * payment (refund) and booking (price override) triggers wire in
+ * through the same approvalRequiredFor / produceApprovalRequest.
  */
 
-export const APPROVAL_THRESHOLD = 10000
-
-export const approvalRequiredFor = (amount: number) => (
-  Number.isFinite(amount) && amount >= APPROVAL_THRESHOLD
-)
+export { APPROVAL_THRESHOLD_MAD as APPROVAL_THRESHOLD, approvalRequiredFor } from './approvalPolicy'
 
 export interface ProduceApprovalInput {
   supplier: mongoose.Types.ObjectId | string

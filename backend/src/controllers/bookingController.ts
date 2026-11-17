@@ -35,6 +35,7 @@ import ContractSnapshot from '../models/ContractSnapshot'
 import ContractInspection from '../models/ContractInspection'
 import AgentSettlement from '../models/AgentSettlement'
 import { postProviderPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions, LedgerError } from '../utils/ledger'
+import { approvalRequiredFor, findLatestApproval } from '../utils/approvalProducer'
 import { getContractReceivable } from '../utils/contractReceivable'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
@@ -1639,6 +1640,27 @@ export const update = async (req: Request, res: Response) => {
       if (snapshotTermsChanged) {
         res.status(409).send('Checkout terms are locked; use a contract amendment workflow')
         return
+      }
+
+      // Approvals policy (owner-approved defaults 2026-11-17): a price
+      // reduction (discount / price override) of 10,000 MAD or more on
+      // a snapshot-less booking needs approval first - the reduction
+      // cannot be saved until its queue request is approved. Snapshot
+      // bookings cannot change price here at all (the lock above);
+      // their price only moves through a contract amendment, which
+      // re-prices from the snapshot basis and is not a discretionary
+      // discount, so it is not gated. A price increase is not a
+      // discount and is not gated either.
+      if (!hasRealSnapshot) {
+        const oldPrice = Number(booking.price) || 0
+        const newPrice = Number(price)
+        const reduction = oldPrice - newPrice
+        if (Number.isFinite(reduction) && approvalRequiredFor(reduction)) {
+          const gate = await findLatestApproval(booking.supplier, 'booking', booking._id.toString())
+          if (!gate || gate.status !== bookcarsTypes.ApprovalDecision.Approved || (gate.amount || 0) < reduction) {
+            res.status(409).send('Price reduction of ' + reduction + ' MAD needs approval by the agency manager/owner first'); return
+          }
+        }
       }
 
       const paymentStatuses = new Set<string>([

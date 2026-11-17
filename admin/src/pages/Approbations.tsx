@@ -35,7 +35,9 @@ const statusColor = (status: bookcarsTypes.ApprovalDecision) => (status === book
 
 const subjectTypeLabel = (subjectType: string) => (subjectType === 'invoice'
   ? strings.TYPE_INVOICE
-  : subjectType === 'contract-charge' ? strings.TYPE_CONTRACT_CHARGE : subjectType)
+  : subjectType === 'contract-charge' ? strings.TYPE_CONTRACT_CHARGE
+    : subjectType === 'rental-payment' ? strings.TYPE_RENTAL_PAYMENT
+      : subjectType === 'booking' ? strings.TYPE_BOOKING : subjectType)
 
 const Approbations = () => {
   const { user } = useUserContext() as UserContextType

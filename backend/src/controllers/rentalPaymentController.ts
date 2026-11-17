@@ -9,6 +9,7 @@ import CashMovement from '../models/CashMovement'
 import ContractCharge from '../models/ContractCharge'
 import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
+import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
@@ -122,10 +123,16 @@ export const create = async (req: Request, res: Response) => {
     }
 
     const supplierId = agencySupplierId(req)
-    // Owner decision 1.5 (GA-P10-DECISIONS-01): entries recorded by a
-    // counter agent stay pending until an accountant or above confirms
-    // them; every other recorder posts immediately, as before.
-    const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent
+    // Approvals policy (owner-approved defaults 2026-11-17): a manual
+    // refund (a debit) at or above 10,000 MAD needs approval first, so
+    // it is recorded as a pending ledger entry and opens a queue
+    // request (below); it can only be confirmed once that request is
+    // approved (see confirm()). Owner decision 1.5
+    // (GA-P10-DECISIONS-01): entries recorded by a counter agent stay
+    // pending until an accountant or above confirms them; every other
+    // recorder posts immediately, as before.
+    const approvalGatedRefund = direction === bookcarsTypes.RentalPaymentDirection.Debit && approvalRequiredFor(amount)
+    const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent || approvalGatedRefund
     const payment = await postRentalPayment({
       bookingId: payload.booking,
       supplierId: user.type === bookcarsTypes.UserType.Admin ? undefined : supplierId,
@@ -147,6 +154,26 @@ export const create = async (req: Request, res: Response) => {
       // are given, and is the note when no separate note is given.
       note: reason ? (note ? `${reason} — ${note}` : reason) : note,
     })
+    // Approvals policy: the gated refund opens its queue request now,
+    // so the refund waits in /approbations instead of posting silently.
+    // A producer failure must not lose the ledger entry, so it is
+    // logged, not thrown - the entry stays pending and a manual
+    // approval request can be created for it instead.
+    if (approvalGatedRefund) {
+      try {
+        await produceApprovalRequest({
+          supplier: payment.supplier,
+          subjectType: 'rental-payment',
+          subject: payment._id.toString(),
+          amount,
+          currency: payment.currency,
+          requestedBy: user._id,
+          reason: `Manual refund ${amount} ${payment.currency} on booking ${payload.booking}: ${reason}`,
+        })
+      } catch (producerErr) {
+        logger.error('[rentalPayment.create] approval producer failed', producerErr)
+      }
+    }
     // F3 / W1 #3: a posted manual payment is a collection — the booking's
     // payment status follows the ledger (Pending → Paid when nothing is
     // outstanding). Best-effort: the payment already posted, so a sync
@@ -191,7 +218,7 @@ export const confirm = async (req: Request, res: Response) => {
       res.status(403).send('Counter agents cannot confirm payment entries')
       return
     }
-    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) }).select('_id status')
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) }).select('_id status direction amount currency supplier')
     if (!payment) {
       res.sendStatus(404)
       return
@@ -199,6 +226,23 @@ export const confirm = async (req: Request, res: Response) => {
     if (payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
       res.status(409).send('Only a pending payment entry can be confirmed')
       return
+    }
+    // Approvals policy (owner-approved defaults 2026-11-17, effect
+    // BLOCKING): a manual refund at or above 10,000 MAD cannot be
+    // confirmed into posted money until its queue request is approved.
+    // A request missing for an older entry is recovered by creating a
+    // manual approval request for the payment in /approbations.
+    if (payment.direction === bookcarsTypes.RentalPaymentDirection.Debit && approvalRequiredFor(payment.amount)) {
+      const gate = await findLatestApproval(payment.supplier, 'rental-payment', payment._id.toString())
+      if (!gate) {
+        res.status(409).send('This refund needs an approval request first'); return
+      }
+      if (gate.status === bookcarsTypes.ApprovalDecision.Pending) {
+        res.status(409).send('Refund approval is pending'); return
+      }
+      if (gate.status === bookcarsTypes.ApprovalDecision.Rejected) {
+        res.status(409).send('Refund approval was rejected'); return
+      }
     }
     const confirmed = await confirmRentalPayment({ paymentId: payment._id, actorId: user._id })
     await confirmed.populate(populatedPaths)

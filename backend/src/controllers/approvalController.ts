@@ -9,6 +9,8 @@ import { AgencyPermission, agencySupplierId, hasAgencyPermission } from '../util
 import ContractCharge from '../models/ContractCharge'
 import Booking from '../models/Booking'
 import Invoice from '../models/Invoice'
+import RentalPayment from '../models/RentalPayment'
+import { APPROVAL_SUBJECT_TYPES, isSelfApproval } from '../utils/approvalPolicy'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 
@@ -38,10 +40,12 @@ const withNames = async <T extends { requestedBy?: unknown, decidedBy?: unknown 
   }))
 }
 
-// F8 / W5 A5 — display-only enrichment: a queue subject navigates to
+// F8 / W5 A5 - display-only enrichment: a queue subject navigates to
 // its record. Invoices open the invoice list filtered to the invoice;
-// contract charges open the booking the charge belongs to. Unknown or
-// deleted subjects get no link (the subject still renders as text).
+// contract charges open the booking the charge belongs to; manual
+// refunds (rental payments) open the booking the payment belongs to;
+// price overrides open the booking itself. Unknown or deleted subjects
+// get no link (the subject still renders as text).
 const withSubjectUrls = async <T extends { subject?: unknown, subjectType?: unknown }>(rows: T[]): Promise<(T & { subjectUrl?: string })[]> => {
   const invoiceIds = rows
     .filter((row) => row.subjectType === 'invoice' && mongoose.isValidObjectId(row.subject))
@@ -49,12 +53,17 @@ const withSubjectUrls = async <T extends { subject?: unknown, subjectType?: unkn
   const chargeIds = rows
     .filter((row) => row.subjectType === 'contract-charge' && mongoose.isValidObjectId(row.subject))
     .map((row) => String(row.subject))
-  const [invoices, charges] = await Promise.all([
+  const paymentIds = rows
+    .filter((row) => row.subjectType === 'rental-payment' && mongoose.isValidObjectId(row.subject))
+    .map((row) => String(row.subject))
+  const [invoices, charges, payments] = await Promise.all([
     invoiceIds.length ? Invoice.find({ _id: { $in: invoiceIds } }).select('_id').lean() : Promise.resolve([] as { _id: unknown }[]),
     chargeIds.length ? ContractCharge.find({ _id: { $in: chargeIds } }).select('_id booking').lean() : Promise.resolve([] as { _id: unknown, booking?: unknown }[]),
+    paymentIds.length ? RentalPayment.find({ _id: { $in: paymentIds } }).select('_id booking').lean() : Promise.resolve([] as { _id: unknown, booking?: unknown }[]),
   ])
   const invoiceSet = new Set(invoices.map((invoice) => String(invoice._id)))
   const chargeById = new Map(charges.map((charge) => [String(charge._id), charge]))
+  const paymentById = new Map(payments.map((payment) => [String(payment._id), payment]))
   return rows.map((row) => {
     if (row.subjectType === 'invoice' && invoiceSet.has(String(row.subject))) {
       return { ...row, subjectUrl: `/invoices?id=${row.subject}` }
@@ -64,6 +73,15 @@ const withSubjectUrls = async <T extends { subject?: unknown, subjectType?: unkn
       if (charge && charge.booking) {
         return { ...row, subjectUrl: `/update-booking?b=${charge.booking}` }
       }
+    }
+    if (row.subjectType === 'rental-payment') {
+      const payment = paymentById.get(String(row.subject))
+      if (payment && payment.booking) {
+        return { ...row, subjectUrl: `/update-booking?b=${payment.booking}` }
+      }
+    }
+    if (row.subjectType === 'booking' && mongoose.isValidObjectId(row.subject)) {
+      return { ...row, subjectUrl: `/update-booking?b=${row.subject}` }
     }
     return row
   })
@@ -98,12 +116,24 @@ export const create = async (req: Request, res: Response) => {
     // F8 / W5 A5 — manual create uses a typed subject, not free text:
     // the subject must be an existing invoice or contract charge of
     // this agency. Free-form subjects are rejected (400).
-    if (!['invoice', 'contract-charge'].includes(subjectType) || !mongoose.isValidObjectId(subject)) {
- res.status(400).send('Invalid approval subject'); return 
-}
+    // Approvals policy (owner-approved defaults 2026-11-17): manual
+    // create uses a typed subject, not free text - the subject must be
+    // an existing record of this agency. Invoice and contract-charge
+    // are the original producer subjects; rental-payment is a manual
+    // refund and booking is a price override / discount. Free-form
+    // subjects are rejected (400). No threshold floor here: the
+    // threshold is enforced by the automatic triggers, and a manager
+    // may still ask for review of a smaller amount.
+    if (!(APPROVAL_SUBJECT_TYPES as readonly string[]).includes(subjectType) || !mongoose.isValidObjectId(subject)) {
+      res.status(400).send('Invalid approval subject'); return
+    }
     const subjectExists = subjectType === 'invoice'
       ? await Invoice.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
-      : await ContractCharge.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
+      : subjectType === 'contract-charge'
+        ? await ContractCharge.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
+        : subjectType === 'rental-payment'
+          ? await RentalPayment.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
+          : await Booking.findOne({ _id: subject, supplier: supplierId }).select('_id').lean()
     if (!subjectExists) {
  res.status(400).send('Unknown approval subject'); return 
 }
@@ -128,9 +158,9 @@ export const decide = async (req: Request, res: Response) => {
     if (!approval) {
  res.sendStatus(404); return 
 }
-    // Owner decision 1.4 (GA-P10-DECISIONS-01): a single decider, and the
+    // Approvals policy, decision 1.4: a single decider, and the
     // requester can never decide their own request.
-    if (approval.requestedBy && approval.requestedBy.toString() === user._id.toString()) {
+    if (isSelfApproval(approval.requestedBy, user._id)) {
  res.status(403).send('The requester cannot decide their own approval request'); return 
 }
     // GA-PAR-22 (§2.5): a charge/invoice on a trashed booking cannot be
