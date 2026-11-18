@@ -24,6 +24,7 @@
 .btn-primary {
   background-color: #232323 !important;
   color: #fff !important;
+  min-height: 44px;
 }
 
 .hidden {

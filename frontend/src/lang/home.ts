@@ -19,8 +19,8 @@ const strings = new LocalizedStrings({
     MIDI: 'MIDI',
     MAXI: 'MAXI',
     SEARCH_FOR_CAR: 'Rechercher une voiture',
-    PER_HOUR: '· /h',
-    PER_DAY: '· /j',
+    PER_HOUR: ' / heure',
+    PER_DAY: ' / jour',
 
     TITLE: 'Les meilleures offres de location de voitures',
     SUBTITLE: "Comparez nos prix et réservez votre voiture dès aujourd'hui !",
@@ -57,7 +57,7 @@ const strings = new LocalizedStrings({
     CUSTOMER_CARE_SUPPORT: 'Conseils et assistance',
   },
   ar: {
-    PICK_UP_DATE: 'تاريخ الاستلام', DROP_OFF_DATE: 'تاريخ التسليم', DROP_OFF: 'الإرجاع في نفس الموقع', COVER: 'احجز سيارتك اليوم!', SUPPLIERS_TITLE: 'تواصل مع أكبر العلامات التجارية', MAP_TITLE: 'خريطة مواقع تأجير السيارات', MAP_PICK_UP_SELECTED: 'تم اختيار مكان الاستلام', MAP_DROP_OFF_SELECTED: 'تم اختيار مكان التسليم', DESTINATIONS_TITLE: 'تصفح حسب الوجهة', CAR_SIZE_TITLE: 'اكتشف أحجام سياراتنا', CAR_SIZE_TEXT: 'تتوفر مركباتنا بثلاثة أحجام رئيسية.', MINI: 'صغيرة', MIDI: 'متوسطة', MAXI: 'كبيرة', SEARCH_FOR_CAR: 'ابحث عن سيارة', PER_HOUR: '· /ساعة', PER_DAY: '· /يوم', TITLE: 'أفضل عروض تأجير السيارات', SUBTITLE: 'قارن أسعارنا واحجز سيارتك اليوم!', WHY_TITLE: 'احجز معنا اليوم وقد بثقة!', WHY_SERVICE_TITLE: 'الخدمة', WHY_SERVICE: 'مساعدة على الطريق على مدار الساعة لراحة بالك.', WHY_CHARGES_TITLE: 'بدون رسوم مخفية', WHY_CHARGES: 'ما تراه هو ما تدفعه.', WHY_FLEET_TITLE: 'أسطول مميز', WHY_FLEET: 'اختر من مجموعة واسعة من المركبات الموثوقة والمتميزة.', WHY_MILEAGE_TITLE: 'عدد أميال غير محدود', WHY_MILEAGE: 'استكشف المدن وما حولها بلا حدود.', WHY_MILEAGE_ASTERISK: '*يطبق عند الإشارة إليه', SERVICES_TITLE: 'ما الذي يميزنا؟', SERVICES_FLEET_TITLE: 'مجموعة واسعة من المركبات', SERVICES_FLEET: 'من سيارات المدن الصغيرة إلى سيارات الدفع الرباعي الفاخرة، يلبي أسطولنا كل احتياجات السفر.', SERVICES_FLEXIBLE_TITLE: 'استلام وتسليم مرنان', SERVICES_FLEXIBLE: 'مواقع مناسبة ومواعيد مرنة تجعل استئجار السيارة سهلًا.', SERVICES_PRICES_TITLE: 'أسعار ممتازة', SERVICES_PRICES: 'نقدم أسعارًا تنافسية على جميع المركبات.', SERVICES_BOOKING_ONLINE_TITLE: 'حجز إلكتروني سهل', SERVICES_BOOKING_ONLINE: 'قارن الخيارات وخصص إيجارك واحجز مركبتك بسهولة.', SERVICE_INSTANT_BOOKING_TITLE: 'حجز فوري', SERVICE_INSTANT_BOOKING: 'احصل على تأكيد فوري بعد إتمام الحجز.', SERVICES_SUPPORT_TITLE: 'دعم العملاء على مدار الساعة', SERVICES_SUPPORT: 'فريق الدعم متاح دائمًا لمساعدتك.', CUSTOMER_CARE_TITLE: `خدمة عملاء ${env.WEBSITE_NAME}`, CONTACT_US: 'اتصل بنا', CUSTOMER_CARE_SUBTITLE: 'دائمًا هنا لمساعدتك', CUSTOMER_CARE_TEXT: `نلتزم في ${env.WEBSITE_NAME} بتقديم دعم سريع وموثوق.`, CUSTOMER_CARE_ASSISTANCE: 'مساعدة على الطريق 24/7', CUSTOMER_CARE_MODIFICATION: 'الاستفسارات والتعديلات', CUSTOMER_CARE_GUIDANCE: 'إرشاد اختيار المركبة', CUSTOMER_CARE_SUPPORT: 'النصيحة والدعم'
+    PICK_UP_DATE: 'تاريخ الاستلام', DROP_OFF_DATE: 'تاريخ التسليم', DROP_OFF: 'الإرجاع في نفس الموقع', COVER: 'احجز سيارتك اليوم!', SUPPLIERS_TITLE: 'تواصل مع أكبر العلامات التجارية', MAP_TITLE: 'خريطة مواقع تأجير السيارات', MAP_PICK_UP_SELECTED: 'تم اختيار مكان الاستلام', MAP_DROP_OFF_SELECTED: 'تم اختيار مكان التسليم', DESTINATIONS_TITLE: 'تصفح حسب الوجهة', CAR_SIZE_TITLE: 'اكتشف أحجام سياراتنا', CAR_SIZE_TEXT: 'تتوفر مركباتنا بثلاثة أحجام رئيسية.', MINI: 'صغيرة', MIDI: 'متوسطة', MAXI: 'كبيرة', SEARCH_FOR_CAR: 'ابحث عن سيارة', PER_HOUR: ' / ساعة', PER_DAY: ' / يوم', TITLE: 'أفضل عروض تأجير السيارات', SUBTITLE: 'قارن أسعارنا واحجز سيارتك اليوم!', WHY_TITLE: 'احجز معنا اليوم وقد بثقة!', WHY_SERVICE_TITLE: 'الخدمة', WHY_SERVICE: 'مساعدة على الطريق على مدار الساعة لراحة بالك.', WHY_CHARGES_TITLE: 'بدون رسوم مخفية', WHY_CHARGES: 'ما تراه هو ما تدفعه.', WHY_FLEET_TITLE: 'أسطول مميز', WHY_FLEET: 'اختر من مجموعة واسعة من المركبات الموثوقة والمتميزة.', WHY_MILEAGE_TITLE: 'عدد أميال غير محدود', WHY_MILEAGE: 'استكشف المدن وما حولها بلا حدود.', WHY_MILEAGE_ASTERISK: '*يطبق عند الإشارة إليه', SERVICES_TITLE: 'ما الذي يميزنا؟', SERVICES_FLEET_TITLE: 'مجموعة واسعة من المركبات', SERVICES_FLEET: 'من سيارات المدن الصغيرة إلى سيارات الدفع الرباعي الفاخرة، يلبي أسطولنا كل احتياجات السفر.', SERVICES_FLEXIBLE_TITLE: 'استلام وتسليم مرنان', SERVICES_FLEXIBLE: 'مواقع مناسبة ومواعيد مرنة تجعل استئجار السيارة سهلًا.', SERVICES_PRICES_TITLE: 'أسعار ممتازة', SERVICES_PRICES: 'نقدم أسعارًا تنافسية على جميع المركبات.', SERVICES_BOOKING_ONLINE_TITLE: 'حجز إلكتروني سهل', SERVICES_BOOKING_ONLINE: 'قارن الخيارات وخصص إيجارك واحجز مركبتك بسهولة.', SERVICE_INSTANT_BOOKING_TITLE: 'حجز فوري', SERVICE_INSTANT_BOOKING: 'احصل على تأكيد فوري بعد إتمام الحجز.', SERVICES_SUPPORT_TITLE: 'دعم العملاء على مدار الساعة', SERVICES_SUPPORT: 'فريق الدعم متاح دائمًا لمساعدتك.', CUSTOMER_CARE_TITLE: `خدمة عملاء ${env.WEBSITE_NAME}`, CONTACT_US: 'اتصل بنا', CUSTOMER_CARE_SUBTITLE: 'دائمًا هنا لمساعدتك', CUSTOMER_CARE_TEXT: `نلتزم في ${env.WEBSITE_NAME} بتقديم دعم سريع وموثوق.`, CUSTOMER_CARE_ASSISTANCE: 'مساعدة على الطريق 24/7', CUSTOMER_CARE_MODIFICATION: 'الاستفسارات والتعديلات', CUSTOMER_CARE_GUIDANCE: 'إرشاد اختيار المركبة', CUSTOMER_CARE_SUPPORT: 'النصيحة والدعم'
   },
   en: {
     PICK_UP_DATE: 'Pick-up Date',
@@ -75,8 +75,8 @@ const strings = new LocalizedStrings({
     MIDI: 'MIDI',
     MAXI: 'MAXI',
     SEARCH_FOR_CAR: 'Search for a car',
-    PER_HOUR: '· phr',
-    PER_DAY: '· pday',
+    PER_HOUR: ' / hour',
+    PER_DAY: ' / day',
 
     TITLE: 'Top Car Rental Deals',
     SUBTITLE: 'Compare our prices and book your car today!',
@@ -128,8 +128,8 @@ const strings = new LocalizedStrings({
     MIDI: 'MIDI',
     MAXI: 'MAXI',
     SEARCH_FOR_CAR: 'Buscar un coche',
-    PER_HOUR: '· /h',
-    PER_DAY: '· /día',
+    PER_HOUR: ' / hora',
+    PER_DAY: ' / día',
 
     TITLE: 'Las mejores ofertas de alquiler de coches',
     SUBTITLE: '¡Compare nuestros precios y reserve su coche hoy mismo!',

@@ -29,6 +29,14 @@
   border: #3777A2 1px solid;
   border-radius: 4px;
   padding: 4px 10px;
+  min-height: 44px;
   margin-bottom: 5px;
   width: 100%;
+}
+
+/* Mobile polish: Leaflet zoom buttons are 30px by default; make them 44px tap targets. */
+.leaflet-control-zoom a {
+  width: 44px !important;
+  height: 44px !important;
+  line-height: 44px !important;
 }

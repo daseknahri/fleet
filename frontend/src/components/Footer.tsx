@@ -63,10 +63,7 @@ const Footer = () => {
         </div>
       </section>
       <section className="payment">
-        <div
-          className="payment-text"
-          style={env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.PayPal ? { margin: '0 20px' } : { margin: '-25px 0 0', marginInlineEnd: '10px' }}
-        >
+        <div className="payment-text">
           {strings.SECURE_PAYMENT}
         </div>
         <img

@@ -9,6 +9,8 @@ div.location-caroussel .slick-dots li.slick-active button::before {
 
 div.location-caroussel .btn-slider {
   color: #000 !important;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 div.location-caroussel .btn-slider-prev {
@@ -78,6 +80,7 @@ div.location-caroussel div.box .btn-location {
   margin-top: auto;
   margin-bottom: 6px;
   margin-inline-start: 5px;
+  min-height: 44px;
 }
 
 @media only screen and (width <=960px) {

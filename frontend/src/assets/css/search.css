@@ -27,6 +27,7 @@ div.search div.col-1 .filter {
 div.search .btn-filters {
   max-width: 480px;
   margin-top: 5px;
+  min-height: 44px;
 }
 
 /* Device width is less than or equal to 960px */

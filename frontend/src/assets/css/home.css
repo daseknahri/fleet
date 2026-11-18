@@ -283,7 +283,7 @@ div.home div.car-size div.boxes {
 
 div.home div.car-size div.boxes div.box {
   width: 326px;
-  height: 278px;
+  min-height: 278px;
   background-color: #fff;
 }
 

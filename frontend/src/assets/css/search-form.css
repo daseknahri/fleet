@@ -3,6 +3,7 @@ form.home-search-form .btn-cancel {
   font-size: 18px;
   font-weight: 400;
   height: 52px;
+  min-height: 44px;
   min-width: 190px;
 }
 

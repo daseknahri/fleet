@@ -49,6 +49,12 @@ div.footer ul.links li {
   width: fit-content;
 }
 
+div.footer ul.links li a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
 div.footer ul.links li:hover {
   /* opacity: 0.85; */
   text-decoration: underline;
@@ -67,6 +73,9 @@ div.footer div.footer-contact .icon {
 }
 
 div.footer div.footer-contact a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   text-decoration: none;
   color: #1a1a1a;
 }
@@ -94,6 +103,9 @@ div.footer section.payment {
   display: flex;
   flex-direction: row;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   border-top: 1px solid #dbdbdb;
   padding: 10px 0;
 }
@@ -103,6 +115,7 @@ div.footer section.payment div.payment-text {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  line-height: 1.5;
 }
 
 @media only screen and (width <=960px) {

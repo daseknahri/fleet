@@ -55,6 +55,7 @@
   background-color: transparent !important;
   color: #121212 !important;
   text-transform: none !important;
+  min-height: 44px;
 }
 
 .header .btn:hover {
@@ -72,6 +73,7 @@
   font-size: 18px;
   font-weight: 500;
   color: #121212;
+  min-height: 44px;
 }
 
 /* Device width is greater than or equal to 960px */
@@ -106,4 +108,9 @@
   .toolbar {
     min-height: 56px !important;
   }
+}
+
+/* Mobile polish: header icon buttons (hamburger, notifications, account, more) get a 44px tap target (24px icon + 10px padding). */
+.header .MuiIconButton-root {
+  padding: 10px;
 }
