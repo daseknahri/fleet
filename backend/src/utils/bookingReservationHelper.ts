@@ -167,23 +167,22 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
     }
 
     const carIds = [...new Set(reservingBookings.map((booking) => booking.car.toString()))].sort()
-    const blockingCars = new Set<string>()
 
+    // GAP-M2 — the overlap check always runs: `blockOnPay` no longer
+    // gates it. The version bump below is kept (it stamps the car so
+    // concurrent booking saves serialize on the document), but the flag
+    // is never read here anymore.
     for (const carId of carIds) {
       const query = Car.findOneAndUpdate(
         { _id: new mongoose.Types.ObjectId(carId) },
         { $inc: { bookingReservationVersion: 1 } },
         { new: true, timestamps: false, ...sessionOpt },
-      ).select('blockOnPay').lean()
+      ).select('_id').lean()
 
       const car = await query
 
       if (!car) {
         throw new Error(`Car ${carId} not found`)
-      }
-
-      if (car.blockOnPay) {
-        blockingCars.add(carId)
       }
     }
 
@@ -213,10 +212,6 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       if (overdue) {
         throw new OverdueMaintenanceError(overdue.title, overdue.trigger)
       }
-      if (!blockingCars.has(carId)) {
-        continue
-      }
-
       const query = Booking.findOne({
         _id: { $nin: bookingIds },
         car: new mongoose.Types.ObjectId(carId),
@@ -249,9 +244,6 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
 
     for (let firstIndex = 0; firstIndex < reservingBookings.length; firstIndex += 1) {
       const first = reservingBookings[firstIndex]
-      if (!blockingCars.has(first.car.toString())) {
-        continue
-      }
 
       for (let secondIndex = firstIndex + 1; secondIndex < reservingBookings.length; secondIndex += 1) {
         const second = reservingBookings[secondIndex]
@@ -308,8 +300,9 @@ export interface RestoreConflict {
  * availability check for a booking whose status reserves the car and
  * whose lifecycle has not run its course, against LIVE bookings only.
  * Mirrors the conflict logic inside `saveBookingsWithAvailability`
- * (maintenance downtime first, then the `blockOnPay`-gated live-booking
- * overlap, excluding the booking itself). A booking that does not
+ * (maintenance downtime first, then the live-booking overlap,
+ * excluding the booking itself; GAP-M2 — the check always runs,
+ * `blockOnPay` no longer gates it). A booking that does not
  * reserve the car (or whose lifecycle is Completed/Cancelled) never
  * conflicts. The caller names the blocker in the 409 (`OVERLAP` with
  * the conflicting id, or a maintenance conflict).
@@ -345,11 +338,6 @@ export const findBookingConflictForRestore = async (booking: env.Booking): Promi
   const overdue = await findOverdueSchedule(booking.supplier, carId)
   if (overdue) {
     return { overdueSchedule: { title: overdue.title, trigger: overdue.trigger } }
-  }
-
-  const car = await Car.findOne({ _id: new mongoose.Types.ObjectId(carId) }).select('blockOnPay').lean()
-  if (!car || !car.blockOnPay) {
-    return {}
   }
 
   const conflict = await Booking.findOne({
