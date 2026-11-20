@@ -413,6 +413,17 @@ const Maintenance = () => {
 
   const [scheduleDeleteTarget, setScheduleDeleteTarget] = useState<bookcarsTypes.MaintenanceSchedule | null>(null)
 
+  // GAP-MAINT-P0-2 — "Complete service" dialog state.
+  const [completeTarget, setCompleteTarget] = useState<bookcarsTypes.MaintenanceSchedule | null>(null)
+
+  const [completeForm, setCompleteForm] = useState({ serviceDate: new Date().toISOString().slice(0, 10), odometerKm: '', workOrderId: '', note: '' })
+
+  const [completeSaving, setCompleteSaving] = useState(false)
+
+  const [completeError, setCompleteError] = useState(false)
+
+  const [completeErrorMessage, setCompleteErrorMessage] = useState('')
+
   // F7 / W3 M-5 — work orders (admin UI; the API existed, the page did not).
   const [workOrders, setWorkOrders] = useState<bookcarsTypes.MaintenanceWorkOrder[]>([])
 
@@ -822,6 +833,75 @@ return
     }
   }
 
+  // GAP-MAINT-P0-2 — "Complete service": close the work order, record
+  // the service date/odometer, complete the schedule and roll the next
+  // interval forward, in one server call.
+  const openCompleteService = (schedule: bookcarsTypes.MaintenanceSchedule) => {
+    setCompleteTarget(schedule)
+
+    setCompleteForm({ serviceDate: new Date().toISOString().slice(0, 10), odometerKm: '', workOrderId: '', note: '' })
+
+    setCompleteError(false)
+
+    setCompleteErrorMessage('')
+  }
+
+  const handleCompleteService = async () => {
+    if (!completeTarget?._id) {
+      return
+    }
+
+    const odometerKm = completeForm.odometerKm.trim() === '' ? undefined : Number(completeForm.odometerKm)
+    if (completeTarget.intervalKm && odometerKm === undefined) {
+      setCompleteErrorMessage(strings.ODOMETER_REQUIRED)
+
+      setCompleteError(true)
+
+      return
+    }
+
+    if (odometerKm !== undefined && (!Number.isFinite(odometerKm) || odometerKm < 0)) {
+      setCompleteErrorMessage(`${strings.SCHEDULE_INVALID_FIELD}${strings.MILEAGE}`)
+
+      setCompleteError(true)
+
+      return
+    }
+
+    setCompleteSaving(true)
+
+    setCompleteError(false)
+
+    try {
+      const result = await MaintenanceScheduleService.completeService(completeTarget._id, {
+        workOrderId: completeForm.workOrderId || undefined,
+        serviceDate: completeForm.serviceDate ? new Date(`${completeForm.serviceDate}T12:00:00`) : undefined,
+        odometerKm,
+        note: completeForm.note.trim() || undefined,
+      })
+
+      setSchedules((rows) => {
+        const updated = rows.map((row) => (row._id === result.schedule._id ? result.schedule : row))
+        return result.nextSchedule ? [...updated, result.nextSchedule].sort((a, b) => (a.nextDueDate ? new Date(a.nextDueDate).getTime() : Infinity) - (b.nextDueDate ? new Date(b.nextDueDate).getTime() : Infinity)) : updated
+      })
+
+      // A closed work order leaves the open list.
+      if (completeForm.workOrderId) {
+        setWorkOrders((rows) => rows.map((row) => (row._id === completeForm.workOrderId ? { ...row, status: bookcarsTypes.WorkOrderStatus.Completed, completedAt: result.schedule.lastServiceDate } : row)))
+      }
+
+      setCompleteTarget(null)
+    } catch (error) {
+      const detail = apiErrorMessage(error)
+
+      setCompleteErrorMessage(detail || strings.COMPLETE_SERVICE_ERROR)
+
+      setCompleteError(true)
+    } finally {
+      setCompleteSaving(false)
+    }
+  }
+
 
   const scheduleStatusLabel = (status: bookcarsTypes.MaintenanceScheduleStatus) => {
     switch (status) {
@@ -1145,6 +1225,14 @@ return
     setForm((current) => ({ ...current, [key]: event.target.value }))
   }
 
+  // GAP-MAINT-P0-2 — open work orders for the car of the schedule
+  // being completed, offered as the optional linked work order.
+  const completeCarId = completeTarget ? (typeof completeTarget.car === 'string' ? completeTarget.car : completeTarget.car?._id || '') : ''
+  const completeWorkOrders = completeTarget ? workOrders.filter((workOrder) => {
+    const carId = typeof workOrder.car === 'string' ? workOrder.car : workOrder.car?._id || ''
+    return carId === completeCarId && workOrder.status !== bookcarsTypes.WorkOrderStatus.Completed && workOrder.status !== bookcarsTypes.WorkOrderStatus.Cancelled
+  }) : []
+
 
   return (
 
@@ -1263,7 +1351,7 @@ return
 
           </div>
 
-          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{formatDate(schedule.nextDueDate)}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setScheduleDeleteTarget(schedule)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{schedule.nextDueDate ? formatDate(schedule.nextDueDate) : '—'}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button>{schedule.status !== bookcarsTypes.MaintenanceScheduleStatus.Completed && (<Button size="small" onClick={() => openCompleteService(schedule)}>{strings.COMPLETE_SERVICE}</Button>)}<Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setScheduleDeleteTarget(schedule)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
@@ -1442,6 +1530,35 @@ return
           <Button color="error" variant="contained" onClick={handleScheduleDelete}>{strings.DELETE}</Button>
 
         </DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={completeTarget !== null} onClose={() => !completeSaving && setCompleteTarget(null)} fullWidth maxWidth="sm">
+
+        <DialogTitle>{strings.COMPLETE_SERVICE}</DialogTitle>
+
+        <DialogContent className="agency-maintenance__form">
+
+          {completeError && <Alert severity="error">{completeErrorMessage || strings.COMPLETE_SERVICE_ERROR}</Alert>}
+
+          <TextField fullWidth required type="date" label={strings.SERVICE_DATE} value={completeForm.serviceDate} onChange={(event) => setCompleteForm((current) => ({ ...current, serviceDate: event.target.value }))} InputLabelProps={{ shrink: true }} />
+
+          <TextField fullWidth required={!!completeTarget?.intervalKm} type="number" label={strings.MILEAGE} value={completeForm.odometerKm} onChange={(event) => setCompleteForm((current) => ({ ...current, odometerKm: event.target.value }))} inputProps={{ min: 0, step: 1 }} />
+
+          <TextField select fullWidth label={strings.WORK_ORDER} value={completeForm.workOrderId} onChange={(event) => setCompleteForm((current) => ({ ...current, workOrderId: event.target.value }))}>
+
+            <MenuItem value="">—</MenuItem>
+
+            {completeWorkOrders.map((workOrder) => <MenuItem value={workOrder._id} key={workOrder._id}>{workOrder.title}</MenuItem>)}
+
+          </TextField>
+
+          <TextField fullWidth multiline minRows={3} label={strings.NOTE} value={completeForm.note} onChange={(event) => setCompleteForm((current) => ({ ...current, note: event.target.value }))} inputProps={{ maxLength: 1000 }} />
+
+        </DialogContent>
+
+        <DialogActions><Button onClick={() => setCompleteTarget(null)} disabled={completeSaving}>{strings.CANCEL}</Button><Button variant="contained" onClick={handleCompleteService} disabled={completeSaving}>{strings.COMPLETE_SERVICE}</Button></DialogActions>
 
       </Dialog>
 

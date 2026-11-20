@@ -2373,6 +2373,21 @@ export interface UpsertMaintenanceSchedulePayload {
   note?: string
 }
 
+// GAP-MAINT-P0-2 — "Complete service": close the work order, record
+// the service date/odometer, complete the schedule, roll the next
+// interval forward, update the car's odometer — in one call.
+export interface CompleteServicePayload {
+  workOrderId?: string
+  serviceDate?: Date | string
+  odometerKm?: number
+  note?: string
+}
+
+export interface CompleteServiceResult {
+  schedule: MaintenanceSchedule
+  nextSchedule: MaintenanceSchedule | null
+}
+
 export enum RentalPaymentMethod {
   Cash = 'cash',
   BankTransfer = 'bankTransfer',

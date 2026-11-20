@@ -4,6 +4,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import { resolveScheduleDue } from '../utils/maintenanceSchedule'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
@@ -14,9 +15,15 @@ const scope = (req: Request): Record<string, unknown> => req.user?.type === book
   : { supplier: agencySupplierId(req) || '000000000000000000000000' }
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
-const dueStatus = (date: Date, completed?: boolean) => {
+const dueStatus = (date: Date | undefined, completed?: boolean) => {
   if (completed) {
 return bookcarsTypes.MaintenanceScheduleStatus.Completed
+}
+  // GAP-MAINT-P0-1 — a km-only schedule has no due date: its stored
+  // status is Upcoming and the mileage leg (resolveScheduleDue) is
+  // what upgrades it live when the odometer crosses.
+  if (!date) {
+return bookcarsTypes.MaintenanceScheduleStatus.Upcoming
 }
   const today = startOfDay(new Date())
   const due = startOfDay(date)
@@ -51,8 +58,13 @@ const normalize = (input: bookcarsTypes.UpsertMaintenanceSchedulePayload) => {
     || String(input.note || '').trim().length > 1000) {
 return null
 }
-  const nextDueDate = requestedDue || (lastDate && intervalDays ? new Date(lastDate.getTime() + intervalDays * 86400000) : new Date())
-  if (!nextDueDate || Number.isNaN(nextDueDate.getTime())) {
+  // GAP-MAINT-P0-1 — do NOT default a km-only schedule's due date to
+  // today: that made the reminder fire once at creation (nothing due)
+  // and never when the odometer crossed. A km-only schedule carries
+  // no due date; the mileage leg governs it. (The validation above
+  // still requires at least one interval or an explicit due date.)
+  const nextDueDate = requestedDue || (lastDate && intervalDays ? new Date(lastDate.getTime() + intervalDays * 86400000) : undefined)
+  if (nextDueDate && Number.isNaN(nextDueDate.getTime())) {
 return null
 }
   const status = input.status === bookcarsTypes.MaintenanceScheduleStatus.Completed
@@ -132,6 +144,136 @@ export const update = async (req: Request, res: Response) => {
     res.json(present(row))
   } catch (err) {
  logger.error('[maintenanceSchedule.update]', err); res.status(400).send(i18n.t('ERROR')) 
+}
+}
+
+// GAP-MAINT-P0-2 — run a function inside a transaction when the
+// topology supports one (same check as bookingReservationHelper),
+// otherwise run it plain. The maintenance loop closes atomically
+// only on a replica set; on a standalone the steps still run in
+// order, just without the all-or-nothing guarantee.
+const runInTransaction = async <T>(fn: (session?: mongoose.ClientSession) => Promise<T>): Promise<T> => {
+  const client = mongoose.connection.getClient() as unknown as { topology?: { description?: { type?: string } } } | null
+  const topologyType = client?.topology?.description?.type
+  if (topologyType && topologyType !== 'Single' && topologyType !== 'Unknown') {
+    return mongoose.connection.transaction(fn)
+  }
+  return fn()
+}
+
+/**
+ * GAP-MAINT-P0-2 — one "Complete service" action that closes the
+ * maintenance loop in a single call:
+ * - closes the linked work order (if one is given) with the service
+ *   date and odometer,
+ * - records the service date + odometer on the schedule and marks it
+ *   Completed,
+ * - rolls the next interval forward as a new schedule (date leg from
+ *   intervalDays, mileage leg from intervalKm + the service reading),
+ * - updates the car's odometer to the service reading.
+ * A km-interval schedule requires the odometer reading, because the
+ * next due mileage cannot be computed without it. Completing an
+ * already-completed schedule, or a cancelled work order, is a 409.
+ * Returns `{ schedule, nextSchedule }` (nextSchedule is null when
+ * the schedule has no interval to roll forward).
+ */
+export const completeService = async (req: Request, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+ res.status(400).send('Invalid maintenance schedule'); return 
+}
+    const body = req.body as bookcarsTypes.CompleteServicePayload
+    const workOrderId = typeof body.workOrderId === 'string' && mongoose.isValidObjectId(body.workOrderId) ? body.workOrderId : undefined
+    const serviceDate = body.serviceDate ? new Date(body.serviceDate) : new Date()
+    const odometerKm = body.odometerKm === undefined || body.odometerKm === null ? undefined : Number(body.odometerKm)
+    const note = String(body.note || '').trim()
+    if (Number.isNaN(serviceDate.getTime())
+      || (odometerKm !== undefined && (!Number.isFinite(odometerKm) || odometerKm < 0))
+      || note.length > 1000) {
+ res.status(400).send('Invalid service record'); return 
+}
+
+    const row = await MaintenanceSchedule.findOne({ _id: req.params.id, ...scope(req) })
+    if (!row) {
+ res.status(404).send('Not found'); return 
+}
+    if (row.status === bookcarsTypes.MaintenanceScheduleStatus.Completed) {
+ res.status(409).send('Schedule already completed'); return 
+}
+    if (row.intervalKm && odometerKm === undefined) {
+ res.status(400).send('Odometer reading is required for this schedule'); return 
+}
+
+    const result = await runInTransaction(async (session): Promise<
+      | { error: 404 | 409, message: string }
+      | { error: null, schedule: env.MaintenanceSchedule, nextSchedule: env.MaintenanceSchedule | null }
+    > => {
+      const sessionOpt = session ? { session } : {}
+
+      let workOrder: env.MaintenanceWorkOrder | null = null
+      if (workOrderId) {
+        workOrder = await MaintenanceWorkOrder.findOne({ _id: workOrderId, supplier: row.supplier, car: row.car }, null, sessionOpt)
+        if (!workOrder) {
+          return { error: 404, message: 'Work order not found' }
+        }
+        if (workOrder.status === bookcarsTypes.WorkOrderStatus.Completed) {
+          return { error: 409, message: 'Work order already completed' }
+        }
+        if (workOrder.status === bookcarsTypes.WorkOrderStatus.Cancelled) {
+          return { error: 409, message: 'Work order is cancelled' }
+        }
+        workOrder.status = bookcarsTypes.WorkOrderStatus.Completed
+        workOrder.completedAt = serviceDate
+        if (odometerKm !== undefined) {
+          workOrder.odometer = odometerKm
+        }
+        if (note) {
+          workOrder.note = workOrder.note ? `${workOrder.note}\n${note}` : note
+        }
+        await workOrder.save(sessionOpt)
+      }
+
+      row.lastServiceDate = serviceDate
+      if (odometerKm !== undefined) {
+        row.lastServiceMileage = odometerKm
+      }
+      row.status = bookcarsTypes.MaintenanceScheduleStatus.Completed
+      await row.save(sessionOpt)
+
+      let next: env.MaintenanceSchedule | null = null
+      if (row.intervalDays || row.intervalKm) {
+        const nextDueDate = row.intervalDays ? new Date(serviceDate.getTime() + row.intervalDays * 86400000) : undefined
+        const nextDueMileage = row.intervalKm && row.lastServiceMileage !== undefined ? row.lastServiceMileage + row.intervalKm : undefined
+        next = new MaintenanceSchedule({
+          supplier: row.supplier,
+          car: row.car,
+          type: row.type,
+          title: row.title,
+          intervalDays: row.intervalDays,
+          intervalKm: row.intervalKm,
+          lastServiceDate: serviceDate,
+          lastServiceMileage: odometerKm,
+          nextDueDate,
+          nextDueMileage,
+          status: dueStatus(nextDueDate),
+          note: row.note,
+        })
+        await next.save(sessionOpt)
+      }
+
+      if (odometerKm !== undefined) {
+        await Car.updateOne({ _id: row.car }, { $set: { odometerKm } }, sessionOpt)
+      }
+
+      return { error: null, schedule: row, nextSchedule: next }
+    })
+
+    if (result.error) {
+ res.status(result.error).send(result.message); return 
+}
+    res.json({ schedule: present(result.schedule), nextSchedule: result.nextSchedule ? present(result.nextSchedule) : null })
+  } catch (err) {
+ logger.error('[maintenanceSchedule.completeService]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }
 
