@@ -5,6 +5,7 @@ import * as langHelper from '@/utils/langHelper'
 const strings = new LocalizedStrings({
   fr: {
     GENERIC_ERROR: "Une erreur non gérée s'est produite.",
+    RELOAD: 'Recharger la page',
     CHANGE_LANGUAGE_ERROR: "Une erreur s'est produite lors du changement de langue.",
     UPDATED: 'Modifications effectuées avec succès.',
     GO_TO_HOME: "Aller à la page d'accueil",
@@ -147,6 +148,7 @@ const strings = new LocalizedStrings({
   },
   ar: {
     GENERIC_ERROR: 'حدث خطأ غير متوقع.',
+    RELOAD: 'إعادة تحميل الصفحة',
     CHANGE_LANGUAGE_ERROR: 'حدث خطأ أثناء تغيير اللغة.',
     UPDATED: 'تم حفظ التعديلات بنجاح.',
     GO_TO_HOME: 'العودة إلى الصفحة الرئيسية',
@@ -289,6 +291,7 @@ const strings = new LocalizedStrings({
   },
   en: {
     GENERIC_ERROR: 'An unhandled error occurred.',
+    RELOAD: 'Reload the page',
     CHANGE_LANGUAGE_ERROR: 'An error occurred while changing language.',
     UPDATED: 'Changes made successfully.',
     GO_TO_HOME: 'Go to the home page',
@@ -431,6 +434,7 @@ const strings = new LocalizedStrings({
   },
   es: {
     GENERIC_ERROR: 'Se ha producido un error no controlado.',
+    RELOAD: 'Recargar la página',
     CHANGE_LANGUAGE_ERROR: 'Se ha producido un error al cambiar el idioma.',
     UPDATED: 'Cambios realizados con éxito.',
     GO_TO_HOME: 'Ir a la página de inicio',

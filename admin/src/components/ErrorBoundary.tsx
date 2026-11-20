@@ -27,7 +27,19 @@ class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      return this.props.fallback || <h2>{commonStrings.GENERIC_ERROR}</h2>
+      // GAP-ADMIN-P0-1 — the boundary used to be a dead end: a failed
+      // lazy chunk (e.g. a 429 on /chunks/*) left the tab on this
+      // message with no way back short of a manual reload. Offer the
+      // reload here; a custom fallback still wins when one is given.
+      if (this.props.fallback) {
+        return this.props.fallback
+      }
+      return (
+        <div style={{ padding: 24 }}>
+          <h2>{commonStrings.GENERIC_ERROR}</h2>
+          <button type="button" onClick={() => window.location.reload()}>{commonStrings.RELOAD}</button>
+        </div>
+      )
     }
 
     return this.props.children
