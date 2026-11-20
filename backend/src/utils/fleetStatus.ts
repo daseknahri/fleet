@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
-import { BOOKING_RESERVATION_STATUSES } from './bookingReservationHelper'
+import { reservationStatusOr } from './bookingReservationHelper'
 
 // Fleet statuses (scorecard #15): the derived status of a car and the
 // counts behind the fleet list.
@@ -11,8 +11,9 @@ import { BOOKING_RESERVATION_STATUSES } from './bookingReservationHelper'
 // (`inService` | `maintenance` | `stopped`, default `inService`) on the
 // car. `rented` is NOT stored — it is derived here from live bookings
 // with the same reservation predicate the availability engine uses
-// (`BOOKING_RESERVATION_STATUSES` + unexpired Void holds, lifecycle not
-// Completed/Cancelled, window covering now). The operator status wins
+// (`reservationStatusOr`: reserving statuses + unexpired Void holds +
+// open pay-later holds, lifecycle not Completed/Cancelled, window
+// covering now). The operator status wins
 // over `rented`: a car in maintenance or stopped reads as such even
 // while a booking covers it. A car with no stored value (legacy docs)
 // reads as inService. A car that is in service, not rented and
@@ -63,10 +64,7 @@ export const findCurrentlyRentedCarIds = async (
     lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
     from: { $lte: now },
     to: { $gte: now },
-    $or: [
-      { status: { $in: BOOKING_RESERVATION_STATUSES } },
-      { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
-    ],
+    $or: reservationStatusOr(now),
   }).select('car').lean()
   return new Set(bookings.map((booking) => booking.car.toString()))
 }

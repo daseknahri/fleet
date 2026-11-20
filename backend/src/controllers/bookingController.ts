@@ -25,7 +25,7 @@ import * as helper from '../utils/helper'
 import * as mailHelper from '../utils/mailHelper'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
-import { BookingConflictError, findBookingConflictForRestore, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
+import { BookingConflictError, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
@@ -1172,7 +1172,14 @@ export const checkout = async (req: Request, res: Response) => {
     }
 
     const isPayLater = paymentMode === bookcarsTypes.CheckoutPaymentMode.PayLater
-    const expireAt = isPayLater ? undefined : new Date(Date.now() + env.BOOKING_EXPIRE_AT * 1000)
+    // GAP-C1/M1 — a pay-later booking is a live hold on the car, not an
+    // open-ended reservation: it carries the 48h hold window
+    // (`PAY_LATER_HOLD_EXPIRE_AT`) as `expireAt`, reserves the car
+    // while the window is open, and is voided by the checkout sweeper
+    // (with a notice to the customer) once it has passed. The TTL on
+    // `expireAt` later deletes the abandoned record, exactly as for an
+    // expired Void checkout placeholder.
+    const expireAt = new Date(Date.now() + (isPayLater ? env.PAY_LATER_HOLD_EXPIRE_AT : env.BOOKING_EXPIRE_AT) * 1000)
     const reference = await nextBookingReference(supplier._id)
 
     // GA-PAR-10: the public checkout funnel ignores any overlapException
@@ -2290,7 +2297,10 @@ export const getBookings = async (req: Request, res: Response) => {
     const $match: mongoose.QueryFilter<any> = {
       // GA-PAR-22: live rows only — trashed bookings never leak into
       // the live list (the trash view has its own endpoint).
-      $and: [{ 'supplier._id': { $in: suppliers } }, { status: { $in: statuses } }, { expireAt: null }, { deletedAt: null }],
+      // GAP-C1/M1 — `expireAt` no longer means "temporary": a pay-later
+      // (Pending) hold carries it and must stay in the live list. Only
+      // a Void placeholder is excluded (see notTemporaryBookingFilter).
+      $and: [{ 'supplier._id': { $in: suppliers } }, { status: { $in: statuses } }, notTemporaryBookingFilter(), { deletedAt: null }],
     }
 
     if (sessionUser.type === bookcarsTypes.UserType.User) {
@@ -2890,7 +2900,9 @@ export const getCancelRequests = async (req: Request, res: Response) => {
     const filter: mongoose.QueryFilter<env.Booking> = {
       supplier: { $in: suppliers },
       cancelRequest: true,
-      expireAt: null,
+      // GAP-C1/M1 — a pay-later hold carries `expireAt` and can still
+      // carry a cancel request; only Void placeholders are excluded.
+      ...notTemporaryBookingFilter(),
       deletedAt: null,
     }
     const totalRecords = await Booking.countDocuments(filter)

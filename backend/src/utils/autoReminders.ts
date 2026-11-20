@@ -99,7 +99,9 @@ export interface AutoReminderPassResult {
 const LIVE_BOOKING_FILTER = {
   status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
   lifecycle: { $ne: bookcarsTypes.ContractLifecycle.Completed },
-  expireAt: null,
+  // GAP-C1/M1: no `expireAt: null` here — a pay-later hold carries
+  // `expireAt` and is a live booking; Void/Cancelled are already
+  // excluded by status above.
   deletedAt: null,
 }
 

@@ -331,7 +331,11 @@ bookingQuery.session(session)
   if (booking?.deletedAt) {
     throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
   }
-  if (!booking || booking.expireAt || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
+  // GAP-C1/M1 — a pay-later (Pending) booking carries `expireAt` as its
+  // hold window, not as a temporary-checkout marker: money may be
+  // posted against it. Only temporary (Void) and Cancelled bookings
+  // refuse money here.
+  if (!booking || [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
     throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
   }
 
@@ -596,17 +600,24 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   // confirms the same way (nothing outstanding, nothing posted).
   const previousStatus = booking.status
   const previousLifecycle = booking.lifecycle
+  const previousExpireAt = booking.expireAt
   booking.status = target
+  // GAP-C1/M1 — confirming a hold clears its hold window: a Paid /
+  // PaidInFull booking must never carry `expireAt` (the TTL would
+  // delete a paid booking, and trash refuses `expireAt`-set rows).
+  booking.expireAt = undefined
   if (!booking.lifecycle || booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
     booking.lifecycle = bookcarsTypes.ContractLifecycle.Confirmed
   }
   try {
-    // Paid/PaidInFull reserve the car (Pending does not), so this
-    // re-checks availability: a conflicting booking refuses the flip.
+    // Paid/PaidInFull reserve the car (a Pending hold reserves only
+    // while its window is open), so this re-checks availability: a
+    // conflicting booking refuses the flip.
     await saveBookingWithAvailability(booking)
   } catch (err) {
     booking.status = previousStatus
     booking.lifecycle = previousLifecycle
+    booking.expireAt = previousExpireAt
     if (err instanceof BookingConflictError) {
       logger.error(`[ledger.refreshBookingPaymentStatus] Booking ${booking._id.toString()} cannot be confirmed: the car is no longer available for the dates`, err)
       return { status: previousStatus, updated: false, ...base, conflict: true }

@@ -7,9 +7,11 @@ import * as env from '../config/env.config'
  * One uniform mechanism on bookings, clients (`User` rows with
  * `type=User`) and cars: trashed is a timestamp, not a status.
  * `deletedAt` absent/`null` = live; set = trashed. There is no
- * `isDeleted` boolean (two fields that can disagree is a bug class;
- * the `expireAt: null` pattern in `getBookings`/`getUsers` is the
- * house precedent for "null = live").
+ * `isDeleted` boolean (two fields that can disagree is a bug class).
+ * Note (GAP-C1/M1): `expireAt` is NOT a liveness marker — a pay-later
+ * (Pending) hold carries it as its hold window and is a live booking;
+ * only a Void booking with `expireAt` set is a temporary checkout
+ * placeholder (see `notTemporaryBookingFilter`).
  *
  * Exact-reversal invariant (design D-22.2): trash writes exactly
  * `deletedAt` / `deletedBy` / `deleteReason` and appends exactly one

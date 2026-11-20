@@ -500,6 +500,22 @@ export const PAYPAL_CLIENT_SECRET = __env__('BC_PAYPAL_CLIENT_SECRET', false, 'P
 export const BOOKING_EXPIRE_AT = STRIPE_SESSION_EXPIRE_AT + (10 * 60)
 
 /**
+ * Pay-later hold window in seconds (GAP-C1/M1).
+ * A pay-later (Pending) booking holds the car for this long after
+ * checkout: the checkout stamps `expireAt` with it, the availability
+ * engine treats the hold as reserving the car while it is open, and
+ * the checkout sweeper voids the booking (and notifies the customer)
+ * once it has passed. Default is 172800 seconds (48h). Configurable
+ * via `BC_PAY_LATER_HOLD_EXPIRE_AT`, clamped to 1h–7d.
+ *
+ * @type {number}
+ */
+let payLaterHoldExpireAt = Number.parseInt(__env__('BC_PAY_LATER_HOLD_EXPIRE_AT', false, '172800'), 10)
+payLaterHoldExpireAt = payLaterHoldExpireAt < 3600 ? 3600 : payLaterHoldExpireAt
+payLaterHoldExpireAt = payLaterHoldExpireAt > 604800 ? 604800 : payLaterHoldExpireAt
+export const PAY_LATER_HOLD_EXPIRE_AT = payLaterHoldExpireAt
+
+/**
  * User expiration in seconds.
  * Non verified and active users created from checkout with Stripe are temporary and are automatically deleted if the payment checkout session expires.
  *

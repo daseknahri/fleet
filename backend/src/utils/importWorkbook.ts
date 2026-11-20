@@ -12,7 +12,7 @@ import Booking from '../models/Booking'
 import Invoice from '../models/Invoice'
 import Location from '../models/Location'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
-import { BOOKING_RESERVATION_STATUSES } from './bookingReservationHelper'
+import { reservationStatusOr } from './bookingReservationHelper'
 import { normalizeClientIdentityFields } from './clientIdentity'
 import {
   validateLocationsForSupplier,
@@ -1142,10 +1142,7 @@ const validateBookings = async (
         deletedAt: null,
         from: { $lt: to },
         to: { $gt: from },
-        $or: [
-          { status: { $in: BOOKING_RESERVATION_STATUSES } },
-          { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
-        ],
+        $or: reservationStatusOr(now),
         lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
       }).select('_id').lean()
       if (conflict) {

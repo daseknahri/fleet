@@ -13,6 +13,35 @@ export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Reserved,
 ]
 
+/**
+ * GAP-C1/M1 — the single definition of "this booking reserves the car"
+ * for queries. `Pending` is deliberately NOT in
+ * `BOOKING_RESERVATION_STATUSES`: a pay-later hold reserves the car
+ * only while its hold window (`expireAt`, stamped by checkout) is
+ * still open — a hold without an expiry, or with an expired one,
+ * reserves nothing. `reservesCar` below is the in-memory mirror of
+ * this `$or`; keep the two in sync. Every availability read (the
+ * enforcement helper, the search aggregations, fleet status, the
+ * import pre-check) must use this predicate, never the bare list.
+ */
+export const reservationStatusOr = (now: Date) => ([
+  { status: { $in: BOOKING_RESERVATION_STATUSES } },
+  { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
+  { status: bookcarsTypes.BookingStatus.Pending, expireAt: { $gt: now } },
+])
+
+/**
+ * GAP-C1/M1 — "not a temporary checkout placeholder". `expireAt` no
+ * longer means "temporary" on its own: a pay-later (Pending) booking
+ * carries it as its hold window and is a live booking. Only a Void
+ * booking with `expireAt` set is a temporary checkout placeholder.
+ * Use this wherever a list must exclude placeholders but keep holds.
+ * A function (not a shared object) so each query gets a fresh filter.
+ */
+export const notTemporaryBookingFilter = () => ({
+  $or: [{ expireAt: null }, { status: { $ne: bookcarsTypes.BookingStatus.Void } }],
+})
+
 export class BookingConflictError extends Error {
   /** GA-PAR-10: the conflicting booking's id when the conflict is a
    * booking-vs-booking overlap (never set for maintenance conflicts). */
@@ -61,6 +90,7 @@ export interface BookingSaveOptions {
 const reservesCar = (booking: env.Booking, now: Date) =>
   BOOKING_RESERVATION_STATUSES.includes(booking.status)
   || (booking.status === bookcarsTypes.BookingStatus.Void && !!booking.expireAt && booking.expireAt > now)
+  || (booking.status === bookcarsTypes.BookingStatus.Pending && !!booking.expireAt && booking.expireAt > now)
 
 /**
  * F4 / W1 #4 (= W4 GAP-09) — the boundary rule is strict: two rentals
@@ -195,10 +225,7 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
         // F4 / W1 #4 — strict range: a booking whose pickup is exactly
         // this booking's return (or vice versa) does not overlap.
         from: { $lt: booking.to },
-        to: { $gt: booking.from },$or: [
-          { status: { $in: BOOKING_RESERVATION_STATUSES } },
-          { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
-        ],
+        to: { $gt: booking.from }, $or: reservationStatusOr(now),
         // A contract that already ran its course (or was cancelled at the
         // lifecycle level) no longer reserves the car, whatever its payment
         // status still says (GAQ12B1: completed lifecycle + reserved status
@@ -333,10 +360,7 @@ export const findBookingConflictForRestore = async (booking: env.Booking): Promi
     // F4 / W1 #4 — strict range, same boundary rule as above.
     from: { $lt: booking.to },
     to: { $gt: booking.from },
-    $or: [
-      { status: { $in: BOOKING_RESERVATION_STATUSES } },
-      { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
-    ],
+    $or: reservationStatusOr(now),
     lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
   }).select('_id').lean()
 

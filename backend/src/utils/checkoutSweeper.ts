@@ -1,7 +1,15 @@
+import mongoose from 'mongoose'
+import type { SendMailOptions } from 'nodemailer'
 import Stripe from 'stripe'
 import * as bookcarsTypes from ':bookcars-types'
+import * as env from '../config/env.config'
+import i18n from '../lang/i18n'
 import Booking from '../models/Booking'
+import Notification from '../models/Notification'
+import NotificationCounter from '../models/NotificationCounter'
+import User from '../models/User'
 import * as logger from './logger'
+import * as mailHelper from './mailHelper'
 import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } from './checkoutReconciliation'
 
 /**
@@ -49,6 +57,8 @@ export interface CheckoutSweepSummary {
   notPaid: number
   skipped: number
   errors: number
+  /** GAP-C1/M1 — expired pay-later holds voided (and notified) this pass. */
+  expiredHolds: number
 }
 
 export const runCheckoutSweep = async (now: Date = new Date()): Promise<CheckoutSweepSummary> => {
@@ -60,6 +70,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     notPaid: 0,
     skipped: 0,
     errors: 0,
+    expiredHolds: 0,
   }
   try {
     const bookings = await Booking.find({
@@ -135,10 +146,88 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     logger.error('[checkoutSweeper] sweep failed', err)
     summary.errors += 1
   }
-  if (summary.checked > 0 || summary.errors > 0) {
+  // GAP-C1/M1 — expired pay-later holds. The car is already released
+  // the moment `expireAt` passes (`reservesCar` only counts an
+  // unexpired hold); the void below is the status cleanup plus the
+  // customer notice, not the release itself. The booking keeps its
+  // `expireAt`, so the TTL deletes the abandoned record later —
+  // exactly as for an expired Void checkout placeholder.
+  try {
+    const expiredHolds = await Booking.find({
+      status: bookcarsTypes.BookingStatus.Pending,
+      expireAt: { $lte: now },
+    }).select('_id driver supplier reference').lean()
+    for (const hold of expiredHolds) {
+      try {
+        const voided = await Booking.updateOne(
+          { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending },
+          { $set: { status: bookcarsTypes.BookingStatus.Void } },
+        )
+        if (voided.modifiedCount === 0) {
+          continue
+        }
+        summary.expiredHolds += 1
+        logger.info(`[checkoutSweeper] Pay-later hold expired, booking ${hold._id} voided`)
+        await notifyHoldExpired(hold)
+      } catch (err) {
+        logger.error(`[checkoutSweeper] Failed to void expired pay-later hold ${hold._id}`, err)
+        summary.errors += 1
+      }
+    }
+  } catch (err) {
+    logger.error('[checkoutSweeper] expired-hold sweep failed', err)
+    summary.errors += 1
+  }
+  if (summary.checked > 0 || summary.expiredHolds > 0 || summary.errors > 0) {
     logger.info(`[checkoutSweeper] sweep finished: ${JSON.stringify(summary)}`)
   }
   return summary
+}
+
+/**
+ * GAP-C1/M1 — tell the customer their pay-later hold expired. Best
+ * effort, log-and-continue: a failing mailer must never break the
+ * sweep (same rule as the pay-later confirmation email in checkout).
+ * Writes the in-app notification row for the driver and sends the
+ * email in the driver's language.
+ */
+const notifyHoldExpired = async (hold: { _id: mongoose.Types.ObjectId, driver: mongoose.Types.ObjectId, reference?: string }): Promise<void> => {
+  try {
+    const driver = await User.findById(hold.driver).select('fullName email language').lean()
+    if (!driver || !driver.email) {
+      logger.error(`[checkoutSweeper] Cannot notify hold expiry for booking ${hold._id}: driver not found`)
+      return
+    }
+    i18n.locale = driver.language
+    const message = `${i18n.t('BOOKING_HOLD_EXPIRED_SUBJECT_PART1')}${hold._id} ${i18n.t('BOOKING_HOLD_EXPIRED_SUBJECT_PART2')}`
+    const notification = new Notification({
+      user: driver._id,
+      message,
+      booking: hold._id,
+    })
+    await notification.save()
+    let counter = await NotificationCounter.findOne({ user: driver._id })
+    if (counter && typeof counter.count !== 'undefined') {
+      counter.count += 1
+      await counter.save()
+    } else {
+      counter = new NotificationCounter({ user: driver._id, count: 1 })
+      await counter.save()
+    }
+    const mailOptions: SendMailOptions = {
+      from: env.SMTP_FROM,
+      to: driver.email,
+      subject: message,
+      html: `<p>
+    ${i18n.t('HELLO')}${driver.fullName},<br><br>
+    ${i18n.t('BOOKING_HOLD_EXPIRED_PART1')}${hold.reference || hold._id}${i18n.t('BOOKING_HOLD_EXPIRED_PART2')}${env.FRONTEND_HOST}<br><br>
+    ${i18n.t('REGARDS')}<br>
+    </p>`,
+    }
+    await mailHelper.sendMail(mailOptions)
+  } catch (err) {
+    logger.error(`[checkoutSweeper] Hold-expiry notice failed for booking ${hold._id}`, err)
+  }
 }
 
 let timer: NodeJS.Timeout | null = null

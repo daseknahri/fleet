@@ -8,6 +8,7 @@ import Car from '../models/Car'
 import User from '../models/User'
 import * as logger from '../utils/logger'
 import { AgencyPermission, agencySupplierId, hasAgencyPermission } from '../utils/agencyAuthorization'
+import { notTemporaryBookingFilter } from '../utils/bookingReservationHelper'
 
 /**
  * GA-Q4-2 (#52) — agency-scoped global search (read-only).
@@ -101,10 +102,16 @@ export const globalSearch = async (req: Request, res: Response) => {
         .find({
           supplier: { $in: suppliers },
           deletedAt: null,
-          expireAt: null,
-          $or: [
-            { reference: { $regex: pattern, $options: options } },
-            { driver: { $in: drivers.map((d) => d._id) } },
+          // GAP-C1/M1 — a pay-later hold carries `expireAt` and must
+          // stay searchable; only Void placeholders are excluded.
+          $and: [
+            notTemporaryBookingFilter(),
+            {
+              $or: [
+                { reference: { $regex: pattern, $options: options } },
+                { driver: { $in: drivers.map((d) => d._id) } },
+              ],
+            },
           ],
         })
         .sort({ createdAt: -1 })

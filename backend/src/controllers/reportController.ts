@@ -404,7 +404,6 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     from: { $lt: to },
     to: { $gt: from },
     status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
-    expireAt: null,
     // GA-PAR-22: trashed bookings leave contractAmount / contracts /
     // occupancy (§2.5); their posted payments still count as
     // collected, so `remaining` can understate — accepted semantics.
@@ -424,7 +423,6 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     from: { $lt: to },
     to: { $gt: from },
     status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
-    expireAt: null,
     deletedAt: { $ne: null },
     ...(carObjectId ? { car: carObjectId } : {}),
   }).select('_id').lean()).map((b) => b._id)
@@ -837,7 +835,6 @@ const fleetCounts = async (supplier: mongoose.Types.ObjectId | null, now: Date) 
     lifecycle: { $ne: types.ContractLifecycle.Completed },
     from: { $lte: now },
     to: { $gte: now },
-    expireAt: null,
     deletedAt: null,
   }
   if (supplier) {

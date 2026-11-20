@@ -661,6 +661,15 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
                                   { $gt: ['$expireAt', new Date()] },
                                 ],
                               },
+                              {
+                                // GAP-C1/M1 — an open pay-later hold
+                                // reserves the car in search, exactly as
+                                // in the enforcement helper.
+                                $and: [
+                                  { $eq: ['$status', bookcarsTypes.BookingStatus.Pending] },
+                                  { $gt: ['$expireAt', new Date()] },
+                                ],
+                              },
                             ],
                           },
                         ],

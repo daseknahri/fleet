@@ -334,7 +334,6 @@ export const overdue = async (req: Request, res: Response) => {
     const bookings = await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
-      expireAt: null,
       deletedAt: null,
     })
       .select('_id reference price financialSnapshot to lifecycle car driver')
@@ -536,7 +535,6 @@ export const collectionsSummary = async (req: Request, res: Response) => {
     const bookings = await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
-      expireAt: null,
       // GA-PAR-22: trashed bookings leave contractAmount (§2.5);
       // their posted payments still count as collected, so `remaining`
       // can understate — accepted semantics.
@@ -550,7 +548,6 @@ export const collectionsSummary = async (req: Request, res: Response) => {
     const trashedBookingIds = (await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
-      expireAt: null,
       deletedAt: { $ne: null },
     }).select('_id').lean()).map((b) => b._id)
     const paymentBookingIds = [...bookingIds, ...trashedBookingIds]
