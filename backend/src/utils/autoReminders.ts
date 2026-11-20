@@ -309,13 +309,27 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       continue
     }
     const carName = carLabel(schedule.car as { name?: string, licensePlate?: string } | string | undefined)
+    // GAP-MAINT-P0-1 — the old dedupe key was
+    // `expiry-schedule:<id>:<nextDueDate>`, and a km-only schedule's
+    // due date defaulted to its creation day: the notice fired once
+    // at creation (nothing due) and never when the odometer crossed.
+    // The key now names the trigger (date or mileage) and the status,
+    // so Due and Overdue are distinct events and a mileage crossing
+    // fires its own notice. Mileage notices carry the km reading as
+    // the template's date value ("expires on 50,000 km").
+    const triggerKey = due.dueByMileage
+      ? `mileage:${due.effectiveNextDueMileage}`
+      : `date:${schedule.nextDueDate ? dateKey(schedule.nextDueDate) : 'none'}`
+    const triggerLabel = due.dueByMileage
+      ? `${due.effectiveNextDueMileage} km`
+      : schedule.nextDueDate ? dateKey(schedule.nextDueDate) : ''
     await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.expiry',
       kind: 'expiry',
       subjectType: 'maintenance-schedule',
       subjectId: String(schedule._id),
-      dedupeKey: `expiry-schedule:${schedule._id}:${dateKey(schedule.nextDueDate)}`,
-      vars: { doc: `Maintenance: ${schedule.title}`, date: dateKey(schedule.nextDueDate), car: carName },
+      dedupeKey: `expiry-schedule:${schedule._id}:${due.status}:${triggerKey}`,
+      vars: { doc: `Maintenance: ${schedule.title}`, date: triggerLabel, car: carName },
     })
     counts.expiries += 1
   }

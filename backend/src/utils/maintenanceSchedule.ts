@@ -25,7 +25,10 @@ import MaintenanceSchedule from '../models/MaintenanceSchedule'
  */
 
 export interface ScheduleDueInput {
-  nextDueDate: Date | string
+  // GAP-MAINT-P0-1 — a km-only schedule (intervalKm, no intervalDays,
+  // no explicit due date) carries no nextDueDate: the date leg is
+  // skipped for it and the mileage leg governs.
+  nextDueDate?: Date | string | null
   nextDueMileage?: number | null
   intervalKm?: number | null
   lastServiceMileage?: number | null
@@ -60,15 +63,17 @@ export const resolveScheduleDue = (schedule: ScheduleDueInput, now = new Date())
     return { status: bookcarsTypes.MaintenanceScheduleStatus.Completed, dueByDate: false, dueByMileage: false, effectiveNextDueMileage: nextMileage }
   }
   const today = startOfDay(now)
-  const due = startOfDay(new Date(schedule.nextDueDate))
-  const dueByDate = due.getTime() < today.getTime()
+  // GAP-MAINT-P0-1 — no due date (km-only schedule): the date leg is
+  // skipped entirely; the schedule is due only by mileage.
+  const due = schedule.nextDueDate ? startOfDay(new Date(schedule.nextDueDate)) : null
+  const dueByDate = due !== null && due.getTime() < today.getTime()
   const odometerKm = schedule.car && typeof schedule.car === 'object' ? schedule.car.odometerKm : undefined
   const dueByMileage = nextMileage !== null && odometerKm !== undefined && odometerKm !== null && odometerKm >= nextMileage
   const soon = new Date(today)
   soon.setDate(soon.getDate() + 30)
   const status = dueByDate || dueByMileage
     ? bookcarsTypes.MaintenanceScheduleStatus.Overdue
-    : due.getTime() <= soon.getTime()
+    : due !== null && due.getTime() <= soon.getTime()
       ? bookcarsTypes.MaintenanceScheduleStatus.Due
       : bookcarsTypes.MaintenanceScheduleStatus.Upcoming
   return { status, dueByDate, dueByMileage, effectiveNextDueMileage: nextMileage, odometerKm: odometerKm ?? null }
@@ -80,7 +85,7 @@ export const isScheduleOverdue = (schedule: ScheduleDueInput, now = new Date()):
 /** Human-readable trigger for the booking-block / restore 409. */
 export const overdueTriggerLabel = (due: ScheduleDue, schedule: ScheduleDueInput): string => {
   const parts: string[] = []
-  if (due.dueByDate) {
+  if (due.dueByDate && schedule.nextDueDate) {
     parts.push(`due date ${new Date(schedule.nextDueDate).toISOString().slice(0, 10)} passed`)
   }
   if (due.dueByMileage) {

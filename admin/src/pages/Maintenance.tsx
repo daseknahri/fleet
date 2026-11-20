@@ -688,7 +688,9 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
       type: schedule.type,
 
-      nextDueDate: new Date(schedule.nextDueDate).toISOString().slice(0, 10),
+      // GAP-MAINT-P0-1 — a km-only schedule has no due date; the form
+      // opens with an empty date instead of crashing on toISOString().
+      nextDueDate: schedule.nextDueDate ? new Date(schedule.nextDueDate).toISOString().slice(0, 10) : '',
 
       intervalDays: schedule.intervalDays === undefined ? '' : String(schedule.intervalDays),
 
@@ -735,7 +737,11 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
       return
     }
 
-    if (!scheduleForm.nextDueDate) {
+    // GAP-MAINT-P0-1 — a km-only schedule (intervalKm set) needs no
+    // due date; the mileage leg governs it. Any other schedule still
+    // needs a date (the form has no last-service date to derive one
+    // from, so a date-less intervalDays schedule would never fire).
+    if (!scheduleForm.nextDueDate && intervalKm === undefined) {
       failScheduleValidation(`${strings.SCHEDULE_REQUIRED_FIELD}${strings.NEXT_DUE}`)
 
       return
@@ -777,7 +783,7 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
       type: scheduleForm.type,
 
-      nextDueDate: new Date(`${scheduleForm.nextDueDate}T12:00:00`),
+      nextDueDate: scheduleForm.nextDueDate ? new Date(`${scheduleForm.nextDueDate}T12:00:00`) : undefined,
 
       intervalDays,
 
@@ -799,7 +805,7 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
       } else {
         const created = await MaintenanceScheduleService.create(payload)
 
-        setSchedules((rows) => [...rows, created].sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime()))
+        setSchedules((rows) => [...rows, created].sort((a, b) => (a.nextDueDate ? new Date(a.nextDueDate).getTime() : Infinity) - (b.nextDueDate ? new Date(b.nextDueDate).getTime() : Infinity)))
       }
 
       setScheduleDialogOpen(false)
@@ -1465,7 +1471,7 @@ return
 
             <TextField select fullWidth required label={strings.TYPE} value={scheduleForm.type} onChange={(event) => setScheduleForm((current) => ({ ...current, type: event.target.value as bookcarsTypes.MaintenanceExpenseType }))}>{Object.values(bookcarsTypes.MaintenanceExpenseType).map((type) => <MenuItem value={type} key={type}>{typeLabel(type)}</MenuItem>)}</TextField>
 
-            <TextField fullWidth required type="date" label={strings.NEXT_DUE} value={scheduleForm.nextDueDate} onChange={(event) => setScheduleForm((current) => ({ ...current, nextDueDate: event.target.value }))} InputLabelProps={{ shrink: true }} />
+            <TextField fullWidth required={!scheduleForm.intervalKm} type="date" label={strings.NEXT_DUE} value={scheduleForm.nextDueDate} onChange={(event) => setScheduleForm((current) => ({ ...current, nextDueDate: event.target.value }))} InputLabelProps={{ shrink: true }} />
 
             <TextField fullWidth type="number" label={strings.INTERVAL_DAYS} value={scheduleForm.intervalDays} onChange={(event) => setScheduleForm((current) => ({ ...current, intervalDays: event.target.value }))} inputProps={{ min: 1, step: 1 }} />
 

@@ -11,7 +11,10 @@ const schema = new Schema<env.MaintenanceSchedule>({
   intervalKm: { type: Number, min: 1 },
   lastServiceDate: Date,
   lastServiceMileage: { type: Number, min: 0 },
-  nextDueDate: { type: Date, required: true, index: true },
+  // GAP-MAINT-P0-1 — optional: a km-only schedule (intervalKm, no
+  // intervalDays, no explicit due date) carries no nextDueDate; the
+  // date leg is skipped for it and the mileage leg governs.
+  nextDueDate: { type: Date, index: true },
   nextDueMileage: { type: Number, min: 0 },
   status: { type: String, required: true, enum: Object.values(bookcarsTypes.MaintenanceScheduleStatus), default: bookcarsTypes.MaintenanceScheduleStatus.Upcoming, index: true },
   note: { type: String, trim: true, maxlength: 1000 },

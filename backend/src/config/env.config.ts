@@ -1339,7 +1339,7 @@ export interface MaintenanceSchedule extends Document {
   intervalKm?: number
   lastServiceDate?: Date
   lastServiceMileage?: number
-  nextDueDate: Date
+  nextDueDate?: Date
   nextDueMileage?: number
   status: bookcarsTypes.MaintenanceScheduleStatus
   note?: string

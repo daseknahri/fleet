@@ -613,6 +613,9 @@ const Dashboard = () => {
         // car is outside the fetched fleet is treated as field-less.
         if (car && hasDocFields(car)) continue
         if (schedule.status === bookcarsTypes.MaintenanceScheduleStatus.Completed) continue
+        // GAP-MAINT-P0-1 — a km-only schedule has no due date and does
+        // not belong in a date-sorted expiry list.
+        if (!schedule.nextDueDate) continue
         const date = new Date(schedule.nextDueDate)
         if (date.getTime() > horizon) continue
         const scheduleCarLabel = car ? carLabel(car) : (typeof schedule.car === 'object' && schedule.car ? schedule.car.name : strings.CAR_FALLBACK)

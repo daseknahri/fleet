@@ -173,6 +173,10 @@ const VehicleScheduler = (
     // by its `maintenance-` event id; clicking it opens /maintenance.
     for (const schedule of schedules) {
       if (schedule.status === bookcarsTypes.MaintenanceScheduleStatus.Completed) continue
+      // GAP-MAINT-P0-1 — a km-only schedule has no due date and cannot
+      // be placed on a calendar day; the mileage leg is shown in the
+      // maintenance list, not on this grid.
+      if (!schedule.nextDueDate) continue
       const start = dayStart(schedule.nextDueDate)
       const end = new Date(start)
       end.setDate(end.getDate() + 1)

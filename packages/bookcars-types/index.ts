@@ -2346,7 +2346,7 @@ export interface MaintenanceSchedule {
   intervalKm?: number
   lastServiceDate?: Date
   lastServiceMileage?: number
-  nextDueDate: Date
+  nextDueDate?: Date
   nextDueMileage?: number
   status: MaintenanceScheduleStatus
   // F7 / W3 M-4 — live-computed by the server (present()): whether the
