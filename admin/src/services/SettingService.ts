@@ -23,6 +23,7 @@ export const getConnections = (): Promise<bookcarsTypes.SettingsConnections> =>
   axiosInstance
     .get(
       '/api/settings/connections',
+      { withCredentials: true },
     )
     .then((res) => res.data)
 

@@ -197,25 +197,41 @@ export const flattenSuppliers = (suppliers: bookcarsTypes.User[]): string[] =>
 /**
  * Get number of days between two dates.
  *
- * @param {?Date} [from]
- * @param {?Date} [to]
+ * @param {?(Date|string)} [from]
+ * @param {?(Date|string)} [to]
  * @returns {number}
  */
-export const days = (from?: Date, to?: Date) =>
-  (from && to && Math.ceil((to.getTime() - from.getTime()) / (1000 * 3600 * 24))) || 0
+// Dates from the API arrive as ISO strings, not Date objects, so coerce
+// here: every caller (UpdateBooking, BookingList, Checkout, ...) is safe.
+export const days = (from?: Date | string, to?: Date | string) => {
+  if (!from || !to) {
+    return 0
+  }
+  const fromDate = new Date(from)
+  const toDate = new Date(to)
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return 0
+  }
+  return Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 3600 * 24))
+}
 
 /**
  * Get number of hours between two dates.
  *
- * @param {?Date} [from] 
- * @param {?Date} [to] 
+ * @param {?(Date|string)} [from] 
+ * @param {?(Date|string)} [to] 
  * @returns {number} 
  */
-export const hours = (from?: Date, to?: Date): number => {
+export const hours = (from?: Date | string, to?: Date | string): number => {
   if (!from || !to) {
     return 0
   }
-  const ms = to.getTime() - from.getTime()
+  const fromDate = new Date(from)
+  const toDate = new Date(to)
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return 0
+  }
+  const ms = toDate.getTime() - fromDate.getTime()
   const hrs = ms / (1000 * 60 * 60)
   return Math.ceil(hrs)
 }
