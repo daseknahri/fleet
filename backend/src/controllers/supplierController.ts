@@ -618,8 +618,10 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
         },
 
         // begining of booking overlap check -----------------------------------
-        // if car.blockOnPay is true and (from, to) overlaps with paid, confirmed or deposit bookings of the car the car will
-        // not be included in search results
+        // if (from, to) overlaps with a reserving booking of the car
+        // (paid, confirmed, deposit, or an open pay-later hold) the car
+        // will not be included in search results (GAP-M2: the check
+        // always runs — `blockOnPay` no longer disables it).
         // ----------------------------------------------------------------------
         {
           $lookup: {
@@ -685,10 +687,10 @@ export const getFrontendSuppliers = async (req: Request, res: Response) => {
         {
           $match: {
             $expr: {
-              $or: [
-                { $eq: [{ $ifNull: ['$blockOnPay', false] }, false] },
-                { $eq: [{ $size: '$overlappingBookings' }, 0] }
-              ]
+              // GAP-M2 — overlap protection always applies: a car with
+              // overlapping bookings is never listed, whatever
+              // `blockOnPay` says.
+              $eq: [{ $size: '$overlappingBookings' }, 0]
             }
           }
         },

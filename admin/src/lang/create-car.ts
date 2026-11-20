@@ -84,6 +84,7 @@ const strings = new LocalizedStrings({
     IS_DATE_BASED_PRICE: 'Prix basé sur des dates',
     DATE_BASED_PRICES: 'Prix par dates',
     BLOCK_ON_PAY: 'Bloquer la voiture après un paiement réussi',
+    BLOCK_ON_PAY_OFF_WARNING: 'La protection contre les doubles réservations s’applique toujours — ce réglage ne la désactive plus.',
   },
   en: {
     NEW_CAR_HEADING: 'New car',
@@ -166,6 +167,7 @@ const strings = new LocalizedStrings({
     IS_DATE_BASED_PRICE: 'Date Based Prices',
     DATE_BASED_PRICES: 'Date Based Prices',
     BLOCK_ON_PAY: 'Block Car On Successful Payment',
+    BLOCK_ON_PAY_OFF_WARNING: 'Overlap protection always applies — this setting no longer disables it.',
   },
   ar: {
     NEW_CAR_HEADING: 'سيارة جديدة',
@@ -248,6 +250,7 @@ const strings = new LocalizedStrings({
     IS_DATE_BASED_PRICE: 'أسعار حسب التواريخ',
     DATE_BASED_PRICES: 'أسعار حسب التواريخ',
     BLOCK_ON_PAY: 'حظر السيارة بعد نجاح الدفع',
+    BLOCK_ON_PAY_OFF_WARNING: 'حماية التداخل تعمل دائمًا — هذا الإعداد لم يعد يعطّلها.',
   },
   es: {
     NEW_CAR_HEADING: 'Nuevo coche',
@@ -330,6 +333,7 @@ const strings = new LocalizedStrings({
     IS_DATE_BASED_PRICE: 'Precio basado en fechas',
     DATE_BASED_PRICES: 'Precios por fechas',
     BLOCK_ON_PAY: 'Bloquear el coche tras el pago exitoso',
+    BLOCK_ON_PAY_OFF_WARNING: 'La protección contra solapamientos siempre se aplica — este ajuste ya no la desactiva.',
 
   },
 })

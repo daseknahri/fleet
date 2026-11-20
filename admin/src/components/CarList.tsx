@@ -637,6 +637,14 @@ const CarList = ({
                               </div>
                             </li>
                           )}
+                          {car.blockOnPay === false && (
+                            <li className="car-maintenance">
+                              <div className="car-info-list-item">
+                                <InfoIcon />
+                                <span className="car-info-list-text">{strings.BLOCK_ON_PAY_OFF}</span>
+                              </div>
+                            </li>
+                          )}
                           {car.fullyBooked && (
                             <li className="car-unavailable">
                               <div className="car-info-list-item">

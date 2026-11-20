@@ -12,6 +12,7 @@ import {
   FormHelperText,
   Select,
   MenuItem,
+  Alert,
 } from '@mui/material'
 import { Info as InfoIcon } from '@mui/icons-material'
 import { useForm, useWatch } from 'react-hook-form'
@@ -1337,6 +1338,9 @@ const UpdateCar = () => {
                   className="checkbox-fcl"
                 />
               </FormControl>
+              {!blockOnPay && (
+                <Alert severity="warning">{strings.BLOCK_ON_PAY_OFF_WARNING}</Alert>
+              )}
 
               <FormControl fullWidth margin="dense">
                 <CarTypeList
