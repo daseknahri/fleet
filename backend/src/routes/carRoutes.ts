@@ -22,8 +22,8 @@ const pinAgencySelector = (req: express.Request, res: express.Response, next: ex
 routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.create)
 routes.route(routeNames.update).put(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.update)
 routes.route(routeNames.checkCar).get(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet), carController.checkCar)
-routes.route(routeNames.validateLicensePlate).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet), carController.validateLicensePlate)
-routes.route(routeNames.validateCarLicensePlate).get(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet), carController.validateCarLicensePlate)
+routes.route(routeNames.validateLicensePlate).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet, { allowPlatformAdminAll: true }), carController.validateLicensePlate)
+routes.route(routeNames.validateCarLicensePlate).get(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadFleet, { allowPlatformAdminAll: true }), carController.validateCarLicensePlate)
 routes.route(routeNames.delete).delete(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteCar)
 // GA-PAR-22: trash / restore / trash view are ManageFleet work (a
 // CounterAgent holds only ReadFleet and gains nothing — §6). The :id
@@ -32,10 +32,10 @@ routes.route(routeNames.trash).post(authJwt.verifyToken, pinAgencySelector, agen
 routes.route(routeNames.restore).post(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.restoreCar)
 routes.route(routeNames.getTrashed).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.getTrashedCars)
 routes.route(routeNames.trashWarning).get(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.getCarTrashWarning)
-routes.route(routeNames.createImage).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], carController.createImage)
+routes.route(routeNames.createImage).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet, { allowPlatformAdminAll: true }), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], carController.createImage)
 routes.route(routeNames.updateImage).post([authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], carController.updateImage)
 routes.route(routeNames.deleteImage).post(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteImage)
-routes.route(routeNames.deleteTempImage).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet), carController.deleteTempImage)
+routes.route(routeNames.deleteTempImage).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageFleet, { allowPlatformAdminAll: true }), carController.deleteTempImage)
 // F5b (W2-14): gallery + car documents are ManageFleet work on the
 // owning agency's car (the :id routes pin the agency selector exactly
 // like delete-car). The gallery upload field is 'image' (like the

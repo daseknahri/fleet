@@ -444,12 +444,15 @@ export const EXPO_ACCESS_TOKEN = __env__('BC_EXPO_ACCESS_TOKEN', false)
  */
 export const STRIPE_SECRET_KEY = __env__('BC_STRIPE_SECRET_KEY', false, 'STRIPE_SECRET_KEY')
 
-let stripeSessionExpireAt = Number.parseInt(__env__('BC_STRIPE_SESSION_EXPIRE_AT', false, '82800'), 10)
+let stripeSessionExpireAt = Number.parseInt(__env__('BC_STRIPE_SESSION_EXPIRE_AT', false, '3600'), 10)
 stripeSessionExpireAt = stripeSessionExpireAt < 1800 ? 1800 : stripeSessionExpireAt
 stripeSessionExpireAt = stripeSessionExpireAt <= 82800 ? stripeSessionExpireAt : 82800
 
 /**
- * Stripe Checkout Session expiration in seconds. Should be at least 1800 seconds (30min) and max 82800 seconds. Default is 82800 seconds (~23h).
+ * Stripe Checkout Session expiration in seconds. Should be at least 1800 seconds (30min) and max 82800 seconds. Default is 3600 seconds (60min, Wave 2.9).
+ * NOTE: this is the CHECKOUT (Void) window only — the pay-later hold window
+ * (PAY_LATER_HOLD_EXPIRE_AT, 48h) is a separate setting and is unchanged.
+ * Never confuse the two.
  * If the value is lower than 1800 seconds, it wil be set to 1800 seconds.
  * If the value is greater than 82800 seconds, it wil be set to 82800 seconds.
  *
@@ -923,11 +926,16 @@ export interface Booking extends Document {
     requestedBy?: Types.ObjectId
     requestedAt?: Date
   }
+  // Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
+  // only): who confirmed it and when. expireAt is cleared at the same
+  // time, so the hold reserves the car indefinitely.
+  confirmedBy?: Types.ObjectId
+  confirmedAt?: Date
   price: number
   sessionId?: string
   paymentIntentId?: string
   customerId?: string
-  expireAt?: Date
+  expireAt?: Date | null
   isDeposit: boolean
   isPayedInFull?: boolean
   ledgerVersion?: number
@@ -941,6 +949,10 @@ export interface Booking extends Document {
     note?: string
     recordedBy?: Types.ObjectId
     recordedAt?: Date
+    // Wave 2.4 — the ledger rows this settlement posted (reversal rows
+    // for the returned leg, Charge credits for the kept leg).
+    returnedPaymentIds?: Types.ObjectId[]
+    keptPaymentIds?: Types.ObjectId[]
   }
   /** GA-PAR-07: apporteur commission snapshot captured at booking time. */
   agent?: {
@@ -1119,6 +1131,8 @@ export interface ContractCharge extends Document {
   decidedBy?: Types.ObjectId
   decidedAt?: Date
   decisionNote?: string
+  // Wave 2.4 — when the deposit settlement paid this charge.
+  settledAt?: Date
   /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
   dispute?: {
     reason: string
@@ -1314,6 +1328,11 @@ export interface MaintenanceExpensePayment extends Document {
   reference?: string
   note?: string
   cashMovement?: Types.ObjectId
+  // Wave 2.6 — the confirmed bank-session Out created from this payment
+  // when method is bankTransfer (same rule as cashMovement).
+  bankMovement?: Types.ObjectId
+  // Wave 2.10 — client-supplied idempotency key (8-200 chars).
+  idempotencyKey?: string
   actor?: Types.ObjectId
 }
 
@@ -1396,6 +1415,9 @@ export interface RentalPayment extends Document {
   // F6 / W3 C-7 — the cash session this cash-method payment is linked
   // into (unset while no open cash session exists at posting time).
   cashSession?: Types.ObjectId
+  // Wave 2.6 — the bank session this bank-transfer payment is linked
+  // into (same pattern as cashSession, for the Bank account).
+  bankSession?: Types.ObjectId
   reference?: string
   note?: string
 }
@@ -1796,6 +1818,20 @@ export interface BankDetails extends Document {
   iban: string
   swiftBic: string
   showBankDetailsPage: boolean
+  // Wave 2.6 — per-agency RIB. Absent on the platform-global row.
+  supplier?: Types.ObjectId
+}
+
+/**
+ * Wave 2.11 — platform-admin cross-agency access audit (actor, agency,
+ * action, timestamp). Written best-effort by the agency middleware.
+ */
+export interface AdminAccessLog extends Document {
+  actor: Types.ObjectId
+  agency: Types.ObjectId
+  action: string
+  method?: string
+  path?: string
 }
 
 /**

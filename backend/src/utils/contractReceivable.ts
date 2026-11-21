@@ -13,6 +13,10 @@ export interface ContractReceivable {
   postedPayments: number
   depositPayments: number
   approvedCharges: number
+  // Wave 2.4 — posted Charge credits (kept deposit settling approved
+  // charges). They reduce the outstanding balance exactly like rent
+  // payments do: a charge paid from the deposit is no longer owed.
+  chargeCredits: number
   outstandingBalance: number
   dueAt?: Date
   overdue: boolean
@@ -105,14 +109,23 @@ export const getContractReceivable = async (
     rows.find((row) => row._id === bookcarsTypes.RentalPaymentPurpose.Deposit)?.total || 0,
   )
 
+  // Wave 2.4 — posted Charge credits (kept deposit settling approved
+  // charges). Signed by direction, like the other purposes.
+  const chargeCredits = Number(
+    rows.find((row) => row._id === bookcarsTypes.RentalPaymentPurpose.Charge)?.total || 0,
+  )
+
   const approvedChargeRows = await ContractCharge.aggregate<{ total: number }>([
     { $match: { booking: new mongoose.Types.ObjectId(booking._id), status: bookcarsTypes.ApprovalDecision.Approved, currency } },
     { $group: { _id: null, total: { $sum: '$amount' } } },
   ])
   const approvedCharges = Number(approvedChargeRows[0]?.total || 0)
+  // Wave 2.4 — a charge settled from the kept deposit is paid: the
+  // Charge credit comes off the outstanding balance (the deposit
+  // itself is still never netted against rent).
   const outstandingMinor = Math.max(
     0,
-    toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency),
+    toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
   )
 
   const outstandingBalance = outstandingMinor / (10 ** exponent)
@@ -128,6 +141,7 @@ export const getContractReceivable = async (
     approvedCharges: Number(approvedCharges.toFixed(exponent)),
     postedPayments: Number(postedPayments.toFixed(exponent)),
     depositPayments: Number(depositPayments.toFixed(exponent)),
+    chargeCredits: Number(chargeCredits.toFixed(exponent)),
     outstandingBalance,
     dueAt,
     overdue: isOverdue(outstandingBalance, dueAt),
@@ -202,12 +216,17 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
 
   const rentByBooking = new Map<string, number>()
   const depositByBooking = new Map<string, number>()
+  // Wave 2.4 — posted Charge credits per booking (kept deposit
+  // settling approved charges); they reduce the outstanding balance.
+  const chargeByBooking = new Map<string, number>()
   for (const row of paymentRows) {
     const key = row._id.booking.toString()
     if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit) {
       depositByBooking.set(key, Number(row.total || 0))
     } else if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Rent) {
       rentByBooking.set(key, Number(row.total || 0))
+    } else if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Charge) {
+      chargeByBooking.set(key, Number(row.total || 0))
     }
   }
   const chargesByBooking = new Map<string, { currency: string, total: number }[]>()
@@ -232,10 +251,11 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
     )
     const postedPayments = Number(rentByBooking.get(key) || 0)
     const depositPayments = Number(depositByBooking.get(key) || 0)
+    const chargeCredits = Number(chargeByBooking.get(key) || 0)
     // Identical arithmetic to getContractReceivable (minor-unit clamp per booking).
     const outstandingMinor = Math.max(
       0,
-      toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency),
+      toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
     )
     const outstanding = outstandingMinor / (10 ** exponent)
     // F6 / W3 P-3 — the same shared overdue rule as

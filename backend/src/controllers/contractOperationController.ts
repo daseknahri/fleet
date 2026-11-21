@@ -6,9 +6,11 @@ import fs from 'node:fs/promises'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import Booking from '../models/Booking'
+import CashSession from '../models/CashSession'
 import ContractInspection from '../models/ContractInspection'
 import ContractCharge from '../models/ContractCharge'
 import ContractSnapshot from '../models/ContractSnapshot'
+import RentalPayment from '../models/RentalPayment'
 import User from '../models/User'
 import Car from '../models/Car'
 import AgencyReturnSettings from '../models/AgencyReturnSettings'
@@ -16,9 +18,9 @@ import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { adminSelectorSupplierIds, agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { getContractReceivable } from '../utils/contractReceivable'
-import { refreshBookingPaymentStatus } from '../utils/ledger'
+import { LedgerError, getRecordedPurposeTotal, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions } from '../utils/ledger'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
 import { contentMatchesExtension } from '../utils/fileContent'
@@ -45,19 +47,42 @@ const supplierFor = (req: Request): string | undefined => req.user?.type === boo
 const bookingScope = async (req: Request, session?: mongoose.ClientSession) => {
   const supplier = supplierFor(req)
   const bookingId = req.params.bookingId
-  if (!supplier || !mongoose.isValidObjectId(supplier) || !mongoose.isValidObjectId(bookingId)) {
-return null
-}
-  const query = Booking.findOne({ _id: bookingId, supplier }).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature deletedAt')
+  if (!mongoose.isValidObjectId(bookingId)) {
+    return null
+  }
+  const isAdmin = req.user?.type === bookcarsTypes.UserType.Admin
+  // A platform admin acting on a single resource with no selector
+  // (2.11 resource-attributed access) loads the booking by id â€” the
+  // agency is the booking's own. Anyone else needs a resolvable agency.
+  if ((!supplier || !mongoose.isValidObjectId(supplier)) && !isAdmin) {
+    return null
+  }
+  const query = (supplier && mongoose.isValidObjectId(supplier)
+    ? Booking.findOne({ _id: bookingId, supplier })
+    : Booking.findOne({ _id: bookingId })
+  ).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature deletedAt')
   if (session) {
-query.session(session)
-}
-  return query
+    query.session(session)
+  }
+  const booking = await query
+  // Wave 2.11 â€” audit an admin acting on a single resource with the
+  // booking's agency. Selector calls are already logged by the
+  // middleware, so only log when no selector was sent.
+  if (booking && isAdmin && adminSelectorSupplierIds(req).length === 0) {
+    await logAdminCrossAgencyAccess(req, [booking.supplier.toString()], 'contract-operations:booking')
+  }
+  return booking
 }
 
 const invalidBooking = (booking: env.Booking | null) => !booking
   || booking.status === bookcarsTypes.BookingStatus.Void
   || booking.status === bookcarsTypes.BookingStatus.Cancelled
+
+// Wave 2.8 (C6) — the same wall as a type guard: after
+// `if (!isLiveBooking(booking)) return`, `booking` is a live contract
+// (TypeScript narrows it), so the write endpoints below use this in
+// place of their bare `!booking` checks.
+const isLiveBooking = (booking: env.Booking | null): booking is env.Booking => !invalidBooking(booking)
 
 const contractFile = (bookingId: string, filename: string) => path.resolve(env.CDN_CONTRACTS, `inspection_${bookingId}_${filename}`)
 const safeContractFilename = (filename: string) => filename === path.basename(filename) && /^[A-Za-z0-9._-]+$/.test(filename)
@@ -122,6 +147,21 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
           throw new Error('INVALID_INSPECTION')
         }
       }
+      // Wave 2.8 (C15) — `occurredAt` is a fact, not a free date: an
+      // inspection cannot happen in the future (5-minute clock-skew
+      // tolerance), and a return cannot predate its handover. The gap
+      // text also wanted handover `occurredAt >= from`; that bound is
+      // NOT enforced — early handovers before `from` are established
+      // behavior (the f4 fixtures hand over before `from`).
+      if (payload.occurredAt.getTime() > Date.now() + 5 * 60 * 1000) {
+        throw new Error('INVALID_INSPECTION')
+      }
+      if (type === bookcarsTypes.InspectionType.Return) {
+        const handover = await ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Handover }).sort({ occurredAt: -1, createdAt: -1 }).session(session)
+        if (handover && payload.occurredAt.getTime() < new Date(handover.occurredAt).getTime()) {
+          throw new Error('INVALID_INSPECTION')
+        }
+      }
       // Slotted photos are also appended to photoFiles so the snapshot /
       // completion logic that reads the legacy flat list is unchanged.
       const slottedFiles = (payload.photos || []).map((photo) => photo.file)
@@ -178,7 +218,8 @@ export const uploadFile = async (req: Request, res: Response) => {
   try {
     const booking = await bookingScope(req)
     const file = req.file
-    if (!booking || !file || !file.originalname) {
+    // Wave 2.8 (C6) — no file may be added to a Cancelled/Void contract.
+    if (!isLiveBooking(booking) || !file || !file.originalname) {
  res.status(404).send('Contract or file not found'); return 
 }
     // GA-PAR-22: no file may be added to a trashed contract.
@@ -221,7 +262,8 @@ export const deleteFile = async (req: Request, res: Response) => {
   try {
     const booking = await bookingScope(req)
     const filename = String(req.params.filename || '')
-    if (!booking || !safeContractFilename(filename)) {
+    // Wave 2.8 (C6) — no file may be deleted from a Cancelled/Void contract.
+    if (!isLiveBooking(booking) || !safeContractFilename(filename)) {
  res.status(404).send('File not found'); return 
 }
     // GA-PAR-22: no file may be deleted from a trashed contract.
@@ -261,8 +303,13 @@ export const listCharges = async (req: Request, res: Response) => {
 export const createCharge = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
+    // Wave 2.8 (C6) — no charge may be created on a Cancelled/Void
+    // contract (same wall as createInspection).
+    if (!isLiveBooking(booking)) {
+ res.status(404).send('Contract not found'); return 
+}
     // GA-PAR-22: no charge may be created on a trashed contract.
-    if (booking?.deletedAt) {
+    if (booking.deletedAt) {
  res.status(409).send(trashedMessage('booking')); return 
 }
     const type = String(req.body?.type || '')
@@ -304,7 +351,8 @@ export const createCharge = async (req: Request, res: Response) => {
 export const decideCharge = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
-    if (!booking) {
+    // Wave 2.8 (C6) — no charge may be decided on a Cancelled/Void contract.
+    if (!isLiveBooking(booking)) {
  res.sendStatus(404); return 
 }
     // GA-PAR-22: charges on a trashed booking are hidden from the
@@ -385,7 +433,8 @@ const raiseDispute = async (
 ) => {
   try {
     const booking = await chargeScope(req)
-    if (!booking) {
+    // Wave 2.8 (C6) — no dispute may be raised on a Cancelled/Void contract.
+    if (!isLiveBooking(booking)) {
  res.sendStatus(404); return 
 }
     if (booking.deletedAt) {
@@ -439,7 +488,8 @@ const resolveDispute = async (
 ) => {
   try {
     const booking = await chargeScope(req)
-    if (!booking) {
+    // Wave 2.8 (C6) — no dispute may be resolved on a Cancelled/Void contract.
+    if (!isLiveBooking(booking)) {
  res.sendStatus(404); return 
 }
     if (booking.deletedAt) {
@@ -496,12 +546,21 @@ export const resolveInspectionDispute = (req: Request, res: Response) => resolve
 export const createSnapshot = async (req: Request, res: Response) => {
   try {
     const booking = await chargeScope(req)
-    if (!booking) {
+    // Wave 2.8 (C6) — no snapshot may be created for a Cancelled/Void contract.
+    if (!isLiveBooking(booking)) {
  res.sendStatus(404); return 
 }
     // GA-PAR-22: no snapshot may be created for a trashed contract.
     if (booking.deletedAt) {
  res.status(409).send(trashedMessage('booking')); return 
+}
+    // Wave 2.8 (C18) — a snapshot must not freeze a contract while a
+    // dispute is open: the PDF would present challenged content as
+    // settled.
+    const openChargeDispute = await ContractCharge.exists({ booking: booking._id, supplier: booking.supplier, 'dispute.raisedAt': { $exists: true }, 'dispute.resolvedAt': { $exists: false } })
+    const openInspectionDispute = await ContractInspection.exists({ booking: booking._id, supplier: booking.supplier, 'dispute.raisedAt': { $exists: true }, 'dispute.resolvedAt': { $exists: false } })
+    if (openChargeDispute || openInspectionDispute) {
+ res.status(409).send('An open contract dispute must be resolved before a snapshot can be generated'); return 
 }
     // GA-PAR-14: withStamp is an explicit opt-in per generation; anything
     // but a boolean is a 400. Absent means without stamp.
@@ -604,9 +663,29 @@ export const createSnapshot = async (req: Request, res: Response) => {
       terms: hasTerms ? { fr: termsFr, ar: termsAr } : undefined,
     })
     const hash = crypto.createHash('sha256').update(bytes).digest('hex')
-    const version = (await ContractSnapshot.countDocuments({ booking: booking._id })) + 1
-    const filename = `${crypto.randomUUID()}.pdf`; await fs.writeFile(path.resolve(env.CDN_CONTRACTS, `snapshot_${booking._id}_${filename}`), bytes, { flag: 'wx' })
-    const snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt, withStamp, termsFr, termsAr, termsSha256 })
+    // Wave 2.8 (C12) — the version is count+1, so two concurrent
+    // generations can collide on the unique (booking, version) index:
+    // on a duplicate-key error, delete the just-written orphan PDF
+    // (best-effort) and retry once with a recomputed version.
+    let snapshot: env.ContractSnapshot | undefined
+    for (let attempt = 0; attempt < 2 && !snapshot; attempt += 1) {
+      const version = (await ContractSnapshot.countDocuments({ booking: booking._id })) + 1
+      const filename = `${crypto.randomUUID()}.pdf`
+      const pdfPath = path.resolve(env.CDN_CONTRACTS, `snapshot_${booking._id}_${filename}`)
+      await fs.writeFile(pdfPath, bytes, { flag: 'wx' })
+      try {
+        snapshot = await ContractSnapshot.create({ supplier: booking.supplier, booking: booking._id, version, pdfFile: filename, contentHash: hash, generatedAt, withStamp, termsFr, termsAr, termsSha256 })
+      } catch (createErr) {
+        if ((createErr as { code?: number }).code === 11000 && attempt === 0) {
+          await fs.unlink(pdfPath).catch((unlinkErr) => logger.error('[contractOperations.createSnapshot] orphan snapshot PDF could not be removed', unlinkErr))
+          continue
+        }
+        throw createErr
+      }
+    }
+    if (!snapshot) {
+ res.status(409).send('The contract snapshot could not be created; please retry'); return 
+}
     res.status(201).json(snapshot)
   } catch (err) {
  logger.error('[contractOperations.createSnapshot]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -766,6 +845,192 @@ export const settlementPreview = async (req: Request, res: Response) => {
   }
 }
 
+/**
+ * Wave 2.4 — post the deposit settlement as ledger movements when a
+ * booking completes. Validation is against what is actually posted,
+ * never against policy bounds (Q13 governs what the deposit SHOULD be
+ * at booking time, not settlement arithmetic):
+ * - held must equal the posted deposit total (minor units);
+ * - kept must equal the sum of approved, unsettled charges (or zero);
+ * - kept + returned must equal held (checked by the caller).
+ * The returned leg reverses whole deposit payments (provider refund
+ * included for card) and posts a Posted Debit for a partial remainder
+ * — except a partial remainder on a provider-sourced (Stripe/PayPal)
+ * deposit, which this release cannot refund partially (409). The kept
+ * leg posts one Charge credit per approved unsettled charge: a
+ * reclassification of money already in the drawer, so it never creates
+ * a session movement. Cash returns need an open Cash session, wire
+ * returns an open Bank session (409 otherwise). Idempotency keys make
+ * a retried completion safe. Throws Errors whose message starts with
+ * `DEPOSIT_SETTLEMENT_` (mapped to 409 by complete()) or LedgerError.
+ */
+const postDepositSettlement = async (
+  booking: env.Booking,
+  heldAmount: number,
+  keptAmount: number,
+  returnedAmount: number,
+  currency: string,
+  actor: mongoose.Types.ObjectId | undefined,
+  session?: mongoose.ClientSession,
+): Promise<{ returnedPaymentIds: string[], keptPaymentIds: string[] }> => {
+  const exponent = currencyExponent(currency)
+  const toMinor = (value: number) => toMinorUnits(value, currency)
+  const heldPosted = await getRecordedPurposeTotal(booking._id, bookcarsTypes.RentalPaymentPurpose.Deposit, session)
+  if (toMinor(heldAmount) !== toMinor(heldPosted)) {
+    throw new Error(`DEPOSIT_SETTLEMENT_HELD_MISMATCH: The settlement held amount (${heldAmount} ${currency}) does not match the posted deposit total (${heldPosted} ${currency}). Reconcile the deposit payments first.`)
+  }
+  const depositCreditsQuery = RentalPayment.find({
+    booking: booking._id,
+    purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+    status: bookcarsTypes.RentalPaymentStatus.Posted,
+    direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
+  }).sort({ date: 1, _id: 1 })
+  if (session) {
+    depositCreditsQuery.session(session)
+  }
+  const depositCredits = await depositCreditsQuery
+  const walkSum = depositCredits.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  if (toMinor(walkSum) !== toMinor(heldPosted)) {
+    throw new Error(`DEPOSIT_SETTLEMENT_UNRECONCILED: The posted deposit total (${heldPosted} ${currency}) cannot be walked back to individual payments (${walkSum} ${currency}); the deposit ledger has unreconciled entries. Reconcile the deposit payments first.`)
+  }
+  const unsettledChargesQuery = ContractCharge.find({
+    booking: booking._id,
+    supplier: booking.supplier,
+    status: bookcarsTypes.ApprovalDecision.Approved,
+    $or: [{ settledAt: { $exists: false } }, { settledAt: null }],
+  }).sort({ createdAt: 1, _id: 1 })
+  if (session) {
+    unsettledChargesQuery.session(session)
+  }
+  const unsettledCharges = await unsettledChargesQuery
+  const approvedTotal = unsettledCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0)
+  if (toMinor(keptAmount) !== toMinor(approvedTotal)) {
+    throw new Error(`DEPOSIT_SETTLEMENT_KEPT_MISMATCH: The settlement kept amount (${keptAmount} ${currency}) does not match the approved unsettled charges (${approvedTotal} ${currency}). Decide or settle the charges first.`)
+  }
+
+  // Plan the return leg before posting anything: which payments are
+  // reversed whole, which one carries a partial remainder, and which
+  // sessions the return needs. Amounts are walked in minor units so
+  // the split is exact.
+  type ReturnLeg = { payment: env.RentalPayment, whole: boolean, amount: number }
+  const legs: ReturnLeg[] = []
+  let remainingMinor = toMinor(returnedAmount)
+  for (const payment of depositCredits) {
+    if (remainingMinor <= 0) {
+      break
+    }
+    const amountMinor = toMinor(Number(payment.amount || 0))
+    if (amountMinor <= 0) {
+      continue
+    }
+    if (remainingMinor >= amountMinor) {
+      legs.push({ payment, whole: true, amount: Number(payment.amount || 0) })
+      remainingMinor -= amountMinor
+    } else {
+      legs.push({ payment, whole: false, amount: remainingMinor / (10 ** exponent) })
+      remainingMinor = 0
+    }
+  }
+  if (remainingMinor !== 0) {
+    throw new Error(`DEPOSIT_SETTLEMENT_RETURN_SHORTFALL: The returned amount (${returnedAmount} ${currency}) exceeds the posted deposits that can be returned.`)
+  }
+  const partialLeg = legs.find((leg) => !leg.whole)
+  if (partialLeg && (partialLeg.payment.source === bookcarsTypes.RentalPaymentSource.Stripe || partialLeg.payment.source === bookcarsTypes.RentalPaymentSource.PayPal)) {
+    throw new Error('DEPOSIT_SETTLEMENT_PARTIAL_CARD: Part of a card deposit cannot be returned here — a provider refund covers the whole payment. Return the full payment or settle the remainder another way.')
+  }
+  // A cash return needs an open Cash session to hand the money back
+  // through, a wire return an open Bank session (design §5.3 refusal
+  // case — the same rule as the cancel refund).
+  const touchedMethods = [...new Set(legs.map((leg) => leg.payment.method))]
+  for (const method of touchedMethods) {
+    if (method !== bookcarsTypes.RentalPaymentMethod.Cash && method !== bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+      continue
+    }
+    const account = method === bookcarsTypes.RentalPaymentMethod.Cash ? bookcarsTypes.CashAccountType.Cash : bookcarsTypes.CashAccountType.Bank
+    const openSessionQuery = CashSession.findOne({ supplier: booking.supplier, account, status: bookcarsTypes.CashSessionStatus.Open }).select('_id').lean()
+    if (session) {
+      openSessionQuery.session(session)
+    }
+    if (!(await openSessionQuery)) {
+      throw new Error(method === bookcarsTypes.RentalPaymentMethod.Cash
+        ? 'DEPOSIT_SETTLEMENT_NO_CASH_SESSION: The settlement returns cash, but no cash session is open. Open a cash session first, then complete.'
+        : 'DEPOSIT_SETTLEMENT_NO_BANK_SESSION: The settlement returns a wire transfer, but no bank session is open. Open a bank session first, then complete.')
+    }
+  }
+
+  const returnedPaymentIds: string[] = []
+  const keptPaymentIds: string[] = []
+  const now = new Date()
+  const bookingId = booking._id.toString()
+  // Whole reversals first (the provider refund, where one applies, is
+  // part of the reversal), then the partial remainder debit: the debit
+  // validates against the recorded deposit total, which the reversals
+  // have just lowered — posting in this order always fits.
+  for (const leg of legs) {
+    if (leg.whole) {
+      const reversal = await reverseRentalPayment({
+        paymentId: leg.payment._id,
+        actorId: actor,
+        idempotencyKey: `deposit-settlement-return-${bookingId}-${leg.payment._id.toString()}`,
+        date: now,
+        note: `deposit-return:${leg.payment._id.toString()}`,
+        session,
+      })
+      returnedPaymentIds.push(reversal._id.toString())
+    }
+  }
+  if (partialLeg) {
+    const debit = await postRentalPayment({
+      bookingId: booking._id,
+      supplierId: booking.supplier,
+      date: now,
+      amount: partialLeg.amount,
+      currency,
+      method: partialLeg.payment.method,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+      direction: bookcarsTypes.RentalPaymentDirection.Debit,
+      source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+      idempotencyKey: `deposit-settlement-return-partial-${bookingId}-${partialLeg.payment._id.toString()}`,
+      actorId: actor,
+      note: `deposit-return-partial:${partialLeg.payment._id.toString()}`,
+      session,
+    })
+    returnedPaymentIds.push(debit._id.toString())
+  }
+  // Kept leg: one Charge credit per approved unsettled charge, in the
+  // method of the first posted deposit (the drawer the money sits in).
+  // Charge credits never create a session movement (the ledger link
+  // functions return early for purpose Charge).
+  const keptMethod = depositCredits[0]?.method || bookcarsTypes.RentalPaymentMethod.Cash
+  for (const charge of unsettledCharges) {
+    const credit = await postRentalPayment({
+      bookingId: booking._id,
+      supplierId: booking.supplier,
+      date: now,
+      amount: Number(charge.amount || 0),
+      currency,
+      method: keptMethod,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Charge,
+      direction: bookcarsTypes.RentalPaymentDirection.Credit,
+      source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+      idempotencyKey: `deposit-settlement-charge-${bookingId}-${charge._id.toString()}`,
+      actorId: actor,
+      note: `deposit-kept:${charge._id.toString()}`,
+      session,
+    })
+    keptPaymentIds.push(credit._id.toString())
+    charge.settledAt = now
+    if (session) {
+      await charge.save({ session })
+    } else {
+      await charge.save()
+    }
+  }
+  return { returnedPaymentIds, keptPaymentIds }
+}
+
 export const complete = async (req: Request, res: Response) => {
   try {
     const booking = await bookingScope(req)
@@ -812,6 +1077,48 @@ export const complete = async (req: Request, res: Response) => {
  res.status(409).send('A new contract PDF snapshot is required after the latest contract amendment'); return 
 }
     }
+    // Wave 2.8 (C5) — a snapshot is stale vs charge decisions too: a
+    // charge created or decided after the snapshot was generated is not
+    // in the PDF. Completion demands a fresh snapshot.
+    const chargesForFreshness = await ContractCharge.find({ booking: booking!._id, supplier: booking!.supplier }).select('createdAt decidedAt').lean() as unknown as Array<{ createdAt?: Date, decidedAt?: Date }>
+    let latestChargeAt: Date | null = null
+    for (const charge of chargesForFreshness) {
+      for (const at of [charge.createdAt, charge.decidedAt]) {
+        if (at && (!latestChargeAt || new Date(at) > latestChargeAt)) {
+          latestChargeAt = new Date(at)
+        }
+      }
+    }
+    if (latestChargeAt && (!snapshot.generatedAt || new Date(snapshot.generatedAt) < latestChargeAt)) {
+ res.status(409).send('A new contract PDF snapshot is required after the latest contract charge decision'); return 
+}
+    // Wave 2.8 (C9) — completion does not require a return odometer:
+    // when the agency prices extra km (extraKmPrice + includedKmPerDay
+    // set), fuel (fuelPricePerLitre set + tank capacity known) or wash
+    // (washFee > 0), the return inspection must carry the reading the
+    // charge needs — otherwise the settlement cannot be priced and the
+    // deposit cannot be settled honestly. Conditions mirror the
+    // settlement preview exactly.
+    const [handoverInsp, returnInsp, returnSettings, carForComplete] = await Promise.all([
+      ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Handover }).sort({ occurredAt: -1, createdAt: -1 }),
+      ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Return }).sort({ occurredAt: -1, createdAt: -1 }),
+      AgencyReturnSettings.findOne({ supplier: booking!.supplier }),
+      Car.findById(booking!.car).select('tankCapacityLitres'),
+    ])
+    if (returnSettings?.extraKmPrice !== null && returnSettings?.extraKmPrice !== undefined
+      && returnSettings?.includedKmPerDay !== null && returnSettings?.includedKmPerDay !== undefined
+      && (returnInsp?.odometer === undefined || returnInsp?.odometer === null)) {
+ res.status(409).send('The return inspection is missing the odometer reading required to price extra kilometres'); return 
+}
+    if (returnSettings?.fuelPricePerLitre !== null && returnSettings?.fuelPricePerLitre !== undefined
+      && typeof carForComplete?.tankCapacityLitres === 'number'
+      && (returnInsp?.fuelLevel === undefined || returnInsp?.fuelLevel === null)) {
+ res.status(409).send('The return inspection is missing the fuel level required to price the fuel shortfall'); return 
+}
+    if (returnSettings?.washFee !== null && returnSettings?.washFee !== undefined && returnSettings.washFee > 0
+      && returnInsp?.checklist?.washed === undefined) {
+ res.status(409).send('The return inspection is missing the wash answer required to price the wash fee'); return 
+}
     // GA-PAR-06 deposit settlement (coordinator decision 5 / N4): an
     // optional, explicit operator-confirmed record on the Booking only.
     // It creates NO RentalPayment, adds no ledger purpose, and does not
@@ -820,6 +1127,7 @@ export const complete = async (req: Request, res: Response) => {
     // amount from its financial snapshot — the same figure
     // contractReceivable reports as refundableDeposit.
     const rawSettlement = (req.body as Record<string, unknown> | undefined)?.depositSettlement
+    let settlementInput: { heldAmount: number, keptAmount: number, returnedAmount: number, method?: string, note?: string } | undefined
     if (rawSettlement !== undefined && rawSettlement !== null) {
       if (typeof rawSettlement !== 'object' || Array.isArray(rawSettlement)) {
         res.status(400).send('Invalid deposit settlement')
@@ -842,23 +1150,77 @@ export const complete = async (req: Request, res: Response) => {
         res.status(400).send('Invalid deposit settlement: keptAmount + returnedAmount must equal heldAmount')
         return
       }
-      const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
-      booking!.depositSettlement = {
+      // Wave 2.4 — the record is kept in a local until the postings
+      // below succeed; it is stamped onto the booking (with the posted
+      // payment ids) only as part of the completion save.
+      settlementInput = {
         heldAmount,
         keptAmount,
         returnedAmount,
         method: method || undefined,
         note: note || undefined,
-        recordedBy: actor,
-        recordedAt: new Date(),
       }
     }
     const completedAt = new Date()
     booking!.lifecycle = bookcarsTypes.ContractLifecycle.Completed
-    await booking!.save()
+    const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
+    if (settlementInput) {
+      booking!.depositSettlement = {
+        ...settlementInput,
+        recordedBy: actor,
+        recordedAt: new Date(),
+      }
+    }
+    // Wave 2.4 — the settlement posts inside the same transaction as
+    // the completion when the deployment supports transactions (the
+    // ledger's supportsTransactions guard, same as the checkout
+    // finalization); otherwise the steps run sequentially, with the
+    // idempotency keys making a retried completion safe.
+    if (settlementInput) {
+      const currency = String(booking!.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
+      const postSettlement = async (session?: mongoose.ClientSession) => {
+        const { returnedPaymentIds, keptPaymentIds } = await postDepositSettlement(
+          booking!, settlementInput!.heldAmount, settlementInput!.keptAmount, settlementInput!.returnedAmount, currency, actor, session,
+        )
+        booking!.depositSettlement = {
+          ...booking!.depositSettlement!,
+          returnedPaymentIds: returnedPaymentIds.map((id) => new mongoose.Types.ObjectId(id)),
+          keptPaymentIds: keptPaymentIds.map((id) => new mongoose.Types.ObjectId(id)),
+        }
+      }
+      const settleSession = await mongoose.startSession()
+      try {
+        if (supportsTransactions()) {
+          await settleSession.withTransaction(async () => {
+            await postSettlement(settleSession)
+            await booking!.save({ session: settleSession })
+          })
+        } else {
+          await postSettlement()
+          await booking!.save()
+        }
+      } finally {
+        await settleSession.endSession()
+      }
+    } else {
+      await booking!.save()
+    }
     const receivable = await getContractReceivable(booking!, completedAt)
     res.json({ booking, receivable })
   } catch (err) {
+    const message = err instanceof Error ? err.message : ''
+    // Wave 2.4 — settlement refusals are business refusals (409 with
+    // the reason), never a bare 400.
+    if (message.startsWith('DEPOSIT_SETTLEMENT_')) {
+      logger.error('[contractOperations.complete] deposit settlement refused', err)
+      res.status(409).send(message)
+      return
+    }
+    if (err instanceof LedgerError) {
+      logger.error('[contractOperations.complete] ledger refused the deposit settlement', err)
+      res.status(409).send(err.message)
+      return
+    }
  logger.error('[contractOperations.complete]', err); res.status(400).send(i18n.t('ERROR')) 
 }
 }

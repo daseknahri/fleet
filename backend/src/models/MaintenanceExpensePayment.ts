@@ -21,11 +21,17 @@ const schema = new Schema<env.MaintenanceExpensePayment>(
     reference: { type: String, trim: true, maxlength: 160 },
     note: { type: String, trim: true, maxlength: 1000 },
     cashMovement: { type: Schema.Types.ObjectId, ref: 'CashMovement', index: true },
+    // Wave 2.6 — the confirmed bank-session Out created from this
+    // payment when method is bankTransfer.
+    bankMovement: { type: Schema.Types.ObjectId, ref: 'CashMovement', index: true },
+    // Wave 2.10 — client-supplied idempotency key (8-200 chars).
+    idempotencyKey: { type: String, maxlength: 200, trim: true },
     actor: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true, strict: true, collection: 'MaintenanceExpensePayment' },
 )
 
 schema.index({ supplier: 1, expense: 1, date: -1 })
+schema.index({ idempotencyKey: 1 }, { unique: true, sparse: true })
 
 export default model<env.MaintenanceExpensePayment>('MaintenanceExpensePayment', schema)

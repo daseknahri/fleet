@@ -17,15 +17,17 @@ export const upsertBankDetails = (data: bookcarsTypes.UpsertBankDetailsPayload):
     .then((res) => ({ status: res.status, data: res.data }))
 
 /**
- * Get BankDetails.
+ * Get BankDetails. A platform admin may pass a supplier id to read
+ * that agency's RIB (Wave 2.6 — one RIB per agency); agency callers
+ * always read their own row.
  *
- * @param {bookcarsTypes.CountryName[]} data
- * @returns {Promise<number>}
+ * @param {string} [supplier]
+ * @returns {Promise<bookcarsTypes.BankDetails | null>}
  */
-export const getBankDetails = (): Promise<bookcarsTypes.BankDetails | null> =>
+export const getBankDetails = (supplier?: string): Promise<bookcarsTypes.BankDetails | null> =>
   axiosInstance
     .get(
-      '/api/bank-details',
+      supplier ? `/api/bank-details?supplier=${encodeURIComponent(supplier)}` : '/api/bank-details',
       { withCredentials: true }
     )
     .then((res) => res.data)

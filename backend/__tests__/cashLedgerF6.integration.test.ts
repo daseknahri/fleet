@@ -579,17 +579,25 @@ describe('F6 / W3 P-8 — manual debit and pending entry edit / delete', () => {
   })
 
   it('edits and deletes a stuck Pending entry; Posted entries are append-only', async () => {
-    const fresh = await makeBooking(carDeposit, 500, snapshot(500, 0), new Date(Date.now() + 86400000))
-    const pending = await createPayment({ booking: fresh._id.toString(), amount: 100, purpose: 'rent' }, counterToken)
+    // Q15 (owner decision 2026-11-21): the four-eyes rule is dropped, so
+    // a counter agent's credit now posts at once. The only Pending
+    // rental payment left is an approval-gated refund (a manual debit
+    // at or above 10,000 MAD), which is what this test now edits.
+    const fresh = await makeBooking(carDeposit, 20000, snapshot(20000, 0), new Date(Date.now() + 86400000))
+    const posted = await createPayment({ booking: fresh._id.toString(), amount: 15000, purpose: 'rent' })
+    expect(posted.status).toBe(201)
+    expect(posted.body.status).toBe('posted')
+    const pending = await createPayment({
+      booking: fresh._id.toString(), amount: 12000, purpose: 'rent',
+      direction: 'debit', reason: 'F6 big refund',
+    })
     expect(pending.status).toBe(201)
     expect(pending.body.status).toBe('pending')
-    const edited = await patch(ownerToken, `/api/rental-payments/${pending.body._id}`, { amount: 150 })
+    const edited = await patch(ownerToken, `/api/rental-payments/${pending.body._id}`, { amount: 11000 })
     expect(edited.status).toBe(200)
-    expect(edited.body.amount).toBe(150)
+    expect(edited.body.amount).toBe(11000)
     const overCap = await patch(ownerToken, `/api/rental-payments/${pending.body._id}`, { amount: 99999 })
     expect(overCap.status).toBe(409)
-    const posted = await createPayment({ booking: fresh._id.toString(), amount: 100, purpose: 'rent' })
-    expect(posted.status).toBe(201)
     const editPosted = await patch(ownerToken, `/api/rental-payments/${posted.body._id}`, { amount: 90 })
     expect(editPosted.status).toBe(409)
     const deletePosted = await del(ownerToken, `/api/rental-payments/${posted.body._id}`)

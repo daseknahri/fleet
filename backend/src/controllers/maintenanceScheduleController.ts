@@ -8,7 +8,7 @@ import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import { resolveScheduleDue } from '../utils/maintenanceSchedule'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 
 const scope = (req: Request): Record<string, unknown> => req.user?.type === bookcarsTypes.UserType.Admin
   ? {}
@@ -116,6 +116,11 @@ export const create = async (req: Request, res: Response) => {
     if (!car) {
  res.status(404).send('Vehicle not found'); return 
 }
+    // Wave 2.11 fix — the admin reached this car without a selector;
+    // audit the access with the car's agency.
+    if (user?.type === bookcarsTypes.UserType.Admin) {
+      await logAdminCrossAgencyAccess(req, [car.supplier.toString()], 'maintenance-schedule:create')
+    }
     const row = await MaintenanceSchedule.create({ ...payload, supplier: car.supplier })
     await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }])
     res.status(201).json(present(row))

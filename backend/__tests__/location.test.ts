@@ -208,6 +208,10 @@ describe('POST /api/create-location', () => {
     expect(res.statusCode).toBe(400)
 
     // test failure (no payload)
+    // Wave 2.11 fix — create-location is flagged allowPlatformAdminAll
+    // (reference data, no selector in the admin form), so the gate does
+    // not fire here; the controller 500s on an empty body, as before
+    // Wave 2. The 500 is the controller's, not the gate's.
     res = await request(app)
       .post('/api/create-location')
       .set(env.X_ACCESS_TOKEN, token)

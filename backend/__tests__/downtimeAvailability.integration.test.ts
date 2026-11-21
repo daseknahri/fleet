@@ -1,11 +1,11 @@
 import 'dotenv/config'
+import { jest } from '@jest/globals'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import request from 'supertest'
 import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
-import app from '../src/app'
 import * as databaseHelper from '../src/utils/databaseHelper'
 import * as authHelper from '../src/utils/authHelper'
 import * as env from '../src/config/env.config'
@@ -17,6 +17,12 @@ import Booking from '../src/models/Booking'
 import MaintenanceWorkOrder from '../src/models/MaintenanceWorkOrder'
 import Notification from '../src/models/Notification'
 
+jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
+  sendMail: jest.fn(async () => ({})),
+}))
+
+let app: any
+
 /**
  * GA-P0-EVIDENCE-AVAILABILITY-01 - fixture-isolated proof of roadmap section 10 item 7:
  * a maintenance downtime block (work order, status scheduled/inProgress) removes the
@@ -27,7 +33,8 @@ import Notification from '../src/models/Notification'
  * Documented semantics under test (GESTIONAUTO-ROADMAP.md phase design +
  * backend/src/utils/bookingReservationHelper.ts):
  * - saveBookingsWithAvailability() rejects a reserving booking (statuses
- *   deposit/paid/paidInFull/reserved, or void with a live expireAt hold) when a
+ *   deposit/paid/paidInFull/reserved, or void with a live expireAt hold,
+ *   or a Pending pay-later hold with a live expireAt) when a
  *   MaintenanceWorkOrder for the same supplier+car is scheduled or inProgress and
  *   scheduledStart < booking.to && scheduledEnd > booking.from (strict overlap:
  *   a booking ending exactly when downtime starts is NOT blocked).
@@ -72,7 +79,40 @@ const evidence: any = {
 }
 const record = (step: string, data: any) => { evidence.steps.push({ step, ...data }) }
 
-const tryBooking = (from: string, to: string, status: string = bookcarsTypes.BookingStatus.Reserved) => request(app)
+// Wave 2.5 — the reserving booking for the downtime guard comes from
+// the public checkout pay-later hold: Pending + expireAt (48h) reserves
+// the car. Staff create() cannot produce one anymore (Reserved is
+// closed, a staff Pending holds no car, payment statuses need a
+// verified payment workflow).
+const tryCheckoutHold = (from: string, to: string) => request(app)
+  .post('/api/checkout')
+  .send({
+    booking: {
+      supplier: supplier._id.toString(),
+      car: car._id.toString(),
+      driver: driver._id.toString(),
+      pickupLocation: location._id.toString(),
+      dropOffLocation: location._id.toString(),
+      from,
+      to,
+      status: bookcarsTypes.BookingStatus.Pending,
+      cancellation: false,
+      amendments: false,
+      theftProtection: false,
+      collisionDamageWaiver: false,
+      fullInsurance: false,
+      price: 200,
+      additionalDriver: false,
+    },
+    paymentMode: bookcarsTypes.CheckoutPaymentMode.PayLater,
+    currency: 'MAD',
+    paymentGateway: bookcarsTypes.PaymentGateway.Stripe,
+    payLater: true,
+  })
+
+// Staff create (non-reserving Pending only) — used by the (a-note)
+// test, which proves a Pending booking holds no car.
+const tryStaffBooking = (from: string, to: string, status: string = bookcarsTypes.BookingStatus.Pending) => request(app)
   .post('/api/create-booking')
   .set(env.X_ACCESS_TOKEN, token)
   .send({
@@ -99,6 +139,7 @@ const workOrderPayload = (window: { from: string, to: string }, status: string) 
 })
 
 beforeAll(async () => {
+  app = (await import('../src/app')).default
   await databaseHelper.connect(env.DB_URI, false, false)
   supplier = await new User({ email: `avail-supplier-${suffix}@test.bookcars.ma`, fullName: 'Availability Supplier', language: 'en', type: bookcarsTypes.UserType.Supplier, active: true, verified: true, blacklisted: false, payLater: true }).save()
   ids.users.push(supplier._id)
@@ -165,7 +206,7 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
   }, 30000)
 
   it('(a) denies a reserving booking that overlaps the downtime window and persists nothing', async () => {
-    const res = await tryBooking(W_OVERLAP.from, W_OVERLAP.to)
+    const res = await tryCheckoutHold(W_OVERLAP.from, W_OVERLAP.to)
     const persisted = await Booking.countDocuments({ car: car._id, from: new Date(W_OVERLAP.from), to: new Date(W_OVERLAP.to) })
     record('a-overlap-denied', { status: res.status, bodyExcerpt: String(res.text || '').slice(0, 200), window: W_OVERLAP, persistedBookingsForWindow: persisted })
     // GA-PAR-10: availability conflicts surface as 409 on create, the
@@ -178,7 +219,7 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
   }, 30000)
 
   it('(a-note) a non-reserving pending booking over the same window is created but holds no car', async () => {
-    const res = await tryBooking(W_OVERLAP.from, W_OVERLAP.to, bookcarsTypes.BookingStatus.Pending)
+    const res = await tryStaffBooking(W_OVERLAP.from, W_OVERLAP.to, bookcarsTypes.BookingStatus.Pending)
     record('a-note-pending-not-reserving', { status: res.status, booking: res.body?._id, bookingStatus: res.body?.status, note: 'Pending is not a reserving status, so the guard does not engage at create; the same guard re-runs when a booking transitions into a reserving status (finalize/update/updateStatus), so the block cannot be bypassed through this path.' })
     expect(res.status).toBe(200)
     expect(res.body.status).toBe(bookcarsTypes.BookingStatus.Pending)
@@ -186,18 +227,20 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
   }, 30000)
 
   it('(b) allows a reserving booking entirely after the downtime window', async () => {
-    const res = await tryBooking(W_AFTER.from, W_AFTER.to)
-    record('b-non-overlap-after-allowed', { status: res.status, booking: res.body?._id, window: W_AFTER })
+    const res = await tryCheckoutHold(W_AFTER.from, W_AFTER.to)
+    record('b-non-overlap-after-allowed', { status: res.status, booking: res.body?.bookingId, window: W_AFTER })
     expect(res.status).toBe(200)
-    expect(res.body.status).toBe(bookcarsTypes.BookingStatus.Reserved)
-    ids.bookings.push(new mongoose.Types.ObjectId(res.body._id))
+    expect(res.body.bookingId).toBeTruthy()
+    const created = await Booking.findById(res.body.bookingId)
+    expect(created?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    ids.bookings.push(new mongoose.Types.ObjectId(res.body.bookingId))
   }, 30000)
 
   it('(b-boundary) allows a reserving booking ending exactly when downtime starts (strict overlap)', async () => {
-    const res = await tryBooking(W_BOUNDARY.from, W_BOUNDARY.to)
-    record('b-boundary-end-at-downtime-start-allowed', { status: res.status, booking: res.body?._id, window: W_BOUNDARY })
+    const res = await tryCheckoutHold(W_BOUNDARY.from, W_BOUNDARY.to)
+    record('b-boundary-end-at-downtime-start-allowed', { status: res.status, booking: res.body?.bookingId, window: W_BOUNDARY })
     expect(res.status).toBe(200)
-    ids.bookings.push(new mongoose.Types.ObjectId(res.body._id))
+    ids.bookings.push(new mongoose.Types.ObjectId(res.body.bookingId))
   }, 30000)
 
   it('(c) completing the work order restores availability for the previously denied window', async () => {
@@ -205,11 +248,12 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     record('c-complete-work-order', { status: put.status, workOrderStatus: put.body?.status })
     expect(put.status).toBe(200)
     expect(put.body.status).toBe(bookcarsTypes.WorkOrderStatus.Completed)
-    const res = await tryBooking(W_OVERLAP.from, W_OVERLAP.to)
-    record('c-overlap-allowed-after-completion', { status: res.status, booking: res.body?._id, window: W_OVERLAP })
+    const res = await tryCheckoutHold(W_OVERLAP.from, W_OVERLAP.to)
+    record('c-overlap-allowed-after-completion', { status: res.status, booking: res.body?.bookingId, window: W_OVERLAP })
     expect(res.status).toBe(200)
-    expect(res.body.status).toBe(bookcarsTypes.BookingStatus.Reserved)
-    ids.bookings.push(new mongoose.Types.ObjectId(res.body._id))
+    const created = await Booking.findById(res.body.bookingId)
+    expect(created?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    ids.bookings.push(new mongoose.Types.ObjectId(res.body.bookingId))
   }, 30000)
 
   it('(c-cancelled) a cancelled work order does not block an overlapping booking', async () => {
@@ -217,10 +261,10 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     record('c-cancel-work-order', { status: put.status, workOrderStatus: put.body?.status })
     expect(put.status).toBe(200)
     expect(put.body.status).toBe(bookcarsTypes.WorkOrderStatus.Cancelled)
-    const res = await tryBooking(W_CANCEL.from, W_CANCEL.to)
-    record('c-overlap-allowed-when-cancelled', { status: res.status, booking: res.body?._id, window: W_CANCEL })
+    const res = await tryCheckoutHold(W_CANCEL.from, W_CANCEL.to)
+    record('c-overlap-allowed-when-cancelled', { status: res.status, booking: res.body?.bookingId, window: W_CANCEL })
     expect(res.status).toBe(200)
-    ids.bookings.push(new mongoose.Types.ObjectId(res.body._id))
+    ids.bookings.push(new mongoose.Types.ObjectId(res.body.bookingId))
   }, 30000)
 
   it('(c-removal) an in-progress work order blocks, and deleting it restores availability', async () => {
@@ -230,7 +274,7 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     wo2 = created.body
     ids.workOrders.push(new mongoose.Types.ObjectId(wo2._id))
     evidence.fixtures.workOrder2 = wo2._id
-    const denied = await tryBooking(W2.from, W2.to)
+    const denied = await tryCheckoutHold(W2.from, W2.to)
     const persisted = await Booking.countDocuments({ car: car._id, from: new Date(W2.from), to: new Date(W2.to) })
     record('c-inprogress-overlap-denied', { status: denied.status, bodyExcerpt: String(denied.text || '').slice(0, 200), window: W2, persistedBookingsForWindow: persisted })
     // 409 per GA-PAR-10 (see above); the in-progress work order still
@@ -240,11 +284,14 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     const removed = await request(app).delete(`/api/maintenance-work-orders/${wo2._id}`).set(env.X_ACCESS_TOKEN, token)
     record('c-delete-work-order', { status: removed.status })
     expect(removed.status).toBe(200)
-    const res = await tryBooking(W2.from, W2.to)
-    record('c-overlap-allowed-after-removal', { status: res.status, booking: res.body?._id, window: W2 })
+    const res = await tryCheckoutHold(W2.from, W2.to)
+    record('c-overlap-allowed-after-removal', { status: res.status, booking: res.body?.bookingId, window: W2 })
     expect(res.status).toBe(200)
-    ids.bookings.push(new mongoose.Types.ObjectId(res.body._id))
-  }, 30000)
+    ids.bookings.push(new mongoose.Types.ObjectId(res.body.bookingId))
+  // Wave 2.11 fix — 30 s is too tight under full-suite load: this
+  // test timed out at 30 s in the Wave 2 full run while passing
+  // standalone. The behaviour is unchanged, only the budget.
+  }, 60000)
 
   it('deletes the remaining work order through the API and reads back an empty list for the fixture car', async () => {
     const removed = await request(app).delete(`/api/maintenance-work-orders/${wo1._id}`).set(env.X_ACCESS_TOKEN, token)

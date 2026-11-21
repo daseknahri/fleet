@@ -453,10 +453,13 @@ describe('PUT /api/update-car', () => {
     expect(res.statusCode).toBe(400)
 
     // test failure (no payload)
+    // Wave 2.11 fix — the agency gate refuses an admin call with no
+    // payload (and no selector) with 400 before the controller's 500;
+    // the refusal is the gate, not a server error.
     res = await request(app)
       .put('/api/update-car')
       .set(env.X_ACCESS_TOKEN, token)
-    expect(res.statusCode).toBe(500)
+    expect(res.statusCode).toBe(400)
 
     await testHelper.signout(token)
   })

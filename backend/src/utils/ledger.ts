@@ -8,6 +8,7 @@ import CashMovement from '../models/CashMovement'
 import Car from '../models/Car'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
 import Invoice from '../models/Invoice'
+import ContractCharge from '../models/ContractCharge'
 import { recomputeInvoicePayment } from './invoicePayment'
 import { BookingConflictError, saveBookingWithAvailability } from './bookingReservationHelper'
 import { getContractReceivable } from './contractReceivable'
@@ -93,7 +94,9 @@ const postedMatch = (bookingId: mongoose.Types.ObjectId) => ({
   ],
 })
 
-const getRecordedPurposeTotal = async (bookingId: mongoose.Types.ObjectId, purpose: bookcarsTypes.RentalPaymentPurpose, session?: mongoose.ClientSession) => {
+// Wave 2.4 — exported for the deposit-settlement validation in
+// complete(): held must equal the posted deposit total.
+export const getRecordedPurposeTotal = async (bookingId: mongoose.Types.ObjectId, purpose: bookcarsTypes.RentalPaymentPurpose, session?: mongoose.ClientSession) => {
   const aggregate = RentalPayment.aggregate([
     { $match: { $and: [
       postedMatch(bookingId),
@@ -145,13 +148,30 @@ const legacyDepositCap = async (
 // against. One helper for postWithinSession, confirmRentalPayment and
 // the pending-edit validation, so the cap cannot fork again.
 export const purposeCap = async (
-  booking: { price?: number, car?: mongoose.Types.ObjectId | string | null, financialSnapshot?: { rentalTotal?: number, depositAmount?: number } | null },
+  booking: { _id?: mongoose.Types.ObjectId | string, price?: number, car?: mongoose.Types.ObjectId | string | null, financialSnapshot?: { rentalTotal?: number, depositAmount?: number } | null },
   purpose: bookcarsTypes.RentalPaymentPurpose,
   dbSession?: mongoose.ClientSession,
 ): Promise<number> => {
   const { snapshotRentalTotal, snapshotDepositAmount, hasFinancialSnapshot } = snapshotAmounts(booking)
   if (purpose === bookcarsTypes.RentalPaymentPurpose.Deposit) {
     return hasFinancialSnapshot ? snapshotDepositAmount : legacyDepositCap(booking, dbSession)
+  }
+  // Wave 2.4 — a Charge credit settles an approved charge with money
+  // already held (the kept deposit): the allowance is the sum of the
+  // booking's APPROVED charges, never the rental total.
+  if (purpose === bookcarsTypes.RentalPaymentPurpose.Charge) {
+    if (!booking._id) {
+      return 0
+    }
+    const agg = ContractCharge.aggregate([
+      { $match: { booking: new mongoose.Types.ObjectId(booking._id), status: bookcarsTypes.ApprovalDecision.Approved } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ])
+    if (dbSession) {
+      agg.session(dbSession)
+    }
+    const rows = await agg
+    return Number(rows[0]?.total || 0)
   }
   return hasFinancialSnapshot ? snapshotRentalTotal : Number(booking.price || 0)
 }
@@ -199,6 +219,11 @@ export const linkLedgerCashPayment = async (
   dbSession?: mongoose.ClientSession,
   targetSessionId?: mongoose.Types.ObjectId | string,
 ): Promise<env.CashMovement | null> => {
+  // Wave 2.4 — a Charge credit reclassifies money already held (a kept
+  // deposit settling a charge): it never enters or leaves the drawer.
+  if (payment.purpose === bookcarsTypes.RentalPaymentPurpose.Charge) {
+    return null
+  }
   if (payment.method !== bookcarsTypes.RentalPaymentMethod.Cash
     || payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
     return null
@@ -266,27 +291,130 @@ export const linkLedgerCashPayment = async (
   return movement
 }
 
+// ---------------------------------------------------------------------
+// Wave 2.6 — ledger ↔ BANK-session linkage. The exact mirror of the
+// cash linkage above, for method `BankTransfer` into the agency's open
+// Bank-account session: a posted wire payment creates one linked
+// CashMovement (account Bank, source RentalPayment); a reversal of a
+// wire payment creates a compensating Out in the session that holds
+// the original In (or the current open Bank session). Same rules as
+// cash: only method BankTransfer, only status Posted, Charge purpose
+// never moves, no open session (or a currency mismatch) means the
+// payment posts unlinked with an error log — the ledger stays the
+// source of truth and the linkage never throws into the posting.
+// ---------------------------------------------------------------------
+
+export const linkLedgerBankPayment = async (
+  payment: env.RentalPayment,
+  dbSession?: mongoose.ClientSession,
+  targetSessionId?: mongoose.Types.ObjectId | string,
+): Promise<env.CashMovement | null> => {
+  // Wave 2.4 — a Charge credit reclassifies money already held: it
+  // never enters or leaves any session.
+  if (payment.purpose === bookcarsTypes.RentalPaymentPurpose.Charge) {
+    return null
+  }
+  if (payment.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer
+    || payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+    return null
+  }
+  const existingQuery = CashMovement.findOne({ rentalPayment: payment._id })
+  if (dbSession) {
+    existingQuery.session(dbSession)
+  }
+  const existing = await existingQuery
+  if (existing) {
+    if (!payment.bankSession || !payment.bankSession.equals(existing.session)) {
+      payment.bankSession = existing.session
+      await payment.save(dbSession ? { session: dbSession } : undefined)
+    }
+    return existing
+  }
+  const bankSession = targetSessionId
+    ? await CashSession.findOne({
+      _id: new mongoose.Types.ObjectId(targetSessionId),
+      supplier: payment.supplier,
+      account: bookcarsTypes.CashAccountType.Bank,
+      status: bookcarsTypes.CashSessionStatus.Open,
+    })
+    : await (async () => {
+      const q = CashSession.findOne({
+        supplier: payment.supplier,
+        account: bookcarsTypes.CashAccountType.Bank,
+        status: bookcarsTypes.CashSessionStatus.Open,
+      }).sort({ openedAt: -1 })
+      if (dbSession) {
+        q.session(dbSession)
+      }
+      return q
+    })()
+  if (!bankSession) {
+    logger.error(`[ledger.linkLedgerBankPayment] No open bank session for supplier ${payment.supplier.toString()}; bank payment ${payment._id.toString()} posted unlinked`)
+    return null
+  }
+  if (bankSession.currency !== payment.currency) {
+    logger.error(`[ledger.linkLedgerBankPayment] Bank session currency ${bankSession.currency} does not match payment currency ${payment.currency}; bank payment ${payment._id.toString()} posted unlinked`)
+    return null
+  }
+  const movement = new CashMovement({
+    supplier: payment.supplier,
+    session: bankSession._id,
+    account: bankSession.account,
+    currency: bankSession.currency,
+    date: payment.date,
+    direction: payment.direction === bookcarsTypes.RentalPaymentDirection.Debit
+      ? bookcarsTypes.CashMovementDirection.Out
+      : bookcarsTypes.CashMovementDirection.In,
+    amount: payment.amount,
+    source: bookcarsTypes.CashMovementSource.RentalPayment,
+    status: 'confirmed',
+    idempotencyKey: payment.idempotencyKey ? `bank-${payment.idempotencyKey}` : undefined,
+    rentalPayment: payment._id,
+    purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+    reference: payment.reference,
+    note: payment.note,
+    actor: payment.actor,
+  })
+  await movement.save(dbSession ? { session: dbSession } : undefined)
+  payment.bankSession = bankSession._id
+  await payment.save(dbSession ? { session: dbSession } : undefined)
+  return movement
+}
+
 const linkReversalCashMovement = async (
   original: env.RentalPayment,
   reversal: env.RentalPayment,
+  dbSession?: mongoose.ClientSession,
 ): Promise<env.CashMovement | null> => {
   if (original.method !== bookcarsTypes.RentalPaymentMethod.Cash) {
     return null
   }
-  const originalMovement = await CashMovement.findOne({ rentalPayment: original._id })
+  const originalMovementQuery = CashMovement.findOne({ rentalPayment: original._id })
+  if (dbSession) {
+    originalMovementQuery.session(dbSession)
+  }
+  const originalMovement = await originalMovementQuery
   if (!originalMovement) {
     return null
   }
-  const openSession = await CashSession.findOne({
+  const openSessionQuery = CashSession.findOne({
     _id: originalMovement.session,
     supplier: original.supplier,
     status: bookcarsTypes.CashSessionStatus.Open,
   })
-  const target = openSession || await CashSession.findOne({
+  if (dbSession) {
+    openSessionQuery.session(dbSession)
+  }
+  const openSession = await openSessionQuery
+  const targetQuery = CashSession.findOne({
     supplier: original.supplier,
     account: bookcarsTypes.CashAccountType.Cash,
     status: bookcarsTypes.CashSessionStatus.Open,
   }).sort({ openedAt: -1 })
+  if (dbSession) {
+    targetQuery.session(dbSession)
+  }
+  const target = openSession || await targetQuery
   if (!target) {
     logger.error(`[ledger.linkReversalCashMovement] No open cash session for supplier ${original.supplier.toString()}; cash reversal ${reversal._id.toString()} recorded without a drawer movement`)
     return null
@@ -312,9 +440,78 @@ const linkReversalCashMovement = async (
     note: reversal.note,
     actor: reversal.actor,
   })
-  await movement.save()
+  await movement.save(dbSession ? { session: dbSession } : undefined)
   reversal.cashSession = target._id
-  await reversal.save()
+  await reversal.save(dbSession ? { session: dbSession } : undefined)
+  return movement
+}
+
+// Wave 2.6 — the bank mirror of linkReversalCashMovement: a reversed
+// wire payment hands the money back, so the Bank session needs its
+// compensating Out movement (linked to the reversal row). Best-effort:
+// the reversal already posted.
+const linkReversalBankMovement = async (
+  original: env.RentalPayment,
+  reversal: env.RentalPayment,
+  dbSession?: mongoose.ClientSession,
+): Promise<env.CashMovement | null> => {
+  if (original.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+    return null
+  }
+  const originalMovementQuery = CashMovement.findOne({ rentalPayment: original._id })
+  if (dbSession) {
+    originalMovementQuery.session(dbSession)
+  }
+  const originalMovement = await originalMovementQuery
+  if (!originalMovement) {
+    return null
+  }
+  const openSessionQuery = CashSession.findOne({
+    _id: originalMovement.session,
+    supplier: original.supplier,
+    status: bookcarsTypes.CashSessionStatus.Open,
+  })
+  if (dbSession) {
+    openSessionQuery.session(dbSession)
+  }
+  const openSession = await openSessionQuery
+  const targetQuery = CashSession.findOne({
+    supplier: original.supplier,
+    account: bookcarsTypes.CashAccountType.Bank,
+    status: bookcarsTypes.CashSessionStatus.Open,
+  }).sort({ openedAt: -1 })
+  if (dbSession) {
+    targetQuery.session(dbSession)
+  }
+  const target = openSession || await targetQuery
+  if (!target) {
+    logger.error(`[ledger.linkReversalBankMovement] No open bank session for supplier ${original.supplier.toString()}; bank reversal ${reversal._id.toString()} recorded without a bank movement`)
+    return null
+  }
+  if (target.currency !== reversal.currency) {
+    logger.error(`[ledger.linkReversalBankMovement] Bank session currency ${target.currency} does not match reversal currency ${reversal.currency}; bank reversal ${reversal._id.toString()} recorded without a bank movement`)
+    return null
+  }
+  const movement = new CashMovement({
+    supplier: reversal.supplier,
+    session: target._id,
+    account: target.account,
+    currency: target.currency,
+    date: reversal.date,
+    direction: bookcarsTypes.CashMovementDirection.Out,
+    amount: reversal.amount,
+    source: bookcarsTypes.CashMovementSource.RentalPayment,
+    status: 'confirmed',
+    idempotencyKey: reversal.idempotencyKey ? `bank-${reversal.idempotencyKey}` : undefined,
+    rentalPayment: reversal._id,
+    purpose: reversal.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+    reference: reversal.reference,
+    note: reversal.note,
+    actor: reversal.actor,
+  })
+  await movement.save(dbSession ? { session: dbSession } : undefined)
+  reversal.bankSession = target._id
+  await reversal.save(dbSession ? { session: dbSession } : undefined)
   return movement
 }
 
@@ -366,11 +563,17 @@ existingQuery.session(session)
       }
       // F6 / W3 C-7 — a replayed posting also repairs its drawer link:
       // a cash payment posted while no session was open links now that
-      // one is. Best-effort, as above.
+      // one is. Best-effort, as above. (Wave 2.6: same repair for a
+      // bank-transfer payment into the open Bank session.)
       try {
         await linkLedgerCashPayment(existing, session)
       } catch (err) {
         logger.error(`[ledger.postWithinSession] Cash payment ${existing._id.toString()} replayed but could not be linked to a cash session`, err)
+      }
+      try {
+        await linkLedgerBankPayment(existing, session)
+      } catch (err) {
+        logger.error(`[ledger.postWithinSession] Bank payment ${existing._id.toString()} replayed but could not be linked to a bank session`, err)
       }
       return existing
     }
@@ -390,14 +593,18 @@ existingQuery.session(session)
     if (amount <= 0 || toMinorUnits(amount, currency) > toMinorUnits(recorded, currency)) {
       throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
         ? 'Debit exceeds the recorded refundable deposit total'
-        : 'Debit exceeds the recorded rental total')
+        : purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+          ? 'Debit exceeds the recorded charge total'
+          : 'Debit exceeds the recorded rental total')
     }
   } else if (amount <= 0 || toMinorUnits(amount, currency) > toMinorUnits(remaining, currency)) {
     throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
       ? (purposeTotal <= 0
         ? 'No refundable deposit is recorded for this booking (no snapshot and no car deposit)'
         : 'Payment exceeds the refundable deposit allowance')
-      : 'Payment exceeds the remaining rental balance')
+      : purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+        ? 'Payment exceeds the approved charge total'
+        : 'Payment exceeds the remaining rental balance')
   }
 
   const payment = new RentalPayment({
@@ -431,10 +638,17 @@ existingQuery.session(session)
   // succeeded, and a linkage failure (no open session, currency
   // mismatch) must never refuse posted money — the payment stays
   // unlinked and visible in the journal reconciliation instead.
+  // (Wave 2.6: a posted bank-transfer payment links the same way into
+  // the open Bank session.)
   try {
     await linkLedgerCashPayment(payment, session)
   } catch (err) {
     logger.error(`[ledger.postWithinSession] Cash payment ${payment._id.toString()} posted but could not be linked to a cash session`, err)
+  }
+  try {
+    await linkLedgerBankPayment(payment, session)
+  } catch (err) {
+    logger.error(`[ledger.postWithinSession] Bank payment ${payment._id.toString()} posted but could not be linked to a bank session`, err)
   }
   return payment
 }
@@ -496,12 +710,16 @@ export const confirmRentalPayment = async (input: {
       if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(recorded, currency)) {
         throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
           ? 'Confirming this debit would exceed the recorded refundable deposit total'
-          : 'Confirming this debit would exceed the recorded rental total')
+          : purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+            ? 'Confirming this debit would exceed the recorded charge total'
+            : 'Confirming this debit would exceed the recorded rental total')
       }
     } else if (toMinorUnits(normalizeLedgerAmount(payment.amount, currency), currency) > toMinorUnits(remaining, currency)) {
       throw new LedgerError('OVERPAYMENT', purpose === bookcarsTypes.RentalPaymentPurpose.Deposit && purposeTotal <= 0
         ? 'No refundable deposit is recorded for this booking (no snapshot and no car deposit)'
-        : 'Confirming this entry would exceed the remaining balance')
+        : purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+          ? 'Confirming this entry would exceed the approved charge total'
+          : 'Confirming this entry would exceed the remaining balance')
     }
     payment.status = bookcarsTypes.RentalPaymentStatus.Posted
     payment.settledAt = payment.date
@@ -510,11 +728,17 @@ export const confirmRentalPayment = async (input: {
     await payment.save()
     // F6 / W3 C-7 — a confirmed cash entry enters the drawer now (it
     // never counted while pending). Best-effort: the confirmation
-    // already succeeded.
+    // already succeeded. (Wave 2.6: same for a confirmed bank entry
+    // into the open Bank session.)
     try {
       await linkLedgerCashPayment(payment)
     } catch (err) {
       logger.error(`[ledger.confirmRentalPayment] Payment ${payment._id.toString()} confirmed but could not be linked to a cash session`, err)
+    }
+    try {
+      await linkLedgerBankPayment(payment)
+    } catch (err) {
+      logger.error(`[ledger.confirmRentalPayment] Payment ${payment._id.toString()} confirmed but could not be linked to a bank session`, err)
     }
     // Keep linked invoices in step with the ledger (GAQ12B2-D2): the
     // reversal path already recomputes them; confirmation must too, or
@@ -691,13 +915,21 @@ export const reverseRentalPayment = async (input: {
   idempotencyKey: string
   date?: Date
   note?: string
+  // Wave 2.4 — run the reversal inside the caller's transaction
+  // (deposit settlement in complete()); omitted means the reversal
+  // runs in its own transaction, as before.
+  session?: mongoose.ClientSession
 }) => {
   const initial = await RentalPayment.findById(input.paymentId).select('booking')
   if (!initial) {
 throw new LedgerError('INVALID_REVERSAL', 'Payment not found')
 }
   return withBookingLock(initial.booking.toString(), async () => {
-    const existing = await RentalPayment.findOne({ idempotencyKey: input.idempotencyKey })
+    const existingQuery = RentalPayment.findOne({ idempotencyKey: input.idempotencyKey })
+    if (input.session) {
+      existingQuery.session(input.session)
+    }
+    const existing = await existingQuery
     if (existing) {
       if (existing.reversedFrom?.toString() === input.paymentId.toString()
         && existing.direction === bookcarsTypes.RentalPaymentDirection.Debit) {
@@ -705,7 +937,11 @@ return existing
 }
       throw new LedgerError('DUPLICATE_IDEMPOTENCY_KEY', 'Idempotency key is already used for another payment')
     }
-    const original = await RentalPayment.findById(input.paymentId)
+    const originalQuery = RentalPayment.findById(input.paymentId)
+    if (input.session) {
+      originalQuery.session(input.session)
+    }
+    const original = await originalQuery
     if (!original || original.status !== bookcarsTypes.RentalPaymentStatus.Posted
       || original.direction === bookcarsTypes.RentalPaymentDirection.Debit) {
       throw new LedgerError('INVALID_REVERSAL', 'Only a posted credit can be reversed')
@@ -713,7 +949,11 @@ return existing
     // GA-PAR-22: a posted payment on a trashed contract cannot be
     // reversed — reversal is ledger movement against the contract,
     // so restore the booking first (same rule as charge decisions).
-    const reversalBooking = await Booking.findById(original.booking).select('_id deletedAt')
+    const reversalBookingQuery = Booking.findById(original.booking).select('_id deletedAt')
+    if (input.session) {
+      reversalBookingQuery.session(input.session)
+    }
+    const reversalBooking = await reversalBookingQuery
     if (reversalBooking?.deletedAt) {
       throw new LedgerError('TRASHED', 'TRASHED: This booking is trashed and cannot be modified. Restore it first.')
     }
@@ -763,20 +1003,31 @@ return existing
       settledAt: reversalDate,
       note: input.note || `Reversal of ${original._id.toString()}`,
     })
-    await reversal.save()
+    await reversal.save(input.session ? { session: input.session } : undefined)
     original.status = bookcarsTypes.RentalPaymentStatus.Reversed
-    await original.save()
-    const linkedInvoices = await Invoice.find({ payments: original._id }).select('_id')
+    await original.save(input.session ? { session: input.session } : undefined)
+    const linkedInvoicesQuery = Invoice.find({ payments: original._id }).select('_id')
+    if (input.session) {
+      linkedInvoicesQuery.session(input.session)
+    }
+    const linkedInvoices = await linkedInvoicesQuery
     for (const invoice of linkedInvoices) {
-await recomputeInvoicePayment(invoice._id)
+await recomputeInvoicePayment(invoice._id, input.session)
 }
     // F6 / W3 C-7 — a reversed cash payment hands the money back, so
     // the drawer needs its compensating Out movement (linked to the
     // reversal row). Best-effort: the reversal already posted.
+    // (Wave 2.6: a reversed wire payment gets the same compensating
+    // Out in the Bank session.)
     try {
-      await linkReversalCashMovement(original, reversal)
+      await linkReversalCashMovement(original, reversal, input.session)
     } catch (err) {
       logger.error(`[ledger.reverseRentalPayment] Reversal ${reversal._id.toString()} posted but its drawer movement could not be created`, err)
+    }
+    try {
+      await linkReversalBankMovement(original, reversal, input.session)
+    } catch (err) {
+      logger.error(`[ledger.reverseRentalPayment] Reversal ${reversal._id.toString()} posted but its bank movement could not be created`, err)
     }
     return reversal
   })

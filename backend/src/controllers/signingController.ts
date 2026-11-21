@@ -240,6 +240,12 @@ const isSignable = (booking: env.Booking) => (
   && booking.status !== bookcarsTypes.BookingStatus.Void
   && booking.lifecycle !== bookcarsTypes.ContractLifecycle.Completed
   && booking.lifecycle !== bookcarsTypes.ContractLifecycle.Cancelled
+  // Wave 2.8 (C14) — an unpaid, unconfirmed hold cannot be signed: a
+  // Draft booking in Pending/Reserved is a hold, not a contract. Paid
+  // statuses (Deposit/Paid/PaidInFull) and Confirmed holds sign.
+  && !(booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft
+    && (booking.status === bookcarsTypes.BookingStatus.Pending
+      || booking.status === bookcarsTypes.BookingStatus.Reserved))
 )
 
 /**
@@ -291,7 +297,7 @@ export const issueSigningLink = async (req: Request, res: Response) => {
       return
     }
     if (!isSignable(booking)) {
-      res.status(409).send('SIGN_NOT_SIGNABLE: A cancelled, void, completed or unfinalised booking cannot be signed online.')
+      res.status(409).send('SIGN_NOT_SIGNABLE: A cancelled, void, completed, unpaid or unconfirmed booking cannot be signed online.')
       return
     }
     if (!booking.signingNonce) {

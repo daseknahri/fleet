@@ -22,6 +22,12 @@ const routes = {
   cancelBookingStaff: '/api/bookings/:id/cancel',
   getCancelRequests: '/api/cancel-requests/:page/:size/:language',
   decideCancelRequest: '/api/bookings/:id/decide-cancel-request',
+  // Wave 2.3 — refund plan shown before a staff cancel is confirmed.
+  getRefundPlan: '/api/bookings/:id/refund-plan',
+  // Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
+  // only) + the "confirmed, unpaid" watchlist (ReadBookings).
+  confirmReservation: '/api/bookings/:id/confirm-reservation',
+  getConfirmedUnpaid: '/api/confirmed-unpaid-bookings/:page/:size/:language',
   amend: '/api/bookings/:id/amend',
   // F4 / W1 #7 — no-show marking + overdue (late-return) list.
   markNoShow: '/api/bookings/:id/mark-no-show',

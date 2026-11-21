@@ -205,7 +205,7 @@ export const issueSigningLink = (id: string): Promise<bookcarsTypes.SigningLinkR
  * @param {bookcarsTypes.CancelBookingPayload} data
  * @returns {Promise<{ booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }>}
  */
-export const cancelBookingStaff = (id: string, data: bookcarsTypes.CancelBookingPayload): Promise<{ booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }> =>
+export const cancelBookingStaff = (id: string, data: bookcarsTypes.CancelBookingPayload): Promise<{ booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[], wireRefundPending?: boolean } }> =>
   axiosInstance
     .post(
       `/api/bookings/${encodeURIComponent(id)}/cancel`,
@@ -240,11 +240,65 @@ export const getCancelRequests = (suppliers: string[], page: number, size: numbe
  * @param {bookcarsTypes.DecideCancelRequestPayload} data
  * @returns {Promise<bookcarsTypes.Booking | { booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }>}
  */
-export const decideCancelRequest = (id: string, data: bookcarsTypes.DecideCancelRequestPayload): Promise<bookcarsTypes.Booking | { booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[] } }> =>
+export const decideCancelRequest = (id: string, data: bookcarsTypes.DecideCancelRequestPayload): Promise<bookcarsTypes.Booking | { booking: bookcarsTypes.Booking, refund: { decision: bookcarsTypes.CancelRefundDecision, status: bookcarsTypes.CancelRefundStatus, rentPaid?: number, depositPaid?: number, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[], wireRefundPending?: boolean } }> =>
   axiosInstance
     .post(
       `/api/bookings/${encodeURIComponent(id)}/decide-cancel-request`,
       data,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Wave 2.3 — the refund plan for one booking, computed and shown BEFORE
+ * a staff cancel is confirmed: amounts at stake, the per-method split,
+ * whether approvals are required, and whether a cash/bank session is
+ * open for the refund legs.
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.RefundPlan>}
+ */
+export const getRefundPlan = (id: string): Promise<bookcarsTypes.RefundPlan> =>
+  axiosInstance
+    .get(
+      `/api/bookings/${encodeURIComponent(id)}/refund-plan`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
+ * only, enforced server-side). Lifecycle Draft → Confirmed, the hold
+ * window is cleared, confirmedBy/confirmedAt are stamped and the
+ * customer is notified.
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.Booking>}
+ */
+export const confirmReservation = (id: string): Promise<bookcarsTypes.Booking> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/confirm-reservation`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
+ * Wave 2.1 — the "confirmed, unpaid" watchlist: Confirmed holds with
+ * an outstanding balance, plus legacy Reserved rows (which still need
+ * confirming).
+ *
+ * @param {string[]} suppliers
+ * @param {number} page
+ * @param {number} size
+ * @returns {Promise<bookcarsTypes.Result<bookcarsTypes.ConfirmedUnpaidRow>>}
+ */
+export const getConfirmedUnpaid = (suppliers: string[], page: number, size: number): Promise<bookcarsTypes.Result<bookcarsTypes.ConfirmedUnpaidRow>> =>
+  axiosInstance
+    .post(
+      `/api/confirmed-unpaid-bookings/${page}/${size}/${UserService.getLanguage()}`,
+      { suppliers },
       { withCredentials: true }
     )
     .then((res) => res.data)

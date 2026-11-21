@@ -35,13 +35,15 @@ import ContractSnapshot from '../models/ContractSnapshot'
 import ContractInspection from '../models/ContractInspection'
 import AgentSettlement from '../models/AgentSettlement'
 import { postProviderPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions, LedgerError } from '../utils/ledger'
-import { approvalRequiredFor, findLatestApproval } from '../utils/approvalProducer'
+import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
+import CashSession from '../models/CashSession'
+import CashMovement from '../models/CashMovement'
 import { getContractReceivable } from '../utils/contractReceivable'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
-import { agencySupplierId, getAgencyContext } from '../utils/agencyAuthorization'
+import { agencySupplierId, getAgencyContext, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { nextBookingReference } from '../utils/bookingReference'
-import { publicOnlineSignature } from '../utils/bookingSigning'
+import { newSigningNonce, publicOnlineSignature } from '../utils/bookingSigning'
 import { ensureDraftInvoice } from '../utils/invoiceCreation'
 import { resolveLocationTranslation } from '../utils/locationHelper'
 import { isBookingOverdue } from '../utils/contractLifecycle'
@@ -137,6 +139,15 @@ export const create = async (req: Request, res: Response) => {
 
     if ([bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(bookingInput.status)) {
       res.status(400).send('Payment statuses can only be created through a verified payment workflow')
+      return
+    }
+
+    // Wave 2.5 — `Reserved` is a legacy import status, never a staff
+    // choice (it reserves the car and used to unlock handover with no
+    // payment). Wave 2.8 (C17) — a booking is never created already
+    // Cancelled or Void. Staff-created bookings start Pending.
+    if ([bookcarsTypes.BookingStatus.Reserved, bookcarsTypes.BookingStatus.Cancelled, bookcarsTypes.BookingStatus.Void].includes(bookingInput.status)) {
+      res.status(400).send('Bookings can only be created as Pending; Reserved, Cancelled and Void are not staff-creatable statuses')
       return
     }
 
@@ -1533,6 +1544,12 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
+      // Wave 2.11 — a platform admin acts on a single resource here:
+      // audit with the resource's agency.
+      if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+        await logAdminCrossAgencyAccess(req, [booking.supplier.toString()], 'booking:update-booking')
+      }
+
       const bookingId = (value: string | { _id?: string } | undefined) => (typeof value === 'string' ? value : value?._id) || ''
       const submittedSupplierId = bookingId(body.booking.supplier as string | { _id?: string })
       const submittedCarId = bookingId(body.booking.car as string | { _id?: string })
@@ -1591,7 +1608,15 @@ export const update = async (req: Request, res: Response) => {
       // empty subdocument on loaded bookings, so a stored exception is
       // only real when it carries a reason — truthiness alone would
       // silently bypass every update conflict.
-      const storedOverlapException = booking.overlapException?.reason ? booking.overlapException : undefined
+      // Wave 2.8 (C11) — a stored overlap exception was granted for
+      // the OLD dates/car: when the dates or the car change it must
+      // not carry over. It is treated as absent here (a fresh payload
+      // exception still goes through the full gate below), and the
+      // record is cleared on save by the existing branch.
+      const termsChangedForOverlap = fromDate.getTime() !== booking.from.getTime()
+        || toDate.getTime() !== booking.to.getTime()
+        || submittedCarId !== booking.car.toString()
+      const storedOverlapException = (!termsChangedForOverlap && booking.overlapException?.reason) ? booking.overlapException : undefined
       const rawOverlapException = (body.booking as bookcarsTypes.Booking).overlapException
       const isOverlapEcho = !!rawOverlapException && !!storedOverlapException
         && typeof rawOverlapException.reason === 'string'
@@ -1660,6 +1685,26 @@ export const update = async (req: Request, res: Response) => {
         return
       }
 
+      // Wave 2.8 (C8) — a snapshot-less booking in Active / ReturnReview
+      // / Completed must not have its rental terms rewritten here: the
+      // dates, car and locations are history once the car is out (or
+      // the contract is done). Route through a contract amendment
+      // instead, like snapshot bookings do.
+      const lifecycleTermsChanged = [
+        bookcarsTypes.ContractLifecycle.Active,
+        bookcarsTypes.ContractLifecycle.ReturnReview,
+        bookcarsTypes.ContractLifecycle.Completed,
+      ].includes(booking.lifecycle as bookcarsTypes.ContractLifecycle)
+        && (fromDate.getTime() !== booking.from.getTime()
+          || toDate.getTime() !== booking.to.getTime()
+          || submittedCarId !== booking.car.toString()
+          || submittedPickupLocationId !== booking.pickupLocation.toString()
+          || submittedDropOffLocationId !== booking.dropOffLocation.toString())
+      if (lifecycleTermsChanged) {
+        res.status(409).send('Rental terms are locked once the contract is active; use a contract amendment workflow')
+        return
+      }
+
       // Approvals policy (owner-approved defaults 2026-11-17): a price
       // reduction (discount / price override) of 10,000 MAD or more on
       // a snapshot-less booking needs approval first - the reduction
@@ -1679,6 +1724,13 @@ export const update = async (req: Request, res: Response) => {
             res.status(409).send('Price reduction of ' + reduction + ' MAD needs approval by the agency manager/owner first'); return
           }
         }
+      }
+
+      // Wave 2.5 — `Reserved` is never assigned by staff (legacy
+      // import status only).
+      if (status !== previousStatus && status === bookcarsTypes.BookingStatus.Reserved) {
+        res.status(400).send('Reserved cannot be assigned by staff; confirm the reservation or record a payment instead')
+        return
       }
 
       const paymentStatuses = new Set<string>([
@@ -1739,6 +1791,19 @@ export const update = async (req: Request, res: Response) => {
         }
       }
 
+      // Wave 2.8 (C13) — reactivating a Cancelled booking needs a
+      // reason (3-1000 chars, recorded in the server log): a live
+      // booking must not come back with no trace of why. Only a LIVE
+      // target status reactivates — moving Cancelled to Void is
+      // terminal-to-terminal, needs no reason and forces nothing.
+      const liveTargetStatuses = [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull]
+      const isReactivation = previousStatus === bookcarsTypes.BookingStatus.Cancelled && liveTargetStatuses.includes(status as bookcarsTypes.BookingStatus)
+      const reactivationReason = typeof body.reason === 'string' ? body.reason.trim() : ''
+      if (isReactivation && (reactivationReason.length < 3 || reactivationReason.length > 1000)) {
+        res.status(400).send('REACTIVATION_REASON: Reactivating a cancelled booking requires a reason of 3 to 1000 characters.')
+        return
+      }
+
       booking.supplier = new mongoose.Types.ObjectId(supplier as string)
       booking.car = new mongoose.Types.ObjectId(car as string)
       booking.driver = new mongoose.Types.ObjectId(driver as string)
@@ -1755,8 +1820,20 @@ export const update = async (req: Request, res: Response) => {
       // lifecycle to Draft.
       if (status === bookcarsTypes.BookingStatus.Cancelled && previousStatus !== bookcarsTypes.BookingStatus.Cancelled) {
         booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
-      } else if (previousStatus === bookcarsTypes.BookingStatus.Cancelled && status !== bookcarsTypes.BookingStatus.Cancelled && booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled) {
+        // Wave 2.8 (C14) — a cancelled booking keeps no signature:
+        // clear it and rotate the signing nonce so any outstanding
+        // signing link dies.
+        booking.onlineSignature = undefined
+        booking.signingNonce = newSigningNonce()
+      } else if (previousStatus === bookcarsTypes.BookingStatus.Cancelled && liveTargetStatuses.includes(status as bookcarsTypes.BookingStatus) && booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled) {
         booking.lifecycle = bookcarsTypes.ContractLifecycle.Draft
+        // Wave 2.8 (C13) — reactivation clears the cancellation record
+        // (a live booking must not carry a stale refund decision) and
+        // re-enters as a Pending hold with a fresh 48h window.
+        booking.cancellationRecord = undefined
+        booking.status = bookcarsTypes.BookingStatus.Pending
+        booking.expireAt = new Date(Date.now() + env.PAY_LATER_HOLD_EXPIRE_AT * 1000)
+        logger.info(`[booking.update] Booking ${booking._id.toString()} reactivated by user ${sessionUserId} (reason: ${reactivationReason})`)
       }
       booking.cancellation = cancellation
       booking.amendments = amendments
@@ -1940,6 +2017,13 @@ export const updateStatus = async (req: Request, res: Response) => {
       return
     }
 
+    // Wave 2.11 — a platform admin acts on resources here: audit with
+    // each distinct agency.
+    if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+      const agencies = [...new Set(bookings.map((booking) => booking.supplier.toString()))]
+      await logAdminCrossAgencyAccess(req, agencies, 'booking:update-booking-status')
+    }
+
     if (status === bookcarsTypes.BookingStatus.Cancelled && bookings.some((booking) => paymentStatuses.has(booking.status))) {
       // F3 / W1 #18: same workflow redirect as update() — a paid
       // booking is cancelled through the cancel workflow, never by a
@@ -1953,20 +2037,54 @@ export const updateStatus = async (req: Request, res: Response) => {
       return
     }
 
+    // Wave 2.5 — `Reserved` is never assigned by staff (legacy import
+    // status only).
+    if (status === bookcarsTypes.BookingStatus.Reserved) {
+      res.status(400).send('Reserved cannot be assigned by staff; confirm the reservation or record a payment instead')
+      return
+    }
+
+    // Wave 2.8 (C13) — reactivating a Cancelled booking needs a reason
+    // (3-1000 chars, recorded in the server log). Only a LIVE target
+    // status reactivates — moving Cancelled to Void is
+    // terminal-to-terminal and needs no reason.
+    const liveTargetStatuses = [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Deposit, bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull]
+    const reactivating = bookings.some((booking) => booking.status === bookcarsTypes.BookingStatus.Cancelled && liveTargetStatuses.includes(status as bookcarsTypes.BookingStatus))
+    const reactivationReason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    if (reactivating && (reactivationReason.length < 3 || reactivationReason.length > 1000)) {
+      res.status(400).send('REACTIVATION_REASON: Reactivating a cancelled booking requires a reason of 3 to 1000 characters.')
+      return
+    }
+
     if (bookings.length === 0) {
       res.sendStatus(200)
       return
     }
 
     const previousStatuses = bookings.map((booking) => booking.status)
-    for (const booking of bookings) {
+    for (const [index, booking] of bookings.entries()) {
       booking.status = status as bookcarsTypes.BookingStatus
       // F3 / W1 #1: lifecycle follows the status on cancellation (and
       // back to Draft when a cancelled booking is reactivated).
       if (status === bookcarsTypes.BookingStatus.Cancelled) {
         booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
+        // Wave 2.8 (C14) — a cancelled booking keeps no signature:
+        // clear it and rotate the signing nonce so any outstanding
+        // signing link dies.
+        booking.onlineSignature = undefined
+        booking.signingNonce = newSigningNonce()
       } else if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Cancelled) {
-        booking.lifecycle = bookcarsTypes.ContractLifecycle.Draft
+        // Wave 2.8 (C13) — reactivation clears the cancellation record
+        // and re-enters as a Pending hold with a fresh 48h window. Only
+        // a LIVE target reactivates: a Cancelled booking moved to Void
+        // keeps lifecycle Cancelled and is not forced to Pending.
+        if (previousStatuses[index] === bookcarsTypes.BookingStatus.Cancelled && liveTargetStatuses.includes(status as bookcarsTypes.BookingStatus)) {
+          booking.lifecycle = bookcarsTypes.ContractLifecycle.Draft
+          booking.cancellationRecord = undefined
+          booking.status = bookcarsTypes.BookingStatus.Pending
+          booking.expireAt = new Date(Date.now() + env.PAY_LATER_HOLD_EXPIRE_AT * 1000)
+          logger.info(`[booking.updateStatus] Booking ${booking._id.toString()} reactivated by user ${sessionUserId} (reason: ${reactivationReason})`)
+        }
       }
     }
     await saveBookingsWithAvailability(bookings)
@@ -2035,6 +2153,11 @@ export const deleteBookings = async (req: Request, res: Response) => {
     if (bookings.length !== ids.length) {
       res.status(400).send('PURGE_NOT_FOUND: One or more bookings were not found.')
       return
+    }
+    // Wave 2.11 — same audit as trashBookings (bulk resources, ids in
+    // the body): log the access with the bookings' agencies.
+    if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+      await logAdminCrossAgencyAccess(req, [...new Set(bookings.map((booking) => booking.supplier.toString()))], 'booking:delete-bookings')
     }
     for (const booking of bookings) {
       if (isAgencyUser && sessionAgencyId !== booking.supplier?.toString()) {
@@ -2628,7 +2751,11 @@ export const cancelBooking = async (req: Request, res: Response) => {
       .populate<{ supplier: env.User }>('supplier')
       .populate<{ driver: env.User }>('driver')
 
-    if (booking && booking.cancellation && !booking.cancelRequest) {
+    // Wave 2.9 — a booking whose terms forbid online cancellation
+    // answers 409 with a plain message, not a silent 204 (the customer
+    // must contact the agency). A missing booking still answers 204
+    // (no oracle), and an already-filed request stays 204.
+    if (booking && !booking.cancelRequest) {
       // begin of security check
       const sessionUserId = req.user?._id
       const sessionUser = sessionUserId ? await User.findById(sessionUserId) : null
@@ -2650,6 +2777,13 @@ export const cancelBooking = async (req: Request, res: Response) => {
       // GA-PAR-22: a trashed booking cannot be cancelled — restore first.
       if (booking.deletedAt) {
         res.status(409).send(trashedMessage('booking'))
+        return
+      }
+
+      // Wave 2.9 — see the note above: online cancellation is off for
+      // this booking.
+      if (!booking.cancellation) {
+        res.status(409).send('This booking cannot be cancelled online. Please contact the agency to cancel it.')
         return
       }
 
@@ -2717,7 +2851,7 @@ export const cancelBooking = async (req: Request, res: Response) => {
  */
 
 type StaffCancelResult =
-  | { ok: true, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[], refundStatus: bookcarsTypes.CancelRefundStatus }
+  | { ok: true, refundedRent: number, refundedDeposit: number, refundProviderReferences: string[], refundStatus: bookcarsTypes.CancelRefundStatus, wireRefundPending?: boolean }
   | { ok: false, status: number, message: string }
 
 const isValidCancelReason = (reason: unknown): reason is string =>
@@ -2725,6 +2859,62 @@ const isValidCancelReason = (reason: unknown): reason is string =>
 
 const isValidRefundDecision = (decision: unknown): decision is bookcarsTypes.CancelRefundDecision =>
   decision === 'full' || decision === 'none' || decision === 'manual'
+
+/**
+ * Wave 2.3 — the refund plan, computed and shown BEFORE a staff cancel
+ * is confirmed. One helper feeds both the GET refund-plan endpoint and
+ * the cancel execution, so the plan staff see is the plan the cancel
+ * enforces. Amounts come from the shared receivable (posted rent /
+ * posted deposit — the deposit is never netted) and the posted
+ * payments themselves, grouped by payment method.
+ */
+const computeRefundPlan = async (booking: env.Booking): Promise<{
+  plan: bookcarsTypes.RefundPlan
+  posted: env.RentalPayment[]
+}> => {
+  const receivable = await getContractReceivable(booking)
+  const rentPaid = receivable.postedPayments
+  const depositPaid = receivable.depositPayments
+  const posted = await RentalPayment.find({
+    booking: booking._id,
+    status: bookcarsTypes.RentalPaymentStatus.Posted,
+    direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
+  }).sort({ date: 1, _id: 1 }).lean()
+  const byMethod = new Map<bookcarsTypes.RentalPaymentMethod, number>()
+  for (const payment of posted) {
+    const method = payment.method as bookcarsTypes.RentalPaymentMethod
+    byMethod.set(method, (byMethod.get(method) || 0) + Number(payment.amount || 0))
+  }
+  const totalRefund = rentPaid + depositPaid
+  const latestApproval = await findLatestApproval(booking.supplier, 'booking-cancel', booking._id.toString())
+  const approvalStatus: bookcarsTypes.RefundPlan['approvalStatus'] = !latestApproval
+    ? 'none'
+    : latestApproval.status === bookcarsTypes.ApprovalDecision.Pending
+      ? 'pending'
+      : latestApproval.status === bookcarsTypes.ApprovalDecision.Approved
+        ? 'approved'
+        : 'rejected'
+  const [cashSession, bankSession] = await Promise.all([
+    CashSession.findOne({ supplier: booking.supplier, account: bookcarsTypes.CashAccountType.Cash, status: bookcarsTypes.CashSessionStatus.Open }).select('_id').lean(),
+    CashSession.findOne({ supplier: booking.supplier, account: bookcarsTypes.CashAccountType.Bank, status: bookcarsTypes.CashSessionStatus.Open }).select('_id').lean(),
+  ])
+  return {
+    plan: {
+      booking: booking._id.toString(),
+      currency: receivable.currency,
+      rentPaid,
+      depositPaid,
+      outstandingBalance: receivable.outstandingBalance,
+      totalRefund,
+      byMethod: [...byMethod.entries()].map(([method, amount]) => ({ method, amount })),
+      approvalRequired: approvalRequiredFor(totalRefund),
+      approvalStatus,
+      cashSessionOpen: !!cashSession,
+      bankSessionOpen: !!bankSession,
+    },
+    posted: posted as env.RentalPayment[],
+  }
+}
 
 const authorizeStaffBooking = async (
   req: Request,
@@ -2741,6 +2931,12 @@ const authorizeStaffBooking = async (
     if (!sessionAgencyId || sessionAgencyId !== booking.supplier?.toString()) {
       return { ok: false, status: 403, message: `Forbidden: You cannot ${action} for another agency` }
     }
+  }
+  // Wave 2.11 — a platform admin acts on a single resource here (no
+  // selector on the route): the access is audited with the resource's
+  // agency.
+  if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+    await logAdminCrossAgencyAccess(req, [booking.supplier.toString()], `booking:${action}`)
   }
   return { ok: true, sessionUser }
 }
@@ -2775,22 +2971,64 @@ const executeStaffCancel = async (
 
   // Amounts at stake, from the same receivable the contract pages use
   // (rent posted, deposit posted — the deposit is never netted).
-  const receivable = await getContractReceivable(booking)
-  const rentPaid = receivable.postedPayments
-  const depositPaid = receivable.depositPayments
+  // Wave 2.3 — the refund plan is computed FIRST, and the cancel is
+  // gated on it: approvals, then the cash-session requirement. Every
+  // refusal below happens before any money moves.
+  const { plan, posted } = await computeRefundPlan(booking)
+  const rentPaid = plan.rentPaid
+  const depositPaid = plan.depositPaid
   const requestedBy = booking.cancelRequestBy
   const requestedAt = booking.cancelRequestAt
+
+  // Wave 2.3 — approvals gate: a refund at or above the threshold
+  // (10,000 MAD) goes through approvals first. No approved gate means
+  // an approval request is opened (idempotent) and the cancel is
+  // refused 409 — the booking is untouched. A pending or rejected gate
+  // refuses the same way. The gate applies to `full` and `manual`:
+  // both put the posted total at stake (manual refunds it later, in
+  // the provider dashboard). `none` keeps everything, so no gate.
+  if (refundDecision !== 'none' && plan.approvalRequired) {
+    const gate = await findLatestApproval(booking.supplier, 'booking-cancel', booking._id.toString())
+    const approved = !!gate && gate.status === bookcarsTypes.ApprovalDecision.Approved && (gate.amount || 0) >= plan.totalRefund
+    if (!approved) {
+      if (!gate || gate.status === bookcarsTypes.ApprovalDecision.Rejected) {
+        await produceApprovalRequest({
+          supplier: booking.supplier,
+          subjectType: 'booking-cancel',
+          subject: booking._id.toString(),
+          amount: plan.totalRefund,
+          currency: plan.currency,
+          requestedBy: new mongoose.Types.ObjectId(actorId),
+          reason: `Staff cancel of booking ${booking.reference || booking._id.toString()}: refund ${plan.totalRefund} ${plan.currency} (${refundDecision})`,
+        })
+      }
+      if (gate?.status === bookcarsTypes.ApprovalDecision.Rejected) {
+        return { ok: false, status: 409, message: `CANCEL_APPROVAL_REJECTED: The refund of ${plan.totalRefund} ${plan.currency} was rejected in approvals. It cannot be refunded through this cancel; change the refund decision or ask for a new approval.` }
+      }
+      if (gate?.status === bookcarsTypes.ApprovalDecision.Pending) {
+        return { ok: false, status: 409, message: `CANCEL_APPROVAL_PENDING: A refund of ${plan.totalRefund} ${plan.currency} needs approval by the agency manager/owner first; the approval request is still pending.` }
+      }
+      return { ok: false, status: 409, message: `CANCEL_APPROVAL_REQUIRED: A refund of ${plan.totalRefund} ${plan.currency} needs approval by the agency manager/owner first; an approval request has been opened.` }
+    }
+  }
+
+  // Wave 2.3 — a cash refund needs an open Cash session to hand the
+  // money back through: with none open the whole cancel is refused,
+  // so no refund is half-executed.
+  if (refundDecision === 'full'
+    && plan.byMethod.some((split) => split.method === bookcarsTypes.RentalPaymentMethod.Cash && split.amount > 0)
+    && !plan.cashSessionOpen) {
+    return { ok: false, status: 409, message: 'CANCEL_NO_CASH_SESSION: This cancellation refunds cash payments, but no cash session is open. Open a cash session first, then cancel.' }
+  }
 
   let refundedRent = 0
   let refundedDeposit = 0
   const refundProviderReferences: string[] = []
   let reversedCount = 0
+  // Wave 2.3 — the reversal ids of wire payments, for the pending
+  // check below (a wire reversal with no Bank session movement).
+  const reversedWireReversalIds: mongoose.Types.ObjectId[] = []
   if (refundDecision === 'full') {
-    const posted = await RentalPayment.find({
-      booking: booking._id,
-      status: bookcarsTypes.RentalPaymentStatus.Posted,
-      direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
-    }).sort({ date: 1, _id: 1 }).lean()
     for (const payment of posted) {
       try {
         const reversal = await reverseRentalPayment({
@@ -2800,6 +3038,9 @@ const executeStaffCancel = async (
           note: `Cancellation refund of booking ${booking.reference || booking._id.toString()}`,
         })
         reversedCount += 1
+        if (payment.method === bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+          reversedWireReversalIds.push(reversal._id)
+        }
         if ((payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent) === bookcarsTypes.RentalPaymentPurpose.Deposit) {
           refundedDeposit += Number(payment.amount || 0)
         } else {
@@ -2820,9 +3061,24 @@ const executeStaffCancel = async (
     }
   }
 
+  // Wave 2.3 — a wire refund whose reversal posted without a Bank
+  // session movement (no open Bank session at refund time): the ledger
+  // reversal stands, but the bank drawer never saw the money leave, so
+  // the refund is flagged pending for follow-up. The follow-up task
+  // owner is Q20-gated and is not created here.
+  let wireRefundPending = false
+  for (const reversalId of reversedWireReversalIds) {
+    const hasMovement = await CashMovement.exists({ rentalPayment: reversalId })
+    if (!hasMovement) {
+      wireRefundPending = true
+      break
+    }
+  }
   const refundStatus: bookcarsTypes.CancelRefundStatus = refundDecision === 'manual'
     ? 'pending'
-    : reversedCount > 0 ? 'refunded' : 'none'
+    : wireRefundPending
+      ? 'pending'
+      : reversedCount > 0 ? 'refunded' : 'none'
   booking.status = bookcarsTypes.BookingStatus.Cancelled
   booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
   booking.cancelRequest = false
@@ -2843,6 +3099,10 @@ const executeStaffCancel = async (
     ...(requestedBy ? { requestedBy } : {}),
     ...(requestedAt ? { requestedAt } : {}),
   }
+  // Wave 2.8 (C14) — a cancelled booking keeps no signature: clear it
+  // and rotate the signing nonce so any outstanding link dies.
+  booking.onlineSignature = undefined
+  booking.signingNonce = newSigningNonce()
   // Cancelled reserves nothing, so the availability save only frees the
   // dates (and bumps the reservation version for any concurrent check).
   await saveBookingWithAvailability(booking)
@@ -2854,7 +3114,7 @@ const executeStaffCancel = async (
   } catch (err) {
     logger.error(`[booking.cancel] Cancellation notification failed for booking ${booking._id.toString()}; booking stays cancelled`, err)
   }
-  return { ok: true, refundedRent, refundedDeposit, refundProviderReferences, refundStatus }
+  return { ok: true, refundedRent, refundedDeposit, refundProviderReferences, refundStatus, wireRefundPending }
 }
 
 /**
@@ -2909,6 +3169,10 @@ export const cancelBookingStaff = async (req: Request, res: Response) => {
         refundedRent: result.refundedRent,
         refundedDeposit: result.refundedDeposit,
         refundProviderReferences: result.refundProviderReferences,
+        // Wave 2.3 — a wire refund that posted without a Bank session
+        // movement still needs following up (no open Bank session at
+        // refund time).
+        wireRefundPending: result.wireRefundPending === true,
       },
     })
   } catch (err) {
@@ -3061,10 +3325,230 @@ export const decideCancelRequest = async (req: Request, res: Response) => {
         refundedRent: result.refundedRent,
         refundedDeposit: result.refundedDeposit,
         refundProviderReferences: result.refundProviderReferences,
+        // Wave 2.3 — see cancelBookingStaff above.
+        wireRefundPending: result.wireRefundPending === true,
       },
     })
   } catch (err) {
     logger.error(`[booking.decideCancelRequest] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Wave 2.3 — the refund plan for one booking, computed and shown BEFORE
+ * a staff cancel is confirmed (ManageBookings). Same figures the cancel
+ * enforces (see computeRefundPlan): amounts at stake, the per-method
+ * split, whether approvals are required, and whether a cash/bank
+ * session is open for the refund legs.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getRefundPlan = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'view refund plans')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
+      return
+    }
+    const { plan } = await computeRefundPlan(booking)
+    res.json(plan)
+  } catch (err) {
+    logger.error(`[booking.getRefundPlan] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
+ * only). Lifecycle Draft → Confirmed, `expireAt` cleared (the hold now
+ * reserves the car indefinitely), `confirmedBy`/`confirmedAt` stamped.
+ * A legacy Reserved booking confirms into Pending + Confirmed. The
+ * customer is notified (same channel as a status change). Safe retry:
+ * an already-Confirmed booking answers 200 with the booking.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const confirmReservation = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'confirm reservations')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    // Owner/Manager only: CounterAgent and Accountant may not confirm
+    // a hold — the confirm is a commercial commitment (the car is
+    // blocked indefinitely from here on). The platform Admin acts as
+    // Owner through the middleware; agency Suppliers resolve as Owner.
+    const role = req.agency?.role
+      || (scope.sessionUser.type === bookcarsTypes.UserType.Supplier ? bookcarsTypes.AgencyRole.Owner : undefined)
+    if (role !== bookcarsTypes.AgencyRole.Owner && role !== bookcarsTypes.AgencyRole.Manager) {
+      res.status(403).send('Only an agency Owner or Manager can confirm a reservation')
+      return
+    }
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
+      return
+    }
+    if (booking.status === bookcarsTypes.BookingStatus.Cancelled || booking.status === bookcarsTypes.BookingStatus.Void) {
+      res.status(409).send('A cancelled or void booking cannot be confirmed')
+      return
+    }
+    if ([
+      bookcarsTypes.ContractLifecycle.Active,
+      bookcarsTypes.ContractLifecycle.ReturnReview,
+      bookcarsTypes.ContractLifecycle.Completed,
+    ].includes(booking.lifecycle as bookcarsTypes.ContractLifecycle)) {
+      res.status(409).send('Only a booking that has not been handed over can be confirmed')
+      return
+    }
+    // Safe retry: already confirmed.
+    if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
+      res.json(booking)
+      return
+    }
+    if (booking.status === bookcarsTypes.BookingStatus.Reserved) {
+      // Legacy import row: it becomes a normal confirmed hold.
+      booking.status = bookcarsTypes.BookingStatus.Pending
+    }
+    booking.lifecycle = bookcarsTypes.ContractLifecycle.Confirmed
+    booking.expireAt = null
+    booking.confirmedBy = new mongoose.Types.ObjectId(scope.sessionUser._id.toString())
+    booking.confirmedAt = new Date()
+    await saveBookingWithAvailability(booking)
+    try {
+      await notifyDriver(booking)
+    } catch (err) {
+      logger.error(`[booking.confirmReservation] Confirmation notification failed for booking ${booking._id.toString()}; booking stays confirmed`, err)
+    }
+    res.json(booking)
+  } catch (err) {
+    if (err instanceof BookingConflictError) {
+      res.status(409).send(err.message)
+      return
+    }
+    logger.error(`[booking.confirmReservation] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * Wave 2.1 — the "confirmed, unpaid" watchlist: Confirmed holds with
+ * an outstanding balance, plus legacy Reserved rows (which still need
+ * confirming). ReadBookings. Same response shape as the cancel-request
+ * queue (rows + pageInfo). A fully-paid confirmed hold drops off
+ * (nothing to chase); a legacy Reserved row stays until it is
+ * confirmed or cancelled, with its 48h confirm-or-cancel deadline.
+ *
+ * @export
+ * @async
+ * @param {Request} req
+ * @param {Response} res
+ * @returns {unknown}
+ */
+export const getConfirmedUnpaid = async (req: Request, res: Response) => {
+  try {
+    const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
+    const page = Number.parseInt(req.params.page, 10)
+    const size = Number.parseInt(req.params.size, 10)
+    let suppliers = (body.suppliers || []).map((supplierId) => new mongoose.Types.ObjectId(supplierId))
+
+    const sessionUserId = req.user?._id
+    const sessionUser = await User.findById(sessionUserId)
+    if (!sessionUser || sessionUser.type === bookcarsTypes.UserType.User) {
+      logger.error(`[booking.getConfirmedUnpaid] Unauthorized attempt by user ${sessionUserId}`)
+      res.status(403).send('Forbidden: You cannot get booking information')
+      return
+    }
+    if ([bookcarsTypes.UserType.Supplier, bookcarsTypes.UserType.Staff].includes(sessionUser.type as bookcarsTypes.UserType)) {
+      const supplierId = agencySupplierId(req)
+      if (!supplierId) {
+        res.status(403).send('Agency membership is required')
+        return
+      }
+      suppliers = [new mongoose.Types.ObjectId(supplierId)]
+    }
+
+    const filter: mongoose.QueryFilter<env.Booking> = {
+      supplier: { $in: suppliers },
+      $or: [
+        { lifecycle: bookcarsTypes.ContractLifecycle.Confirmed, status: bookcarsTypes.BookingStatus.Pending },
+        { status: bookcarsTypes.BookingStatus.Reserved },
+      ],
+      deletedAt: null,
+    }
+    const rows = await Booking.find(filter)
+      .populate<{ supplier: env.UserInfo }>('supplier', '_id fullName avatar')
+      .populate<{ car: env.CarInfo }>('car', '_id name')
+      .populate<{ driver: env.UserInfo }>('driver', '_id fullName avatar')
+      .sort({ confirmedAt: 1, _id: 1 })
+      .lean()
+
+    const resultData: bookcarsTypes.ConfirmedUnpaidRow[] = []
+    for (const row of rows) {
+      const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+      const legacyReserved = row.status === bookcarsTypes.BookingStatus.Reserved
+      if (!legacyReserved && receivable.outstandingBalance <= 0) {
+        continue
+      }
+      const confirmedAt = row.confirmedAt ? new Date(row.confirmedAt) : undefined
+      const daysSinceConfirmation = confirmedAt ? Math.floor((Date.now() - confirmedAt.getTime()) / 86400000) : 0
+      // Legacy rows get a 48h confirm-or-cancel deadline from their
+      // creation (their createdAt is long past, so the deadline reads
+      // as "now" for old rows — the watchlist surfaces them first).
+      const confirmBy = legacyReserved
+        ? new Date(new Date((row as { createdAt?: Date }).createdAt || Date.now()).getTime() + env.PAY_LATER_HOLD_EXPIRE_AT * 1000)
+        : undefined
+      resultData.push({
+        booking: row as unknown as bookcarsTypes.Booking,
+        outstandingBalance: receivable.outstandingBalance,
+        depositDue: Math.max(0, Math.round((receivable.refundableDeposit - receivable.depositPayments) * 100) / 100),
+        currency: receivable.currency,
+        confirmedAt,
+        daysSinceConfirmation,
+        legacyReserved,
+        confirmBy,
+      })
+    }
+
+    const totalRecords = resultData.length
+    const start = (page - 1) * size
+    const pageRows = resultData.slice(start, start + size)
+    res.json([{ resultData: pageRows, pageInfo: [{ totalRecords }] }])
+  } catch (err) {
+    logger.error(`[booking.getConfirmedUnpaid] ${i18n.t('ERROR')} ${JSON.stringify(req.body)}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }
@@ -3149,6 +3633,10 @@ export const markNoShow = async (req: Request, res: Response) => {
     booking.lifecycle = bookcarsTypes.ContractLifecycle.Cancelled
     booking.noShowAt = new Date()
     booking.noShowBy = new mongoose.Types.ObjectId(scope.sessionUser._id.toString())
+    // Wave 2.8 (C14) — a cancelled booking keeps no signature: clear
+    // it and rotate the signing nonce so any outstanding link dies.
+    booking.onlineSignature = undefined
+    booking.signingNonce = newSigningNonce()
     booking.cancelRequest = false
     booking.cancelRequestAt = undefined
     booking.cancelRequestBy = undefined
@@ -3291,6 +3779,12 @@ export const trashBookings = async (req: Request, res: Response) => {
     if (bookings.length !== ids.length) {
       res.status(400).send('TRASH_NOT_FOUND: One or more bookings were not found.')
       return
+    }
+    // Wave 2.11 — a platform admin acts on bulk resources here: audit
+    // with the resources' agencies (hasResourceIdParam lets the call
+    // through on the body ids; the agencies come from the bookings).
+    if (sessionUser.type === bookcarsTypes.UserType.Admin) {
+      await logAdminCrossAgencyAccess(req, [...new Set(bookings.map((booking) => booking.supplier.toString()))], 'booking:trash-bookings')
     }
     // Validate everything before mutating anything (H-025).
     const flags = new Map<string, { hadPayments: boolean, hadInvoices: boolean }>()

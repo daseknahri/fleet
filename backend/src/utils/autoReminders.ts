@@ -79,7 +79,7 @@ const driverName = (booking: { driver?: { fullName?: string } | string | null })
 
 interface AutoEvent {
   templateKey: bookcarsTypes.NotificationTemplateKey
-  kind: 'pickup' | 'return' | 'overdue' | 'expiry'
+  kind: 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid'
   subjectType: string
   subjectId: string
   dedupeKey: string
@@ -94,6 +94,9 @@ export interface AutoReminderPassResult {
   overdue: number
   expiries: number
   recaps: number
+  // Wave 2.1 — confirmed holds with an outstanding balance, reminded
+  // once per day.
+  confirmedUnpaid: number
 }
 
 const LIVE_BOOKING_FILTER = {
@@ -152,7 +155,7 @@ const fanoutEvent = async (
 }
 
 const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<AutoReminderPassResult, 'skipped' | 'agencies'>> => {
-  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0 }
+  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0 }
   const recipients = await resolveReminderRecipients(supplierId)
   if (recipients.length === 0) {
     return counts
@@ -248,6 +251,42 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       },
     })
     counts.overdue += 1
+  }
+
+  // -- Confirmed, unpaid (Wave 2.1): Confirmed holds with an
+  // outstanding balance — the daily nudge to chase the money before
+  // pickup. One notice per booking per day (the dedupe key carries the
+  // date). Legacy Reserved rows are NOT reminded here: they surface on
+  // the watchlist with their confirm-or-cancel deadline instead.
+  const confirmed = await Booking.find({
+    ...LIVE_BOOKING_FILTER,
+    supplier: supplierId,
+    lifecycle: bookcarsTypes.ContractLifecycle.Confirmed,
+    status: bookcarsTypes.BookingStatus.Pending,
+  }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
+  for (const booking of confirmed) {
+    const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+    if (receivable.outstandingBalance <= 0) {
+      continue
+    }
+    const confirmedAt = booking.confirmedAt ? new Date(booking.confirmedAt) : now
+    const days = Math.max(0, Math.floor((now.getTime() - confirmedAt.getTime()) / 86400000))
+    await fanoutEvent(supplierId, recipients, owner, {
+      templateKey: 'auto.confirmedUnpaid',
+      kind: 'confirmedUnpaid',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `confirmed-unpaid:${booking._id}:${dateKey(now)}`,
+      vars: {
+        car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+        driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+        amount: receivable.outstandingBalance,
+        currency: receivable.currency,
+        days,
+        date: dateKey(booking.from),
+      },
+    })
+    counts.confirmedUnpaid += 1
   }
 
   // -- Expiry: car document dates within 30 days + open maintenance
@@ -398,7 +437,7 @@ export const runAutoReminderPass = async (
   opts?: { force?: boolean },
 ): Promise<AutoReminderPassResult> => {
   const result: AutoReminderPassResult = {
-    skipped: false, agencies: 0, pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0,
+    skipped: false, agencies: 0, pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0,
   }
   if (!opts?.force && now.getTime() - lastPassAt < PASS_INTERVAL_MS) {
     result.skipped = true
@@ -416,6 +455,7 @@ export const runAutoReminderPass = async (
         result.overdue += counts.overdue
         result.expiries += counts.expiries
         result.recaps += counts.recaps
+        result.confirmedUnpaid += counts.confirmedUnpaid
       } catch (err) {
         logger.error(`[autoReminders] pass failed for supplier ${supplier._id}`, err)
       }

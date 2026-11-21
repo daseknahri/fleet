@@ -35,6 +35,12 @@ const templates: Record<bookcarsTypes.NotificationTemplateKey, Record<TemplateLo
     ar: (v) => ({ subject: `إرجاع ${v.whenAr}: ${v.car} — ${v.driver}`, body: `إرجاع ${v.whenAr} (${v.date}): ${v.car} من ${v.driver}.` }),
     es: (v) => ({ subject: `Devolución ${v.whenEs}: ${v.car} — ${v.driver}`, body: `Devolución ${v.whenEs} (${v.date}): ${v.car} de ${v.driver}.` }),
   },
+  'auto.confirmedUnpaid': {
+    en: (v) => ({ subject: `Confirmed but unpaid: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Confirmed reservation ${v.days} day(s) ago: ${v.car} for ${v.driver}, ${v.amount} ${v.currency} still outstanding (pickup ${v.date}).` }),
+    fr: (v) => ({ subject: `Confirmée mais impayée : ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Réservation confirmée il y a ${v.days} jour(s) : ${v.car} pour ${v.driver}, ${v.amount} ${v.currency} toujours impayés (prise en charge le ${v.date}).` }),
+    ar: (v) => ({ subject: `مؤكدة ولكن غير مدفوعة: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `حجز مؤكد منذ ${v.days} يوم: ${v.car} للسائق ${v.driver}، ${v.amount} ${v.currency} لا تزال غير مسددة (الاستلام ${v.date}).` }),
+    es: (v) => ({ subject: `Confirmada pero sin pagar: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Reserva confirmada hace ${v.days} día(s): ${v.car} para ${v.driver}, ${v.amount} ${v.currency} aún pendientes (recogida ${v.date}).` }),
+  },
   'auto.overdue': {
     en: (v) => ({ subject: `Overdue: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Overdue rental: ${v.car} for ${v.driver}, ${v.amount} ${v.currency} outstanding since ${v.date}.` }),
     fr: (v) => ({ subject: `En retard : ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Location en retard : ${v.car} pour ${v.driver}, ${v.amount} ${v.currency} impayés depuis le ${v.date}.` }),

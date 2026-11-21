@@ -28,7 +28,7 @@ import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
+import { agencySupplierId, AgencyPermission, hasAgencyPermission, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { normalizeFiscalFields, applyFiscalFields, FISCAL_STRING_KEYS } from '../utils/fiscal'
 import { normalizeClientIdentityFields, applyClientIdentityFields, consentAtForTransition, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
 import { getClientBalances } from '../utils/contractReceivable'
@@ -2591,6 +2591,10 @@ export const deleteUsers = async (req: Request, res: Response) => {
       }
     }
 
+    // Wave 2.11 fix — the admin reached these users through a bulk
+    // array body (no selector); collect each target's agency for the
+    // audit row written after the loop.
+    const deletedAgencies = new Set<string>()
     let unauthorizedAttemptLogged = false
     for (const id of ids) {
       const user = await User.findById(id)
@@ -2604,6 +2608,12 @@ export const deleteUsers = async (req: Request, res: Response) => {
         }
         // end of security check
 
+        if (sessionUser?.type === bookcarsTypes.UserType.Admin) {
+          const agency = user.supplier?.toString() || (user.type === bookcarsTypes.UserType.Supplier ? user._id.toString() : undefined)
+          if (agency) {
+            deletedAgencies.add(agency)
+          }
+        }
 
         await User.deleteOne({ _id: id })
 
@@ -2671,6 +2681,10 @@ export const deleteUsers = async (req: Request, res: Response) => {
       } else {
         logger.error('User not found:', id)
       }
+    }
+
+    if (sessionUser?.type === bookcarsTypes.UserType.Admin && deletedAgencies.size > 0) {
+      await logAdminCrossAgencyAccess(req, [...deletedAgencies], 'user:delete-users')
     }
 
     if (unauthorizedAttemptLogged) {

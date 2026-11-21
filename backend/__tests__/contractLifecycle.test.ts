@@ -5,7 +5,7 @@ describe('contract lifecycle operations', () => {
   test('allows handover from draft and confirmed only', () => {
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover)).toBe(bookcarsTypes.ContractLifecycle.Active)
     expect(inspectionTransition(bookcarsTypes.ContractLifecycle.Confirmed, bookcarsTypes.InspectionType.Handover)).toBe(bookcarsTypes.ContractLifecycle.Active)
-    expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Reserved)).toBe(bookcarsTypes.ContractLifecycle.Active)
+    expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Reserved)).toBeNull()
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Cancelled)).toBeNull()
     expect(inspectionTransition(bookcarsTypes.ContractLifecycle.Active, bookcarsTypes.InspectionType.Handover)).toBeNull()
   })
@@ -18,9 +18,11 @@ describe('contract lifecycle operations', () => {
 
   // F3 / W1 #11 — handover payment gate: a Draft booking that is still
   // Pending (unpaid pay-later) cannot be handed over until the payment
-  // is confirmed. Deposit/Paid/PaidInFull/Reserved still hand over, and
+  // is confirmed. Deposit/Paid/PaidInFull still hand over, and
   // a Pending booking with nothing outstanding (paymentConfirmed) does
-  // too (e.g. a zero-total booking).
+  // too (e.g. a zero-total booking). Wave 2.5 — Reserved no longer
+  // hands over: a legacy Reserved row must be confirmed (or cancelled)
+  // first.
   test('blocks handover on unpaid pay-later bookings (Draft + Pending)', () => {
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Pending)).toBeNull()
     expect(inspectionTransition(bookcarsTypes.ContractLifecycle.Draft, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Pending)).toBeNull()
@@ -28,7 +30,7 @@ describe('contract lifecycle operations', () => {
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Deposit)).toBe(bookcarsTypes.ContractLifecycle.Active)
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Paid)).toBe(bookcarsTypes.ContractLifecycle.Active)
     expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.PaidInFull)).toBe(bookcarsTypes.ContractLifecycle.Active)
-    expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Reserved)).toBe(bookcarsTypes.ContractLifecycle.Active)
+    expect(inspectionTransition(undefined, bookcarsTypes.InspectionType.Handover, bookcarsTypes.BookingStatus.Reserved)).toBeNull()
   })
 
   // F4 / W1 #5 — the Confirmed lifecycle now has a producer (provider

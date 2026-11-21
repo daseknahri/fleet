@@ -20,6 +20,13 @@ import PushToken from '../src/models/PushToken'
 import Token from '../src/models/Token'
 import Notification from '../src/models/Notification'
 import NotificationCounter from '../src/models/NotificationCounter'
+import Invoice from '../src/models/Invoice'
+import RentalPayment from '../src/models/RentalPayment'
+import ContractCharge from '../src/models/ContractCharge'
+import Quote from '../src/models/Quote'
+import ContractSnapshot from '../src/models/ContractSnapshot'
+import ContractInspection from '../src/models/ContractInspection'
+import AgentSettlement from '../src/models/AgentSettlement'
 import stripeAPI from '../src/payment/stripe'
 import { BookingConflictError, saveBookingsWithAvailability } from '../src/utils/bookingReservationHelper'
 
@@ -946,7 +953,7 @@ describe('POST /api/update-booking', () => {
         dropOffLocation: LOCATION_ID,
         from: new Date(2024, 2, 1),
         to: new Date(2024, 2, 4),
-        status: bookcarsTypes.BookingStatus.Paid,
+        status: bookcarsTypes.BookingStatus.Pending,
         cancellation: true,
         amendments: true,
         theftProtection: false,
@@ -964,12 +971,13 @@ describe('POST /api/update-booking', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.car).toBe(CAR2_ID)
     expect(res.body.price).toBe(3520)
-    expect(res.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(res.body.status).toBe(bookcarsTypes.BookingStatus.Pending)
     let additionalDriver = await AdditionalDriver.findOne({ email: ADDITIONAL_DRIVER_EMAIL })
     expect(additionalDriver).not.toBeNull()
     expect(additionalDriver?.fullName).toBe(ADDITIONAL_DRIVER.fullName)
 
-    // test success (enableEmailNotifications disabled)
+    // Wave 2.5 — Reserved can no longer be assigned by staff (400);
+    // the booking keeps its previous status (Pending).
     payload.booking.status = bookcarsTypes.BookingStatus.Reserved
     const driver = await User.findById(DRIVER1_ID)
     driver!.enableEmailNotifications = false
@@ -978,9 +986,10 @@ describe('POST /api/update-booking', () => {
       .put('/api/update-booking')
       .set(env.X_ACCESS_TOKEN, token)
       .send(payload)
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(400)
     driver!.enableEmailNotifications = true
     await driver!.save()
+    payload.booking.status = bookcarsTypes.BookingStatus.Pending
 
     // test failure (wrong _additionalDriver)
     const booking = await Booking.findById(BOOKING_ID)
@@ -1030,7 +1039,23 @@ describe('POST /api/update-booking', () => {
     payload.booking._id = BOOKING_ID
     payload.booking.status = bookcarsTypes.BookingStatus.Cancelled
     payload.additionalDriver = undefined
-    payload.booking.driver = testHelper.GetRandromObjectIdAsString()
+    // Wave 2.11 fix — the driver must be a real user: update() refuses
+    // a reassignment to a nonexistent driver (400 'Booking customer
+    // not found', GA-PAR-22), and a missing driver id is dropped by the
+    // JSON body, after which update() writes a fresh random ObjectId
+    // onto the booking — the driver then populates to null and the
+    // later GET /api/booking/:id crashes in its auth check. DRIVER2_ID
+    // cannot be used here: it is only assigned if the checkout test
+    // above gets far enough, and that test fails at baseline. So the
+    // second driver is created on the spot, like the cancel test does.
+    const notifyDriver = new User({
+      fullName: 'Notify Driver',
+      email: testHelper.GetRandomEmail(),
+      language: testHelper.LANGUAGE,
+      type: bookcarsTypes.UserType.User,
+    })
+    await notifyDriver.save()
+    payload.booking.driver = notifyDriver._id.toString()
     res = await request(app)
       .put('/api/update-booking')
       .set(env.X_ACCESS_TOKEN, token)
@@ -1053,7 +1078,8 @@ describe('POST /api/update-booking', () => {
     expect(res.statusCode).toBe(200)
     await PushToken.deleteOne({ _id: pushToken._id })
 
-    // test success (PushToken)
+    // F3 / W1 #18 — a payment status cannot be assigned via update
+    // (400); the booking keeps its previous status (Void).
     payload.booking.status = bookcarsTypes.BookingStatus.Deposit
     pushToken = new PushToken({ user: payload.booking.driver, token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' })
     await pushToken.save()
@@ -1061,7 +1087,7 @@ describe('POST /api/update-booking', () => {
       .put('/api/update-booking')
       .set(env.X_ACCESS_TOKEN, token)
       .send(payload)
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(400)
     await PushToken.deleteOne({ _id: pushToken._id })
 
     // test success (PushToken)
@@ -1089,7 +1115,8 @@ describe('POST /api/update-booking-status', () => {
   it('should update booking status', async () => {
     const token = await testHelper.signinAsAdmin()
 
-    // test success (change in status)
+    // Wave 2.5 — Reserved can no longer be assigned by staff (400);
+    // the booking keeps its status (Cancelled, left by the update test).
     const payload: bookcarsTypes.UpdateStatusPayload = {
       ids: [BOOKING_ID],
       status: bookcarsTypes.BookingStatus.Reserved,
@@ -1098,18 +1125,18 @@ describe('POST /api/update-booking-status', () => {
       .post('/api/update-booking-status')
       .set(env.X_ACCESS_TOKEN, token)
       .send(payload)
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(400)
     let booking = await Booking.findById(BOOKING_ID)
-    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Reserved)
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
 
-    // test success (no change in status)
+    // test failure (Reserved again — still refused)
     res = await request(app)
       .post('/api/update-booking-status')
       .set(env.X_ACCESS_TOKEN, token)
       .send(payload)
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(400)
     booking = await Booking.findById(BOOKING_ID)
-    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Reserved)
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
 
     // test failure (no payload)
     res = await request(app)
@@ -1251,7 +1278,7 @@ describe('POST /api/bookings/:page/:size/:language', () => {
     // test success (full filter)
     const payload: bookcarsTypes.GetBookingsPayload = {
       suppliers: [SUPPLIER_ID],
-      statuses: [bookcarsTypes.BookingStatus.Reserved],
+      statuses: [bookcarsTypes.BookingStatus.Cancelled],
       filter: {
         pickupLocation: LOCATION_ID,
         dropOffLocation: LOCATION_ID,
@@ -1332,7 +1359,7 @@ describe('GET /api/has-bookings/:driver', () => {
       .set(env.X_ACCESS_TOKEN, token)
     expect(res.statusCode).toBe(204)
     const booking = await Booking.findById(BOOKING_ID)
-    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Reserved)
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
 
     // test failure (wrong user id)
     res = await request(app)
@@ -1410,14 +1437,34 @@ describe('POST /api/delete-bookings', () => {
     const token = await testHelper.signinAsAdmin()
 
     // test success
+    // Wave 2 GA-PAR-22 (D-22.9): hard delete is purge-from-trash only —
+    // a live booking is never deleted by this route, and the reason is
+    // required (D-22.4). So the bookings are trashed first (same
+    // reasoned shape), then purged.
     const drivers = [DRIVER1_ID, DRIVER2_ID]
     let bookings = await Booking.find({ driver: { $in: drivers } })
     expect(bookings.length).toBeGreaterThan(0)
-    const payload: string[] = bookings.map((u) => u._id.toString())
+    const ids: string[] = bookings.map((u) => u._id.toString())
+    // The purge guards (D-22.11) refuse a booking with linked records,
+    // and this file's earlier describes leave an Invoice on each
+    // booking — the guard is doing its job, so the test clears its own
+    // linked rows first (same seven collections the guard checks).
+    await Invoice.deleteMany({ booking: { $in: ids } })
+    await RentalPayment.deleteMany({ booking: { $in: ids } })
+    await ContractCharge.deleteMany({ booking: { $in: ids } })
+    await Quote.deleteMany({ booking: { $in: ids } })
+    await ContractSnapshot.deleteMany({ booking: { $in: ids } })
+    await ContractInspection.deleteMany({ booking: { $in: ids } })
+    await AgentSettlement.deleteMany({ bookingRefs: { $in: ids } })
     let res = await request(app)
+      .post('/api/trash-bookings')
+      .set(env.X_ACCESS_TOKEN, token)
+      .send({ ids, reason: 'test cleanup' })
+    expect(res.statusCode).toBe(200)
+    res = await request(app)
       .post('/api/delete-bookings')
       .set(env.X_ACCESS_TOKEN, token)
-      .send(payload)
+      .send({ ids, reason: 'test cleanup' })
     expect(res.statusCode).toBe(200)
     bookings = await Booking.find({ driver: { $in: drivers } })
     expect(bookings.length).toBe(0)

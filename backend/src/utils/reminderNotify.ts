@@ -83,7 +83,9 @@ export const signedContractEmailAllowed = (
  * - return: master + the `returnsDue` category (S2's consumer);
  * - expiry (car documents + maintenance due): master + `carDueDates`.
  */
-export type AutoReminderKind = 'pickup' | 'return' | 'overdue' | 'expiry'
+export type AutoReminderKind = 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid'
+// Wave 2.1 — 'confirmedUnpaid' gates on the master boolean only, like
+// pickup / overdue (no per-category toggle).
 
 export const autoReminderEmailAllowed = (
   owner: { enableEmailNotifications?: boolean, emailNotificationCategories?: bookcarsTypes.EmailNotificationCategories } | null | undefined,

@@ -26,8 +26,11 @@ import AgencyMembership from '../src/models/AgencyMembership'
 //   1.2 threshold: requests only at or above 10,000 MAD
 //   1.3 deciders: Owner + Manager (existing DecideInvoices permission)
 //   1.4 single decider; requester never decides their own request
-//   1.5 blocking at/above threshold; counter-agent payment and cash
-//       entries stay pending until an accountant or above confirms them
+//   1.5 blocking at/above threshold; counter-agent CASH entries stay
+//       pending until an accountant or above confirms them. Q15 (owner
+//       decision 2026-11-21): the four-eyes rule for counter-agent
+//       RENTAL payments is dropped â€” they post immediately; only an
+//       approval-gated refund stays pending until approved + confirmed.
 //   1.6 the Approval queue record is the single source of truth
 // All fixtures are synthetic and removed by exact ID in afterAll
 // (Approval records included — deleted through the model, as the API
@@ -301,47 +304,75 @@ describe('Approvals producer wiring (GA-P1-APPROVALS-PRODUCER-02)', () => {
     expect(list3.some((row) => row.subject === charge3.body._id)).toBe(false)
   })
 
-  it('counter-agent payment entries stay pending until an accountant confirms them', async () => {
-    const pending = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, counterToken)
+  it('counter-agent payment entries post immediately (Q15: four-eyes dropped); only approval-gated refunds stay pending', async () => {
+    // Q15 (owner decision 2026-11-21): one person is good â€” a counter
+    // agent's credit posts at once, no Confirm step.
+    const counter = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, counterToken)
       .send({
         booking: bookingCashier._id.toString(), date: new Date().toISOString(), amount: 300,
         method: bookcarsTypes.RentalPaymentMethod.Cash, idempotencyKey: `ga-q10-counter-pay-${suffix}`,
       })
-    expect(pending.status).toBe(201)
-    expect(pending.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Pending)
-    ids.payments.push(pending.body._id)
+    expect(counter.status).toBe(201)
+    expect(counter.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
+    ids.payments.push(counter.body._id)
 
-    // Pending does not consume the balance: the full amount still posts
     const full = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
       .send({
-        booking: bookingCashier._id.toString(), date: new Date().toISOString(), amount: 1000,
+        booking: bookingCashier._id.toString(), date: new Date().toISOString(), amount: 700,
         method: bookcarsTypes.RentalPaymentMethod.Cash, idempotencyKey: `ga-q10-owner-pay-${suffix}`,
       })
     expect(full.status).toBe(201)
     expect(full.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
     ids.payments.push(full.body._id)
 
-    // Confirming now would overpay -> 409 (allowance re-validated)
-    const overConfirm = await request(app).post(`/api/rental-payments/${pending.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
-    expect(overConfirm.status).toBe(409)
+    // The confirm flow now only exists for an approval-gated refund: a
+    // manual refund at or above 10,000 MAD stays pending until its queue
+    // request is approved, then an accountant confirms it. It runs on a
+    // fresh booking: bookingBig already carries a 15000 rent payment
+    // from the invoice test above, so only 5000 of rent remains there.
+    const refundBooking = await makeBooking(20000, 'q15-refund')
+    const funded = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+      .send({
+        booking: refundBooking._id.toString(), date: new Date().toISOString(), amount: 15000,
+        method: bookcarsTypes.RentalPaymentMethod.Cash, idempotencyKey: `ga-q10-big-fund-${suffix}`,
+      })
+    expect(funded.status).toBe(201)
+    ids.payments.push(funded.body._id)
+
+    const refund = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, tokenA)
+      .send({
+        booking: refundBooking._id.toString(), date: new Date().toISOString(), amount: 12000,
+        method: bookcarsTypes.RentalPaymentMethod.Cash, direction: bookcarsTypes.RentalPaymentDirection.Debit,
+        reason: 'GA Q10 big refund', idempotencyKey: `ga-q10-big-refund-${suffix}`,
+      })
+    expect(refund.status).toBe(201)
+    expect(refund.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Pending)
+    ids.payments.push(refund.body._id)
 
     // Counter agents never confirm, not even other entries
-    const selfConfirm = await request(app).post(`/api/rental-payments/${pending.body._id}/confirm`).set(env.X_ACCESS_TOKEN, counterToken).send({})
+    const selfConfirm = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, counterToken).send({})
     expect(selfConfirm.status).toBe(403)
 
-    // Free the balance by reversing the owner payment, then confirm works
-    const reversal = await request(app).post(`/api/rental-payments/${full.body._id}/reverse`).set(env.X_ACCESS_TOKEN, tokenA)
-      .send({ idempotencyKey: `ga-q10-owner-rev-${suffix}`, note: 'GA Q10 free balance' })
-    expect(reversal.status).toBe(201)
-    ids.payments.push(reversal.body._id)
+    // Confirming before the approval lands refuses
+    const earlyConfirm = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
+    expect(earlyConfirm.status).toBe(409)
+    expect(String(earlyConfirm.text)).toContain('pending')
 
-    const confirmed = await request(app).post(`/api/rental-payments/${pending.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
+    // Approve the queue request, then the accountant confirms it
+    const list = await listApprovals(tokenA)
+    const approval = list.find((row) => row.subject === refund.body._id && row.subjectType === 'rental-payment')
+    expect(approval).toBeTruthy()
+    const decided = await request(app).post(`/api/approvals/${approval._id}/decide`).set(env.X_ACCESS_TOKEN, managerToken)
+      .send({ decision: 'approved', reason: 'GA Q10 approve big refund' })
+    expect(decided.status).toBe(200)
+
+    const confirmed = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
     expect(confirmed.status).toBe(200)
     expect(confirmed.body.status).toBe(bookcarsTypes.RentalPaymentStatus.Posted)
     expect(confirmed.body.confirmedBy).toBeTruthy()
     expect(confirmed.body.confirmedAt).toBeTruthy()
 
-    const reconfirm = await request(app).post(`/api/rental-payments/${pending.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
+    const reconfirm = await request(app).post(`/api/rental-payments/${refund.body._id}/confirm`).set(env.X_ACCESS_TOKEN, accountantToken).send({})
     expect(reconfirm.status).toBe(409)
   })
 

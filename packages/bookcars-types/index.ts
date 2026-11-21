@@ -540,6 +540,10 @@ export interface DepositSettlement {
   note?: string
   recordedBy?: string | User
   recordedAt?: Date
+  // Wave 2.4 — the ledger rows this settlement posted (reversal rows
+  // for the returned leg, Charge credits for the kept leg).
+  returnedPaymentIds?: string[]
+  keptPaymentIds?: string[]
 }
 
 export interface AgencyReturnSettings {
@@ -646,6 +650,11 @@ export interface Booking {
   to: Date
   status: BookingStatus
   lifecycle?: ContractLifecycle
+  // Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
+  // only): who confirmed it and when. expireAt is cleared at the same
+  // time, so the hold reserves the car indefinitely.
+  confirmedBy?: string | User
+  confirmedAt?: Date
   /** F4 / W1 #7 — computed read-model flag (lifecycle Active + past
    * `to`); never stored, set by getBooking / list endpoints. */
   overdue?: boolean
@@ -753,6 +762,66 @@ export interface BookingCancellationRecord {
   /** Who filed the customer cancel request this cancellation answers, if any. */
   requestedBy?: string
   requestedAt?: Date
+}
+
+/**
+ * Wave 2.11 — one audit row per platform-admin cross-agency access:
+ * who acted, in which agency, doing what, and when. Written
+ * best-effort by the agency middleware; a logging failure never
+ * refuses the call it audits.
+ */
+export interface AdminAccessLog {
+  _id?: string
+  actor: string | User
+  agency: string | User
+  action: string
+  method?: string
+  path?: string
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/** Wave 2.3 — the refund plan shown BEFORE a staff cancel is confirmed. */
+export interface RefundPlanMethodSplit {
+  method: RentalPaymentMethod
+  amount: number
+}
+
+export interface RefundPlan {
+  booking: string
+  currency: string
+  /** Posted rent collected (base currency). */
+  rentPaid: number
+  /** Posted deposit collected (base currency). */
+  depositPaid: number
+  /** Amount still owed on the contract (shared receivable definition). */
+  outstandingBalance: number
+  /** rentPaid + depositPaid: what a 'full' refund returns. */
+  totalRefund: number
+  /** The refund split by payment method (cash / wire / card). */
+  byMethod: RefundPlanMethodSplit[]
+  /** True when totalRefund reaches the approvals threshold (10,000 MAD). */
+  approvalRequired: boolean
+  /** Latest 'booking-cancel' approval state for this booking, if any. */
+  approvalStatus?: 'none' | 'pending' | 'approved' | 'rejected'
+  /** Whether an open Cash session exists for a cash refund leg. */
+  cashSessionOpen: boolean
+  /** Whether an open Bank session exists for a wire refund leg. */
+  bankSessionOpen: boolean
+}
+
+/** Wave 2.1 — one row of the "confirmed, unpaid" watchlist. */
+export interface ConfirmedUnpaidRow {
+  booking: Booking
+  outstandingBalance: number
+  depositDue: number
+  currency: string
+  confirmedAt?: Date
+  daysSinceConfirmation: number
+  /** True for a legacy Reserved row that still needs confirming. */
+  legacyReserved: boolean
+  /** Confirm-or-cancel deadline for a legacy Reserved row. */
+  confirmBy?: Date
 }
 
 /** F3 / W1 #1 — staff cancel payload (POST /api/bookings/:id/cancel). */
@@ -1017,6 +1086,9 @@ export interface AdditionalDriver {
 export interface UpsertBookingPayload {
   booking: Booking
   additionalDriver?: AdditionalDriver
+  // Wave 2.8 (C13) — reason required when reactivating a Cancelled
+  // booking (3-1000 chars).
+  reason?: string
 }
 
 export interface LocationName {
@@ -1310,6 +1382,9 @@ export interface ValidateCountryPayload {
 export interface UpdateStatusPayload {
   ids: string[]
   status: string
+  // Wave 2.8 (C13) — reason required when reactivating a Cancelled
+  // booking (3-1000 chars).
+  reason?: string
 }
 
 export interface User {
@@ -1575,6 +1650,9 @@ export interface ContractCharge {
   decidedBy?: string | User
   decidedAt?: Date
   decisionNote?: string
+  // Wave 2.4 — when the deposit settlement paid this charge (2.4
+  // "unsettled" means settledAt is unset).
+  settledAt?: Date
   /** F4 / W1 #7 — dispute flag (open while resolvedAt is absent). */
   dispute?: ContractDispute
   createdAt?: Date
@@ -2291,6 +2369,12 @@ export interface MaintenanceExpensePayment {
   // payment when method is cash (null when no open session in the
   // same currency existed; the payment still records, unlinked).
   cashMovement?: string | null
+  // Wave 2.6 — the confirmed bank-session Out created from this
+  // payment when method is bankTransfer (same rule as cashMovement).
+  bankMovement?: string | null
+  // Wave 2.10 — client-supplied idempotency key (8-200 chars); a
+  // replay returns the existing payment instead of recording twice.
+  idempotencyKey?: string
   actor?: string | User
   createdAt?: Date
   updatedAt?: Date
@@ -2391,6 +2475,9 @@ export enum RentalPaymentMethod {
 export enum RentalPaymentPurpose {
   Rent = 'rent',
   Deposit = 'deposit',
+  // Wave 2.4 — a kept deposit settles an approved charge: the credit
+  // reclassifies money already held, it is not a new collection.
+  Charge = 'charge',
 }
 
 export enum RentalPaymentSource {
@@ -2434,6 +2521,9 @@ export interface RentalPayment {
   // is then listed as unlinked by the journal reconciliation until an
   // operator links it.
   cashSession?: string | CashSession
+  // Wave 2.6 — the bank session this bank-transfer payment was linked
+  // into (same pattern as cashSession, for the Bank account).
+  bankSession?: string | CashSession
   reference?: string
   note?: string
   createdAt?: Date
@@ -2510,6 +2600,10 @@ export interface CashJournalTotals {
   income: number
   expenses: number
   deposits: number
+  // Wave 2.6 — confirmed Out movements with purpose Deposit (deposit
+  // refunds handed back). Without this bucket the journal's expected
+  // balance ignored them while close() subtracted them (M8).
+  depositRefunds: number
   net: number
   pendingIn: number
   pendingOut: number
@@ -2603,6 +2697,7 @@ export type NotificationTemplateKey =
   | 'auto.return'
   | 'auto.overdue'
   | 'auto.expiry'
+  | 'auto.confirmedUnpaid'
   | 'weekly.recap'
   | 'reminder.manual'
   | 'contract.signed'
@@ -2717,6 +2812,8 @@ export interface BankDetails {
   iban: string
   swiftBic: string
   showBankDetailsPage: boolean
+  // Wave 2.6 — per-agency RIB. Absent on the platform-global row.
+  supplier?: string | User
 }
 
 export interface UpsertBankDetailsPayload {
@@ -2726,6 +2823,9 @@ export interface UpsertBankDetailsPayload {
   iban: string
   swiftBic: string
   showBankDetailsPage: boolean
+  // Wave 2.6 — Admin only: the agency this RIB belongs to. Omitted
+  // means the platform-global row.
+  supplier?: string
 }
 
 export interface Setting {

@@ -36,6 +36,9 @@ const rentalPaymentSchema = new Schema<env.RentalPayment>(
     // F6 / W3 C-7 — the cash session this cash-method payment is linked
     // into (unset while no open cash session exists at posting time).
     cashSession: { type: Schema.Types.ObjectId, ref: 'CashSession', index: true },
+    // Wave 2.6 — the bank session this bank-transfer payment is linked
+    // into (same pattern as cashSession, for the Bank account).
+    bankSession: { type: Schema.Types.ObjectId, ref: 'CashSession', index: true },
     reference: { type: String, maxlength: 160, trim: true },
     note: { type: String, maxlength: 1000, trim: true },
   },

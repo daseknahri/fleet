@@ -19,8 +19,8 @@ const pinAgencySelector = (req: express.Request, res: express.Response, next: ex
   next()
 }
 
-routes.route(routeNames.validate).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadLocations), locationController.validate)
-routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), locationController.create)
+routes.route(routeNames.validate).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadLocations, { allowPlatformAdminAll: true }), locationController.validate)
+routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations, { allowPlatformAdminAll: true }), locationController.create)
 routes.route(routeNames.update).put(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), locationController.update)
 routes.route(routeNames.delete).delete(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), locationController.deleteLocation)
 routes.route(routeNames.getLocation).get(locationController.getLocation)
@@ -28,9 +28,9 @@ routes.route(routeNames.getLocations).get(locationController.getLocations)
 routes.route(routeNames.getLocationsWithPosition).get(locationController.getLocationsWithPosition)
 routes.route(routeNames.checkLocation).get(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadLocations), locationController.checkLocation)
 routes.route(routeNames.getLocationId).get(locationController.getLocationId)
-routes.route(routeNames.createImage).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], locationController.createImage)
+routes.route(routeNames.createImage).post([authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations, { allowPlatformAdminAll: true }), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], locationController.createImage)
 routes.route(routeNames.updateImage).post([authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('image')], locationController.updateImage)
 routes.route(routeNames.deleteImage).post(authJwt.verifyToken, pinAgencySelector, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), locationController.deleteImage)
-routes.route(routeNames.deleteTempImage).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations), locationController.deleteTempImage)
+routes.route(routeNames.deleteTempImage).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageLocations, { allowPlatformAdminAll: true }), locationController.deleteTempImage)
 
 export default routes

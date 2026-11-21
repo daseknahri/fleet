@@ -18,7 +18,7 @@ import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { agencySupplierId, AgencyPermission, hasAgencyPermission } from '../utils/agencyAuthorization'
+import { agencySupplierId, AgencyPermission, hasAgencyPermission, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import Location from '../models/Location'
 import { normalizeFiscalFields, applyFiscalFields } from '../utils/fiscal'
@@ -83,6 +83,12 @@ export const update = async (req: Request, res: Response) => {
       return
     }
     // end of security check
+
+    // Wave 2.11 fix — the admin reached this supplier without a
+    // selector; audit the access with the supplier itself.
+    if (sessionUser?.type === bookcarsTypes.UserType.Admin) {
+      await logAdminCrossAgencyAccess(req, [_id], 'supplier:update')
+    }
 
     const supplier = await User.findById(_id)
 

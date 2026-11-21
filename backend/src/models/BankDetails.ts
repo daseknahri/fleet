@@ -22,6 +22,8 @@ const settingSchema = new Schema<env.BankDetails>({
     type: Boolean,
     default: false,
   },
+  // Wave 2.6 — per-agency RIB. Absent on the platform-global row.
+  supplier: { type: Schema.Types.ObjectId, ref: 'User', index: true },
 }, {
   timestamps: true,
   strict: true,

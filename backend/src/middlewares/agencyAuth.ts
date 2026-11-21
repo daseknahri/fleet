@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
-import { AgencyPermission, canManageMemberships, getAgencyContext, hasAgencyPermission, requireAgencyPermission, requireAnyAgencyPermission } from '../utils/agencyAuthorization'
+import { AgencyPermission, adminSelectorSupplierIds, canManageMemberships, getAgencyContext, hasAgencyPermission, logAdminCrossAgencyAccess, requireAgencyPermission, requireAnyAgencyPermission } from '../utils/agencyAuthorization'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
 
@@ -18,12 +18,16 @@ export const requireAgencyOwner = async (req: Request, res: Response, next: Next
   }
 
   if (req.user.type === bookcarsTypes.UserType.Admin) {
-    const supplierId = requestedSupplierId(req)
+    // Wave 2.11 — the selector is required (as before) and the access
+    // is now audited.
+    const supplierIds = adminSelectorSupplierIds(req)
+    const supplierId = supplierIds[0]
     if (!supplierId) {
       res.status(400).send({ message: 'Agency is required' })
       return
     }
     req.agency = { supplierId, role: bookcarsTypes.AgencyRole.Owner }
+    await logAdminCrossAgencyAccess(req, supplierIds, 'agency:owner')
     next()
     return
   }
@@ -44,12 +48,16 @@ export const requireAgencyMemberRead = async (req: Request, res: Response, next:
   }
 
   if (req.user.type === bookcarsTypes.UserType.Admin) {
-    const supplierId = requestedSupplierId(req)
+    // Wave 2.11 — the selector is required (as before) and the access
+    // is now audited.
+    const supplierIds = adminSelectorSupplierIds(req)
+    const supplierId = supplierIds[0]
     if (!supplierId) {
       res.status(400).send({ message: 'Agency is required' })
       return
     }
     req.agency = { supplierId, role: bookcarsTypes.AgencyRole.Owner }
+    await logAdminCrossAgencyAccess(req, supplierIds, 'agency:member-read')
     next()
     return
   }
@@ -91,7 +99,11 @@ export const requireInvoiceAgencyPermission = (permission: AgencyPermission) => 
   }
   const supplierId = invoice.supplier.toString()
   if (req.user.type === bookcarsTypes.UserType.Admin) {
+    // Wave 2.11 — the agency comes from the resource itself (no
+    // selector needed on a single-resource route); the access is
+    // audited with that agency.
     req.agency = { supplierId, role: bookcarsTypes.AgencyRole.Owner }
+    await logAdminCrossAgencyAccess(req, [supplierId], `invoice:${permission}`)
     next()
     return
   }
@@ -122,7 +134,11 @@ export const requirePaymentAgencyPermission = (permission: AgencyPermission) => 
   }
   const supplierId = payment.supplier.toString()
   if (req.user.type === bookcarsTypes.UserType.Admin) {
+    // Wave 2.11 — the agency comes from the resource itself (no
+    // selector needed on a single-resource route); the access is
+    // audited with that agency.
     req.agency = { supplierId, role: bookcarsTypes.AgencyRole.Owner }
+    await logAdminCrossAgencyAccess(req, [supplierId], `payment:${permission}`)
     next()
     return
   }

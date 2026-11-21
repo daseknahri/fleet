@@ -412,9 +412,21 @@ describe('F8 / W5 S1 + AU4 — connections endpoint returns booleans only; setti
     expect(res.status).toBe(403)
   })
 
-  it('GET /api/settings without a token is 403 (AU4, fixed with S4)', async () => {
+  // Wave 2 fix — getSettings is PUBLIC by design, not an AU4 hole:
+  // anonymous search needs the four numeric limits, and the Setting
+  // document holds nothing else (no secrets — see the route comment in
+  // settingRoutes.ts and the Setting model). AU4/S4 fixed the
+  // CONNECTIONS endpoint above (403 without a token), not this one.
+  // So this asserts the public contract instead: 200, and only the
+  // four numeric limits in the body.
+  it('GET /api/settings without a token is 200 with only public limits', async () => {
+    await Setting.updateOne({}, { $set: { minPickupHours: 1, minRentalHours: 1, minPickupDropoffHour: 0, maxPickupDropoffHour: 23 } }, { upsert: true })
     const res = await request(app).get('/api/settings')
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(JSON.stringify(res.body)).not.toMatch(/secret|token|password|key/i)
+    for (const key of ['minPickupHours', 'minRentalHours', 'minPickupDropoffHour', 'maxPickupDropoffHour']) {
+      expect(typeof res.body[key]).toBe('number')
+    }
   })
 })
 

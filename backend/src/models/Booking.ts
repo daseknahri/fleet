@@ -176,6 +176,10 @@ const bookingSchema = new Schema<env.Booking>(
     paypalOrderId: {
       type: String,
     },
+    // Wave 2.1 — staff confirmation of a pay-later hold: who
+    // confirmed it and when (expireAt is cleared at the same time).
+    confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    confirmedAt: { type: Date },
     depositSettlement: {
       heldAmount: { type: Number, min: 0 },
       keptAmount: { type: Number, min: 0 },
@@ -184,6 +188,9 @@ const bookingSchema = new Schema<env.Booking>(
       note: { type: String, trim: true, maxlength: 1000 },
       recordedBy: { type: Schema.Types.ObjectId, ref: 'User' },
       recordedAt: { type: Date },
+      // Wave 2.4 — the ledger rows this settlement posted.
+      returnedPaymentIds: [{ type: Schema.Types.ObjectId, ref: 'RentalPayment' }],
+      keptPaymentIds: [{ type: Schema.Types.ObjectId, ref: 'RentalPayment' }],
     },
     // GA-PAR-10: recorded overlap exception. Only the reason is ever
     // client-supplied (create/update payloads, Owner/Manager only — the

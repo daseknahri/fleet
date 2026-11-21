@@ -19,6 +19,7 @@ import PushToken from '../src/models/PushToken'
 import Car from '../src/models/Car'
 import Booking from '../src/models/Booking'
 import AdditionalDriver from '../src/models/AdditionalDriver'
+import { createLicenseCapabilityFilename } from '../src/utils/tempFileCapability'
 
 const __filename = url.fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -258,10 +259,16 @@ describe('POST /api/create-user', () => {
     if (!(await helper.pathExists(tempAvatar))) {
       await asyncFs.copyFile(AVATAR1_PATH, tempAvatar)
     }
-    const tempLicense = path.join(env.CDN_TEMP_LICENSES, LICENSE1)
-    if (!(await helper.pathExists(tempLicense))) {
-      await asyncFs.copyFile(LICENSE1_PATH, tempLicense)
-    }
+    // Wave 2 — the license temp file must now be a signed capability
+    // filename (createLicenseCapabilityFilename), not a plain name:
+    // create-user rejects a plain license name with 400 'Invalid or
+    // expired license capability'. Upload through the endpoint and use
+    // the capability filename it returns.
+    const licenseRes = await request(app)
+      .post('/api/create-license')
+      .attach('file', LICENSE1_PATH)
+    expect(licenseRes.statusCode).toBe(200)
+    const licenseCapability = licenseRes.body as string
 
     const contractFileName = `${nanoid()}.pdf`
     const contractFile = path.join(env.CDN_TEMP_CONTRACTS, contractFileName)
@@ -284,7 +291,7 @@ describe('POST /api/create-user', () => {
       location: 'location',
       bio: 'bio',
       avatar: AVATAR1,
-      license: LICENSE1,
+      license: licenseCapability,
       contracts,
     }
     let res = await request(app)
@@ -399,10 +406,13 @@ describe('POST /api/create-user', () => {
     await userToken?.deleteOne()
 
     // test success (avatar and license not found)
+    // Wave 2 — the license name must still be a valid capability
+    // filename: only the FILE is missing now, not the capability.
+    // A random name is refused 400 before the existence check runs.
     email = testHelper.GetRandomEmail()
     payload.email = email
     payload.avatar = `${nanoid()}.jpg`
-    payload.license = `${nanoid()}.pdf`
+    payload.license = createLicenseCapabilityFilename('.pdf')
     res = await request(app)
       .post('/api/create-user')
       .set(env.X_ACCESS_TOKEN, token)
@@ -417,6 +427,8 @@ describe('POST /api/create-user', () => {
     await userToken?.deleteOne()
 
     // test failure (user already exists)
+    // Wave 2 F5b (W2-16): a duplicate email is a 409 naming the
+    // problem ('Email already registered'), not the generic 400.
     payload.email = USER2_EMAIL
     // payload.avatar = `${nanoid()}.jpg`
     // payload.license = `${nanoid()}.pdf`
@@ -424,7 +436,7 @@ describe('POST /api/create-user', () => {
       .post('/api/create-user')
       .set(env.X_ACCESS_TOKEN, token)
       .send(payload)
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(409)
 
     // test failure (no payload)
     res = await request(app)
@@ -822,18 +834,26 @@ describe('POST /api/resend-link', () => {
 describe('DELETE /api/delete-tokens/:userId', () => {
   it("should delete user's tokens", async () => {
     // test success
+    // Wave 2 — an unauthenticated caller must prove token ownership
+    // via body.token (the activation/reset token); without it the
+    // endpoint refuses 403 so arbitrary callers cannot destroy
+    // another account's reset tokens.
     let userTokens = await Token.find({ user: USER1_ID })
     expect(userTokens.length).toBeGreaterThan(0)
     let res = await request(app)
       .delete(`/api/delete-tokens/${USER1_ID}`)
+      .send({ token: userTokens[0].token })
     expect(res.statusCode).toBe(200)
     userTokens = await Token.find({ user: USER1_ID })
     expect(userTokens.length).toBe(0)
 
     // test failure (no token found)
+    // Wave 2 — with no tokens left there is nothing to prove ownership
+    // with, so the endpoint refuses 403 (not the old 400 for "nothing
+    // deleted"): the ownership check runs before the delete.
     res = await request(app)
       .delete(`/api/delete-tokens/${USER1_ID}`)
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(403)
 
     // test failure (wrong user id)
     res = await request(app)

@@ -572,12 +572,11 @@ export const close = async (req: Request, res: Response) => {
     // movement can land between the balance read and the save.
     const closed = await withCashLock(session._id.toString(), async () => {
       const movements = await CashMovement.find({ session: session._id }).lean()
-      const confirmed = movements.filter((movement) => !movement.status || movement.status === 'confirmed')
       const pending = movements.filter((movement) => movement.status === 'pending')
-      const expected = normalizeLedgerAmount(confirmed.reduce((sum, movement) => {
-        const value = movement.amount
-        return movement.direction === bookcarsTypes.CashMovementDirection.In ? sum + value : sum - value
-      }, session.openingBalance), session.currency)
+      // Wave 2.6 — the close uses the SAME bucket helper as the journal,
+      // so the expected balance can never diverge between the two again.
+      const buckets = computeSessionBalance(session.openingBalance, session.currency, movements)
+      const expected = buckets.expectedBalance
       const discrepancy = normalizeLedgerAmount(counted - expected, session.currency)
       // (a) Pending entries are surfaced, never silently ignored: the
       // close is refused (409, with the pending figures named) until
@@ -586,8 +585,8 @@ export const close = async (req: Request, res: Response) => {
       // pending on the closed session and can still be confirmed
       // afterwards; confirming one restamps the stored figures (see
       // confirmMovement), so the Z-report never desyncs from them.
-      const pendingIn = normalizeLedgerAmount(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In).reduce((sum, movement) => sum + Number(movement.amount || 0), 0), session.currency)
-      const pendingOut = normalizeLedgerAmount(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out).reduce((sum, movement) => sum + Number(movement.amount || 0), 0), session.currency)
+      const pendingIn = buckets.pendingIn
+      const pendingOut = buckets.pendingOut
       const acknowledgePending = req.body?.acknowledgePending === true
       const pendingCarryReason = String(req.body?.pendingCarryReason || '').trim()
       if (pending.length > 0 && (!acknowledgePending || pendingCarryReason.length < 3)) {
@@ -653,11 +652,18 @@ export const close = async (req: Request, res: Response) => {
 //   - deposits: confirmed In movements with purpose Deposit — drawer
 //     cash held as a liability, NEVER income (the ledger's own
 //     treatment: deposits are never revenue and never netted);
+//   - depositRefunds (Wave 2.6, M8): confirmed Out movements with
+//     purpose Deposit — a deposit handed back. Before this bucket the
+//     journal ignored them while close() subtracted them, so the two
+//     expected balances disagreed by exactly the refunded amount;
 //   - pendingIn/pendingOut: pending entries, listed separately and
 //     never counted (owner decision 1.5);
 //   - net = income − expenses; expectedBalance = opening + income +
-//     deposits − expenses, under the same confirmed-only rule close()
-//     uses, so the journal reconciles to the session and to the Z-report.
+//     deposits − expenses − depositRefunds, under the same
+//     confirmed-only rule close() uses, so the journal reconciles to
+//     the session and to the Z-report. The buckets come from the one
+//     shared helper below (computeSessionBalance), used by the journal
+//     AND by close(), so the formula cannot fork again.
 // Maintenance expenses are NOT journal rows: an expense has no session
 // attribution (its paidAmount is self-declared and unbacked, W3 M-2),
 // so attributing it to a drawer would invent the link the Z-report
@@ -669,6 +675,68 @@ export const close = async (req: Request, res: Response) => {
 // before the linkage existed) is listed under `unlinkedCashPayments`
 // with its total, so the two books' difference stays visible.
 // ---------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// Wave 2.6 — ONE expected-balance formula for the journal and close().
+// Buckets are computed from the session's movements under one rule
+// (confirmed only; deposits are a liability, never income):
+//   income: In, purpose != Deposit
+//   expenses: Out, purpose != Deposit
+//   deposits: In, purpose == Deposit
+//   depositRefunds: Out, purpose == Deposit (M8)
+//   expectedBalance = opening + income + deposits - expenses
+//     - depositRefunds
+// which is exactly opening + Σ confirmed (In +, Out −): the same
+// number close() used to compute by direction, so the two agree by
+// construction. `net` stays income − expenses (deposits are not
+// revenue, refunds are not expenses).
+// ---------------------------------------------------------------------
+
+type SessionMovementRow = {
+  amount?: number | null
+  direction: bookcarsTypes.CashMovementDirection
+  status?: string | null
+  purpose?: bookcarsTypes.RentalPaymentPurpose | string | null
+}
+
+export interface SessionBalanceBuckets {
+  income: number
+  expenses: number
+  deposits: number
+  depositRefunds: number
+  pendingIn: number
+  pendingOut: number
+  net: number
+  expectedBalance: number
+}
+
+export const computeSessionBalance = (
+  openingBalance: number,
+  currency: string,
+  movements: SessionMovementRow[],
+): SessionBalanceBuckets => {
+  const isConfirmed = (movement: SessionMovementRow) => !movement.status || movement.status === 'confirmed'
+  const isDeposit = (movement: SessionMovementRow) => movement.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
+  const sum = (rows: SessionMovementRow[]) => normalizeLedgerAmount(rows.reduce((total, row) => total + Number(row.amount || 0), 0), currency)
+  const confirmed = movements.filter(isConfirmed)
+  const pending = movements.filter((movement) => movement.status === 'pending')
+  const income = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && !isDeposit(movement)))
+  const expenses = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out && !isDeposit(movement)))
+  const deposits = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && isDeposit(movement)))
+  const depositRefunds = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out && isDeposit(movement)))
+  const pendingIn = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In))
+  const pendingOut = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out))
+  return {
+    income,
+    expenses,
+    deposits,
+    depositRefunds,
+    pendingIn,
+    pendingOut,
+    net: normalizeLedgerAmount(income - expenses, currency),
+    expectedBalance: normalizeLedgerAmount(openingBalance + income + deposits - expenses - depositRefunds, currency),
+  }
+}
 
 const JOURNAL_UNLINKED_CAP = 100
 
@@ -698,25 +766,19 @@ const buildJournal = async (req: Request) => {
   const filtered = keyword
     ? movements.filter((movement) => `${movement.reference || ''} ${movement.note || ''} ${movement.source || ''}`.toLocaleLowerCase().includes(keyword))
     : movements
-  const isConfirmed = (movement: (typeof movements)[number]) => !movement.status || movement.status === 'confirmed'
-  const isDeposit = (movement: (typeof movements)[number]) => movement.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit
-  const sum = (rows: typeof filtered) => normalizeLedgerAmount(rows.reduce((total, row) => total + Number(row.amount || 0), 0), session.currency)
-  const confirmed = filtered.filter(isConfirmed)
-  const pending = filtered.filter((movement) => movement.status === 'pending')
-  const income = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && !isDeposit(movement)))
-  const expenses = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out && !isDeposit(movement)))
-  const deposits = sum(confirmed.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In && isDeposit(movement)))
-  const pendingIn = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.In))
-  const pendingOut = sum(pending.filter((movement) => movement.direction === bookcarsTypes.CashMovementDirection.Out))
+  // Wave 2.6 — the journal's buckets come from the shared helper, the
+  // same one close() uses (M8: deposit refunds now count).
+  const buckets = computeSessionBalance(session.openingBalance, session.currency, filtered)
   const totals: bookcarsTypes.CashJournalTotals = {
     openingBalance: normalizeLedgerAmount(session.openingBalance, session.currency),
-    income,
-    expenses,
-    deposits,
-    net: normalizeLedgerAmount(income - expenses, session.currency),
-    pendingIn,
-    pendingOut,
-    expectedBalance: normalizeLedgerAmount(session.openingBalance + income + deposits - expenses, session.currency),
+    income: buckets.income,
+    expenses: buckets.expenses,
+    deposits: buckets.deposits,
+    depositRefunds: buckets.depositRefunds,
+    net: buckets.net,
+    pendingIn: buckets.pendingIn,
+    pendingOut: buckets.pendingOut,
+    expectedBalance: buckets.expectedBalance,
     currency: session.currency,
   }
   // C-7 reconciliation: posted cash payments of this agency with no
@@ -847,6 +909,7 @@ export const journalCsv = async (req: Request, res: Response) => {
       ['summary', 'income', t.income.toFixed(2), t.currency].map(escapeCsv).join(','),
       ['summary', 'expenses', t.expenses.toFixed(2), t.currency].map(escapeCsv).join(','),
       ['summary', 'deposits', t.deposits.toFixed(2), t.currency].map(escapeCsv).join(','),
+      ['summary', 'depositRefunds', t.depositRefunds.toFixed(2), t.currency].map(escapeCsv).join(','),
       ['summary', 'net', t.net.toFixed(2), t.currency].map(escapeCsv).join(','),
       ['summary', 'pendingIn', t.pendingIn.toFixed(2), t.currency].map(escapeCsv).join(','),
       ['summary', 'pendingOut', t.pendingOut.toFixed(2), t.currency].map(escapeCsv).join(','),

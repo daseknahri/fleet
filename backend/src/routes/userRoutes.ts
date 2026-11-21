@@ -10,7 +10,7 @@ const routes = express.Router()
 routes.route(routeNames.signup).post(rateLimiter, userController.signup)
 // adminSignup route is replaced by src/setup/setup.ts and src/setup/reset.ts
 // routes.route(routeNames.adminSignup).post(userController.adminSignup)
-routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.create)
+routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients, { allowPlatformAdminAll: true }), userController.create)
 routes.route(routeNames.checkToken).get(userController.checkToken)
 routes.route(routeNames.deleteTokens).delete(userController.deleteTokens)
 routes.route(routeNames.resend).post(rateLimiter, userController.resend)
@@ -38,7 +38,7 @@ routes.route(routeNames.changePassword).post(authJwt.verifyToken, rateLimiter, u
 // for unauditable legacy clients; all in-repo callers use the POST variant.
 routes.route(routeNames.checkPassword).get(authJwt.verifyToken, userController.checkPassword)
 routes.route(routeNames.checkPasswordPost).post(authJwt.verifyToken, userController.checkPassword)
-routes.route(routeNames.getUsers).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getUsers)
+routes.route(routeNames.getUsers).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients, { allowPlatformAdminAll: true }), userController.getUsers)
 routes.route(routeNames.delete).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.deleteUsers)
 // GA-PAR-22: trash / restore / trash view are ManageClients work —
 // the same capability as the delete they replace (no new capability).

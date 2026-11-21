@@ -14,6 +14,8 @@ const schema = new Schema<env.ContractCharge>({
   decidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   decidedAt: Date,
   decisionNote: { type: String, maxlength: 1000, trim: true },
+  // Wave 2.4 — when the deposit settlement paid this charge.
+  settledAt: { type: Date, index: true },
   // F4 / W1 #7 — dispute flag (open while resolvedAt is
   // absent). Metadata only: it never edits the record's evidence
   // fields; an open dispute blocks completion.

@@ -7,7 +7,7 @@ import Booking from '../models/Booking'
 import CashSession from '../models/CashSession'
 import CashMovement from '../models/CashMovement'
 import ContractCharge from '../models/ContractCharge'
-import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
+import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerBankPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
@@ -15,7 +15,7 @@ import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { adminSelectorSupplierIds, agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 
 const getScope = (req: Request): Record<string, unknown> => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -127,12 +127,12 @@ export const create = async (req: Request, res: Response) => {
     // refund (a debit) at or above 10,000 MAD needs approval first, so
     // it is recorded as a pending ledger entry and opens a queue
     // request (below); it can only be confirmed once that request is
-    // approved (see confirm()). Owner decision 1.5
-    // (GA-P10-DECISIONS-01): entries recorded by a counter agent stay
-    // pending until an accountant or above confirms them; every other
-    // recorder posts immediately, as before.
+    // approved (see confirm()). Q15 (owner decision 2026-11-21): the
+    // four-eyes rule is DROPPED â€” one person is good, so a counter
+    // agent's entry posts immediately like every other recorder's.
+    // Only an approval-gated refund stays pending.
     const approvalGatedRefund = direction === bookcarsTypes.RentalPaymentDirection.Debit && approvalRequiredFor(amount)
-    const pendingEntry = req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent || approvalGatedRefund
+    const pendingEntry = approvalGatedRefund
     const payment = await postRentalPayment({
       bookingId: payload.booking,
       supplierId: user.type === bookcarsTypes.UserType.Admin ? undefined : supplierId,
@@ -189,6 +189,12 @@ export const create = async (req: Request, res: Response) => {
       }
     }
     await payment.populate(populatedPaths)
+    // Wave 2.11 â€” a platform admin posts against a single resource
+    // (the booking): audit with the payment's agency. Only when no
+    // selector was sent â€” the middleware already logged selector calls.
+    if (user.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+      await logAdminCrossAgencyAccess(req, [payment.supplier.toString()], 'payment:create')
+    }
     res.status(201).json(payment)
   } catch (err) {
     if (err instanceof LedgerError) {
@@ -417,6 +423,56 @@ export const linkCashSession = async (req: Request, res: Response) => {
   }
 }
 
+// Wave 2.6 — the bank mirror of linkCashSession: manually link a posted
+// bank-transfer payment into a chosen open Bank session: the repair
+// path for payments posted while no Bank session was open. A payment
+// that already has a drawer movement is refused (409) — the link is
+// single, never duplicated. Non-wire or non-posted payments cannot
+// link (409).
+export const linkBankSession = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const sessionId = typeof req.body?.bankSessionId === 'string' ? req.body.bankSessionId : ''
+    if (!user || !mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(sessionId)) {
+      res.status(400).send('Invalid bank session link')
+      return
+    }
+    const payment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) })
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer || payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
+      res.status(409).send('Only a posted bank-transfer payment can be linked to a bank session')
+      return
+    }
+    const existing = await CashMovement.findOne({ rentalPayment: payment._id }).select('_id session')
+    if (existing) {
+      res.status(409).send('This payment is already linked to a bank session')
+      return
+    }
+    const session = await CashSession.findOne({ _id: sessionId, supplier: payment.supplier, account: bookcarsTypes.CashAccountType.Bank, status: bookcarsTypes.CashSessionStatus.Open })
+    if (!session) {
+      res.status(404).send('Open bank session not found')
+      return
+    }
+    if (session.currency !== payment.currency) {
+      res.status(409).send('Bank session currency does not match the payment currency')
+      return
+    }
+    const movement = await linkLedgerBankPayment(payment, undefined, session._id)
+    if (!movement) {
+      res.status(409).send('Bank payment could not be linked to the bank session')
+      return
+    }
+    await payment.populate(populatedPaths)
+    res.json({ payment, movement })
+  } catch (err) {
+    logger.error(`[rentalPayment.linkBankSession] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
 // F6 / W3 P-8 — edit a stuck Pending ledger entry (never-posted
 // money only). The fields an operator may correct before the entry
 // can confirm: date, amount, method, purpose, reference, note. The
@@ -562,9 +618,15 @@ export const collectionsSummary = async (req: Request, res: Response) => {
       ]) : [],
     ])
     const rentByBooking = new Map<string, number>()
+    // Wave 2.4 — posted Charge credits per booking (kept deposit
+    // settling approved charges); they reduce `remaining` exactly as
+    // contractReceivable does (collected stays posted rent only).
+    const chargeByBooking = new Map<string, number>()
     for (const row of paymentRows as Array<{ _id: { booking: mongoose.Types.ObjectId, purpose: string }, total: number }>) {
       if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Rent) {
         rentByBooking.set(row._id.booking.toString(), Number(row.total || 0))
+      } else if (row._id.purpose === bookcarsTypes.RentalPaymentPurpose.Charge) {
+        chargeByBooking.set(row._id.booking.toString(), Number(row.total || 0))
       }
     }
     const chargesByBooking = new Map<string, Array<{ currency: string, total: number }>>()
@@ -586,10 +648,13 @@ export const collectionsSummary = async (req: Request, res: Response) => {
         .reduce((sum, row) => sum + row.total, 0)
       const amount = rentalTotal + approvedCharges
       const paid = Number(rentByBooking.get(booking._id.toString()) || 0)
+      const chargeCredits = Number(chargeByBooking.get(booking._id.toString()) || 0)
       contractAmount += amount
       collected += paid
-      // Per-booking minor-unit clamp, exactly as contractReceivable.
-      remaining += Math.max(0, toMinorUnits(amount, currency) - toMinorUnits(paid, currency)) / (10 ** exponent)
+      // Per-booking minor-unit clamp, exactly as contractReceivable
+      // (Wave 2.4: minus posted Charge credits — a charge settled from
+      // the kept deposit is paid, not remaining).
+      remaining += Math.max(0, toMinorUnits(amount, currency) - toMinorUnits(paid, currency) - toMinorUnits(chargeCredits, currency)) / (10 ** exponent)
     }
     // GA-PAR-22 (§2.5): the trashed bookings' posted rent stays in
     // `collected`. `remaining` is the live-only per-booking sum and

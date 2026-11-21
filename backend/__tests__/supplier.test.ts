@@ -268,10 +268,13 @@ describe('PUT /api/update-supplier', () => {
     expect(res.statusCode).toBe(400)
 
     // test failure (no payload)
+    // Wave 2.11 fix — update-supplier is not flagged: an empty body
+    // names no resource id, so the agency gate refuses 400 before the
+    // controller's 500. The refusal is the gate, not a server error.
     res = await request(app)
       .put('/api/update-supplier')
       .set(env.X_ACCESS_TOKEN, token)
-    expect(res.statusCode).toBe(500)
+    expect(res.statusCode).toBe(400)
 
     await testHelper.signout(token)
   })

@@ -12,6 +12,8 @@ const routes = {
   // F6 / W3 C-7 — manually link a posted cash payment into a chosen
   // open cash session (RecordPayments, like create/confirm).
   linkCashSession: '/api/rental-payments/:id/link-cash-session',
+  // Wave 2.6 — the bank mirror of link-cash-session.
+  linkBankSession: '/api/rental-payments/:id/link-bank-session',
   // F6 / W3 P-8 — edit / delete a stuck Pending entry (RecordPayments,
   // like create/confirm).
   update: '/api/rental-payments/:id',

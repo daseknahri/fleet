@@ -205,22 +205,29 @@ describe('F4 / W1 #4 — back-to-back rentals do not conflict', () => {
     const aFrom = new Date(Date.now() + DAY)
     const aTo = new Date(Date.now() + 3 * DAY)
     await makeBooking(fixture, { from: aFrom, to: aTo })
+    // Wave 2.5 — a reserving booking via staff create() is gone
+    // (Reserved closed); the boundary test now books through the public
+    // checkout pay-later hold (Pending + 48h expireAt reserves the car).
     const payload = (from: Date, to: Date) => ({
       booking: {
         supplier: fixture.supplier._id.toString(), car: fixture.car._id.toString(), driver: fixture.driver._id.toString(),
         pickupLocation: fixture.location._id.toString(), dropOffLocation: fixture.location._id.toString(),
         from: from.toISOString(), to: to.toISOString(),
-        status: bookcarsTypes.BookingStatus.Reserved, price: 200,
+        status: bookcarsTypes.BookingStatus.Pending, price: 200,
         cancellation: false, amendments: false, theftProtection: false,
         collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false,
       },
+      paymentMode: bookcarsTypes.CheckoutPaymentMode.PayLater,
+      currency: 'MAD',
+      paymentGateway: bookcarsTypes.PaymentGateway.Stripe,
+      payLater: true,
     })
     // Touching: pickup exactly at the previous return (same-day turnaround).
-    const touching = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send(payload(aTo, new Date(Date.now() + 5 * DAY)))
+    const touching = await request(app).post('/api/checkout').send(payload(aTo, new Date(Date.now() + 5 * DAY)))
     expect(touching.status).toBe(200)
-    fixtureBookingIds.push(touching.body._id)
+    fixtureBookingIds.push(touching.body.bookingId)
     // Real overlap: pickup one hour before the previous return.
-    const overlapping = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken)
+    const overlapping = await request(app).post('/api/checkout')
       .send(payload(new Date(aTo.getTime() - 3600000), new Date(Date.now() + 5 * DAY)))
     expect(overlapping.status).toBe(409)
   })

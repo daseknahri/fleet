@@ -50,6 +50,69 @@ export const recomputeExpensePaid = async (
   return total
 }
 
+// Wave 2.6 — the bank mirror of linkExpensePaymentToCash: a
+// bank-transfer expense payment creates a CONFIRMED CashMovement Out
+// in the open Bank session, linked back to the payment. No open Bank
+// session, or a session in another currency, means the payment still
+// records — unlinked, with an error log — exactly like the cash path.
+export const linkExpensePaymentToBank = async (
+  payment: env.MaintenanceExpensePayment,
+  dbSession?: mongoose.ClientSession,
+): Promise<env.CashMovement | null> => {
+  if (payment.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+    return null
+  }
+  const existingQuery = CashMovement.findOne({ expensePayment: payment._id })
+  if (dbSession) {
+    existingQuery.session(dbSession)
+  }
+  const existing = await existingQuery
+  if (existing) {
+    if (!payment.bankMovement || !payment.bankMovement.equals(existing._id)) {
+      payment.bankMovement = existing._id
+      await payment.save(dbSession ? { session: dbSession } : undefined)
+    }
+    return existing
+  }
+  const sessionQuery = CashSession.findOne({
+    supplier: payment.supplier,
+    account: bookcarsTypes.CashAccountType.Bank,
+    status: bookcarsTypes.CashSessionStatus.Open,
+  }).sort({ openedAt: -1 })
+  if (dbSession) {
+    sessionQuery.session(dbSession)
+  }
+  const bankSession = await sessionQuery
+  if (!bankSession) {
+    logger.error(`[expensePayment.linkExpensePaymentToBank] No open bank session for supplier ${payment.supplier.toString()}; expense payment ${payment._id.toString()} recorded unlinked`)
+    return null
+  }
+  if (bankSession.currency !== payment.currency) {
+    logger.error(`[expensePayment.linkExpensePaymentToBank] Bank session currency ${bankSession.currency} does not match payment currency ${payment.currency}; expense payment ${payment._id.toString()} recorded unlinked`)
+    return null
+  }
+  const movement = new CashMovement({
+    supplier: payment.supplier,
+    session: bankSession._id,
+    account: bankSession.account,
+    currency: bankSession.currency,
+    date: payment.date,
+    direction: bookcarsTypes.CashMovementDirection.Out,
+    amount: payment.amount,
+    source: bookcarsTypes.CashMovementSource.ExpensePayment,
+    status: 'confirmed',
+    idempotencyKey: `expense-bank-${payment._id.toString()}`,
+    expensePayment: payment._id,
+    reference: payment.reference,
+    note: payment.note,
+    actor: payment.actor,
+  })
+  await movement.save(dbSession ? { session: dbSession } : undefined)
+  payment.bankMovement = movement._id
+  await payment.save(dbSession ? { session: dbSession } : undefined)
+  return movement
+}
+
 export const linkExpensePaymentToCash = async (
   payment: env.MaintenanceExpensePayment,
   dbSession?: mongoose.ClientSession,

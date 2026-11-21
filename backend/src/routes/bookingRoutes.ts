@@ -34,6 +34,12 @@ routes.route(routeNames.cancelBooking).post(authJwt.verifyToken, bookingControll
 routes.route(routeNames.cancelBookingStaff).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.cancelBookingStaff)
 routes.route(routeNames.getCancelRequests).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getCancelRequests)
 routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.decideCancelRequest)
+// Wave 2.3 — refund plan (ManageBookings, same capability as the cancel
+// it precedes). Wave 2.1 — confirm a hold (Owner/Manager enforced in
+// the controller) + the confirmed-unpaid watchlist (ReadBookings).
+routes.route(routeNames.getRefundPlan).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getRefundPlan)
+routes.route(routeNames.confirmReservation).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmReservation)
+routes.route(routeNames.getConfirmedUnpaid).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), bookingController.getConfirmedUnpaid)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)
 // F4 / W1 #7 — no-show marking + overdue list (ManageBookings, same
 // capability as the cancel workflow they sit beside).

@@ -6,11 +6,17 @@ import * as bookcarsTypes from ':bookcars-types'
  * longer be handed over: the operator must first confirm the payment
  * (staff manual confirmation, W1 #3 — cash collected at the counter →
  * `Paid`) or the booking must already carry a payment status
- * (`Deposit`/`Paid`/`PaidInFull`/`Reserved`). The escape is
+ * (`Deposit`/`Paid`/`PaidInFull`). The escape is
  * `paymentConfirmed`: a Pending booking whose receivable shows nothing
  * outstanding (e.g. a zero-total booking) may still be handed over.
  * The controller computes that from the ledger and passes it in; the
  * default (`false`) keeps the gate closed for every other caller.
+ *
+ * Wave 2.5 — `Reserved` no longer passes this gate: it was a
+ * staff-assignable status that both reserved the car and unlocked
+ * handover with no payment behind it. A legacy Reserved booking
+ * must be confirmed (POST /api/bookings/:id/confirm-reservation,
+ * which moves it to Pending + Confirmed) or paid before handover.
  *
  * F4 / W1 #5 — the gate applies to `Confirmed` exactly as to `Draft`.
  * F3 left the Confirmed branch ungated because no producer assigned
@@ -33,7 +39,6 @@ export const inspectionTransition = (
         bookcarsTypes.BookingStatus.Deposit,
         bookcarsTypes.BookingStatus.Paid,
         bookcarsTypes.BookingStatus.PaidInFull,
-        bookcarsTypes.BookingStatus.Reserved,
       ].includes(status)
       || paymentConfirmed)) {
     return bookcarsTypes.ContractLifecycle.Active

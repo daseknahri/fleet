@@ -65,9 +65,21 @@ export const createPayPalOrder = async (req: Request, res: Response) => {
       return
     }
 
+    // Wave 2.9 (M11) — a stored order id is reused ONLY after a live
+    // validity check: an expired/voided PayPal order must not be handed
+    // back to the checkout (the customer would pay into a dead order).
+    // Reuse only while CREATED/APPROVED; anything else (or a failed
+    // lookup) creates a fresh order and overwrites the stored id.
     if (booking.paypalOrderId) {
-      res.json(booking.paypalOrderId)
-      return
+      const existing = await paypal.getOrder(booking.paypalOrderId).catch((err) => {
+        logger.error(`[paypal.createPayPalOrder] validity check failed for stored order ${booking.paypalOrderId}`, err)
+        return undefined
+      })
+      if (existing && (existing.status === 'CREATED' || existing.status === 'APPROVED')) {
+        res.json(booking.paypalOrderId)
+        return
+      }
+      logger.info(`[paypal.createPayPalOrder] stored order ${booking.paypalOrderId} is ${existing?.status || 'unreachable'} — creating a fresh order`)
     }
 
     const clientIp = ipinfoHelper.getClientIp(req)

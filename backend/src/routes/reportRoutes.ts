@@ -4,7 +4,7 @@ import authJwt from '../middlewares/authJwt'
 import agencyAuth from '../middlewares/agencyAuth'
 import * as controller from '../controllers/reportController'
 const routes = express.Router()
-const readPayments = agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments)
+const readPayments = agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true })
 routes.get(routeNames.summary, authJwt.verifyToken, readPayments, controller.summary)
 routes.get(routeNames.exportCsv, authJwt.verifyToken, readPayments, controller.exportCsv)
 // GA-PAR-14: saved-view routes are registered before the other

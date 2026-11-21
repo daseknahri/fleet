@@ -212,7 +212,7 @@ describe('Mongo-backed P0 two-agency route authorization and financial integrati
           dropOffLocation: locationB._id.toString(),
           from: new Date(Date.now() + 20 * 86400000).toISOString(),
           to: new Date(Date.now() + 22 * 86400000).toISOString(),
-          status: bookcarsTypes.BookingStatus.Reserved,
+          status: bookcarsTypes.BookingStatus.Pending,
           price: 200,
         },
       })
@@ -572,7 +572,8 @@ createdIds.payments.push(payment._id)
       .post('/api/cash/sessions')
       .set(env.X_ACCESS_TOKEN, adminToken)
       .send({ account: bookcarsTypes.CashAccountType.Cash, openingBalance: 25 })
-    expect(missingSelector.status).toBe(403)
+    expect(missingSelector.status).toBe(400)
+    expect(missingSelector.body.message).toBe('Agency is required')
 
     const explicit = await request(app)
       .post('/api/cash/sessions')

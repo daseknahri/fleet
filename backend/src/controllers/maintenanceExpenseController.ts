@@ -10,10 +10,11 @@ import MaintenanceExpense from '../models/MaintenanceExpense'
 import MaintenanceExpenseAudit from '../models/MaintenanceExpenseAudit'
 import MaintenanceExpensePayment from '../models/MaintenanceExpensePayment'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
-import { linkExpensePaymentToCash, recomputeExpensePaid } from '../utils/expensePayment'
+import CashSession from '../models/CashSession'
+import { linkExpensePaymentToBank, linkExpensePaymentToCash, recomputeExpensePaid } from '../utils/expensePayment'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { contentMatchesExtension } from '../utils/fileContent'
 import * as helper from '../utils/helper'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
@@ -298,6 +299,12 @@ export const create = async (req: Request, res: Response) => {
       }
     }
 
+    // Wave 2.11 fix — the admin reached this car without a selector;
+    // audit the access with the car's agency.
+    if (isAdmin && car) {
+      await logAdminCrossAgencyAccess(req, [expenseSupplier], 'maintenance-expense:create')
+    }
+
     // F7 / W3 M-5 — the linked work order must belong to the expense's
     // agency and, when the expense has a car, to that same car.
     if (payload.workOrder) {
@@ -479,6 +486,15 @@ export const remove = async (req: Request, res: Response) => {
     if (!expense) {
  res.sendStatus(404); return 
 }
+    // Wave 2.10 (P1-6) — an expense with payments cannot be hard-deleted:
+    // the payments (and their cash/bank movements) would be orphaned
+    // with no expense to explain them. Reverse the payments first, or
+    // keep the expense as the ledger's anchor.
+    const paymentCount = await MaintenanceExpensePayment.countDocuments({ expense: expense._id })
+    if (paymentCount > 0) {
+      res.status(409).send('This expense has payments and cannot be deleted. Reverse the payments first.')
+      return
+    }
     await recordAudit(expense.supplier, expense._id, bookcarsTypes.MaintenanceExpenseAuditAction.Deleted, req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined, reason)
     await MaintenanceExpense.deleteOne({ _id: expense._id })
     await removePrivateReceipt(expense.receipt)
@@ -511,12 +527,53 @@ export const recordPayment = async (req: Request, res: Response) => {
     const method = req.body?.method as bookcarsTypes.RentalPaymentMethod
     const reference = String(req.body?.reference || '').trim()
     const note = String(req.body?.note || '').trim()
+    // Wave 2.10 — optional idempotency key (8-200 chars). A replay of
+    // the same key returns the original payment (200), never a second
+    // record — a flaky retry must not double-pay an expense.
+    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : ''
     if (Number.isNaN(date.getTime())
       || !Number.isFinite(amount) || amount <= 0
       || !Object.values(bookcarsTypes.RentalPaymentMethod).includes(method)
-      || reference.length > 160 || note.length > 1000) {
+      || reference.length > 160 || note.length > 1000
+      || (idempotencyKey !== '' && (idempotencyKey.length < 8 || idempotencyKey.length > 200))) {
       res.status(400).send('Invalid expense payment')
       return
+    }
+    if (idempotencyKey !== '') {
+      const existing = await MaintenanceExpensePayment.findOne({ idempotencyKey })
+      if (existing) {
+        const replayExpense = await MaintenanceExpense.findById(expense._id)
+          .populate('car', 'name licensePlate')
+          .populate('supplier', 'fullName')
+          .populate('workOrder', 'title status')
+        res.status(200).json({ payment: existing, expense: replayExpense ? withPaymentState(replayExpense) : null })
+        return
+      }
+    }
+    // Wave 2.10 — cap: payments on an expense never exceed the expense
+    // amount. The cap is the sum of the payment records, falling back
+    // to the legacy declared paidAmount when no records exist.
+    const recorded = await MaintenanceExpensePayment.aggregate<{ total: number }>([
+      { $match: { expense: expense._id } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ])
+    const alreadyPaid = Math.max(recorded[0]?.total || 0, expense.paidAmount || 0)
+    if (alreadyPaid + amount > expense.amount + 0.000001) {
+      res.status(409).send(`EXPENSE_OVERPAY: This payment would exceed the expense amount (${expense.amount} ${env.BASE_CURRENCY.toUpperCase()}; ${alreadyPaid} already paid).`)
+      return
+    }
+    // Wave 2.10 — a cash payment needs an open Cash session: without
+    // one the money never enters the drawer, so the payment is refused
+    // instead of posted silently unlinked (P1-4). A wire payment posts
+    // unlinked when no Bank session is open (it can be linked later via
+    // linkBankSession) — the F7 "records a bank payment unlinked"
+    // behaviour, kept deliberately; a wire 409 here would break it.
+    if (method === bookcarsTypes.RentalPaymentMethod.Cash) {
+      const session = await CashSession.findOne({ supplier: expense.supplier, account: bookcarsTypes.CashAccountType.Cash, status: bookcarsTypes.CashSessionStatus.Open }).select('_id').lean()
+      if (!session) {
+        res.status(409).send('No cash session is open. Open a cash session first, then record the payment.')
+        return
+      }
     }
     const payment = new MaintenanceExpensePayment({
       supplier: expense.supplier,
@@ -528,9 +585,14 @@ export const recordPayment = async (req: Request, res: Response) => {
       reference: reference || undefined,
       note: note || undefined,
       actor: req.user?._id,
+      ...(idempotencyKey !== '' ? { idempotencyKey } : {}),
     })
     await payment.save()
-    await linkExpensePaymentToCash(payment)
+    if (method === bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+      await linkExpensePaymentToBank(payment)
+    } else {
+      await linkExpensePaymentToCash(payment)
+    }
     await recomputeExpensePaid(expense._id)
     const updated = await MaintenanceExpense.findById(expense._id)
       .populate('car', 'name licensePlate')

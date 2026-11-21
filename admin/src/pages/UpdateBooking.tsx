@@ -193,6 +193,11 @@ const UpdateBooking = () => {
   // response reveals it, and only ever offered to Owner/Manager.
   const canOverlapException = agencyPermissions?.role === bookcarsTypes.AgencyRole.Owner
     || agencyPermissions?.role === bookcarsTypes.AgencyRole.Manager
+  // Wave 2.1 — the same Owner/Manager gate as the overlap exception:
+  // only they may confirm a pay-later hold (the car is then blocked
+  // indefinitely).
+  const canConfirmReservation = agencyPermissions?.role === bookcarsTypes.AgencyRole.Owner
+    || agencyPermissions?.role === bookcarsTypes.AgencyRole.Manager
   const [overlapConflict, setOverlapConflict] = useState(false)
   const [overlapReason, setOverlapReason] = useState('')
   // GA-PAR-11: contract amendment / extension dialog. Dates are edited
@@ -212,6 +217,11 @@ const UpdateBooking = () => {
   const [cancelReason, setCancelReason] = useState('')
   const [cancelRefundDecision, setCancelRefundDecision] = useState<bookcarsTypes.CancelRefundDecision | ''>('')
   const [cancelBusy, setCancelBusy] = useState(false)
+  // Wave 2.3 — the refund plan, loaded when the cancel dialog opens so
+  // staff see the amounts at stake BEFORE confirming the cancel.
+  const [refundPlan, setRefundPlan] = useState<bookcarsTypes.RefundPlan | null>(null)
+  // Wave 2.1 — confirm-reservation busy flag.
+  const [confirmBusy, setConfirmBusy] = useState(false)
   // GA-PAR-12: online signing panel. The issued link is held only in
   // this component's state (it is the sole live copy of the capability
   // token); booking payloads carry only the derived signed state.
@@ -365,13 +375,42 @@ const UpdateBooking = () => {
   // The backend executes the refund decision and sets status +
   // lifecycle to Cancelled together; a failed provider refund refuses
   // the cancel and the reason surfaces here.
-  const handleOpenCancel = () => {
-    if (!booking) {
+  const handleOpenCancel = async () => {
+    if (!booking?._id) {
       return
     }
     setCancelReason('')
     setCancelRefundDecision('')
+    setRefundPlan(null)
     setOpenCancelDialog(true)
+    // Wave 2.3 — load the plan so the dialog shows it before confirm.
+    // Advisory only: a failed load must not block the dialog (the
+    // backend still enforces the plan at cancel time).
+    try {
+      setRefundPlan(await BookingService.getRefundPlan(booking._id))
+    } catch {
+      setRefundPlan(null)
+    }
+  }
+
+  // Wave 2.1 — confirm a pay-later hold (Owner/Manager only; the
+  // button is gated the same way). The backend clears the hold window,
+  // stamps confirmedBy/confirmedAt and notifies the customer.
+  const handleConfirmReservation = async () => {
+    if (!booking?._id) {
+      return
+    }
+    setConfirmBusy(true)
+    try {
+      const confirmed = await BookingService.confirmReservation(booking._id)
+      setBooking(confirmed)
+      setValue('status', confirmed.status)
+      helper.info(strings.CONFIRM_DONE)
+    } catch (err) {
+      helper.error(err, helper.getErrorMessage(err))
+    } finally {
+      setConfirmBusy(false)
+    }
   }
 
   const handleConfirmCancel = async () => {
@@ -1250,6 +1289,14 @@ const UpdateBooking = () => {
                       {strings.CANCEL_BOOKING}
                     </Button>
                   )}
+                  {/* Wave 2.1 — confirm an unconfirmed hold (Draft +
+                  Pending/Reserved), Owner/Manager only. */}
+                  {booking && canConfirmReservation && booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft
+                    && [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Reserved].includes(booking.status) && (
+                    <Button variant="contained" className="btn-primary btn-margin-bottom" size="small" onClick={handleConfirmReservation} disabled={confirmBusy}>
+                      {strings.CONFIRM_RESERVATION}
+                    </Button>
+                  )}
                   <Button variant="contained" className="btn-secondary btn-margin-bottom" size="small" onClick={() => navigate('/')}>
                     {commonStrings.CANCEL}
                   </Button>
@@ -1382,6 +1429,16 @@ const UpdateBooking = () => {
                   <MenuItem value="manual">{strings.CANCEL_REFUND_MANUAL}</MenuItem>
                 </Select>
               </FormControl>
+              {/* Wave 2.3 — the refund plan, shown BEFORE confirm. */}
+              {refundPlan && (
+                <div>
+                  <p>{strings.CANCEL_REFUND_PLAN}: {strings.CANCEL_REFUND_PLAN_RENT} {refundPlan.rentPaid} {refundPlan.currency} · {strings.CANCEL_REFUND_PLAN_DEPOSIT} {refundPlan.depositPaid} {refundPlan.currency} · {strings.CANCEL_REFUND_PLAN_OUTSTANDING} {refundPlan.outstandingBalance} {refundPlan.currency}</p>
+                  <p>{strings.CANCEL_REFUND_PLAN_TOTAL}: {refundPlan.totalRefund} {refundPlan.currency}{refundPlan.byMethod.map((split) => ` · ${split.method} ${split.amount}`).join('')}</p>
+                  {refundPlan.approvalRequired && <p>{strings.CANCEL_REFUND_PLAN_APPROVAL}</p>}
+                  {!refundPlan.cashSessionOpen && <p>{strings.CANCEL_REFUND_PLAN_NO_CASH}</p>}
+                  {!refundPlan.bankSessionOpen && <p>{strings.CANCEL_REFUND_PLAN_NO_BANK}</p>}
+                </div>
+              )}
             </DialogContent>
             <DialogActions className="dialog-actions">
               <Button onClick={() => setOpenCancelDialog(false)} variant="contained" className="btn-secondary">

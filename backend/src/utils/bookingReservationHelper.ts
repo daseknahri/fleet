@@ -28,6 +28,10 @@ export const reservationStatusOr = (now: Date) => ([
   { status: { $in: BOOKING_RESERVATION_STATUSES } },
   { status: bookcarsTypes.BookingStatus.Void, expireAt: { $gt: now } },
   { status: bookcarsTypes.BookingStatus.Pending, expireAt: { $gt: now } },
+  // Wave 2.1 — a CONFIRMED pay-later hold (lifecycle Confirmed,
+  // expireAt cleared by the confirm action) reserves the car
+  // indefinitely, with no expiry to outlive.
+  { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Confirmed },
 ])
 
 /**
@@ -97,6 +101,9 @@ const reservesCar = (booking: env.Booking, now: Date) =>
   BOOKING_RESERVATION_STATUSES.includes(booking.status)
   || (booking.status === bookcarsTypes.BookingStatus.Void && !!booking.expireAt && booking.expireAt > now)
   || (booking.status === bookcarsTypes.BookingStatus.Pending && !!booking.expireAt && booking.expireAt > now)
+  // Wave 2.1 — mirror of the confirmed leg above: a Confirmed hold
+  // with no expireAt still reserves the car.
+  || (booking.status === bookcarsTypes.BookingStatus.Pending && booking.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed)
 
 /**
  * F4 / W1 #4 (= W4 GAP-09) — the boundary rule is strict: two rentals

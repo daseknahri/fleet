@@ -5,6 +5,7 @@ import * as logger from '../src/utils/logger.js'
 import mongoose from 'mongoose'
 import * as databaseHelper from '../src/utils/databaseHelper.js'
 import User from '../src/models/User.js'
+import NotificationDelivery from '../src/models/NotificationDelivery.js'
 import * as authHelper from '../src/utils/authHelper.js'
 
 export default async function globalSetup() {
@@ -33,6 +34,15 @@ export default async function globalSetup() {
           logger.error('globalSetup: failed to drop the test database, continuing with existing data', dropErr)
         }
       }
+      // Wave 2 fix — Mongoose builds indexes asynchronously in the
+      // background; tests that rely on a duplicate-key error flake when
+      // they run before the index exists (User unique email: duplicate
+      // signup / duplicate email; NotificationDelivery dedupe index: F8
+      // reminder dedupe / weekly recap). The database was just dropped,
+      // so build both now and await them — every suite then starts with
+      // the indexes in place.
+      await User.ensureIndexes()
+      await NotificationDelivery.ensureIndexes()
       const adminFromEnv = await User.findOne({ email: env.ADMIN_EMAIL })
       if (!adminFromEnv) {
         const passwordHash = await authHelper.hashPassword('Un1tTest5')

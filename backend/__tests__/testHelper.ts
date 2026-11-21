@@ -12,6 +12,7 @@ import LocationValue from '../src/models/LocationValue'
 import Location from '../src/models/Location'
 import Notification from '../src/models/Notification'
 import NotificationCounter from '../src/models/NotificationCounter'
+import NotificationDelivery from '../src/models/NotificationDelivery'
 import * as logger from '../src/utils/logger'
 import * as helper from '../src/utils/helper'
 import * as authHelper from '../src/utils/authHelper'
@@ -45,6 +46,17 @@ export const initializeLogger = (disable = true) => {
 }
 
 export const initialize = async () => {
+  // Wave 2 fix — Mongoose builds the indexes asynchronously in the
+  // background; tests that rely on a duplicate-key error flake when they
+  // run before the index exists. The User unique email index gates the
+  // duplicate-signup / duplicate-email tests (a second user with the
+  // same email is created instead of a 409/200 dedupe); the
+  // NotificationDelivery dedupe index gates the F8 reminder dedupe /
+  // weekly-recap tests (a second delivery row is created instead of a
+  // 'duplicate'). Await both builds here so every suite starts with the
+  // indexes in place.
+  await User.ensureIndexes()
+  await NotificationDelivery.ensureIndexes()
   const passwordHash = await authHelper.hashPassword(PASSWORD)
 
   // admin

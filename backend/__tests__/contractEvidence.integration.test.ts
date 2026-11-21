@@ -30,7 +30,11 @@ beforeAll(async () => {
   const value = await new LocationValue({ language: 'en', value: `Evidence ${suffix}` }).save(); ids.values.push(value._id)
   const location = await new Location({ country: new mongoose.Types.ObjectId(), values: [value._id] }).save(); ids.locations.push(location._id)
   const car = await new Car({ name: `Evidence car ${suffix}`, supplier: supplier._id, minimumAge: 21, locations: [location._id], dailyPrice: 100, deposit: 300, available: true, type: types.CarType.Diesel, gearbox: types.GearboxType.Automatic, aircon: true, seats: 5, doors: 4, fuelPolicy: types.FuelPolicy.FreeTank, mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0, collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0, range: types.CarRange.Midi, multimedia: [], rating: 5 }).save(); ids.cars.push(car._id)
-  booking = await new Booking({ supplier: supplier._id, car: car._id, driver: driver._id, pickupLocation: location._id, dropOffLocation: location._id, from: new Date(Date.now() + 86400000), to: new Date(Date.now() + 3 * 86400000), status: types.BookingStatus.Reserved, lifecycle: types.ContractLifecycle.Draft, price: 300, cancellation: false, amendments: false, theftProtection: false, collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false }).save(); ids.bookings.push(booking._id)
+  // Wave 2.5 — `Reserved` no longer passes the handover gate (it reserved
+  // the car and unlocked handover with no payment behind it). The evidence
+  // flow needs a paid booking, so the fixture uses `Paid` here; the
+  // Reserved → confirm → pay path is covered by wave2.integration.test.ts.
+  booking = await new Booking({ supplier: supplier._id, car: car._id, driver: driver._id, pickupLocation: location._id, dropOffLocation: location._id, from: new Date(Date.now() + 86400000), to: new Date(Date.now() + 3 * 86400000), status: types.BookingStatus.Paid, lifecycle: types.ContractLifecycle.Draft, price: 300, cancellation: false, amendments: false, theftProtection: false, collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false }).save(); ids.bookings.push(booking._id)
   token = await auth.encryptJWT({ id: supplier._id.toString() })
   otherToken = await auth.encryptJWT({ id: otherSupplier._id.toString() })
 })

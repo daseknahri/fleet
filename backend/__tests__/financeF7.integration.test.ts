@@ -1,8 +1,8 @@
 import 'dotenv/config'
+import { jest } from '@jest/globals'
 import request from 'supertest'
 import mongoose from 'mongoose'
 import * as types from ':bookcars-types'
-import app from '../src/app'
 import * as databaseHelper from '../src/utils/databaseHelper'
 import * as authHelper from '../src/utils/authHelper'
 import * as env from '../src/config/env.config'
@@ -21,6 +21,12 @@ import CashMovement from '../src/models/CashMovement'
 import CashSession from '../src/models/CashSession'
 import Invoice from '../src/models/Invoice'
 import Quote from '../src/models/Quote'
+
+jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
+  sendMail: jest.fn(async () => ({})),
+}))
+
+let app: any
 
 // F7 — INVOICES / REPORTS / MAINTENANCE (W3 B-2, B-3, B-4, B-5, R-2,
 // R-5, R-7, M-2, M-4, M-5, M-7). Mongo-backed, one supplier agency; the
@@ -110,6 +116,7 @@ const makePostedRent = async (booking: env.Booking, amount: number, date: Date, 
 }
 
 beforeAll(async () => {
+  app = (await import('../src/app')).default
   await databaseHelper.connect(env.DB_URI, false, false)
   supplier = await new User({
     email: `f7-${suffix}@test.bookcars.ma`, fullName: 'F7 Fixture', language: 'en',
@@ -640,15 +647,22 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
   let scheduleId: string
   let bookingId: string
 
+  // Wave 2.5 — a reserving booking via staff create() is gone
+  // (Reserved closed); the overdue-schedule guard is exercised through
+  // the public checkout pay-later hold (Pending + 48h expireAt reserves
+  // the car).
   const bookingPayload = (from: string, to: string) => ({
     booking: {
       supplier: supplier._id.toString(), car: m4car._id.toString(), driver: m4driver._id.toString(),
       pickupLocation: m4location.toString(), dropOffLocation: m4location.toString(),
-      from, to, price: 300, status: types.BookingStatus.Reserved,
-      lifecycle: types.ContractLifecycle.Confirmed,
+      from, to, price: 300, status: types.BookingStatus.Pending,
       cancellation: false, amendments: false, theftProtection: false,
       collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false,
     },
+    paymentMode: types.CheckoutPaymentMode.PayLater,
+    currency: 'MAD',
+    paymentGateway: types.PaymentGateway.Stripe,
+    payLater: true,
   })
 
   it('flags a schedule overdue by mileage even though its due date is far away', async () => {
@@ -680,7 +694,7 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
   })
 
   it('blocks a fresh booking on the car, naming the overdue schedule', async () => {
-    const first = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
+    const first = await post(ownerToken, '/api/checkout', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
     // No booking exists yet on this car — the first create is refused
     // by the overdue schedule, not by any overlap.
     expect(first.status).toBe(409)
@@ -696,15 +710,15 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
       nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
       status: types.MaintenanceScheduleStatus.Completed,
     })
-    const created = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
-    // L5: create-booking answers 200 on success — bookingController.create
-    // ends with res.json(booking) (never 201). f4Lifecycle W1 #4 and
-    // booking.test.ts both assert 200 for a successful create; 201 here
-    // was the test's mistake, not a product regression. (No dedupe or
-    // cross-test pollution: create has no idempotency replay — the 200
-    // is the handler's normal success status.)
+    const created = await post(ownerToken, '/api/checkout', bookingPayload('2026-12-21T10:00:00.000Z', '2026-12-23T10:00:00.000Z'))
+    // Checkout answers 200 on success with { bookingId, ... }.
     expect(created.status).toBe(200)
-    bookingId = created.body._id
+    bookingId = created.body.bookingId
+    // Confirm the hold first: a pay-later checkout carries expireAt and
+    // trash refuses temporary checkout bookings, so the booking must be
+    // a real (confirmed) booking before it can be trashed.
+    const confirmed = await post(ownerToken, `/api/bookings/${bookingId}/confirm-reservation`, {})
+    expect(confirmed.status).toBe(200)
 
     // Reopen the schedule (status back to a derived one) so it is
     // overdue by mileage again.
@@ -733,7 +747,7 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
     const restored = await post(ownerToken, '/api/restore-bookings', { ids: [bookingId] })
     expect(restored.status).toBe(200)
 
-    const fresh = await post(ownerToken, '/api/create-booking', bookingPayload('2026-12-28T10:00:00.000Z', '2026-12-30T10:00:00.000Z'))
+    const fresh = await post(ownerToken, '/api/checkout', bookingPayload('2026-12-28T10:00:00.000Z', '2026-12-30T10:00:00.000Z'))
     expect(fresh.status).toBe(200)
   })
 })

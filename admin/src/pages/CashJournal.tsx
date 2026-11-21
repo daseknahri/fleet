@@ -337,6 +337,7 @@ const CashJournal = () => {
   const expenses = journalTotals?.expenses ?? 0
   const net = journalTotals?.net ?? 0
   const deposits = journalTotals?.deposits ?? 0
+  const depositRefunds = journalTotals?.depositRefunds ?? 0
   const pendingIn = journalTotals?.pendingIn ?? 0
   const pendingOut = journalTotals?.pendingOut ?? 0
 
@@ -465,6 +466,7 @@ const CashJournal = () => {
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--out">−</span><small>{strings.EXPENSES}</small><strong>{loading ? '—' : formatAmount(expenses)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--net">{strings.ENTRIES.slice(0, 1)}</span><small>{strings.NET}</small><strong>{loading ? '—' : formatAmount(net)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-cash__summary-icon">D</span><small>{strings.DEPOSITS}</small><strong>{loading ? '—' : formatAmount(deposits)}</strong></CardContent></Card>
+          <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--out">−</span><small>{strings.DEPOSIT_REFUNDS}</small><strong>{loading ? '—' : formatAmount(depositRefunds)}</strong></CardContent></Card>
         </div>
         {!loading && (pendingIn > 0 || pendingOut > 0) && <Typography variant="caption" className="agency-cash__pending">{strings.PENDING}: +{formatAmount(pendingIn)} / −{formatAmount(pendingOut)}</Typography>}
         {!loading && unlinkedCashTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashPayments.length})</Alert>}
