@@ -28,7 +28,7 @@ const Bookings = () => {
   const [admin, setAdmin] = useState(false)
   const [allSuppliers, setAllSuppliers] = useState<bookcarsTypes.User[]>([])
   const [suppliers, setSuppliers] = useState<string[]>()
-  const [statuses, setStatuses] = useState(helper.getBookingStatuses().map((status) => status.value))
+  const [statuses, setStatuses] = useState(helper.expandBookingStatuses(helper.getBookingStatuses().map((status) => status.value)))
   const [filter, setFilter] = useState<bookcarsTypes.Filter | null>()
   const [loadingSuppliers, setLoadingSuppliers] = useState(true)
   const [offset, setOffset] = useState(0)

@@ -59,11 +59,30 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children, refreshKey
         } else {
           await exit()
         }
-      } else {
+      } else if (status === 401 || status === 403) {
+        // Wave 1.7 (P1-1) — only a 401/403 means the session is dead.
+        // Any other non-200 status (e.g. a 5xx) is a server problem,
+        // not a session problem: keep the session and let the next
+        // navigation re-validate.
         await exit()
+      } else {
+        setUser(currentUser)
+        setUnauthorized(false)
       }
-    } catch {
-      await exit()
+    } catch (err) {
+      // Wave 1.7 (P1-1) — the session is wiped only when the server
+      // actually says the token is invalid (401/403). A network error
+      // or 5xx keeps the session: the manager stays signed in through
+      // a blip, and the next navigation re-validates. The existing
+      // OfflineBanner (App.tsx) is the visible offline surface — no
+      // new toast, so an outage does not spam one per validation.
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 401 || status === 403) {
+        await exit()
+      } else {
+        setUser(currentUser)
+        setUnauthorized(false)
+      }
     } finally {
       setUserLoaded(true)
     }

@@ -649,6 +649,11 @@ export interface Booking {
   /** F4 / W1 #7 — computed read-model flag (lifecycle Active + past
    * `to`); never stored, set by getBooking / list endpoints. */
   overdue?: boolean
+  /** Wave 1.6 — posted refundable-deposit total (Posted Deposit-purpose
+   * payments, debits negative). Display-only read-model field, never
+   * stored; attached by getBookings so the list can show 'Rent paid —
+   * deposit due' for Paid bookings whose deposit is still outstanding. */
+  depositPaid?: number
   cancellation?: boolean
   amendments?: boolean
   theftProtection?: boolean
@@ -762,18 +767,6 @@ export interface DecideCancelRequestPayload {
   reason: string
   /** Required when approving; ignored when denying. */
   refundDecision?: CancelRefundDecision
-}
-
-/** F3 / W1 #3 — staff manual payment-confirmation payload. */
-export interface ConfirmManualPaymentPayload {
-  /** Cash (or other method) amount just collected. Omit to confirm from already-posted payments only. */
-  amount?: number
-  method?: RentalPaymentMethod
-  /** Purpose of a collected amount (default Rent — the amount due now is rent + approved charges). */
-  purpose?: RentalPaymentPurpose
-  currency?: string
-  note?: string
-  reference?: string
 }
 
 /** F3 / W1 #9 — one row of the cancel-request queue. */
@@ -2558,7 +2551,11 @@ export interface CashJournalResponse {
 export interface OverdueReceivableRow {
   booking: Booking
   outstandingBalance: number
-  depositHeld: number
+  /** Wave 1.6 — the deposit STILL TO COLLECT (refundableDeposit minus
+   * posted deposit). Renamed from `depositHeld`: the old name meant the
+   * opposite in getClientBalances (deposit actually in hand). The two
+   * meanings must never share a field name again. */
+  depositDue: number
   dueAt?: Date
   overdue: boolean
   currency: string

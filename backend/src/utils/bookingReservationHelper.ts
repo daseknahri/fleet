@@ -85,6 +85,12 @@ export interface BookingSaveOptions {
   /** GA-PAR-10: receives the conflicting booking's id for a bypassed
    * booking-vs-booking conflict. */
   onBookingConflict?: (conflictingBookingId: string) => void
+  /** Wave 1.5 (S2) — skip the in-process per-car lock in the
+   * non-transactional path. Only set when the caller already holds the
+   * lock via `withCarLock` (TOCTOU double-check: re-check, then save
+   * under one lock). Setting it without holding the lock re-opens the
+   * check-then-save race. */
+  skipCarLock?: boolean
 }
 
 const reservesCar = (booking: env.Booking, now: Date) =>
@@ -127,6 +133,96 @@ const acquireLocks = async (carIds: string[]): Promise<() => void> => {
   return () => {
     for (const release of releaseFns) {
       release()
+    }
+  }
+}
+
+/**
+ * Wave 1.5 (S2) — run `fn` while holding the in-process per-car lock
+ * for `carIds`. The lock serialises the non-transactional save path
+ * (see `saveBookingsWithAvailability`); a caller that re-checks
+ * availability and then saves inside this lock closes the
+ * check-then-save race without deadlocking on its own lock (pass
+ * `skipCarLock: true` to the save inside).
+ */
+export const withCarLock = async <T>(carIds: string[], fn: () => Promise<T>): Promise<T> => {
+  const release = await acquireLocks(carIds)
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
+
+/**
+ * Wave 1.5 (S2) — the availability re-check, extracted from
+ * `saveBookingsWithAvailability` so a caller can run it as the second
+ * half of a TOCTOU double-check (re-check, then save) without the save
+ * re-running the check. Downtime work-order and overdue-schedule
+ * conflicts are never bypassed (GA-PAR-10 / ruling N9);
+ * booking-vs-booking conflicts follow `options.allowOverlapException`.
+ *
+ * @param {env.Booking} booking
+ * @param {(mongoose.Types.ObjectId | string)[]} bookingIds ids being saved (excluded from the conflict search)
+ * @param {BookingSaveOptions} options
+ * @param {mongoose.ClientSession} session
+ */
+export const checkBookingAvailability = async (
+  booking: env.Booking,
+  bookingIds: (mongoose.Types.ObjectId | string)[],
+  options: BookingSaveOptions = {},
+  session?: mongoose.ClientSession,
+) => {
+  const now = new Date()
+  const carId = booking.car.toString()
+  const downtimeQuery = MaintenanceWorkOrder.findOne({
+    supplier: booking.supplier,
+    car: new mongoose.Types.ObjectId(carId),
+    status: { $in: [bookcarsTypes.WorkOrderStatus.Scheduled, bookcarsTypes.WorkOrderStatus.InProgress] },
+    scheduledStart: { $lt: booking.to },
+    scheduledEnd: { $gt: booking.from },
+  }).select('_id').lean()
+  if (session) {
+    downtimeQuery.session(session)
+  }
+  if (await downtimeQuery) {
+    // GA-PAR-10 / ruling N9: maintenance work-order conflicts are
+    // NEVER bypassed by an overlap exception - no flag overrides this.
+    throw new BookingConflictError()
+  }
+  // F7 / W3 M-4 — an overdue maintenance schedule blocks the
+  // booking outright (same never-bypassed rule as downtime: no
+  // overlap exception applies, whatever the booking dates are).
+  const overdue = await findOverdueSchedule(booking.supplier, carId, session)
+  if (overdue) {
+    throw new OverdueMaintenanceError(overdue.title, overdue.trigger)
+  }
+  const query = Booking.findOne({
+    _id: { $nin: bookingIds },
+    car: new mongoose.Types.ObjectId(carId),
+    // GA-PAR-22: a trashed booking does not reserve its car.
+    deletedAt: null,
+    // F4 / W1 #4 — strict range: a booking whose pickup is exactly
+    // this booking's return (or vice versa) does not overlap.
+    from: { $lt: booking.to },
+    to: { $gt: booking.from }, $or: reservationStatusOr(now),
+    // A contract that already ran its course (or was cancelled at the
+    // lifecycle level) no longer reserves the car, whatever its payment
+    // status still says (GAQ12B1: completed lifecycle + reserved status
+    // blocked the car for its window indefinitely).
+    lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
+  }).select('_id').lean()
+
+  if (session) {
+    query.session(session)
+  }
+  const conflict = await query
+
+  if (conflict) {
+    if (options.allowOverlapException) {
+      options.onBookingConflict?.(conflict._id.toString())
+    } else {
+      throw new BookingConflictError(conflict._id.toString())
     }
   }
 }
@@ -189,57 +285,7 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
     const bookingIds = bookings.map((booking) => booking._id).filter(Boolean)
 
     for (const booking of reservingBookings) {
-      const carId = booking.car.toString()
-      const downtimeQuery = MaintenanceWorkOrder.findOne({
-        supplier: booking.supplier,
-        car: new mongoose.Types.ObjectId(carId),
-        status: { $in: [bookcarsTypes.WorkOrderStatus.Scheduled, bookcarsTypes.WorkOrderStatus.InProgress] },
-        scheduledStart: { $lt: booking.to },
-        scheduledEnd: { $gt: booking.from },
-      }).select('_id').lean()
-      if (session) {
-        downtimeQuery.session(session)
-      }
-      if (await downtimeQuery) {
-        // GA-PAR-10 / ruling N9: maintenance work-order conflicts are
-        // NEVER bypassed by an overlap exception - no flag overrides this.
-        throw new BookingConflictError()
-      }
-      // F7 / W3 M-4 — an overdue maintenance schedule blocks the
-      // booking outright (same never-bypassed rule as downtime: no
-      // overlap exception applies, whatever the booking dates are).
-      const overdue = await findOverdueSchedule(booking.supplier, carId, session)
-      if (overdue) {
-        throw new OverdueMaintenanceError(overdue.title, overdue.trigger)
-      }
-      const query = Booking.findOne({
-        _id: { $nin: bookingIds },
-        car: new mongoose.Types.ObjectId(carId),
-        // GA-PAR-22: a trashed booking does not reserve its car.
-        deletedAt: null,
-        // F4 / W1 #4 — strict range: a booking whose pickup is exactly
-        // this booking's return (or vice versa) does not overlap.
-        from: { $lt: booking.to },
-        to: { $gt: booking.from }, $or: reservationStatusOr(now),
-        // A contract that already ran its course (or was cancelled at the
-        // lifecycle level) no longer reserves the car, whatever its payment
-        // status still says (GAQ12B1: completed lifecycle + reserved status
-        // blocked the car for its window indefinitely).
-        lifecycle: { $nin: [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled] },
-      }).select('_id').lean()
-
-      if (session) {
-        query.session(session)
-      }
-      const conflict = await query
-
-      if (conflict) {
-        if (options.allowOverlapException) {
-          options.onBookingConflict?.(conflict._id.toString())
-        } else {
-          throw new BookingConflictError(conflict._id.toString())
-        }
-      }
+      await checkBookingAvailability(booking, bookingIds, options, session)
     }
 
     for (let firstIndex = 0; firstIndex < reservingBookings.length; firstIndex += 1) {
@@ -276,7 +322,9 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
   }
 
   const carIds = reservingBookings.map((b) => b.car.toString())
-  const release = await acquireLocks(carIds)
+  // Wave 1.5 (S2) — a caller that already holds the lock (withCarLock)
+  // skips re-acquiring it here; the lock is never taken twice.
+  const release = options.skipCarLock ? () => {} : await acquireLocks(carIds)
   try {
     return await executeLogic()
   } finally {

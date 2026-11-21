@@ -183,6 +183,32 @@ export const decide = async (req: Request, res: Response) => {
     approval.status = decision === 'approved' ? bookcarsTypes.ApprovalDecision.Approved : bookcarsTypes.ApprovalDecision.Rejected
     approval.decidedBy = new mongoose.Types.ObjectId(user._id); approval.decidedAt = new Date(); approval.reason = String(reason || '').trim()
     await approval.save()
+    // M12 (Wave 1.4) — a rejected invoice approval auto-voids the
+    // invoice: an Issued invoice whose approval was rejected must not
+    // sit looking payable while every payment attempt 409s. The void
+    // mirrors the manual voidInvoice path (paid state snapshotted,
+    // then cleared). A void failure is logged, not thrown — the
+    // decision itself is already recorded.
+    if (approval.status === bookcarsTypes.ApprovalDecision.Rejected
+      && approval.subjectType === 'invoice' && mongoose.isValidObjectId(approval.subject)) {
+      try {
+        const invoice = await Invoice.findOne({ _id: approval.subject, supplier: approval.supplier })
+        if (invoice && invoice.status === bookcarsTypes.InvoiceStatus.Issued) {
+          invoice.voidedPaidAmount = invoice.paidAmount
+          invoice.voidedPaymentStatus = invoice.paymentStatus
+          invoice.paidAmount = 0
+          invoice.paymentStatus = 'unpaid'
+          invoice.payments = []
+          invoice.status = bookcarsTypes.InvoiceStatus.Voided
+          invoice.voidedAt = new Date()
+          invoice.voidedBy = approval.decidedBy
+          invoice.voidReason = `Approval rejected${approval.reason ? `: ${approval.reason}` : ''}`.slice(0, 1000)
+          await invoice.save()
+        }
+      } catch (voidErr) {
+        logger.error('[approval.decide] rejected invoice could not be auto-voided', voidErr)
+      }
+    }
     // Contract charges decided here also settle their domain record, so
     // the queue decision and the charge workflow never diverge.
     if (approval.subjectType === 'contract-charge' && mongoose.isValidObjectId(approval.subject)) {

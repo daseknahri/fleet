@@ -113,6 +113,27 @@ export const issue = async (req: Request, res: Response) => {
     if (invoiceBooking?.deletedAt) {
  res.status(409).send('TRASHED: This booking is trashed and cannot be modified. Restore it first.'); return 
 }
+    // M7 (Wave 1.4) — the approval request is produced BEFORE the invoice
+    // is marked Issued: an above-threshold invoice must never exist
+    // without its gate record. A producer failure fails the issue, so
+    // the invoice stays Draft (the counter is not consumed either).
+    if (approvalRequiredFor(invoice.total)) {
+      try {
+        await produceApprovalRequest({
+          supplier: invoice.supplier,
+          subjectType: 'invoice',
+          subject: invoice._id.toString(),
+          amount: invoice.total,
+          currency: invoice.currency,
+          requestedBy: req.user?._id,
+          reason: `Invoice ${invoice._id.toString()} issued`,
+        })
+      } catch (producerErr) {
+        logger.error('[invoice.issue] approval producer failed; invoice not issued', producerErr)
+        res.status(409).send('Invoice approval request could not be created; the invoice was not issued')
+        return
+      }
+    }
     const year = new Date().getFullYear()
     const counter = await Counter.findOneAndUpdate(
       { supplier: invoice.supplier, name: 'invoice', year },
@@ -124,24 +145,6 @@ export const issue = async (req: Request, res: Response) => {
     invoice.issuedAt = new Date()
     invoice.issuedBy = req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined
     await invoice.save()
-    // Approvals producer (decisions 1.1/1.2, GA-P10-DECISIONS-01): issuing
-    // at or above the threshold opens a queue request. A producer failure
-    // must not un-issue the invoice, so it is logged, not thrown.
-    if (approvalRequiredFor(invoice.total)) {
-      try {
-        await produceApprovalRequest({
-          supplier: invoice.supplier,
-          subjectType: 'invoice',
-          subject: invoice._id.toString(),
-          amount: invoice.total,
-          currency: invoice.currency,
-          requestedBy: invoice.issuedBy,
-          reason: `Invoice ${invoice.number} issued`,
-        })
-      } catch (producerErr) {
-        logger.error('[invoice.issue] approval producer failed', producerErr)
-      }
-    }
     await invoice.populate(populate)
     res.json(invoice)
   } catch (err) {
@@ -197,6 +200,13 @@ export const recordPayment = async (req: Request, res: Response) => {
 }
     if (gate && gate.status === bookcarsTypes.ApprovalDecision.Rejected) {
  res.status(409).send('Invoice approval was rejected'); return 
+}
+    // M7 (Wave 1.4) — mirror the rental-payment confirm() gate: at or
+    // above the threshold with NO gate record at all, the payment is
+    // refused. A legacy invoice issued before the producer existed has
+    // no request; one must be created for it first.
+    if (approvalRequiredFor(invoice.total) && !gate) {
+ res.status(409).send('Invoice approval is required before recording a payment'); return 
 }
     const paymentId = req.body?.payment
     if (!mongoose.isValidObjectId(paymentId)) {

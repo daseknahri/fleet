@@ -349,12 +349,12 @@ describe('F6 / W3 P-3 — one shared outstanding / receivable definition', () =>
     // F7 — the pin tracks the dictionary version (bumped for the shared
     // receivable + cash-basis net). The outstanding figures below are
     // unchanged.
-    const rows = res.body.rows as Array<{ booking: { _id: string }, outstandingBalance: number, depositHeld: number, dueAt?: string, overdue: boolean }>
+    const rows = res.body.rows as Array<{ booking: { _id: string }, outstandingBalance: number, depositDue: number, dueAt?: string, overdue: boolean }>
     const byId = new Map(rows.map((row) => [row.booking._id, row]))
     // booking1: 500 - 300 posted rent = 200 outstanding, due tomorrow.
     expect(byId.get(booking1._id.toString())?.outstandingBalance).toBe(200)
     expect(byId.get(booking1._id.toString())?.overdue).toBe(false)
-    expect(byId.get(booking1._id.toString())?.depositHeld).toBe(100)
+    expect(byId.get(booking1._id.toString())?.depositDue).toBe(100)
     // bookingOverdue: 400 outstanding, overdue.
     expect(byId.get(bookingOverdue._id.toString())?.outstandingBalance).toBe(400)
     expect(byId.get(bookingOverdue._id.toString())?.overdue).toBe(true)

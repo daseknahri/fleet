@@ -18,6 +18,7 @@ import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { getContractReceivable } from '../utils/contractReceivable'
+import { refreshBookingPaymentStatus } from '../utils/ledger'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
 import { contentMatchesExtension } from '../utils/fileContent'
@@ -343,6 +344,17 @@ export const decideCharge = async (req: Request, res: Response) => {
       })
     } catch (mirrorErr) {
       logger.error('[contractOperations.decideCharge] approval mirror failed', mirrorErr)
+    }
+    // Wave 1.6 — an approved charge grows the amount owed: a booking
+    // that was Paid/PaidInFull must have its status downgraded, or the
+    // "Paid" label would keep claiming the money is in. Best-effort:
+    // the decision itself already succeeded.
+    if (charge.status === bookcarsTypes.ApprovalDecision.Approved) {
+      try {
+        await refreshBookingPaymentStatus(booking._id)
+      } catch (refreshErr) {
+        logger.error('[contractOperations.decideCharge] booking payment status could not be refreshed', refreshErr)
+      }
     }
     res.json(charge)
   } catch (err) {

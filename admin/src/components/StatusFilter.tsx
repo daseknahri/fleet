@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react'
 import * as bookcarsTypes from ':bookcars-types'
-import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
 import * as helper from '@/utils/helper'
 import Accordion from '@/components/Accordion'
@@ -19,7 +18,10 @@ interface StatusFilterProps {
 }
 
 const statuses = helper.getBookingStatuses()
-const allStatuses = bookcarsHelper.getAllBookingStatuses()
+// Wave 1.3 (S3) — checkbox bookkeeping runs on the displayed (merged)
+// list; the server filter is expanded at the onChange boundary below,
+// so 'Paid' still matches PaidInFull rows.
+const allStatuses = statuses.map((status) => status.value)
 
 const StatusFilter = ({
   className,
@@ -34,7 +36,7 @@ const StatusFilter = ({
 
   const handleChange = (_checkedStatuses: bookcarsTypes.BookingStatus[]) => {
     if (onChange) {
-      onChange(_checkedStatuses.length === 0 ? allStatuses : bookcarsHelper.clone(_checkedStatuses))
+      onChange(_checkedStatuses.length === 0 ? helper.expandBookingStatuses(allStatuses) : helper.expandBookingStatuses(_checkedStatuses))
     }
   }
 

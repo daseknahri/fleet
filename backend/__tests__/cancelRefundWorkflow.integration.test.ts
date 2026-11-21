@@ -408,15 +408,21 @@ describe('F3 / W1 #18 — Cancelled is no longer a bare 400 dead-end', () => {
   })
 })
 
-describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
-  it('confirms a Pending booking to Paid when the full cash amount is posted in the call', async () => {
+describe('F3 / W1 #3 — one payment path (Wave 1.1: confirmManualPayment deleted)', () => {
+  // Wave 1.1 — the deleted confirm-payment endpoint used to be the cash
+  // path. The rental-payment create path below is now the ONLY way to take
+  // money: it posts with a UUID idempotency key and derives the booking
+  // status from the ledger via refreshBookingPaymentStatus.
+  const postCash = (bookingId: mongoose.Types.ObjectId, amount: number, purpose: bookcarsTypes.RentalPaymentPurpose, key: string) =>
+    request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
+      booking: bookingId.toString(), date: new Date(), amount,
+      method: bookcarsTypes.RentalPaymentMethod.Cash, purpose, idempotencyKey: key,
+    })
+
+  it('confirms a Pending booking to Paid when the full cash amount is posted', async () => {
     const fixture = await makeFixture('confirm-full-cash')
-    const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
-    expect(response.status).toBe(200)
-    expect(response.body.updated).toBe(true)
-    expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
-    expect(response.body.outstandingBalance).toBe(0)
+    const response = await postCash(fixture.booking._id, 1000, bookcarsTypes.RentalPaymentPurpose.Rent, `w1-full-${rand()}`)
+    expect(response.status).toBe(201)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
     const payments = await paymentsOf(fixture.booking._id)
@@ -427,49 +433,49 @@ describe('F3 / W1 #3 — manual/cash payment confirmation', () => {
 
   it('reports a partial cash collection as not-confirmed with the outstanding balance', async () => {
     const fixture = await makeFixture('confirm-partial-cash')
-    const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 400, method: bookcarsTypes.RentalPaymentMethod.Cash })
-    expect(response.status).toBe(200)
-    expect(response.body.updated).toBe(false)
-    expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Pending)
-    expect(response.body.outstandingBalance).toBe(600)
+    const response = await postCash(fixture.booking._id, 400, bookcarsTypes.RentalPaymentPurpose.Rent, `w1-partial-${rand()}`)
+    expect(response.status).toBe(201)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    const overdue = await request(app).get('/api/rental-payments/overdue').set(env.X_ACCESS_TOKEN, adminToken)
+    expect(overdue.status).toBe(200)
+    const row = (overdue.body.rows as any[]).find((r) => r.booking._id === fixture.booking._id.toString())
+    expect(row?.outstandingBalance).toBe(600)
   })
 
-  it('confirms from already-posted payments with no amount in the call', async () => {
-    const fixture = await makeFixture('confirm-posted-only')
-    await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, 'stripe', 'pi_f3_confirm_posted')
-    const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({})
-    expect(response.status).toBe(200)
-    expect(response.body.updated).toBe(true)
-    expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+  it('replaying a cash posting with the same idempotency key posts only once (M4 closed)', async () => {
+    const fixture = await makeFixture('confirm-idempotent-replay')
+    const key = `w1-replay-${rand()}`
+    const first = await postCash(fixture.booking._id, 1000, bookcarsTypes.RentalPaymentPurpose.Rent, key)
+    expect(first.status).toBe(201)
+    const replay = await postCash(fixture.booking._id, 1000, bookcarsTypes.RentalPaymentPurpose.Rent, key)
+    expect(replay.status).toBe(201)
+    expect(replay.body._id).toBe(first.body._id)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(1)
+    const mismatch = await postCash(fixture.booking._id, 500, bookcarsTypes.RentalPaymentPurpose.Rent, key)
+    expect(mismatch.status).toBe(409)
+    expect(mismatch.text).toContain('Idempotency key is already used')
   })
 
   it('confirms a Deposit booking to PaidInFull once the rent balance is collected', async () => {
     const fixture = await makeFixture('confirm-deposit-full', { status: bookcarsTypes.BookingStatus.Deposit, amountDueNow: 250 })
     await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 250, 'stripe', 'pi_f3_confirm_deposit')
-    const response = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
-    expect(response.status).toBe(200)
-    expect(response.body.updated).toBe(true)
-    expect(response.body.status).toBe(bookcarsTypes.BookingStatus.PaidInFull)
+    const response = await postCash(fixture.booking._id, 1000, bookcarsTypes.RentalPaymentPurpose.Rent, `w1-deposit-${rand()}`)
+    expect(response.status).toBe(201)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.PaidInFull)
   })
 
-  it('refuses an overpayment and a confirmation on a cancelled booking', async () => {
+  it('refuses an overpayment and a payment on a cancelled booking', async () => {
     const fixture = await makeFixture('confirm-overpay')
-    const over = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1001, method: bookcarsTypes.RentalPaymentMethod.Cash })
+    const over = await postCash(fixture.booking._id, 1001, bookcarsTypes.RentalPaymentPurpose.Rent, `w1-overpay-${rand()}`)
     expect(over.status).toBe(400)
     expect(over.text).toContain('exceeds the remaining rental balance')
     const cancelled = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'Customer cancelled', refundDecision: 'none' })
     expect(cancelled.status).toBe(200)
-    const closed = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000 })
-    expect(closed.status).toBe(409)
+    const closed = await postCash(fixture.booking._id, 1000, bookcarsTypes.RentalPaymentPurpose.Rent, `w1-closed-${rand()}`)
+    expect(closed.status).toBe(404)
   })
-
   it('a full rent posting on the Payments page flips the booking to Paid by itself', async () => {
     const fixture = await makeFixture('confirm-via-payments-page')
     const response = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
@@ -586,10 +592,14 @@ describe('F3 / W1 #11 — handover payment gate', () => {
 
   it('allows handover once the payment is confirmed (cash at the counter, then handover)', async () => {
     const fixture = await makeFixture('handover-after-confirm')
-    const confirmed = await request(app).post(`/api/bookings/${fixture.booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
-    expect(confirmed.status).toBe(200)
-    expect(confirmed.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    const confirmed = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
+      booking: fixture.booking._id.toString(), date: new Date(), amount: 1000,
+      method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      idempotencyKey: `w1-handover-${rand()}`,
+    })
+    expect(confirmed.status).toBe(201)
+    const paid = await Booking.findById(fixture.booking._id).lean()
+    expect(paid?.status).toBe(bookcarsTypes.BookingStatus.Paid)
     const response = await handoverAsAdmin(fixture)
     expect(response.status).toBe(201)
     const booking = await Booking.findById(fixture.booking._id).lean()

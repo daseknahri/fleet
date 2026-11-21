@@ -187,7 +187,7 @@ const Car = () => {
   }
 
   const edit = user && car && car.supplier && (user.type === bookcarsTypes.RecordType.Admin || user._id === car.supplier._id)
-  const statuses = helper.getBookingStatuses().map((status) => status.value)
+  const statuses = helper.expandBookingStatuses(helper.getBookingStatuses().map((status) => status.value))
   const fr = (user && user.language === 'fr') || false
 
   return (

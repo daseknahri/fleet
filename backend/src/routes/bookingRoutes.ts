@@ -34,7 +34,6 @@ routes.route(routeNames.cancelBooking).post(authJwt.verifyToken, bookingControll
 routes.route(routeNames.cancelBookingStaff).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.cancelBookingStaff)
 routes.route(routeNames.getCancelRequests).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getCancelRequests)
 routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.decideCancelRequest)
-routes.route(routeNames.confirmManualPayment).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmManualPayment)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)
 // F4 / W1 #7 — no-show marking + overdue list (ManageBookings, same
 // capability as the cancel workflow they sit beside).

@@ -7,12 +7,17 @@ import {
 } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as helper from '@/utils/helper'
+import { strings as commonStrings } from '@/lang/common'
 
 import '@/assets/css/booking-status.css'
 
 interface BookingStatusProps {
   value: bookcarsTypes.BookingStatus
   showIcon?: boolean,
+  /** Wave 1.6 — the rent is paid but the refundable deposit is still
+   * outstanding: show "Rent paid — deposit due" instead of plain "Paid".
+   * Only applies to Paid (PaidInFull means the deposit is in). */
+  depositDue?: boolean,
   onClick?: (e: React.MouseEvent<HTMLElement>) => void
 }
 
@@ -40,7 +45,8 @@ const getIcon = (value: bookcarsTypes.BookingStatus) => {
 const BookingStatus = ({
   showIcon,
   onClick,
-  value
+  value,
+  depositDue
 }: BookingStatusProps) => (
   <div
     className="booking-status"
@@ -52,7 +58,7 @@ const BookingStatus = ({
     role="presentation"
   >
     {showIcon && getIcon(value)}
-    <span className={`bs bs-${value?.toLowerCase()}`}>{helper.getBookingStatus(value)}</span>
+    <span className={`bs bs-${value?.toLowerCase()}`}>{depositDue && value === bookcarsTypes.BookingStatus.Paid ? commonStrings.BOOKING_STATUS_PAID_DEPOSIT_DUE : helper.getBookingStatus(value)}</span>
   </div>
 )
 

@@ -35,7 +35,7 @@ import '@/assets/css/user.css'
 const User = () => {
   const navigate = useNavigate()
 
-  const statuses = helper.getBookingStatuses().map((status) => status.value)
+  const statuses = helper.expandBookingStatuses(helper.getBookingStatuses().map((status) => status.value))
 
   const [loggedUser, setLoggedUser] = useState<bookcarsTypes.User>()
   const [user, setUser] = useState<bookcarsTypes.User>()

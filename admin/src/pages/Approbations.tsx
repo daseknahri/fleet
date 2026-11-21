@@ -1,5 +1,5 @@
 import React, { useCallback, useId, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, FormControl, InputLabel, Link, MenuItem, Select, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControl, InputLabel, Link, MenuItem, Select, TextField, Typography } from '@mui/material'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import Layout from '@/components/Layout'
 import * as ApprovalService from '@/services/ApprovalService'
@@ -42,12 +42,12 @@ const subjectTypeLabel = (subjectType: string) => (subjectType === 'invoice'
 const Approbations = () => {
   const { user } = useUserContext() as UserContextType
   // F8 / W5 A3 — the queue is readable by requesters (ReadApprovals),
-  // but deciding stays with deciders (DecideInvoices) and creating
-  // stays with ManageInvoices. The buttons/form hide for viewers who
-  // lack the permission; the backend enforces the same rule.
+  // but deciding stays with deciders (DecideInvoices). The buttons hide
+  // for viewers who lack the permission; the backend enforces the same
+  // rule. (Wave 1.4 / S11: approvals are produced by the system when a
+  // gated action happens — there is no manual create form anymore.)
   const agencyPermissions = useAgencyPermissions()
   const canDecide = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.DecideInvoices)
-  const canCreate = !agencyPermissions || !agencyPermissions.loaded || agencyPermissions.can(AgencyPermission.ManageInvoices)
   const [approvals, setApprovals] = useState<ApprovalService.Approval[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -58,7 +58,6 @@ const Approbations = () => {
   const [userNames, setUserNames] = useState<Record<string, string>>({})
   const [agencyFilter, setAgencyFilter] = useState('')
   const agencyFilterLabelId = useId()
-  const formAgencyLabelId = useId()
   // F8 / W5 A6 — status/type filters + client-side pagination (page size
   // 10). The page resets whenever a filter changes so the list never
   // lands on an empty page.
@@ -68,7 +67,6 @@ const Approbations = () => {
   const statusFilterLabelId = useId()
   const typeFilterLabelId = useId()
   const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({})
-  const [form, setForm] = useState({ supplier: '', subject: '', subjectType: 'invoice', amount: '', currency: 'MAD', reason: '' })
 
   const load = useCallback(async (currentUser?: bookcarsTypes.User) => {
     if (!currentUser) {
@@ -83,7 +81,6 @@ const Approbations = () => {
         const available = await SupplierService.getAllSuppliers()
         setSuppliers(available)
         setSupplierNames(Object.fromEntries(available.map((s) => [s._id || '', s.fullName || s.email || ''])))
-        setForm((current) => (current.supplier ? current : { ...current, supplier: available[0]?._id || '' }))
       } else if (currentUser.type === bookcarsTypes.UserType.Supplier) {
         // Non-admin viewers only ever see their own agency; seed its display
         // name so the agency column does not fall back to an id fragment.
@@ -155,27 +152,6 @@ const Approbations = () => {
     setActionError('')
     try {
       await ApprovalService.decide(approval._id, decision, decisionReasons[approval._id]?.trim() || undefined)
-      await load(user || undefined)
-    } catch (err) {
-      setActionError(helper.getErrorMessage(err, strings.ACTION_ERROR))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const create = async () => {
-    setBusy(true)
-    setActionError('')
-    try {
-      await ApprovalService.create({
-        ...(helper.admin(user) ? { supplier: form.supplier || undefined } : {}),
-        subject: form.subject.trim(),
-        subjectType: form.subjectType.trim(),
-        amount: Number(form.amount),
-        currency: form.currency || undefined,
-        reason: form.reason.trim() || undefined,
-      })
-      setForm((current) => ({ ...current, subject: '', subjectType: 'invoice', amount: '', reason: '' }))
       await load(user || undefined)
     } catch (err) {
       setActionError(helper.getErrorMessage(err, strings.ACTION_ERROR))
@@ -288,35 +264,6 @@ const Approbations = () => {
             <Button variant="outlined" size="small" disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>{strings.PREVIOUS}</Button>
             <Button variant="outlined" size="small" disabled={pageIndex >= pageCount - 1} onClick={() => setPage(pageIndex + 1)}>{strings.NEXT}</Button>
           </Box>
-        )}
-        <Divider sx={{ my: 3 }} />
-        {canCreate && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" component="h2">{strings.NEW_TITLE}</Typography>
-            <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', mt: 1 }}>
-              {helper.admin(user) && (
-                <FormControl size="small">
-                  <InputLabel id={formAgencyLabelId}>{strings.AGENCY}</InputLabel>
-                  <Select label={strings.AGENCY} labelId={formAgencyLabelId} value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })}>
-                    {suppliers.map((supplier) => <MenuItem key={supplier._id} value={supplier._id}>{supplier.fullName}</MenuItem>)}
-                  </Select>
-                </FormControl>
-              )}
-              <TextField size="small" label={strings.SUBJECT} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-              <FormControl size="small">
-                <InputLabel id={`${formAgencyLabelId}-type`}>{strings.SUBJECT_TYPE}</InputLabel>
-                <Select label={strings.SUBJECT_TYPE} labelId={`${formAgencyLabelId}-type`} value={form.subjectType} onChange={(e) => setForm({ ...form, subjectType: e.target.value })}>
-                  <MenuItem value="invoice">{strings.TYPE_INVOICE}</MenuItem>
-                  <MenuItem value="contract-charge">{strings.TYPE_CONTRACT_CHARGE}</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField size="small" label={strings.AMOUNT} type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-              <TextField size="small" label={strings.REASON} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
-            </Box>
-            <Button sx={{ mt: 2 }} variant="contained" disabled={busy || !form.subject.trim() || !form.subjectType.trim() || !form.amount} onClick={create}>{strings.CREATE}</Button>
-          </CardContent>
-        </Card>
         )}
       </div>
     </Layout>

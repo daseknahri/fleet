@@ -80,6 +80,11 @@ const StatusList = ({
       ) : (
         <>
           <InputLabel id={labelId} className={required ? 'required' : ''}>{label}</InputLabel>
+          {/* Wave 1.3 (S3) — the dropdown offers the manager vocabulary only:
+              Pending / Deposit / Paid / Cancelled. Void (system placeholder),
+              Reserved (legacy import) and PaidInFull (merged into Paid) are
+              not staff choices, so they have no option here. A booking that
+              already holds one of them still displays through renderValue. */}
           <Select
             label={label}
             labelId={labelId}
@@ -94,9 +99,6 @@ const StatusList = ({
               </span>
             )}
           >
-            <MenuItem value={bookcarsTypes.BookingStatus.Void} className="bs-s bs-s-void">
-              {commonStrings.BOOKING_STATUS_VOID}
-            </MenuItem>
             <MenuItem value={bookcarsTypes.BookingStatus.Pending} className="bs-s bs-s-pending">
               {commonStrings.BOOKING_STATUS_PENDING}
             </MenuItem>
@@ -105,12 +107,6 @@ const StatusList = ({
             </MenuItem>
             <MenuItem value={bookcarsTypes.BookingStatus.Paid} className="bs-s bs-s-paid" disabled={disablePaymentStatuses}>
               {commonStrings.BOOKING_STATUS_PAID}
-            </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.PaidInFull} className="bs-s bs-s-paidinfull" disabled={disablePaymentStatuses}>
-              {commonStrings.BOOKING_STATUS_PAID_IN_FULL}
-            </MenuItem>
-            <MenuItem value={bookcarsTypes.BookingStatus.Reserved} className="bs-s bs-s-reserved">
-              {commonStrings.BOOKING_STATUS_RESERVED}
             </MenuItem>
             <MenuItem value={bookcarsTypes.BookingStatus.Cancelled} className="bs-s bs-s-cancelled" disabled={disableCancelled}>
               {commonStrings.BOOKING_STATUS_CANCELLED}

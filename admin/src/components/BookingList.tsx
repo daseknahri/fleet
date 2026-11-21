@@ -309,7 +309,9 @@ const BookingList = ({
         field: 'status',
         headerName: strings.STATUS,
         flex: 1,
-        renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.Booking, bookcarsTypes.BookingStatus>) => <BookingStatus value={value!} showIcon />,
+        // Wave 1.6 — split 'Paid': rent paid but deposit still due reads
+        // 'Rent paid — deposit due' (depositPaid is attached by getBookings).
+        renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.Booking, bookcarsTypes.BookingStatus>) => <BookingStatus value={value!} showIcon depositDue={value === bookcarsTypes.BookingStatus.Paid && Number(row.financialSnapshot?.depositAmount || 0) > Number(row.depositPaid || 0)} />,
         valueGetter: (value: string) => value,
       },
       {

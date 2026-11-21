@@ -105,6 +105,12 @@ const Payments = () => {
   // Keep one key per payment interaction so a lost response can be safely retried.
   // A new payment ID gets a new key; the server remains the final idempotency authority.
   const reversalKeys = useRef<Record<string, string>>({})
+  // Wave 1.5 — one idempotency key per new-payment dialog session (same
+  // pattern as reversalKeys): a retry after a lost response re-sends the
+  // SAME key, so the server replays the original payment instead of
+  // posting a second one. A fresh UUID per save attempt defeated the
+  // server-side dedupe.
+  const createKey = useRef<string>('')
 
   const reload = useCallback(async (user?: bookcarsTypes.User) => {
     if (!user) {
@@ -207,7 +213,7 @@ const Payments = () => {
   const overdueRows = (serverOverdue?.rows || []).map((row) => ({
     booking: row.booking,
     outstanding: row.outstandingBalance,
-    depositHeld: row.depositHeld,
+    depositDue: row.depositDue,
     dueAt: row.dueAt ? new Date(row.dueAt) : undefined,
     overdue: row.overdue,
   }))
@@ -272,6 +278,7 @@ const Payments = () => {
 
   const openNew = (bookingId?: string) => {
     setEditingPayment(null)
+    createKey.current = globalThis.crypto.randomUUID()
     setForm({ ...emptyForm(), booking: bookingId || eligibleBookings[0]?._id || '' })
     setFormError(false)
     setDialogOpen(true)
@@ -336,13 +343,14 @@ const Payments = () => {
         purpose: form.purpose,
         direction: form.direction,
         reason: form.reason.trim() || undefined,
-        idempotencyKey: globalThis.crypto.randomUUID(),
+        idempotencyKey: createKey.current || (createKey.current = globalThis.crypto.randomUUID()),
         reference: form.reference.trim(),
         note: form.note.trim(),
       })
       setPayments((rows) => [payment, ...rows])
       setPaymentsTotal((total) => total + 1)
       setDialogOpen(false)
+      createKey.current = ''
       setNotice('')
     } catch (error) {
       helper.error(error, helper.getErrorMessage(error, strings.SAVE_ERROR))
@@ -476,7 +484,7 @@ const Payments = () => {
               <span data-label={strings.CUSTOMER}>{customerName(row.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstanding)}</strong>
-              <span data-label={strings.DEPOSIT}>{formatAmount(row.depositHeld)}</span>
+              <span data-label={strings.DEPOSIT}>{formatAmount(row.depositDue)}</span>
               <span data-label={strings.DATE}>{formatDate(row.dueAt ?? row.booking.to)}</span>
             </div>
           ))}

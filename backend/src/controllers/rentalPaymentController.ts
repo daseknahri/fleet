@@ -349,7 +349,7 @@ export const overdue = async (req: Request, res: Response) => {
       rows.push({
         booking: booking as unknown as bookcarsTypes.Booking,
         outstandingBalance: receivable.outstandingBalance,
-        depositHeld: Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments)),
+        depositDue: Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments)),
         dueAt: receivable.dueAt,
         overdue: receivable.overdue,
         currency: receivable.currency,

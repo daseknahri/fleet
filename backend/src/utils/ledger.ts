@@ -555,7 +555,10 @@ export const postProviderPayment = (input: Omit<PostRentalPaymentInput, 'method'
  * ADR-001-compliant shape of the missing step: the status is DERIVED from
  * posted collections, never trusted from an operator-supplied value.
  * `Pending`/`Reserved` with nothing outstanding becomes `Paid`;
- * `Deposit` with nothing outstanding becomes `PaidInFull`. A booking
+ * `Deposit` with nothing outstanding becomes `PaidInFull`. The reverse
+ * also holds (Wave 1.6): a `Paid`/`PaidInFull` booking with an
+ * outstanding balance again falls back to `Deposit`, so the label can
+ * never claim 'paid' while money is owed. A booking
  * whose dates are now taken by another (reserving) booking cannot be
  * confirmed into a reserving status: the conflict is reported
  * (`conflict: true`) and the status is left untouched — the payment stays
@@ -581,16 +584,29 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
     postedRent: receivable.postedPayments,
     depositPaid: receivable.depositPayments,
   }
-  const target = booking.status === bookcarsTypes.BookingStatus.Deposit
+  // Upgrade leg (unchanged): Pending/Reserved with nothing outstanding
+  // becomes Paid; Deposit with nothing outstanding becomes PaidInFull.
+  const upgradeTarget = booking.status === bookcarsTypes.BookingStatus.Deposit
     ? bookcarsTypes.BookingStatus.PaidInFull
     : [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Reserved].includes(booking.status)
       ? bookcarsTypes.BookingStatus.Paid
       : null
+  // Downgrade leg (Wave 1.6) — the status must move DOWN when money
+  // becomes owed again: a Paid/PaidInFull booking that gains an approved
+  // charge, or a price increase, falls back to Deposit (deposit paid,
+  // rent due). It NEVER falls back to Pending: a Pending booking reserves
+  // the car only while its hold window is open, and a confirmed booking
+  // carries no expireAt — Pending would silently free the car.
+  const downgrade = [bookcarsTypes.BookingStatus.Paid, bookcarsTypes.BookingStatus.PaidInFull].includes(booking.status)
+    && receivable.outstandingBalance > 0
+  const target = downgrade ? bookcarsTypes.BookingStatus.Deposit : upgradeTarget
   // Nothing outstanding, and either real money was posted or the contract
   // total is zero (a genuinely free booking confirms with no payment).
+  // The outstanding check applies to the upgrade leg only: for the
+  // downgrade leg, an outstanding balance is the trigger, not a refusal.
   const moneyPosted = receivable.postedPayments + receivable.depositPayments > 0
   const totalDue = receivable.rentalTotal + receivable.approvedCharges
-  if (!target || receivable.outstandingBalance > 0 || (!moneyPosted && totalDue > 0)) {
+  if (!target || (!downgrade && (receivable.outstandingBalance > 0 || (!moneyPosted && totalDue > 0)))) {
     return { status: booking.status, updated: false, ...base, conflict: false }
   }
   // F4 / W1 #5 — the pay-later half of the lifecycle middle: a

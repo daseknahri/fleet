@@ -431,8 +431,11 @@ export const getBookingStatus = (status?: bookcarsTypes.BookingStatus) => {
     case bookcarsTypes.BookingStatus.Paid:
       return commonStrings.BOOKING_STATUS_PAID
 
+    // Wave 1.3 (S3) — Paid and PaidInFull are one manager-facing state:
+    // both mean the rent is fully paid (outstandingBalance == 0). The
+    // deposit split is shown separately where it is known (BookingList).
     case bookcarsTypes.BookingStatus.PaidInFull:
-      return commonStrings.BOOKING_STATUS_PAID_IN_FULL
+      return commonStrings.BOOKING_STATUS_PAID
 
     case bookcarsTypes.BookingStatus.Reserved:
       return commonStrings.BOOKING_STATUS_RESERVED
@@ -518,11 +521,14 @@ export const getBookingStatusTextColor = (status?: bookcarsTypes.BookingStatus) 
  *
  * @returns {bookcarsTypes.StatusFilterItem[]}
  */
+// Wave 1.3 (S3) — the staff-facing status list is the manager vocabulary
+// only: Awaiting payment (Pending) / Deposit paid (Deposit) / Paid
+// (Paid + PaidInFull merged) / Cancelled. Void is a system placeholder
+// and Reserved is legacy-import only — neither is a staff choice, so
+// neither appears here. Callers that send this list to the server must
+// expand it with expandBookingStatuses below, or PaidInFull rows would
+// vanish from the results.
 export const getBookingStatuses = (): bookcarsTypes.StatusFilterItem[] => [
-  {
-    value: bookcarsTypes.BookingStatus.Void,
-    label: commonStrings.BOOKING_STATUS_VOID,
-  },
   {
     value: bookcarsTypes.BookingStatus.Pending,
     label: commonStrings.BOOKING_STATUS_PENDING,
@@ -536,18 +542,32 @@ export const getBookingStatuses = (): bookcarsTypes.StatusFilterItem[] => [
     label: commonStrings.BOOKING_STATUS_PAID,
   },
   {
-    value: bookcarsTypes.BookingStatus.PaidInFull,
-    label: commonStrings.BOOKING_STATUS_PAID_IN_FULL,
-  },
-  {
-    value: bookcarsTypes.BookingStatus.Reserved,
-    label: commonStrings.BOOKING_STATUS_RESERVED,
-  },
-  {
     value: bookcarsTypes.BookingStatus.Cancelled,
     label: commonStrings.BOOKING_STATUS_CANCELLED,
   },
 ]
+
+/**
+ * Expand a manager-vocabulary status filter to the stored statuses it
+ * covers. Wave 1.3 (S3): the UI merges Paid + PaidInFull into one
+ * "Paid", but the server still stores PaidInFull rows — a filter for
+ * Paid must match both.
+ *
+ * @param {bookcarsTypes.BookingStatus[]} statuses
+ * @returns {bookcarsTypes.BookingStatus[]}
+ */
+export const expandBookingStatuses = (statuses: bookcarsTypes.BookingStatus[]): bookcarsTypes.BookingStatus[] => {
+  const expanded: bookcarsTypes.BookingStatus[] = []
+  statuses.forEach((status) => {
+    if (!expanded.includes(status)) {
+      expanded.push(status)
+    }
+    if (status === bookcarsTypes.BookingStatus.Paid && !expanded.includes(bookcarsTypes.BookingStatus.PaidInFull)) {
+      expanded.push(bookcarsTypes.BookingStatus.PaidInFull)
+    }
+  })
+  return expanded
+}
 
 /**
  * Get all user types.

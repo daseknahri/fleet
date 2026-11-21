@@ -13,6 +13,7 @@ import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { BookingConflictError, saveBookingWithAvailability } from '../utils/bookingReservationHelper'
+import { refreshBookingPaymentStatus } from '../utils/ledger'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { findActiveInvoice, refreshDraftInvoiceAfterAmendment } from '../utils/invoiceCreation'
 import { resolveOverlapExceptionGate } from './bookingController'
@@ -519,6 +520,20 @@ export const amend = async (req: Request, res: Response) => {
           },
         )
       }
+    }
+
+    // Wave 1.6 — an amendment re-prices the booking: if the new total
+    // leaves money owed on a Paid/PaidInFull booking, the status must
+    // downgrade. Best-effort: the amendment itself already succeeded.
+    // Runs after the last booking.save() above, so the refresh is not
+    // overwritten by the in-memory doc.
+    try {
+      const refresh = await refreshBookingPaymentStatus(booking._id)
+      if (refresh.updated) {
+        booking.status = refresh.status
+      }
+    } catch (refreshErr) {
+      logger.error('[booking.amend] booking payment status could not be refreshed', refreshErr)
     }
 
     res.json(booking)

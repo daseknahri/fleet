@@ -25,7 +25,7 @@ import * as helper from '../utils/helper'
 import * as mailHelper from '../utils/mailHelper'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
-import { BookingConflictError, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability } from '../utils/bookingReservationHelper'
+import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
@@ -34,7 +34,7 @@ import Quote from '../models/Quote'
 import ContractSnapshot from '../models/ContractSnapshot'
 import ContractInspection from '../models/ContractInspection'
 import AgentSettlement from '../models/AgentSettlement'
-import { postProviderPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions, LedgerError } from '../utils/ledger'
+import { postProviderPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions, LedgerError } from '../utils/ledger'
 import { approvalRequiredFor, findLatestApproval } from '../utils/approvalProducer'
 import { getContractReceivable } from '../utils/contractReceivable'
 import stripeAPI from '../payment/stripe'
@@ -1211,7 +1211,18 @@ export const checkout = async (req: Request, res: Response) => {
       expireAt,
     })
 
-    await saveBookingWithAvailability(booking)
+    // Wave 1.5 (S2) — TOCTOU double-check: the availability decision
+    // the customer saw (search / availability endpoint) is stale by the
+    // time checkout reaches this save, and two checkouts for the same
+    // car can race here. Hold the per-car lock across a fresh
+    // re-check and the save, so check-then-save is one atomic step in
+    // the non-transactional path (in prod the transaction already
+    // serialises it; the lock is harmless there). The save skips
+    // re-acquiring the lock it already holds.
+    await withCarLock([carObj._id.toString()], async () => {
+      await checkBookingAvailability(booking, [booking._id])
+      await saveBookingWithAvailability(booking, { skipCarLock: true })
+    })
 
     // GA-PAR-05: only the pay-later checkout is finalised at this point.
     if (isPayLater) {
@@ -1847,6 +1858,18 @@ export const update = async (req: Request, res: Response) => {
       if (previousStatus !== status) {
         // notify driver
         await notifyDriver(booking)
+      }
+
+      // Wave 1.6 — a price/date change can leave money owed on a
+      // Paid/PaidInFull booking: downgrade the status so the label
+      // follows the ledger. Best-effort: the update itself succeeded.
+      try {
+        const refresh = await refreshBookingPaymentStatus(booking._id)
+        if (refresh.updated) {
+          booking.status = refresh.status
+        }
+      } catch (refreshErr) {
+        logger.error('[booking.update] booking payment status could not be refreshed', refreshErr)
       }
 
       res.json(booking)
@@ -2500,6 +2523,38 @@ export const getBookings = async (req: Request, res: Response) => {
       delete row.trashHistory
       if (row.onlineSignature) {
         row.onlineSignature = publicOnlineSignature(row.onlineSignature as { signedAt?: Date })
+      }
+    }
+
+    // Wave 1.6 — attach the posted refundable-deposit total per booking
+    // (one aggregate for the page) so the list can split "Paid" into
+    // "Rent paid — deposit due" when the deposit is still outstanding.
+    // Display-only read-model field (see Booking.depositPaid); the
+    // ledger stays the source of truth.
+    if (bookings.length > 0) {
+      const depositRows = await RentalPayment.aggregate<{ _id: mongoose.Types.ObjectId, total: number }>([
+        {
+          $match: {
+            booking: { $in: bookings.map((booking) => booking._id).filter((id): id is mongoose.Types.ObjectId => !!id) },
+            status: bookcarsTypes.RentalPaymentStatus.Posted,
+            purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+          },
+        },
+        {
+          $group: {
+            _id: '$booking',
+            total: { $sum: { $cond: [{ $eq: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] }, { $multiply: ['$amount', -1] }, '$amount'] } },
+          },
+        },
+      ])
+      const depositPaidByBooking = new Map(depositRows.map((row) => [row._id.toString(), Number(row.total || 0)]))
+      for (const booking of bookings) {
+        // BookingInfo._id is optional in the type; list rows always carry
+        // one (they come from the database), but the guard keeps tsc happy.
+        if (!booking._id) {
+          continue
+        }
+        (booking as unknown as Record<string, unknown>).depositPaid = depositPaidByBooking.get(booking._id.toString()) || 0
       }
     }
 
@@ -3187,111 +3242,6 @@ export const getOverdueBookings = async (req: Request, res: Response) => {
   }
 }
 
-/**
- * F3 / W1 #3 — staff manual payment confirmation (cash at the counter,
- * walk-in rentals, pay-later collections).
- *
- * Two shapes in one endpoint: with `amount` it posts the just-collected
- * cash to the ledger first (Cash by default; any RentalPaymentMethod, any
- * purpose — Rent by default) and then derives the status; without it, it
- * derives the status from already-posted payments only (e.g. cash that
- * was recorded on the Payments page). The status is always DERIVED from
- * the ledger via refreshBookingPaymentStatus — Pending/Reserved with
- * nothing outstanding becomes Paid, Deposit with nothing outstanding
- * becomes PaidInFull — never trusted from the payload. A partial
- * collection answers 200 with `updated: false` and the outstanding
- * balance, so the counter can see what is still due; a booking whose
- * dates were taken meanwhile answers 200 with `conflict: true` (the
- * payment stays posted).
- *
- * @export
- * @async
- * @param {Request} req
- * @param {Response} res
- * @returns {unknown}
- */
-export const confirmManualPayment = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const payload = req.body as bookcarsTypes.ConfirmManualPaymentPayload
-    if (!mongoose.isValidObjectId(id)) {
-      res.status(400).send('Invalid booking')
-      return
-    }
-    const booking = await Booking.findById(id)
-    if (!booking) {
-      res.status(404).send('Booking not found')
-      return
-    }
-    const scope = await authorizeStaffBooking(req, booking, 'confirm payments for bookings')
-    if (!scope.ok) {
-      res.status(scope.status).send(scope.message)
-      return
-    }
-    if (booking.deletedAt) {
-      res.status(409).send(trashedMessage('booking'))
-      return
-    }
-    if ([bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled].includes(booking.status)) {
-      res.status(409).send('PAYMENT_CONFIRM_CLOSED: This booking is closed and cannot have payments confirmed.')
-      return
-    }
-    if (payload?.amount !== undefined) {
-      const amount = Number(payload.amount)
-      const method = payload.method || bookcarsTypes.RentalPaymentMethod.Cash
-      const purpose = payload.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
-      const note = typeof payload.note === 'string' ? payload.note.trim() : ''
-      const reference = typeof payload.reference === 'string' ? payload.reference.trim() : ''
-      if (!Number.isFinite(amount) || amount <= 0
-        || !Object.values(bookcarsTypes.RentalPaymentMethod).includes(method)
-        || !Object.values(bookcarsTypes.RentalPaymentPurpose).includes(purpose)
-        || note.length > 1000 || reference.length > 160) {
-        res.status(400).send('Invalid manual payment')
-        return
-      }
-      try {
-        await postRentalPayment({
-          bookingId: booking._id,
-          supplierId: scope.sessionUser.type === bookcarsTypes.UserType.Admin ? undefined : agencySupplierId(req),
-          date: new Date(),
-          amount,
-          currency: payload.currency,
-          method,
-          purpose,
-          actorId: scope.sessionUser._id,
-          note: note || undefined,
-          reference: reference || undefined,
-        })
-      } catch (err) {
-        if (err instanceof LedgerError) {
-          const status = err.code === 'BOOKING_NOT_FOUND' ? 404
-            : err.code === 'DUPLICATE_IDEMPOTENCY_KEY' ? 409
-              : err.code === 'TRASHED' ? 409
-              : 400
-          res.status(status).send(err.message)
-          return
-        }
-        throw err
-      }
-    }
-    const refresh = await refreshBookingPaymentStatus(booking._id)
-    const updatedBooking = await Booking.findById(id)
-    res.json({
-      booking: updatedBooking,
-      status: refresh.status,
-      updated: refresh.updated,
-      outstandingBalance: refresh.outstandingBalance,
-      currency: refresh.currency,
-      postedRent: refresh.postedRent,
-      depositPaid: refresh.depositPaid,
-      conflict: refresh.conflict,
-      ...(refresh.conflict ? { message: 'PAYMENT_CONFLICT: The payment was recorded but the booking cannot be confirmed to Paid: the car is no longer available for the rental dates.' } : {}),
-    })
-  } catch (err) {
-    logger.error(`[booking.confirmManualPayment] ${i18n.t('ERROR')} ${req.params.id}`, err)
-    res.status(400).send(i18n.t('ERROR'))
-  }
-}
 
 /**
  * GA-PAR-22 — Trash Bookings (scorecard #47, D-22.3/D-22.4).

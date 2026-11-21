@@ -279,7 +279,7 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
     expect(payments).toHaveLength(2)
   })
 
-  it('manual cash confirmation confirms a Pending pay-later booking (lifecycle Confirmed)', async () => {
+  it('a cash posting on the Payments page confirms a Pending pay-later booking (lifecycle Confirmed)', async () => {
     const fixture = await makeFixture('refresh-confirmed')
     const booking = await Booking.create({
       supplier: fixture.supplier._id, car: fixture.car._id, driver: fixture.driver._id,
@@ -297,11 +297,13 @@ describe('F4 / W1 #5 — the lifecycle middle has a producer', () => {
       },
     } as any)
     fixtureBookingIds.push(booking._id)
-    const response = await request(app).post(`/api/bookings/${booking._id.toString()}/confirm-payment`)
-      .set(env.X_ACCESS_TOKEN, adminToken).send({ amount: 1000, method: bookcarsTypes.RentalPaymentMethod.Cash })
-    expect(response.status).toBe(200)
-    expect(response.body.updated).toBe(true)
-    expect(response.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    const response = await request(app).post('/api/rental-payments')
+      .set(env.X_ACCESS_TOKEN, adminToken).send({
+        booking: booking._id.toString(), date: new Date(), amount: 1000,
+        method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+        idempotencyKey: `w1-f4-${Math.random().toString(36).slice(2)}`,
+      })
+    expect(response.status).toBe(201)
     const saved = await Booking.findById(booking._id).lean()
     expect(saved?.status).toBe(bookcarsTypes.BookingStatus.Paid)
     expect(saved?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
