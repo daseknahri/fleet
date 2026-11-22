@@ -23,6 +23,7 @@ import { getContractReceivable } from '../utils/contractReceivable'
 import { LedgerError, getRecordedPurposeTotal, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions } from '../utils/ledger'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
+import { findBlockingScheduleForHandover } from '../utils/maintenanceSchedule'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { approvalRequiredFor, mirrorApprovalDecision, produceApprovalRequest } from '../utils/approvalProducer'
 import { isSelfApproval } from '../utils/approvalPolicy'
@@ -114,25 +115,68 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
       if (booking!.deletedAt) {
  throw new Error('TRASHED') 
 }
-      // F3 / W1 #11 — handover payment gate: a Draft booking that is
-      // still Pending (an unpaid pay-later booking) cannot be handed
-      // over until the payment is confirmed (staff manual confirmation,
-      // W1 #3 — cash collected at the counter → Paid) or nothing is
-      // outstanding (a zero-total booking). The 409 names the
-      // outstanding balance so the UI shows the reason instead of a
-      // bare refusal. The same gate lives in inspectionTransition
-      // (Pending removed from the Draft-handover statuses); this
-      // pre-check is the branch that carries the amount.
+      // Wave 2 remainder — 2.2 (M5/C2): the balance-based handover
+      // gate, for EVERY status — not only Pending. The old gate fired
+      // only for Pending, and inspectionTransition let Deposit/Paid/
+      // PaidInFull through with no balance check at all, so a
+      // deposit-paid booking with rent unpaid still took the car.
+      // Now: handover requires the receivable settled (nothing
+      // outstanding) AND the refundable deposit collected, except for
+      // the Q14 rent-at-return exception — rent-only balance, deposit
+      // collected, and no future confirmed booking for the car (the
+      // car is not already reserved). The 409 names the balance or
+      // the missing deposit so the UI shows the reason instead of a
+      // bare refusal. Error precedence: an outstanding balance is
+      // reported first (PAYMENT_NOT_CONFIRMED); the deposit gap
+      // (DEPOSIT_NOT_COLLECTED) is reported only once the rent is
+      // settled. The deposit is recorded at the counter before
+      // handover (postRentalPayment / confirmRentalPayment); a
+      // zero-deposit booking (refundableDeposit 0) passes trivially.
       let paymentConfirmed = false
-      if (type === bookcarsTypes.InspectionType.Handover && booking!.status === bookcarsTypes.BookingStatus.Pending) {
+      if (type === bookcarsTypes.InspectionType.Handover) {
         const receivable = await getContractReceivable(booking!)
-        paymentConfirmed = receivable.outstandingBalance <= 0
-        // F4 / W1 #5 — the pre-check fires for Draft AND Confirmed:
-        // the handover payment gate now applies to both lifecycles
-        // (inspectionTransition), so a Confirmed booking that is still
-        // Pending must 409 here with the amount, not slip through.
-        if (!paymentConfirmed) {
-          throw new Error(`PAYMENT_NOT_CONFIRMED: Payment must be confirmed before handover. Outstanding balance: ${receivable.outstandingBalance} ${receivable.currency}. Record the payment first.`)
+        const currency = receivable.currency
+        const depositCollected = toMinorUnits(receivable.depositPayments, currency) >= toMinorUnits(receivable.refundableDeposit, currency)
+        if (receivable.outstandingBalance <= 0 && depositCollected) {
+          paymentConfirmed = true
+        } else if (receivable.outstandingBalance > 0) {
+          // Q14 exception: rent-only balance, deposit collected, car
+          // not already reserved (no future Confirmed booking).
+          const rentOnly = toMinorUnits(receivable.approvedCharges, currency) - toMinorUnits(receivable.chargeCredits, currency) <= 0
+          let hasFutureConfirmedBooking = false
+          if (rentOnly && depositCollected) {
+            hasFutureConfirmedBooking = !!(await Booking.exists({
+              _id: { $ne: booking!._id },
+              supplier: booking!.supplier,
+              car: booking!.car,
+              lifecycle: bookcarsTypes.ContractLifecycle.Confirmed,
+              status: { $nin: [bookcarsTypes.BookingStatus.Cancelled, bookcarsTypes.BookingStatus.Void] },
+              deletedAt: null,
+              to: { $gt: new Date() },
+            }).session(session))
+          }
+          if (rentOnly && depositCollected && !hasFutureConfirmedBooking) {
+            paymentConfirmed = true
+          } else {
+            // The balance is the blocker named first (the Wave 1
+            // precedence): a rent balance outstanding is reported as
+            // PAYMENT_NOT_CONFIRMED even when the deposit is also
+            // missing — the deposit gap surfaces on the next attempt
+            // once the rent is paid. The Q14 exception above is the
+            // only way an outstanding balance hands over.
+            throw new Error(`PAYMENT_NOT_CONFIRMED: Payment must be confirmed before handover. Outstanding balance: ${receivable.outstandingBalance} ${currency}. Record the payment first.`)
+          }
+        } else if (!depositCollected) {
+          throw new Error(`DEPOSIT_NOT_COLLECTED: Deposit must be collected before handover. Deposit due: ${receivable.refundableDeposit} ${currency}; collected: ${receivable.depositPayments} ${currency}. Record the deposit payment first.`)
+        }
+        // Maintenance re-check at handover: the car must not leave
+        // the lot with maintenance overdue, nor with a service falling
+        // due inside the rental window.
+        if (paymentConfirmed) {
+          const blocking = await findBlockingScheduleForHandover(booking!.supplier, booking!.car, new Date(booking!.from), new Date(booking!.to), session)
+          if (blocking) {
+            throw new Error(`MAINTENANCE_BLOCKS_HANDOVER: Maintenance "${blocking.title}" blocks handover (${blocking.trigger}). Complete the service first.`)
+          }
         }
       }
       const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload)
@@ -180,6 +224,19 @@ throw new Error('INVALID_CONTRACT_TRANSITION')
       const [inspection] = await ContractInspection.create([{ supplier: booking!.supplier, booking: booking!._id, car: booking!.car, type, ...payload, photoFiles: mergedPhotoFiles, actor, acknowledgedBy: actor }], { session })
       booking!.lifecycle = nextLifecycle
       await booking!.save({ session })
+      // Wave 2 remainder — 2.2 / GPS option A: the inspection odometer
+      // is the freshest km the system has — save it onto the car (max
+      // rule: an inspection never lowers a stored reading; a wrong
+      // stored value is corrected on the car form). Both handover and
+      // return inspections carry an odometer, so the car's km advances
+      // on every rental — the oil-change schedules see fresh km.
+      if (payload.odometer !== undefined) {
+        const car = await Car.findById(booking!.car).session(session)
+        if (car && (car.odometerKm === undefined || car.odometerKm === null || car.odometerKm < payload.odometer)) {
+          car.odometerKm = payload.odometer
+          await car.save({ session })
+        }
+      }
       result = { booking: booking!, inspection }
     })
     if (!result) {
@@ -206,6 +263,14 @@ throw new Error('CONTRACT_OPERATION_FAILED')
     // F3 / W1 #11 — handover refused until the payment is confirmed;
     // the message carries the outstanding balance for the UI.
     if (code.startsWith('PAYMENT_NOT_CONFIRMED')) {
+ res.status(409).send(code); return 
+}
+    // Wave 2 remainder — 2.2: deposit not collected, or maintenance
+    // blocking the handover; the message names the blocker for the UI.
+    if (code.startsWith('DEPOSIT_NOT_COLLECTED')) {
+ res.status(409).send(code); return 
+}
+    if (code.startsWith('MAINTENANCE_BLOCKS_HANDOVER')) {
  res.status(409).send(code); return 
 }
     logger.error(`[contractOperations.${type}]`, err); res.status(400).send(i18n.t('ERROR'))
@@ -1159,6 +1224,39 @@ export const complete = async (req: Request, res: Response) => {
         returnedAmount,
         method: method || undefined,
         note: note || undefined,
+      }
+    }
+    // Wave 2 remainder — 2.2 (C3): the balance gate at completion.
+    // No Q14 exception here — rent is due at return. The kept leg of
+    // a deposit settlement settles approved unsettled charges, so it
+    // comes off the outstanding balance (postDepositSettlement
+    // enforces kept == approved unsettled charges). A deposit that
+    // was never collected with no settlement to return/keep it also
+    // blocks. When a balance remains, the operator may still close
+    // the contract — but only with an explicit reason (1–1000 chars)
+    // recorded on the booking as closeWithBalance; the balance stays
+    // owed (the receivable does not change).
+    const receivableBefore = await getContractReceivable(booking!)
+    const currency = String(booking!.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
+    const depositCollected = toMinorUnits(receivableBefore.depositPayments, currency) >= toMinorUnits(receivableBefore.refundableDeposit, currency)
+    if (!depositCollected && !settlementInput) {
+      res.status(409).send(`DEPOSIT_NOT_COLLECTED: Deposit was never collected and no deposit settlement was supplied. Deposit due: ${receivableBefore.refundableDeposit} ${currency}; collected: ${receivableBefore.depositPayments} ${currency}.`)
+      return
+    }
+    const keptMinor = settlementInput ? toMinorUnits(settlementInput.keptAmount, currency) : 0
+    const effectiveOutstandingMinor = Math.max(0, toMinorUnits(receivableBefore.outstandingBalance, currency) - keptMinor)
+    if (effectiveOutstandingMinor > 0) {
+      const reason = typeof (req.body as Record<string, unknown> | undefined)?.closeWithBalanceReason === 'string'
+        ? String((req.body as Record<string, unknown>).closeWithBalanceReason).trim()
+        : ''
+      if (reason.length < 1 || reason.length > 1000) {
+        res.status(409).send(`BALANCE_OUTSTANDING: Outstanding balance: ${effectiveOutstandingMinor / (10 ** currencyExponent(currency))} ${currency}. Record the payment first, or close with a reason (closeWithBalanceReason, 1–1000 chars).`)
+        return
+      }
+      booking!.closeWithBalance = {
+        reason,
+        recordedBy: req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+        recordedAt: new Date(),
       }
     }
     const completedAt = new Date()

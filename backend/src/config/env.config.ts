@@ -954,6 +954,14 @@ export interface Booking extends Document {
     returnedPaymentIds?: Types.ObjectId[]
     keptPaymentIds?: Types.ObjectId[]
   }
+  // Wave 2 remainder — 2.2: closing a contract with a balance still
+  // outstanding (reason operator-supplied, 1–1000 chars; the balance
+  // stays owed).
+  closeWithBalance?: {
+    reason: string
+    recordedBy?: Types.ObjectId
+    recordedAt?: Date
+  }
   /** GA-PAR-07: apporteur commission snapshot captured at booking time. */
   agent?: {
     agent: Types.ObjectId

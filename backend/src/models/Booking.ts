@@ -192,6 +192,16 @@ const bookingSchema = new Schema<env.Booking>(
       returnedPaymentIds: [{ type: Schema.Types.ObjectId, ref: 'RentalPayment' }],
       keptPaymentIds: [{ type: Schema.Types.ObjectId, ref: 'RentalPayment' }],
     },
+    // Wave 2 remainder — 2.2: closing a contract with a balance still
+    // outstanding. The operator supplies the reason (1–1000 chars);
+    // recordedBy/recordedAt are stamped server-side. The balance stays
+    // owed (the receivable does not change) — the reason only explains
+    // why the contract was closed with money still due.
+    closeWithBalance: {
+      reason: { type: String, trim: true, maxlength: 1000 },
+      recordedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      recordedAt: { type: Date },
+    },
     // GA-PAR-10: recorded overlap exception. Only the reason is ever
     // client-supplied (create/update payloads, Owner/Manager only — the
     // gate lives in bookingController); authorisedBy/authorisedAt are

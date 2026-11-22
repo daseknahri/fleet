@@ -18,6 +18,7 @@ import { contentMatchesExtension } from '../utils/fileContent'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import { deriveFleetStatus, emptyFleetStatusCounts, fleetStatusForList, isFleetStatus } from '../utils/fleetStatus'
 import { agencySupplierId } from '../utils/agencyAuthorization'
+import { defaultDeposit } from '../utils/depositDefaults'
 import DateBasedPrice from '../models/DateBasedPrice'
 import User from '../models/User'
 import Notification from '../models/Notification'
@@ -769,6 +770,12 @@ export const create = async (req: Request, res: Response) => {
 
     const car = new Car({
       ...carFields,
+      // Wave 2 remainder — Q13: a blank deposit defaults to 5× the
+      // daily rate, nearest 500, bounded [1,500–5,000] MAD. An explicit
+      // value (including 0) is the manager's override and is kept.
+      deposit: body.deposit === undefined || body.deposit === null || (body.deposit as unknown) === ''
+        ? defaultDeposit(body.dailyPrice)
+        : body.deposit,
       // F5a (W2-02): store the trimmed plate, never the raw payload value.
       licensePlate: plate,
       supplier: supplierId,

@@ -28,6 +28,9 @@ import AgencyReturnSettings from '../src/models/AgencyReturnSettings'
 import Approval from '../src/models/Approval'
 import AdminAccessLog from '../src/models/AdminAccessLog'
 import { postRentalPayment, reverseRentalPayment } from '../src/utils/ledger'
+import { getContractReceivable } from '../src/utils/contractReceivable'
+import { defaultDeposit } from '../src/utils/depositDefaults'
+import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 
 // Wave 2 â€” money-flow build (2.1, 2.3, 2.4, 2.5, 2.6, 2.8, 2.9, 2.10,
 // 2.11). Same harness as cancelRefundWorkflow (F3): mocked providers
@@ -180,6 +183,17 @@ const postManual = async (booking: any, purpose: bookcarsTypes.RentalPaymentPurp
   return payment
 }
 
+// Wave 2 remainder — 2.2: the handover gate is balance-based, so a
+// fixture that hands over must carry real money (status Paid alone no
+// longer opens the gate). Rent + deposit at the fixture's snapshot
+// amounts, via the counter (manual cash) path.
+const payInFull = async (fixture: any) => {
+  const rentalTotal = fixture.booking.financialSnapshot?.rentalTotal ?? 1000
+  const depositAmount = fixture.booking.financialSnapshot?.depositAmount ?? 250
+  await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, rentalTotal, bookcarsTypes.RentalPaymentMethod.Cash)
+  await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, depositAmount, bookcarsTypes.RentalPaymentMethod.Cash)
+}
+
 const openSession = async (token: string, account: bookcarsTypes.CashAccountType, openingBalance = 0) => {
   const res = await request(app).post('/api/cash/sessions').set(env.X_ACCESS_TOKEN, token).send({
     account, openingBalance, openingDifferenceReason: 'W2 fixture',
@@ -265,6 +279,7 @@ afterEach(async () => {
   await CashSession.deleteMany({})
   await MaintenanceExpensePayment.deleteMany({})
   await MaintenanceExpense.deleteMany({})
+  await MaintenanceSchedule.deleteMany({ car: { $in: fixtureCarIds } })
   await AgencyReturnSettings.deleteMany({})
   await Approval.deleteMany({})
   await AdminAccessLog.deleteMany({})
@@ -570,6 +585,7 @@ describe('W2 2.8 â€” contract guards', () => {
 
   it('a snapshot while a charge dispute is open returns 409', async () => {
     const fixture = await makeFixture('c18-snap', { status: bookcarsTypes.BookingStatus.Paid })
+    await payInFull(fixture)
     const api = await toReturnReview(fixture)
     const charge = await api.createCharge({ type: bookcarsTypes.ContractChargeType.Damage, amount: 150, currency: 'MAD', reason: 'Bumper mark review' })
     expect(charge.status).toBe(201)
@@ -600,6 +616,7 @@ describe('W2 2.8 â€” contract guards', () => {
 
   it('a term change once the contract is active returns 409', async () => {
     const fixture = await makeFixture('c8-active', { status: bookcarsTypes.BookingStatus.Paid })
+    await payInFull(fixture)
     const api = ops(fixture)
     const handed = await api.handover()
     expect(handed.status).toBe(201)
@@ -618,6 +635,7 @@ describe('W2 2.8 â€” contract guards', () => {
 
   it('a handover with an occurredAt in the future returns 400', async () => {
     const fixture = await makeFixture('c15-future', { status: bookcarsTypes.BookingStatus.Paid })
+    await payInFull(fixture)
     const api = ops(fixture)
     const res = await api.handover({ occurredAt: new Date(Date.now() + 3600000).toISOString(), odometer: 100, fuelLevel: 80 })
     expect(res.status).toBe(400)
@@ -626,6 +644,7 @@ describe('W2 2.8 â€” contract guards', () => {
   it('complete with priced extra-km and no return odometer returns 409', async () => {
     const fixture = await makeFixture('c9-odo', { status: bookcarsTypes.BookingStatus.Paid })
     await AgencyReturnSettings.create({ supplier: fixture.supplier._id, includedKmPerDay: 100, extraKmPrice: 5 })
+    await payInFull(fixture)
     const api = ops(fixture)
     const handed = await api.handover()
     expect(handed.status).toBe(201)
@@ -640,6 +659,7 @@ describe('W2 2.8 â€” contract guards', () => {
 
   it('complete refuses when a charge is decided after the snapshot (stale snapshot)', async () => {
     const fixture = await makeFixture('c5-stale', { status: bookcarsTypes.BookingStatus.Paid })
+    await payInFull(fixture)
     const api = await toReturnReview(fixture)
     const snapshot = await api.snapshot()
     expect(snapshot.status).toBe(201)
@@ -774,5 +794,192 @@ describe('W2 2.11 â€” admin bypass audit', () => {
     const row = await AdminAccessLog.findOne({ actor: adminId, agency: fixture.supplier._id }).lean()
     expect(row).not.toBeNull()
     expect(row?.action).toContain('readBookings')
+  })
+})
+
+describe('W2 remainder — 2.2 balance-based handover + completion gates (M5/C2/C3, Q14)', () => {
+  it('a booking with an approved charge outstanding cannot hand over even with rent + deposit paid (409 PAYMENT_NOT_CONFIRMED)', async () => {
+    const fixture = await makeFixture('g22-charge-block')
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const charge = await api.createCharge({ type: bookcarsTypes.ContractChargeType.Fee, amount: 100, currency: 'MAD', reason: 'Cleaning fee' })
+    expect(charge.status).toBe(201)
+    const decided = await api.decideCharge(charge.body._id, { decision: bookcarsTypes.ApprovalDecision.Approved, note: 'Approved before handover' })
+    expect(decided.status).toBe(200)
+    const res = await api.handover()
+    expect(res.status).toBe(409)
+    expect(String(res.text)).toContain('PAYMENT_NOT_CONFIRMED')
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
+  })
+
+  it('a rent-paid booking with the deposit uncollected cannot hand over (409 DEPOSIT_NOT_COLLECTED)', async () => {
+    const fixture = await makeFixture('g22-rent-only')
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    const api = ops(fixture)
+    const res = await api.handover()
+    expect(res.status).toBe(409)
+    expect(String(res.text)).toContain('DEPOSIT_NOT_COLLECTED')
+  })
+
+  it('rent + deposit paid hands over (201) and saves the handover odometer onto the car (GPS option A)', async () => {
+    const fixture = await makeFixture('g22-odo')
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const res = await api.handover()
+    expect(res.status).toBe(201)
+    expect(res.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Active)
+    const car = await Car.findById(fixture.car._id).lean()
+    expect(car?.odometerKm).toBe(100)
+    const returned = await api.return()
+    expect(returned.status).toBe(201)
+    const carAfterReturn = await Car.findById(fixture.car._id).lean()
+    expect(carAfterReturn?.odometerKm).toBe(130)
+  })
+
+  it('Q14: rent outstanding with deposit collected and no future booking hands over; a future confirmed booking blocks it', async () => {
+    const fixture = await makeFixture('g22-q14')
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 250, bookcarsTypes.RentalPaymentMethod.Cash)
+    const api = ops(fixture)
+    // No future confirmed booking for the car: rent-at-return is allowed.
+    const allowed = await api.handover()
+    expect(allowed.status).toBe(201)
+    // A second booking, manager-confirmed for a later week on the same
+    // car and agency, reserves the car.
+    const futureBooking = await Booking.create({
+      supplier: fixture.supplier._id, car: fixture.car._id, driver: fixture.driver._id,
+      pickupLocation: fixture.location._id, dropOffLocation: fixture.location._id,
+      from: new Date(Date.now() + 5 * 86400000), to: new Date(Date.now() + 7 * 86400000),
+      status: bookcarsTypes.BookingStatus.Pending,
+      lifecycle: bookcarsTypes.ContractLifecycle.Confirmed,
+      price: 1000, cancellation: true, expireAt: null,
+      financialSnapshot: {
+        version: 1, baseCurrency: 'MAD', paymentCurrency: 'MAD', mode: bookcarsTypes.CheckoutPaymentMode.Full,
+        rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000, amountDueNowInPaymentCurrency: 1000, quotedAt: new Date(),
+      },
+    } as any)
+    fixtureBookingIds.push(futureBooking._id)
+    // Back to Draft: the same handover shape must now refuse (the car
+    // is reserved) — rebuild the state on the first booking.
+    await Booking.findByIdAndUpdate(fixture.booking._id, { lifecycle: bookcarsTypes.ContractLifecycle.Draft })
+    await ContractInspection.deleteMany({ booking: fixture.booking._id })
+    const blocked = await api.handover()
+    expect(blocked.status).toBe(409)
+    expect(String(blocked.text)).toContain('PAYMENT_NOT_CONFIRMED')
+  })
+
+  it('an overdue maintenance schedule blocks handover (409 MAINTENANCE_BLOCKS_HANDOVER)', async () => {
+    const fixture = await makeFixture('g22-maint')
+    await payInFull(fixture)
+    await MaintenanceSchedule.create({
+      supplier: fixture.supplier._id, car: fixture.car._id,
+      type: bookcarsTypes.MaintenanceExpenseType.Oil, title: 'W2 overdue oil service',
+      nextDueDate: new Date(Date.now() - 86400000),
+    })
+    const api = ops(fixture)
+    const res = await api.handover()
+    expect(res.status).toBe(409)
+    expect(String(res.text)).toContain('MAINTENANCE_BLOCKS_HANDOVER')
+  })
+
+  it('complete with rent outstanding and no reason returns 409; with a reason it closes and records closeWithBalance', async () => {
+    const fixture = await makeFixture('g22-complete')
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 250, bookcarsTypes.RentalPaymentMethod.Cash)
+    const api = ops(fixture)
+    // Q14 gets the car out with rent outstanding; return it.
+    const handed = await api.handover()
+    expect(handed.status).toBe(201)
+    const returned = await api.return()
+    expect(returned.status).toBe(201)
+    const snapshot = await api.snapshot()
+    expect(snapshot.status).toBe(201)
+    fixtureSnapshotFiles.push(snapshot.body.pdfFile)
+    const refused = await api.complete()
+    expect(refused.status).toBe(409)
+    expect(String(refused.text)).toContain('BALANCE_OUTSTANDING')
+    const closed = await api.complete({ closeWithBalanceReason: 'Customer will wire the balance tomorrow; manager approved the close.' })
+    expect(closed.status).toBe(200)
+    expect(closed.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
+    expect(closed.body.booking.closeWithBalance?.reason).toContain('wire the balance')
+    expect(closed.body.receivable.outstandingBalance).toBe(1000)
+  })
+
+  it('complete with the deposit never collected and no settlement returns 409', async () => {
+    const fixture = await makeFixture('g22-dep-missing')
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const handed = await api.handover()
+    expect(handed.status).toBe(201)
+    const returned = await api.return()
+    expect(returned.status).toBe(201)
+    // The deposit is reversed after return: nothing held, no settlement.
+    const depositPayment = await RentalPayment.findOne({ booking: fixture.booking._id, purpose: bookcarsTypes.RentalPaymentPurpose.Deposit, status: bookcarsTypes.RentalPaymentStatus.Posted }).lean()
+    expect(depositPayment).not.toBeNull()
+    await reverseRentalPayment({ paymentId: depositPayment!._id.toString(), idempotencyKey: 'w2-g22-dep-reversal', actorId: adminId })
+    const snapshot = await api.snapshot()
+    expect(snapshot.status).toBe(201)
+    fixtureSnapshotFiles.push(snapshot.body.pdfFile)
+    const refused = await api.complete()
+    expect(refused.status).toBe(409)
+    expect(String(refused.text)).toContain('DEPOSIT_NOT_COLLECTED')
+  })
+})
+
+describe('W2 remainder — 2.7 VAT-inclusive rent cap + receivable (Q11 = HT, M6)', () => {
+  it('getContractReceivable adds VAT to the rent when the supplier has VAT on; 0% when off', async () => {
+    const fixture = await makeFixture('g27-vat')
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    const off = await getContractReceivable(booking as any)
+    expect(off.vatRate).toBe(0)
+    expect(off.vatAmount).toBe(0)
+    expect(off.rentalTotalInclVat).toBe(1000)
+    expect(off.outstandingBalance).toBe(1000)
+    await User.findByIdAndUpdate(fixture.supplier._id, { vatEnabled: true, vatRate: 20 })
+    const on = await getContractReceivable(booking as any)
+    expect(on.vatRate).toBe(20)
+    expect(on.vatAmount).toBe(200)
+    expect(on.rentalTotalInclVat).toBe(1200)
+    expect(on.outstandingBalance).toBe(1200)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    const partial = await getContractReceivable(booking as any)
+    expect(partial.outstandingBalance).toBe(200)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 200, bookcarsTypes.RentalPaymentMethod.Cash)
+    const settled = await getContractReceivable(booking as any)
+    expect(settled.outstandingBalance).toBe(0)
+  })
+
+  it('the Rent purpose cap is VAT-inclusive: a VAT-on invoice can be paid in full, a further centime is refused', async () => {
+    const fixture = await makeFixture('g27-cap')
+    await User.findByIdAndUpdate(fixture.supplier._id, { vatEnabled: true, vatRate: 20 })
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 200, bookcarsTypes.RentalPaymentMethod.Cash)
+    await expect(
+      postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1, bookcarsTypes.RentalPaymentMethod.Cash),
+    ).rejects.toThrow()
+    const control = await makeFixture('g27-cap-off')
+    await postManual(control.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await expect(
+      postManual(control.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1, bookcarsTypes.RentalPaymentMethod.Cash),
+    ).rejects.toThrow()
+  })
+})
+
+describe('W2 remainder — Q13 defaultDeposit (5× daily rate, nearest 500, [1,500–5,000])', () => {
+  it('rounds 5× the daily rate to the nearest 500 within the bounds', () => {
+    expect(defaultDeposit(300)).toBe(1500)
+    expect(defaultDeposit(320)).toBe(1500)
+    expect(defaultDeposit(420)).toBe(2000)
+    expect(defaultDeposit(450)).toBe(2500)
+    expect(defaultDeposit(1000)).toBe(5000)
+    expect(defaultDeposit(1200)).toBe(5000)
+    expect(defaultDeposit(100)).toBe(1500)
+  })
+
+  it('falls back to the 1,500 floor for non-positive or invalid input', () => {
+    expect(defaultDeposit(0)).toBe(1500)
+    expect(defaultDeposit(-50)).toBe(1500)
+    expect(defaultDeposit(Number.NaN)).toBe(1500)
+    expect(defaultDeposit(undefined)).toBe(1500)
+    expect(defaultDeposit('420' as any)).toBe(1500)
   })
 })

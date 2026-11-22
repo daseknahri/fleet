@@ -600,6 +600,14 @@ describe('F3 / W1 #11 — handover payment gate', () => {
     expect(confirmed.status).toBe(201)
     const paid = await Booking.findById(fixture.booking._id).lean()
     expect(paid?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    // 2.2: handover also requires the refundable deposit collected —
+    // the counter takes rent + deposit together before the keys.
+    const deposit = await request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
+      booking: fixture.booking._id.toString(), date: new Date(), amount: 250,
+      method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+      idempotencyKey: `w1-handover-deposit-${rand()}`,
+    })
+    expect(deposit.status).toBe(201)
     const response = await handoverAsAdmin(fixture)
     expect(response.status).toBe(201)
     const booking = await Booking.findById(fixture.booking._id).lean()

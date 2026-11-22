@@ -714,6 +714,12 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
     // Checkout answers 200 on success with { bookingId, ... }.
     expect(created.status).toBe(200)
     bookingId = created.body.bookingId
+    // W3 leak fix: the M-4 checkout bookings were never registered for
+    // cleanup, so they survived afterAll as overdue rows (200 each)
+    // and broke the Admin overdue total of any suite running after
+    // this file (dashboardF8). Register them in ids like every other
+    // fixture in this file.
+    ids.push(new mongoose.Types.ObjectId(bookingId))
     // Confirm the hold first: a pay-later checkout carries expireAt and
     // trash refuses temporary checkout bookings, so the booking must be
     // a real (confirmed) booking before it can be trashed.
@@ -749,5 +755,6 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
 
     const fresh = await post(ownerToken, '/api/checkout', bookingPayload('2026-12-28T10:00:00.000Z', '2026-12-30T10:00:00.000Z'))
     expect(fresh.status).toBe(200)
+    ids.push(new mongoose.Types.ObjectId(fresh.body.bookingId))
   })
 })

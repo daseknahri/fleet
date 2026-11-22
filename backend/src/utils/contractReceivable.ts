@@ -4,7 +4,9 @@ import * as env from '../config/env.config'
 import Booking from '../models/Booking'
 import RentalPayment from '../models/RentalPayment'
 import ContractCharge from '../models/ContractCharge'
+import User from '../models/User'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
+import { resolveVatRatePercent, vatAmountMinor } from './fiscal'
 
 export interface ContractReceivable {
   currency: string
@@ -17,9 +19,33 @@ export interface ContractReceivable {
   // charges). They reduce the outstanding balance exactly like rent
   // payments do: a charge paid from the deposit is no longer owed.
   chargeCredits: number
+  // Wave 2 remainder — 2.7 (Q11 = HT). The VAT on the rent, as a
+  // percent and as a major-unit amount, and the VAT-inclusive rent.
+  // All three are 0 / equal to rentalTotal when the supplier has VAT
+  // off (the default): the outstanding balance is then exactly the
+  // pre-2.7 number.
+  vatRate: number
+  vatAmount: number
+  rentalTotalInclVat: number
   outstandingBalance: number
   dueAt?: Date
   overdue: boolean
+}
+
+/**
+ * Wave 2 remainder — 2.7. The supplier's effective VAT rate as a
+ * percent (0 when VAT is off or the supplier cannot be found). One
+ * small query per call site that needs it; callers that already hold
+ * the supplier document should use resolveVatRatePercent directly.
+ */
+export const getSupplierVatRatePercent = async (
+  supplierId: mongoose.Types.ObjectId | string | null | undefined,
+): Promise<number> => {
+  if (!supplierId) {
+    return 0
+  }
+  const supplier = await User.findById(supplierId).select('vatEnabled vatRate').lean()
+  return resolveVatRatePercent(supplier)
 }
 
 // ---------------------------------------------------------------------
@@ -65,13 +91,21 @@ export const isOverdue = (outstandingBalance: number, dueAt: Date | undefined, n
   outstandingBalance > 0 && !!dueAt && dueAt.getTime() <= now.getTime()
 
 export const getContractReceivable = async (
-  booking: Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>,
+  booking: Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'> & { supplier?: env.Booking['supplier'] },
   completionAt?: Date,
 ): Promise<ContractReceivable> => {
   const currency = (booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
   const exponent = currencyExponent(currency)
   const rentalTotal = Number(booking.financialSnapshot?.rentalTotal || booking.price || 0)
   const refundableDeposit = Number(booking.financialSnapshot?.depositAmount || 0)
+  // Wave 2 remainder — 2.7 (Q11 = HT): the rent the customer owes is
+  // the HT rental total PLUS the supplier's VAT when VAT is on. A
+  // booking without a supplier (legacy callers that select without
+  // it) resolves to 0% — the pre-2.7 number.
+  const vatRate = await getSupplierVatRatePercent(booking.supplier as mongoose.Types.ObjectId | string | null | undefined)
+  const vatMinor = vatAmountMinor(rentalTotal, currency, vatRate)
+  const vatAmount = vatMinor / (10 ** exponent)
+  const rentalTotalInclVat = Number((rentalTotal + vatAmount).toFixed(exponent))
 
   const rows = await RentalPayment.aggregate<{
     _id: bookcarsTypes.RentalPaymentPurpose
@@ -123,9 +157,13 @@ export const getContractReceivable = async (
   // Wave 2.4 — a charge settled from the kept deposit is paid: the
   // Charge credit comes off the outstanding balance (the deposit
   // itself is still never netted against rent).
+  // Wave 2 remainder — 2.7: the rent leg is VAT-inclusive when the
+  // supplier has VAT on (vatMinor above); approved charges are
+  // staff-decided amounts and carry no VAT here, exactly as the
+  // quote/invoice subtotal taxes the rental total only.
   const outstandingMinor = Math.max(
     0,
-    toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
+    toMinorUnits(rentalTotal + approvedCharges, currency) + vatMinor - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
   )
 
   const outstandingBalance = outstandingMinor / (10 ** exponent)
@@ -142,6 +180,9 @@ export const getContractReceivable = async (
     postedPayments: Number(postedPayments.toFixed(exponent)),
     depositPayments: Number(depositPayments.toFixed(exponent)),
     chargeCredits: Number(chargeCredits.toFixed(exponent)),
+    vatRate,
+    vatAmount: Number(vatAmount.toFixed(exponent)),
+    rentalTotalInclVat,
     outstandingBalance,
     dueAt,
     overdue: isOverdue(outstandingBalance, dueAt),
@@ -173,9 +214,22 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
     status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
     // GA-PAR-22: trashed bookings leave the live balance due (§2.5).
     deletedAt: null,
-  }).select('_id driver price financialSnapshot to lifecycle').lean()
+  }).select('_id driver supplier price financialSnapshot to lifecycle').lean()
 
   const bookingIds = bookings.map((booking) => booking._id)
+
+  // Wave 2 remainder — 2.7: one VAT-rate lookup per supplier in the
+  // set (the rollup must use the same VAT-inclusive rent as
+  // getContractReceivable above).
+  const supplierIds = [...new Set(bookings.map((booking) => booking.supplier?.toString()).filter(Boolean))]
+  const vatRateBySupplier = new Map<string, number>()
+  if (supplierIds.length > 0) {
+    const suppliers = await User.find({ _id: { $in: supplierIds.map((id) => new mongoose.Types.ObjectId(id)) } })
+      .select('vatEnabled vatRate').lean()
+    for (const supplier of suppliers) {
+      vatRateBySupplier.set(supplier._id.toString(), resolveVatRatePercent(supplier))
+    }
+  }
 
   const paymentRows = bookingIds.length > 0 ? await RentalPayment.aggregate<{
     _id: { booking: mongoose.Types.ObjectId, purpose: bookcarsTypes.RentalPaymentPurpose }
@@ -253,9 +307,12 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
     const depositPayments = Number(depositByBooking.get(key) || 0)
     const chargeCredits = Number(chargeByBooking.get(key) || 0)
     // Identical arithmetic to getContractReceivable (minor-unit clamp per booking).
+    // Wave 2 remainder — 2.7: the rent leg is VAT-inclusive when the
+    // booking's supplier has VAT on.
+    const vatMinor = vatAmountMinor(rentalTotal, currency, vatRateBySupplier.get(booking.supplier?.toString() || '') || 0)
     const outstandingMinor = Math.max(
       0,
-      toMinorUnits(rentalTotal + approvedCharges, currency) - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
+      toMinorUnits(rentalTotal + approvedCharges, currency) + vatMinor - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
     )
     const outstanding = outstandingMinor / (10 ** exponent)
     // F6 / W3 P-3 — the same shared overdue rule as

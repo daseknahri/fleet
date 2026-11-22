@@ -11,7 +11,8 @@ import Invoice from '../models/Invoice'
 import ContractCharge from '../models/ContractCharge'
 import { recomputeInvoicePayment } from './invoicePayment'
 import { BookingConflictError, saveBookingWithAvailability } from './bookingReservationHelper'
-import { getContractReceivable } from './contractReceivable'
+import { getContractReceivable, getSupplierVatRatePercent } from './contractReceivable'
+import { vatAmountMinor } from './fiscal'
 import * as logger from './logger'
 
 export class LedgerError extends Error {
@@ -148,7 +149,7 @@ const legacyDepositCap = async (
 // against. One helper for postWithinSession, confirmRentalPayment and
 // the pending-edit validation, so the cap cannot fork again.
 export const purposeCap = async (
-  booking: { _id?: mongoose.Types.ObjectId | string, price?: number, car?: mongoose.Types.ObjectId | string | null, financialSnapshot?: { rentalTotal?: number, depositAmount?: number } | null },
+  booking: { _id?: mongoose.Types.ObjectId | string, price?: number, car?: mongoose.Types.ObjectId | string | null, supplier?: mongoose.Types.ObjectId | string | null, financialSnapshot?: { rentalTotal?: number, depositAmount?: number, baseCurrency?: string } | null },
   purpose: bookcarsTypes.RentalPaymentPurpose,
   dbSession?: mongoose.ClientSession,
 ): Promise<number> => {
@@ -173,14 +174,23 @@ export const purposeCap = async (
     const rows = await agg
     return Number(rows[0]?.total || 0)
   }
-  return hasFinancialSnapshot ? snapshotRentalTotal : Number(booking.price || 0)
+  // Wave 2 remainder — 2.7 (Q11 = HT): the rent allowance is the HT
+  // rental total PLUS the supplier's VAT when VAT is on — otherwise a
+  // VAT-on invoice can never read "paid" (M6). Deposit and Charge
+  // caps are unchanged (a refundable liability and staff-decided
+  // amounts carry no VAT). A booking without a supplier resolves to
+  // 0% — the pre-2.7 number.
+  const rentBase = hasFinancialSnapshot ? snapshotRentalTotal : Number(booking.price || 0)
+  const currency = (booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
+  const vatRate = await getSupplierVatRatePercent(booking.supplier)
+  return rentBase + vatAmountMinor(rentBase, currency, vatRate) / (10 ** currencyExponent(currency))
 }
 
 export const getPurposeRemaining = async (
   bookingId: mongoose.Types.ObjectId | string,
   purpose: bookcarsTypes.RentalPaymentPurpose,
 ): Promise<{ remaining: number, recorded: number, cap: number, currency: string }> => {
-  const booking = await Booking.findById(bookingId).select('_id price car financialSnapshot')
+  const booking = await Booking.findById(bookingId).select('_id price car supplier financialSnapshot')
   if (!booking) {
     throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
   }
@@ -685,7 +695,7 @@ export const confirmRentalPayment = async (input: {
     if (!payment || payment.status !== bookcarsTypes.RentalPaymentStatus.Pending) {
       throw new LedgerError('INVALID_CONFIRMATION', 'Only a pending payment entry can be confirmed')
     }
-    const booking = await Booking.findById(payment.booking).select('_id price car financialSnapshot deletedAt')
+    const booking = await Booking.findById(payment.booking).select('_id price car supplier financialSnapshot deletedAt')
     if (!booking) {
       throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
     }

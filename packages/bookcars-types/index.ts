@@ -692,6 +692,10 @@ export interface Booking {
   paypalOrderId?: string
   financialSnapshot?: BookingFinancialSnapshot
   depositSettlement?: DepositSettlement
+  /** Wave 2 remainder — 2.2: closing a contract with a balance still
+   * outstanding (see CloseWithBalance). The balance stays owed — the
+   * reason only explains why it was closed with money still due. */
+  closeWithBalance?: CloseWithBalance
   /** GA-PAR-07: apporteur commission snapshot captured at booking time. */
   agent?: BookingAgentSnapshot
   /** GA-PAR-10: recorded overlap exception (see OverlapException). */
@@ -980,6 +984,17 @@ export interface OverlapException {
   authorisedBy?: string | User
   authorisedAt?: Date
   conflictingBooking?: string
+}
+
+/**
+ * Wave 2 remainder — 2.2: the record of closing a contract with a
+ * balance still outstanding. `reason` is operator-supplied (1–1000
+ * chars); `recordedBy`/`recordedAt` are stamped server-side.
+ */
+export interface CloseWithBalance {
+  reason: string
+  recordedBy?: string | User
+  recordedAt?: Date
 }
 
 /**

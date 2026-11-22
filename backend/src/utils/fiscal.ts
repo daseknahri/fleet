@@ -1,3 +1,5 @@
+import { toMinorUnits } from './paymentAmount'
+
 /**
  * GA-PAR-01 — agency fiscal identity + VAT helpers.
  *
@@ -32,6 +34,37 @@ export const FISCAL_STRING_LIMITS: Record<string, number> = {
 export const FISCAL_STRING_KEYS = Object.keys(FISCAL_STRING_LIMITS)
 
 export const DEFAULT_VAT_RATE = 20
+
+/**
+ * Wave 2 remainder — 2.7 (Q11 = HT). The effective VAT rate for a
+ * supplier, as a percent: 0 when VAT is off (the default), the
+ * supplier's configured rate when on, DEFAULT_VAT_RATE (20) when on
+ * but no rate is stored. An out-of-range stored rate (the write path
+ * validates 0–100) also falls back to the default rather than
+ * inventing a 200% charge.
+ */
+export const resolveVatRatePercent = (
+  supplier: Pick<FiscalFields, 'vatEnabled' | 'vatRate'> | null | undefined,
+): number => {
+  if (!supplier?.vatEnabled) {
+    return 0
+  }
+  const rate = supplier.vatRate
+  return typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : DEFAULT_VAT_RATE
+}
+
+/**
+ * Wave 2 remainder — 2.7. The VAT on a major-unit amount, returned in
+ * minor units (rounded to the nearest minor unit — the ledger's
+ * minor-unit clamp is the rounding rule, so VAT never invents a
+ * fraction of a centime). 0 when the rate is 0.
+ */
+export const vatAmountMinor = (amountMajor: number, currency: string, vatRatePercent: number): number => {
+  if (!vatRatePercent) {
+    return 0
+  }
+  return Math.round((toMinorUnits(amountMajor, currency) * vatRatePercent) / 100)
+}
 
 export type FiscalNormalizeResult =
   | { ok: true, value: Partial<FiscalFields>, present: Set<string> }

@@ -655,3 +655,33 @@ describe('F5a §7 edge: plate pre-flight scoping', () => {
     expect(scopedOwn.statusCode).toBe(204)
   })
 })
+
+//
+// Q13 — a blank deposit defaults to 5× the daily rate (nearest 500,
+// bounded [1,500–5,000] MAD); an explicit deposit is the manager's
+// override and is kept.
+//
+describe('Q13 create: blank deposit defaults to 5× the daily rate', () => {
+  it('defaults a missing deposit to 5× daily rate, nearest 500', async () => {
+    const plate = uniquePlate()
+    const res = await createCar(buildCreatePayload(SUPPLIER1_ID, plate, { dailyPrice: 420, deposit: undefined }))
+    expect(res.statusCode).toBe(200)
+    expect(res.body.deposit).toBe(2000)
+    const car = await Car.findOne({ licensePlate: plate }).lean()
+    expect(car?.deposit).toBe(2000)
+  })
+
+  it('floors the default at 1,500 for a low daily rate', async () => {
+    const plate = uniquePlate()
+    const res = await createCar(buildCreatePayload(SUPPLIER1_ID, plate, { dailyPrice: 100, deposit: undefined }))
+    expect(res.statusCode).toBe(200)
+    expect(res.body.deposit).toBe(1500)
+  })
+
+  it('keeps an explicit deposit (manager override)', async () => {
+    const plate = uniquePlate()
+    const res = await createCar(buildCreatePayload(SUPPLIER1_ID, plate, { dailyPrice: 420, deposit: 3000 }))
+    expect(res.statusCode).toBe(200)
+    expect(res.body.deposit).toBe(3000)
+  })
+})

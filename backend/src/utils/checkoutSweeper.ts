@@ -155,7 +155,15 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
   try {
     const expiredHolds = await Booking.find({
       status: bookcarsTypes.BookingStatus.Pending,
-      expireAt: { $lte: now },
+      // Wave 2 remainder — 2.1 defect (deploy blocker): confirmReservation
+      // clears expireAt to null, and MongoDB $lte matches null (null
+      // sorts before every other BSON type) — so without these guards
+      // the sweeper voided every manager-confirmed hold within 15
+      // minutes of a backend start and emailed the customer "hold
+      // expired". Only an unconfirmed (Draft) hold WITH a deadline
+      // can expire.
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      expireAt: { $ne: null, $lte: now },
     }).select('_id driver supplier reference').lean()
     for (const hold of expiredHolds) {
       try {

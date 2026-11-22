@@ -345,9 +345,17 @@ createdIds.payments.push(payment._id)
     const response = await request(app)
       .post(`/api/contract-operations/${completionBooking._id.toString()}/complete`)
       .set(env.X_ACCESS_TOKEN, tokenA)
+      .send({
+        // 2.2: the deposit was never collected (nothing was held), so
+        // the close records an empty settlement; the 900 MAD rent
+        // balance stays owed and is closed with an explicit reason.
+        depositSettlement: { heldAmount: 0, keptAmount: 0, returnedAmount: 0 },
+        closeWithBalanceReason: 'Customer to settle the remaining 900 MAD after return — closing the contract, balance stays owed.',
+      })
 
     expect(response.status).toBe(200)
     expect(response.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
+    expect(response.body.booking.closeWithBalance?.reason).toContain('900 MAD')
     expect(response.body.receivable.currency).toBe('MAD')
     expect(response.body.receivable.rentalTotal).toBe(1000)
     expect(response.body.receivable.refundableDeposit).toBe(500)

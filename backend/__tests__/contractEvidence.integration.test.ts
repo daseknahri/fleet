@@ -16,11 +16,12 @@ import LocationValue from '../src/models/LocationValue'
 import ContractInspection from '../src/models/ContractInspection'
 import ContractCharge from '../src/models/ContractCharge'
 import ContractSnapshot from '../src/models/ContractSnapshot'
+import { postRentalPayment } from '../src/utils/ledger'
 
 const ids: Record<string, mongoose.Types.ObjectId[]> = { users: [], cars: [], bookings: [], locations: [], values: [], inspections: [], charges: [], snapshots: [] }
 const ownedFiles: string[] = []
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-let supplier: env.User; let otherSupplier: env.User; let driver: env.User; let booking: env.Booking; let token: string; let otherToken: string
+let supplier: env.User; let otherSupplier: env.User; let driver: env.User; let booking: env.Booking; let token: string; let otherToken: string; let adminToken: string
 
 beforeAll(async () => {
   await db.connect(env.DB_URI, false, false)
@@ -35,6 +36,9 @@ beforeAll(async () => {
   // flow needs a paid booking, so the fixture uses `Paid` here; the
   // Reserved → confirm → pay path is covered by wave2.integration.test.ts.
   booking = await new Booking({ supplier: supplier._id, car: car._id, driver: driver._id, pickupLocation: location._id, dropOffLocation: location._id, from: new Date(Date.now() + 86400000), to: new Date(Date.now() + 3 * 86400000), status: types.BookingStatus.Paid, lifecycle: types.ContractLifecycle.Draft, price: 300, cancellation: false, amendments: false, theftProtection: false, collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false }).save(); ids.bookings.push(booking._id)
+  const passwordHash = await auth.hashPassword('Un1tTest5')
+  const admin = await new User({ fullName: 'Contract evidence admin', email: `contract-admin-${suffix}@test.bookcars.ma`, language: 'en', password: passwordHash, type: types.UserType.Admin, active: true, verified: true }).save(); ids.users.push(admin._id)
+  adminToken = await auth.encryptJWT({ id: admin._id.toString() })
   token = await auth.encryptJWT({ id: supplier._id.toString() })
   otherToken = await auth.encryptJWT({ id: otherSupplier._id.toString() })
 })
@@ -61,13 +65,24 @@ test('persists inspections, reviews charges, and creates a versioned PDF snapsho
   expect(otherDenied.status).toBe(404)
   const deleted = await request(app).delete(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, token)
   expect(deleted.status).toBe(200); ownedFiles.pop()
+  // 2.2: handover is balance-based now — the fixture's Paid status
+  // alone no longer opens the gate. The rent (300, the booking price;
+  // no snapshot, so no deposit is due) is posted at the counter first.
+  await postRentalPayment({
+    bookingId: booking._id.toString(), date: new Date(), amount: 300,
+    currency: 'MAD', method: types.RentalPaymentMethod.Cash,
+    purpose: types.RentalPaymentPurpose.Rent,
+    source: types.RentalPaymentSource.Manual, actorId: supplier._id,
+  })
   const handover = await request(app).post(`${base}/handover`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover' })
   expect(handover.status).toBe(201); ids.inspections.push(handover.body.inspection._id)
   const returned = await request(app).post(`${base}/return`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark' })
   expect(returned.status).toBe(201); ids.inspections.push(returned.body.inspection._id); expect(returned.body.booking.lifecycle).toBe(types.ContractLifecycle.ReturnReview)
   const charge = await request(app).post(`${base}/charges`).set(env.X_ACCESS_TOKEN, token).send({ type: types.ContractChargeType.Damage, amount: 150, currency: 'MAD', reason: 'Bumper mark review' })
   expect(charge.status).toBe(201); ids.charges.push(charge.body._id)
-  const decision = await request(app).post(`${base}/charges/${charge.body._id}/decide`).set(env.X_ACCESS_TOKEN, token).send({ decision: types.ApprovalDecision.Approved, note: 'Reviewed with return inspection' })
+  // The supplier requested the charge, so the supplier cannot decide
+  // it (self-approval is forbidden) — the platform admin decides.
+  const decision = await request(app).post(`${base}/charges/${charge.body._id}/decide`).set(env.X_ACCESS_TOKEN, adminToken).send({ decision: types.ApprovalDecision.Approved, note: 'Reviewed with return inspection' })
   expect(decision.status).toBe(200); expect(decision.body.status).toBe(types.ApprovalDecision.Approved)
   const snapshot = await request(app).post(`${base}/snapshots`).set(env.X_ACCESS_TOKEN, token)
   expect(snapshot.status).toBe(201); ids.snapshots.push(snapshot.body._id); expect(snapshot.body.version).toBe(1); expect(snapshot.body.pdfFile).toMatch(/\.pdf$/); expect(snapshot.body.contentHash).toHaveLength(64)
@@ -77,8 +92,21 @@ test('persists inspections, reviews charges, and creates a versioned PDF snapsho
   expect(pending.status).toBe(201); ids.charges.push(pending.body._id)
   const blocked = await request(app).post(`${base}/complete`).set(env.X_ACCESS_TOKEN, token)
   expect(blocked.status).toBe(409)
-  const rejected = await request(app).post(`${base}/charges/${pending.body._id}/decide`).set(env.X_ACCESS_TOKEN, token).send({ decision: types.ApprovalDecision.Rejected, note: 'Not chargeable' })
+  const rejected = await request(app).post(`${base}/charges/${pending.body._id}/decide`).set(env.X_ACCESS_TOKEN, adminToken).send({ decision: types.ApprovalDecision.Rejected, note: 'Not chargeable' })
   expect(rejected.status).toBe(200)
+  // The approved 150 MAD charge stands: it is collected at the counter
+  // before completion (the 2.2 balance gate blocks a close with an
+  // unpaid approved charge unless a reason is recorded).
+  await postRentalPayment({
+    bookingId: booking._id.toString(), date: new Date(), amount: 150,
+    currency: 'MAD', method: types.RentalPaymentMethod.Cash,
+    purpose: types.RentalPaymentPurpose.Charge,
+    source: types.RentalPaymentSource.Manual, actorId: supplier._id,
+  })
+  // The pending charge was decided (rejected) after the first snapshot,
+  // so completion demands a fresh one (Wave 2.8 C5).
+  const snapshot2 = await request(app).post(`${base}/snapshots`).set(env.X_ACCESS_TOKEN, token)
+  expect(snapshot2.status).toBe(201); ids.snapshots.push(snapshot2.body._id); expect(snapshot2.body.version).toBe(2)
   const completed = await request(app).post(`${base}/complete`).set(env.X_ACCESS_TOKEN, token)
   expect(completed.status).toBe(200); expect(completed.body.booking.lifecycle).toBe(types.ContractLifecycle.Completed)
 })

@@ -18,6 +18,18 @@ import * as bookcarsTypes from ':bookcars-types'
  * must be confirmed (POST /api/bookings/:id/confirm-reservation,
  * which moves it to Pending + Confirmed) or paid before handover.
  *
+ * Wave 2 remainder — 2.2 (M5/C2): the status list is gone. A
+ * `Deposit`/`Paid`/`PaidInFull` status used to pass this gate with
+ * no balance check at all, so a deposit-paid booking with rent
+ * unpaid still took the car. Handover now requires
+ * `paymentConfirmed` for EVERY status: the controller computes it
+ * from the ledger (nothing outstanding, or the Q14 exception —
+ * rent-only balance, deposit collected, no future confirmed
+ * booking for the car). The `status` parameter is kept so existing
+ * callers need no change; it no longer opens the gate — it only
+ * ever closes it, for the terminal statuses (Cancelled/Void, which
+ * the controller wall already rejects before reaching here).
+ *
  * F4 / W1 #5 — the gate applies to `Confirmed` exactly as to `Draft`.
  * F3 left the Confirmed branch ungated because no producer assigned
  * `Confirmed` yet; F4 adds the producer (provider finalisation and
@@ -34,13 +46,9 @@ export const inspectionTransition = (
   const current = lifecycle || bookcarsTypes.ContractLifecycle.Draft
   if (type === bookcarsTypes.InspectionType.Handover
     && (current === bookcarsTypes.ContractLifecycle.Draft || current === bookcarsTypes.ContractLifecycle.Confirmed)
-    && (!status
-      || [
-        bookcarsTypes.BookingStatus.Deposit,
-        bookcarsTypes.BookingStatus.Paid,
-        bookcarsTypes.BookingStatus.PaidInFull,
-      ].includes(status)
-      || paymentConfirmed)) {
+    && status !== bookcarsTypes.BookingStatus.Cancelled
+    && status !== bookcarsTypes.BookingStatus.Void
+    && paymentConfirmed) {
     return bookcarsTypes.ContractLifecycle.Active
   }
   if (type === bookcarsTypes.InspectionType.Return && current === bookcarsTypes.ContractLifecycle.Active) {

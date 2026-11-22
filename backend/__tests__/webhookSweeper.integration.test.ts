@@ -540,3 +540,33 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(2)
   })
 })
+
+describe('W2 remainder — 2.1 sweeper must not void a manager-confirmed hold (deploy blocker)', () => {
+  it('does not void a confirmed hold (Pending, lifecycle Confirmed, expireAt null)', async () => {
+    const fixture = await makeFixture('sweep-confirmed', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 })
+    // The state confirmReservation leaves behind: Pending + Confirmed
+    // with the deadline cleared.
+    await Booking.updateOne({ _id: fixture.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Confirmed, expireAt: null },
+    })
+    const summary = await runCheckoutSweep()
+    expect(summary.expiredHolds).toBe(0)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(booking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
+  })
+
+  it('still voids an expired unconfirmed Draft hold', async () => {
+    const fixture = await makeFixture('sweep-expired-hold', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: fixture.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    const summary = await runCheckoutSweep()
+    expect(summary.expiredHolds).toBe(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+  })
+})

@@ -342,7 +342,7 @@ export const overdue = async (req: Request, res: Response) => {
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
       deletedAt: null,
     })
-      .select('_id reference price financialSnapshot to lifecycle car driver')
+      .select('_id reference price financialSnapshot to lifecycle car driver supplier')
       .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
       .sort({ to: 1 })
       .lean()

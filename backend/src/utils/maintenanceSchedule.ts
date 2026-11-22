@@ -137,3 +137,50 @@ export const findOverdueSchedule = async (
   }
   return null
 }
+
+/**
+ * Wave 2 remainder — 2.2. The maintenance re-check at handover: a
+ * car must not leave the lot with maintenance overdue, nor with a
+ * service that falls due inside the rental window (the car would come
+ * back past its service). Returns the blocking schedule — overdue-NOW
+ * first, else the earliest due-in-window — or null when nothing
+ * blocks the handover. Same live evaluation as findOverdueSchedule
+ * (date + mileage legs against the car's current odometer).
+ */
+export const findBlockingScheduleForHandover = async (
+  supplier: mongoose.Types.ObjectId | string,
+  carId: mongoose.Types.ObjectId | string,
+  from: Date,
+  to: Date,
+  dbSession?: mongoose.ClientSession,
+): Promise<OverdueSchedule | null> => {
+  const overdue = await findOverdueSchedule(supplier, carId, dbSession)
+  if (overdue) {
+    return overdue
+  }
+  const query = MaintenanceSchedule.find({
+    supplier,
+    car: new mongoose.Types.ObjectId(carId),
+    status: { $ne: bookcarsTypes.MaintenanceScheduleStatus.Completed },
+    nextDueDate: { $ne: null, $gte: from, $lte: to },
+  }).select('title nextDueDate nextDueMileage intervalKm lastServiceMileage status').sort({ nextDueDate: 1 }).lean()
+  if (dbSession) {
+    query.session(dbSession)
+  }
+  const schedules = await query
+  if (schedules.length === 0) {
+    return null
+  }
+  const carQuery = Car.findById(carId).select('odometerKm').lean()
+  if (dbSession) {
+    carQuery.session(dbSession)
+  }
+  const car = await carQuery
+  for (const schedule of schedules) {
+    const due = resolveScheduleDue({ ...schedule, car: car ? { odometerKm: car.odometerKm } : null })
+    if (due.status !== bookcarsTypes.MaintenanceScheduleStatus.Completed) {
+      return { id: schedule._id.toString(), title: schedule.title, due, trigger: overdueTriggerLabel(due, { ...schedule, car: undefined }) }
+    }
+  }
+  return null
+}

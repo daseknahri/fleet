@@ -19,6 +19,7 @@ import User from '../src/models/User'
 import Car from '../src/models/Car'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
+import { postRentalPayment } from '../src/utils/ledger'
 
 // Workstream A, cluster F4 — contract corrections, late/no-show/dispute,
 // snapshot + preview hardening (W1 #6, #7, #12, #14, #17). Same harness
@@ -168,11 +169,35 @@ const ops = (fixture: any) => {
     preview: () => request(app).get(`${base}/settlement-preview`).set(header),
     createCharge: (body: object) => request(app).post(`${base}/charges`).set(header).send(body),
     decideCharge: (chargeId: string, body: object) => request(app).post(`${base}/charges/${chargeId}/decide`).set(header).send(body),
+    // The supplier requested the charge, so the supplier cannot decide
+    // it (self-approval is forbidden) — the platform admin decides.
+    decideChargeAsAdmin: (chargeId: string, body: object) => request(app).post(`${base}/charges/${chargeId}/decide`).set(env.X_ACCESS_TOKEN, adminToken).send(body),
     disputeCharge: (chargeId: string, body: object) => request(app).post(`${base}/charges/${chargeId}/dispute`).set(header).send(body),
     resolveChargeDispute: (chargeId: string, body: object) => request(app).post(`${base}/charges/${chargeId}/dispute/resolve`).set(header).send(body),
     disputeInspection: (inspectionId: string, body: object) => request(app).post(`${base}/inspections/${inspectionId}/dispute`).set(header).send(body),
     resolveInspectionDispute: (inspectionId: string, body: object) => request(app).post(`${base}/inspections/${inspectionId}/dispute/resolve`).set(header).send(body),
   }
+}
+
+// Wave 2 remainder — 2.2: handover is balance-based now, so a fixture
+// that hands over must carry real money (status Paid alone no longer
+// opens the gate). Rent + deposit at the fixture's snapshot amounts,
+// via the counter (manual cash) path — same helper as wave2's payInFull.
+const payInFull = async (fixture: any) => {
+  const rentalTotal = fixture.booking.financialSnapshot?.rentalTotal ?? 1000
+  const depositAmount = fixture.booking.financialSnapshot?.depositAmount ?? 250
+  await postRentalPayment({
+    bookingId: fixture.booking._id.toString(), date: new Date(), amount: rentalTotal,
+    currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+    purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    source: bookcarsTypes.RentalPaymentSource.Manual, actorId: adminId,
+  })
+  await postRentalPayment({
+    bookingId: fixture.booking._id.toString(), date: new Date(), amount: depositAmount,
+    currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+    purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+    source: bookcarsTypes.RentalPaymentSource.Manual, actorId: adminId,
+  })
 }
 
 const insertInspection = async (fixture: any, type: bookcarsTypes.InspectionType, extra: Record<string, unknown> = {}) => {
@@ -285,6 +310,7 @@ describe('F4 / W1 #6 — correction workflow on snapshot bookings', () => {
     const fixture = await makeFixture('correct-after-handover', {
       secondLocation: true, status: bookcarsTypes.BookingStatus.Paid,
     })
+    await payInFull(fixture)
     const handed = await ops(fixture).handover()
     expect(handed.status).toBe(201)
     const refused = await amendAsAdmin(fixture.booking._id.toString(), {
@@ -464,6 +490,7 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
 describe('F4 / W1 #7 — disputes block completion until resolved', () => {
   const settle = async (fixture: any) => {
     const api = ops(fixture)
+    await payInFull(fixture)
     const handed = await api.handover()
     expect(handed.status).toBe(201)
     fixtureInspectionIds.push(handed.body.inspection._id)
@@ -479,7 +506,7 @@ describe('F4 / W1 #7 — disputes block completion until resolved', () => {
     const charge = await api.createCharge({ type: bookcarsTypes.ContractChargeType.Damage, amount: 150, currency: 'MAD', reason: 'Bumper mark review' })
     expect(charge.status).toBe(201)
     fixtureChargeIds.push(charge.body._id)
-    const decided = await api.decideCharge(charge.body._id, { decision: bookcarsTypes.ApprovalDecision.Approved, note: 'Reviewed with return inspection' })
+    const decided = await api.decideChargeAsAdmin(charge.body._id, { decision: bookcarsTypes.ApprovalDecision.Approved, note: 'Reviewed with return inspection' })
     expect(decided.status).toBe(200)
     const snapshot = await api.snapshot()
     expect(snapshot.status).toBe(201)
@@ -503,6 +530,15 @@ describe('F4 / W1 #7 — disputes block completion until resolved', () => {
     expect(resolved.body.dispute.resolution).toContain('pre-existing')
     const resolveAgain = await api.resolveChargeDispute(charge.body._id, { resolution: 'Again' })
     expect(resolveAgain.status).toBe(409)
+    // The charge stands (150 MAD owed): it is collected at the counter
+    // before completion — the 2.2 balance gate blocks a close with an
+    // unpaid approved charge unless a reason is recorded.
+    await postRentalPayment({
+      bookingId: fixture.booking._id.toString(), date: new Date(), amount: 150,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Charge,
+      source: bookcarsTypes.RentalPaymentSource.Manual, actorId: adminId,
+    })
     const completed = await api.complete()
     expect(completed.status).toBe(200)
     expect(completed.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
@@ -533,6 +569,7 @@ describe('F4 / W1 #7 — disputes block completion until resolved', () => {
       fromOffsetDays: -3, toOffsetDays: -1,
     })
     const lateApi = ops(late)
+    await payInFull(late)
     const lateHandover = await lateApi.handover()
     expect(lateHandover.status).toBe(201)
     fixtureInspectionIds.push(lateHandover.body.inspection._id)
@@ -547,6 +584,7 @@ describe('F4 / W1 #7 — disputes block completion until resolved', () => {
 
     const onTime = await makeFixture('on-time-return', { status: bookcarsTypes.BookingStatus.Paid })
     const onTimeApi = ops(onTime)
+    await payInFull(onTime)
     const onTimeHandover = await onTimeApi.handover()
     expect(onTimeHandover.status).toBe(201)
     fixtureInspectionIds.push(onTimeHandover.body.inspection._id)
