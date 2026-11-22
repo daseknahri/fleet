@@ -795,6 +795,38 @@ describe('W2 2.11 â€” admin bypass audit', () => {
     expect(row).not.toBeNull()
     expect(row?.action).toContain('readBookings')
   })
+
+  it('a platform admin lists cash sessions unscoped (Treasury widget) while an agency user sees only its own agency', async () => {
+    const a = await makeFixture('treasury-a')
+    const b = await makeFixture('treasury-b')
+    const sessionA = await openSession(a.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+    const sessionB = await openSession(b.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+
+    // Platform admin, no selector: the unscoped list the Dashboard
+    // Treasury widget relies on (Dashboard.tsx keeps scope undefined
+    // for the platform admin).
+    const adminList = await request(app).get('/api/cash/sessions').set(env.X_ACCESS_TOKEN, adminToken)
+    expect(adminList.status).toBe(200)
+    const adminIds = (adminList.body as Array<{ _id: string }>).map((s) => s._id)
+    expect(adminIds).toContain(sessionA._id)
+    expect(adminIds).toContain(sessionB._id)
+
+    // Admin with an explicit selector still scopes to that agency.
+    const scoped = await request(app).get(`/api/cash/sessions?supplier=${a.supplier._id.toString()}`).set(env.X_ACCESS_TOKEN, adminToken)
+    expect(scoped.status).toBe(200)
+    expect((scoped.body as Array<{ _id: string }>).map((s) => s._id)).toEqual([sessionA._id])
+
+    // Agency user, no selector: only its own agency's sessions.
+    const agencyList = await request(app).get('/api/cash/sessions').set(env.X_ACCESS_TOKEN, a.supplierToken)
+    expect(agencyList.status).toBe(200)
+    expect((agencyList.body as Array<{ _id: string }>).map((s) => s._id)).toEqual([sessionA._id])
+
+    // Treasury movements for the admin, no selector: 200 (the session
+    // id attributes the call, as before).
+    const movements = await request(app).get(`/api/cash/sessions/${sessionA._id}/movements`).set(env.X_ACCESS_TOKEN, adminToken)
+    expect(movements.status).toBe(200)
+    expect(movements.body).toEqual([])
+  })
 })
 
 describe('W2 remainder — 2.2 balance-based handover + completion gates (M5/C2/C3, Q14)', () => {
