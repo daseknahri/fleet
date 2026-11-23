@@ -3,7 +3,7 @@ import * as langHelper from '@/utils/langHelper'
 
 const strings = new LocalizedStrings({
   en: {
-    EYEBROW: 'FINANCE', TITLE: 'Payments', SUBTITLE: 'Record and review payments received against rental contracts.',
+    EYEBROW: 'FINANCE', TITLE: 'Payments', HELP_PAYMENTS: 'All money received against rental contracts: rent, deposits and refunds. Record a payment against a booking; reverse it if it was a mistake.', HELP_RECEIVABLES: 'What clients still owe: rent outstanding and deposits due, with the due date. Start here each morning.', SUBTITLE: 'Record and review payments received against rental contracts.',
     ADD: 'Record a payment', TOTAL: 'Payments recorded', ENTRIES: 'Transactions', SEARCH: 'Search contract, customer, or vehicle',
     DATE: 'Date', CONTRACT: 'Contract', CUSTOMER: 'Customer', VEHICLE: 'Vehicle', METHOD: 'Method', PURPOSE: 'Purpose', STATUS: 'Status',
     AMOUNT: 'Amount', REFERENCE: 'Reference', NOTE: 'Note', ACTIONS: 'Actions',
@@ -17,7 +17,7 @@ const strings = new LocalizedStrings({
     DIRECTION: 'Direction', CREDIT: 'Credit', DEBIT: 'Debit', DEBIT_CAP: 'Recorded for selected purpose', REASON: 'Reason', EDIT: 'Edit', DELETE: 'Delete', DELETE_CONFIRM: 'Delete this pending entry? It never counted as money.', DELETED: 'Pending entry deleted', EDIT_PAYMENT: 'Edit payment entry', PREVIOUS: 'Previous', NEXT: 'Next', SHOWING: 'Showing',
   },
   fr: {
-    EYEBROW: 'FINANCE', TITLE: 'Paiements', SUBTITLE: 'Enregistrez et consultez les paiements reçus pour les contrats.',
+    EYEBROW: 'FINANCE', TITLE: 'Paiements', HELP_PAYMENTS: 'Tout l’argent reçu pour les contrats de location : loyers, cautions et remboursements. Enregistrez un paiement sur une réservation ; annulez-le en cas d’erreur.', HELP_RECEIVABLES: 'Ce que les clients doivent encore : loyers impayés et cautions dues, avec la date d’échéance. Commencez par ici chaque matin.', SUBTITLE: 'Enregistrez et consultez les paiements reçus pour les contrats.',
     ADD: 'Enregistrer un paiement', TOTAL: 'Paiements enregistrés', ENTRIES: 'Transactions', SEARCH: 'Rechercher contrat, client ou véhicule',
     DATE: 'Date', CONTRACT: 'Contrat', CUSTOMER: 'Client', VEHICLE: 'Véhicule', METHOD: 'Mode', PURPOSE: 'Motif', STATUS: 'Statut',
     AMOUNT: 'Montant', REFERENCE: 'Référence', NOTE: 'Note', ACTIONS: 'Actions',
@@ -31,7 +31,7 @@ const strings = new LocalizedStrings({
     DIRECTION: 'Sens', CREDIT: 'Crédit', DEBIT: 'Débit', DEBIT_CAP: 'Enregistré pour le motif sélectionné', REASON: 'Motif', EDIT: 'Modifier', DELETE: 'Supprimer', DELETE_CONFIRM: 'Supprimer cette écriture en attente ? Elle n’a jamais compté comme argent.', DELETED: 'Écriture en attente supprimée', EDIT_PAYMENT: 'Modifier l’écriture', PREVIOUS: 'Précédent', NEXT: 'Suivant', SHOWING: 'Affichage',
   },
   es: {
-    EYEBROW: 'FINANZAS', TITLE: 'Pagos', SUBTITLE: 'Registra y consulta los pagos recibidos por contrato.',
+    EYEBROW: 'FINANZAS', TITLE: 'Pagos', HELP_PAYMENTS: 'Todo el dinero recibido por los contratos de alquiler: alquileres, depósitos y reembolsos. Registre un pago en una reserva; reviertalo si fue un error.', HELP_RECEIVABLES: 'Lo que aún deben los clientes: alquileres pendientes y depósitos adeudados, con la fecha de vencimiento. Empiece aquí cada mañana.', SUBTITLE: 'Registra y consulta los pagos recibidos por contrato.',
     ADD: 'Registrar un pago', TOTAL: 'Pagos registrados', ENTRIES: 'Transacciones', SEARCH: 'Buscar contrato, cliente o vehículo',
     DATE: 'Fecha', CONTRACT: 'Contrato', CUSTOMER: 'Cliente', VEHICLE: 'Vehículo', METHOD: 'Método', PURPOSE: 'Concepto', STATUS: 'Estado',
     AMOUNT: 'Importe', REFERENCE: 'Referencia', NOTE: 'Nota', ACTIONS: 'Acciones',
@@ -45,7 +45,7 @@ const strings = new LocalizedStrings({
     DIRECTION: 'Dirección', CREDIT: 'Crédito', DEBIT: 'Débito', DEBIT_CAP: 'Registrado para el concepto seleccionado', REASON: 'Motivo', EDIT: 'Editar', DELETE: 'Eliminar', DELETE_CONFIRM: '¿Eliminar este asiento pendiente? Nunca contó como dinero.', DELETED: 'Asiento pendiente eliminado', EDIT_PAYMENT: 'Editar asiento', PREVIOUS: 'Anterior', NEXT: 'Siguiente', SHOWING: 'Mostrando',
   },
   ar: {
-    EYEBROW: 'المالية', TITLE: 'المدفوعات', SUBTITLE: 'سجل وراجع المدفوعات المستلمة مقابل عقود التأجير.',
+    EYEBROW: 'المالية', TITLE: 'المدفوعات', HELP_PAYMENTS: 'كل الأموال المستلمة مقابل عقود الإيجار: الإيجارات والضمانات والمبالغ المستردة. سجّل دفعة على حجز؛ وألغها إذا كانت خاطئة.', HELP_RECEIVABLES: 'ما تبقى على العملاء: الإيجارات المستحقة والضمانات الواجبة، مع تاريخ الاستحقاق. ابدأ من هنا كل صباح.', SUBTITLE: 'سجل وراجع المدفوعات المستلمة مقابل عقود التأجير.',
     ADD: 'تسجيل دفعة', TOTAL: 'المدفوعات المسجلة', ENTRIES: 'المعاملات', SEARCH: 'البحث عن عقد أو عميل أو مركبة',
     DATE: 'التاريخ', CONTRACT: 'العقد', CUSTOMER: 'العميل', VEHICLE: 'المركبة', METHOD: 'الطريقة', PURPOSE: 'الغرض', STATUS: 'الحالة',
     AMOUNT: 'المبلغ', REFERENCE: 'المرجع', NOTE: 'ملاحظة', ACTIONS: 'إجراءات',

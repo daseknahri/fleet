@@ -60,13 +60,20 @@ describe('contract lifecycle operations', () => {
   })
 
   // GA5 - a handover is the departure record: it needs the readings.
-  test('handover requires odometer and fuel readings; return keeps its shape', () => {
+  // Next pass - BOTH legs are proof: at least one photo each (a slotted
+  // photo counts), and the return leg needs its odometer too.
+  test('handover requires odometer, fuel and a photo; return requires odometer and a photo', () => {
     expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Handover)).toBeNull()
     expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
     expect(validateInspectionFields({ fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
-    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0 }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
-    expect(validateInspectionFields({ odometer: 100, fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
-    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Return)).not.toBeNull()
+    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
+    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0, photoFiles: ['handover.jpg'] }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
+    expect(validateInspectionFields({ odometer: 100, fuelLevel: 80, photos: [{ slot: bookcarsTypes.InspectionPhotoSlot.Front, file: 'front.jpg' }] }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
+    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Return)).toBeNull()
+    expect(validateInspectionFields({ photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).toBeNull()
+    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Return)).toBeNull()
+    expect(validateInspectionFields({ odometer: 100, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).not.toBeNull()
+    expect(validateInspectionFields({ odometer: 0, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).not.toBeNull()
     expect(validateInspectionFields({})).not.toBeNull()
   })
 })

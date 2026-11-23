@@ -7,6 +7,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceExpense from '../models/MaintenanceExpense'
+import MaintenanceCategory from '../models/MaintenanceCategory'
 import MaintenanceExpenseAudit from '../models/MaintenanceExpenseAudit'
 import MaintenanceExpensePayment from '../models/MaintenanceExpensePayment'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
@@ -84,9 +85,17 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
     : payload.workOrder === null
       ? null
       : String(payload.workOrder).trim()
+  // Next pass - category: undefined = not supplied, null = uncategorised,
+  // otherwise an id (validated by the caller against the agency).
+  const category = payload.category === undefined
+    ? undefined
+    : payload.category === null
+      ? null
+      : String(payload.category).trim()
 
   if ((car !== undefined && !mongoose.isValidObjectId(car))
     || (workOrder !== undefined && workOrder !== null && !mongoose.isValidObjectId(workOrder))
+    || (category !== undefined && category !== null && !mongoose.isValidObjectId(category))
     || Number.isNaN(date.getTime())
     || !Object.values(bookcarsTypes.MaintenanceExpenseType).includes(payload.type)
     || !Number.isFinite(amount)
@@ -99,7 +108,7 @@ const normalizePayload = (payload: bookcarsTypes.UpsertMaintenanceExpensePayload
     return null
   }
 
-  return { car, date, type: payload.type, amount, paidAmount, mileage, vendor, note, receipt, workOrder }
+  return { car, date, type: payload.type, amount, paidAmount, mileage, vendor, note, receipt, workOrder, category }
 }
 
 /**
@@ -145,6 +154,9 @@ const changeValue = (value: unknown): string | number | null => {
 
 /** F7 / W3 M-5 — the work order must exist, belong to the agency, and
  * (when the expense has a car) to that same car. */
+// Next pass - the category must belong to the expense's agency.
+const getCategoryInScope = async (categoryId: string, supplierId: string) => MaintenanceCategory.findOne({ _id: categoryId, supplier: supplierId })
+
 const getWorkOrderInScope = async (workOrderId: string, supplierId: string, carId?: string | null) => {
   const workOrder = await MaintenanceWorkOrder.findOne({ _id: workOrderId, supplier: supplierId }).select('_id car supplier')
   if (!workOrder) {
@@ -228,6 +240,16 @@ export const list = async (req: Request, res: Response) => {
       }
       filter.car = req.query.car
     }
+    if (typeof req.query.category === 'string' && req.query.category) {
+      if (req.query.category === 'uncategorised') {
+        filter.category = null
+      } else if (!mongoose.isValidObjectId(req.query.category)) {
+        res.status(400).send('Invalid category filter')
+        return
+      } else {
+        filter.category = req.query.category
+      }
+    }
     const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
     const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
     if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
@@ -243,6 +265,7 @@ export const list = async (req: Request, res: Response) => {
         .populate('car', 'name licensePlate')
         .populate('supplier', 'fullName')
         .populate('workOrder', 'title status')
+        .populate('category', 'name color')
 
       res.json(expenses.map((expense) => withPaymentState(expense)))
       return
@@ -255,6 +278,7 @@ export const list = async (req: Request, res: Response) => {
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
       .populate('workOrder', 'title status')
+      .populate('category', 'name color')
 
     res.json(pagedResponse(expenses.map((expense) => withPaymentState(expense)), total, parsed.pagination))
   } catch (err) {
@@ -315,6 +339,15 @@ export const create = async (req: Request, res: Response) => {
       }
     }
 
+    // Next pass - the category must belong to the expense's agency.
+    if (payload.category) {
+      const category = await getCategoryInScope(payload.category, expenseSupplier)
+      if (!category) {
+        res.status(400).send('Category not found for this expense')
+        return
+      }
+    }
+
     const receipt = await moveReceiptIntoPrivateStorage(payload.receipt, expenseSupplier)
     const expense = new MaintenanceExpense({
       ...payload,
@@ -331,11 +364,13 @@ export const create = async (req: Request, res: Response) => {
       { field: 'amount', after: expense.amount },
       { field: 'car', after: changeValue(car ? car._id : null) },
       { field: 'workOrder', after: changeValue(expense.workOrder) },
+      { field: 'category', after: changeValue(expense.category) },
     ])
     await expense.populate([
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
       { path: 'workOrder', select: 'title status' },
+      { path: 'category', select: 'name color' },
     ])
     res.status(201).json(withPaymentState(expense))
   } catch (err) {
@@ -393,6 +428,15 @@ export const update = async (req: Request, res: Response) => {
       }
     }
 
+    // Next pass - the category must belong to the expense's agency.
+    if (payload.category) {
+      const category = await getCategoryInScope(payload.category, expense.supplier.toString())
+      if (!category) {
+        res.status(400).send('Category not found for this expense')
+        return
+      }
+    }
+
     // F7 / W3 M-7 — snapshot the before-values for the audit trail.
     const before = {
       car: expense.car ? expense.car.toString() : null,
@@ -404,6 +448,7 @@ export const update = async (req: Request, res: Response) => {
       note: expense.note,
       receipt: expense.receipt,
       workOrder: expense.workOrder ? expense.workOrder.toString() : null,
+      category: expense.category ? expense.category.toString() : null,
     }
 
     const previousReceipt = expense.receipt
@@ -426,6 +471,9 @@ export const update = async (req: Request, res: Response) => {
     if (payload.workOrder !== undefined) {
       expense.workOrder = payload.workOrder ? new mongoose.Types.ObjectId(payload.workOrder) : null as unknown as typeof expense.workOrder
     }
+    if (payload.category !== undefined) {
+      expense.category = payload.category ? new mongoose.Types.ObjectId(payload.category) : null as unknown as typeof expense.category
+    }
     expense.mileage = payload.mileage
     expense.vendor = payload.vendor
     expense.note = payload.note
@@ -447,6 +495,7 @@ await removePrivateReceipt(previousReceipt)
       note: expense.note,
       receipt: expense.receipt,
       workOrder: expense.workOrder ? expense.workOrder.toString() : null,
+      category: expense.category ? expense.category.toString() : null,
     }
     const changes = (Object.keys(before) as Array<keyof typeof before>)
       .filter((field) => changeValue(before[field]) !== changeValue(after[field]))
@@ -458,6 +507,7 @@ await removePrivateReceipt(previousReceipt)
       { path: 'car', select: 'name licensePlate' },
       { path: 'supplier', select: 'fullName' },
       { path: 'workOrder', select: 'title status' },
+      { path: 'category', select: 'name color' },
     ])
     res.json(withPaymentState(expense))
   } catch (err) {
@@ -723,8 +773,18 @@ match.car = new mongoose.Types.ObjectId(String(req.query.car))
     // paidAmount counts as 0 paid, and `untracked` says how many rows
     // those are). NB: `$eq` on null alone misses rows where the field
     // is absent (SERVER-20166); the counter normalises with `$ifNull`.
+    // Next pass - the same totals grouped by the agency-created category
+    // (an uncategorised expense has category null/absent, which groups
+    // under _id null). The lookup resolves the category name.
+    const byCategoryRows = await MaintenanceExpense.aggregate([
+      { $match: match },
+      { $group: { _id: '$category', count: { $sum: 1 }, total: { $sum: '$amount' }, paidTotal: { $sum: { $ifNull: ['$paidAmount', 0] } }, untracked: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$paidAmount', null] }, null] }, 1, 0] } }, receipts: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$receipt', null] }, null] }, 1, 0] } } } },
+      { $lookup: { from: 'MaintenanceCategory', localField: '_id', foreignField: '_id', as: 'categoryDoc' } },
+      { $sort: { total: -1, _id: 1 } },
+    ])
+    const byCategory = byCategoryRows.map((row) => ({ category: row._id ? row._id.toString() : null, name: (row.categoryDoc as Array<{ name?: string }> | undefined)?.[0]?.name ?? null, count: row.count, total: Number(Number(row.total).toFixed(2)), paidTotal: Number(Number(row.paidTotal || 0).toFixed(2)), untracked: row.untracked, receipts: row.receipts }))
     const categories = rows.map((row) => ({ category: row._id, count: row.count, total: Number(Number(row.total).toFixed(2)), paidTotal: Number(Number(row.paidTotal || 0).toFixed(2)), untracked: row.untracked, receipts: row.receipts }))
-    res.json({ currency: env.BASE_CURRENCY.toUpperCase(), from, to, total: Number(categories.reduce((sum, row) => sum + row.total, 0).toFixed(2)), paidTotal: Number(categories.reduce((sum, row) => sum + row.paidTotal, 0).toFixed(2)), untrackedCount: categories.reduce((sum, row) => sum + row.untracked, 0), categories })
+    res.json({ currency: env.BASE_CURRENCY.toUpperCase(), from, to, total: Number(categories.reduce((sum, row) => sum + row.total, 0).toFixed(2)), paidTotal: Number(categories.reduce((sum, row) => sum + row.paidTotal, 0).toFixed(2)), untrackedCount: categories.reduce((sum, row) => sum + row.untracked, 0), categories, byCategory })
   } catch (err) {
  logger.error('[maintenanceExpense.report]', err); res.status(400).send(i18n.t('ERROR')) 
 }

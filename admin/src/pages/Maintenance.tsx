@@ -58,6 +58,10 @@ import * as MaintenanceScheduleService from '@/services/MaintenanceScheduleServi
 
 import * as MaintenanceWorkOrderService from '@/services/MaintenanceWorkOrderService'
 
+import * as MaintenanceCategoryService from '@/services/MaintenanceCategoryService'
+
+import HelpIcon from '@/components/HelpIcon'
+
 import * as UserService from '@/services/UserService'
 
 import * as helper from '@/utils/helper'
@@ -99,6 +103,9 @@ interface ExpenseForm {
 
   // F7 / W3 M-5 — the linked work order ('' = none).
   workOrder: string
+
+  // Next pass - item 3: the agency's own category ('' = none).
+  category: string
 
   date: string
 
@@ -164,6 +171,9 @@ interface ScheduleForm {
 
   type: bookcarsTypes.MaintenanceExpenseType
 
+  // Next pass - item 3: the agency's own category ('' = none).
+  category: string
+
   nextDueDate: string
 
   intervalDays: string
@@ -186,6 +196,8 @@ const emptyScheduleForm = (car = ''): ScheduleForm => ({
   title: '',
 
   type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+
+  category: '',
 
   nextDueDate: new Date().toISOString().slice(0, 10),
 
@@ -245,6 +257,8 @@ const emptyForm = (): ExpenseForm => ({
   car: '',
 
   workOrder: '',
+
+  category: '',
 
   date: new Date().toISOString().slice(0, 10),
 
@@ -383,6 +397,33 @@ const Maintenance = () => {
 
   const [report, setReport] = useState<Awaited<ReturnType<typeof MaintenanceExpenseService.report>> | null>(null)
 
+  // Next pass - item 3: the agency's own expense categories.
+  const [categories, setCategories] = useState<bookcarsTypes.MaintenanceCategory[]>([])
+
+  const [categoryFilter, setCategoryFilter] = useState('')
+
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+
+  const [selectedCategory, setSelectedCategory] = useState<bookcarsTypes.MaintenanceCategory | null>(null)
+
+  const [categoryForm, setCategoryForm] = useState({ name: '', color: '', active: true })
+
+  const [categorySaving, setCategorySaving] = useState(false)
+
+  const [categoryFormError, setCategoryFormError] = useState(false)
+
+  const [categoryFormErrorMessage, setCategoryFormErrorMessage] = useState('')
+
+  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<bookcarsTypes.MaintenanceCategory | null>(null)
+
+  // Next pass - item 3: a platform admin names the agency a new
+  // category belongs to (an agency user always works in their own).
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  const [suppliers, setSuppliers] = useState<bookcarsTypes.User[]>([])
+
+  const [adminSupplier, setAdminSupplier] = useState('')
+
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
 
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false)
@@ -485,13 +526,27 @@ const Maintenance = () => {
     setLoadError(false)
 
     try {
-      const supplierIds = helper.admin(user)
+      const adminUser = helper.admin(user)
 
-        ? bookcarsHelper.flattenSuppliers(await SupplierService.getAllSuppliers())
+      setIsAdmin(adminUser)
+
+      const allSuppliers = adminUser ? (await SupplierService.getAllSuppliers()) || [] : []
+
+      setSuppliers(allSuppliers)
+
+      if (adminUser && allSuppliers.length > 0) {
+
+        setAdminSupplier(allSuppliers[0]._id || '')
+
+      }
+
+      const supplierIds = adminUser
+
+        ? bookcarsHelper.flattenSuppliers(allSuppliers)
 
         : [user._id || '']
 
-      const [carResult, expenseRows, scheduleRows, workOrderRows, reportData] = await Promise.all([
+      const [carResult, expenseRows, scheduleRows, workOrderRows, reportData, categoryRows] = await Promise.all([
 
         CarService.getCars('', { suppliers: supplierIds, includeAlreadyBookedCars: true, includeComingSoonCars: true }, 1, 1000),
 
@@ -502,6 +557,8 @@ const Maintenance = () => {
         MaintenanceWorkOrderService.list(),
 
         MaintenanceExpenseService.report(),
+
+        MaintenanceCategoryService.list(),
 
       ])
 
@@ -514,6 +571,8 @@ const Maintenance = () => {
       setWorkOrders(workOrderRows || [])
 
       setReport(reportData || null)
+
+      setCategories(categoryRows || [])
     } catch (error) {
       setLoadError(true)
 
@@ -530,11 +589,17 @@ const Maintenance = () => {
     return expenses.filter((expense) => {
       const matchesType = !typeFilter || expense.type === typeFilter
 
-      const matchesQuery = !query || `${carName(expense)} ${expense.vendor || ''} ${expense.note || ''}`.toLocaleLowerCase().includes(query)
+      const categoryId = !expense.category ? '' : typeof expense.category === 'string' ? expense.category : expense.category._id || ''
 
-      return matchesType && matchesQuery
+      const matchesCategory = !categoryFilter || (categoryFilter === 'none' ? !categoryId : categoryId === categoryFilter)
+
+      const categoryName = !expense.category ? '' : typeof expense.category === 'string' ? (categories.find((category) => category._id === expense.category)?.name || '') : expense.category.name || ''
+
+      const matchesQuery = !query || `${carName(expense)} ${expense.vendor || ''} ${expense.note || ''} ${categoryName}`.toLocaleLowerCase().includes(query)
+
+      return matchesType && matchesCategory && matchesQuery
     })
-  }, [expenses, keyword, typeFilter])
+  }, [expenses, keyword, typeFilter, categoryFilter, categories])
 
   const total = expenses.reduce((sum, expense) => sum + expense.amount, 0)
 
@@ -564,6 +629,8 @@ const Maintenance = () => {
       car: typeof expense.car === 'string' ? expense.car : expense.car?._id || '',
 
       workOrder: !expense.workOrder ? '' : typeof expense.workOrder === 'string' ? expense.workOrder : expense.workOrder._id || '',
+
+      category: !expense.category ? '' : typeof expense.category === 'string' ? expense.category : expense.category._id || '',
 
       date: new Date(expense.date).toISOString().slice(0, 10),
 
@@ -620,6 +687,8 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
         car: form.car || undefined,
 
         workOrder: form.workOrder || null,
+
+        category: form.category || null,
 
         date: new Date(`${form.date}T12:00:00`),
 
@@ -687,6 +756,8 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
       title: schedule.title,
 
       type: schedule.type,
+
+      category: !schedule.category ? '' : typeof schedule.category === 'string' ? schedule.category : schedule.category._id || '',
 
       // GAP-MAINT-P0-1 — a km-only schedule has no due date; the form
       // opens with an empty date instead of crashing on toISOString().
@@ -783,6 +854,8 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
       type: scheduleForm.type,
 
+      category: scheduleForm.category || null,
+
       nextDueDate: scheduleForm.nextDueDate ? new Date(`${scheduleForm.nextDueDate}T12:00:00`) : undefined,
 
       intervalDays,
@@ -820,6 +893,135 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
     } finally {
       setScheduleSaving(false)
     }
+  }
+
+
+  // Next pass - item 3: the agency's own categories (create / edit /
+  // deactivate / delete). A platform admin names the agency in the
+  // dialog; an agency user always works in their own agency.
+  const openCategoryNew = () => {
+
+    setSelectedCategory(null)
+
+    setCategoryForm({ name: '', color: '', active: true })
+
+    setCategoryFormError(false)
+
+    setCategoryFormErrorMessage('')
+
+    setCategoryDialogOpen(true)
+
+  }
+
+
+  const openCategoryEdit = (category: bookcarsTypes.MaintenanceCategory) => {
+
+    setSelectedCategory(category)
+
+    setCategoryForm({ name: category.name, color: category.color || '', active: category.active })
+
+    setCategoryFormError(false)
+
+    setCategoryFormErrorMessage('')
+
+    setCategoryDialogOpen(true)
+
+  }
+
+
+  const handleCategorySave = async () => {
+
+    if (!categoryForm.name.trim()) {
+
+      setCategoryFormError(true)
+
+      setCategoryFormErrorMessage(strings.CATEGORY_SAVE_ERROR)
+
+      return
+
+    }
+
+    setCategorySaving(true)
+
+    setCategoryFormError(false)
+
+    try {
+
+      const payload: bookcarsTypes.UpsertMaintenanceCategoryPayload = {
+
+        name: categoryForm.name.trim(),
+
+        color: categoryForm.color.trim() || undefined,
+
+        ...(isAdmin && adminSupplier ? { supplier: adminSupplier } : {}),
+
+      }
+
+      if (selectedCategory?._id) {
+
+        const updated = await MaintenanceCategoryService.update(selectedCategory._id, { ...payload, active: categoryForm.active })
+
+        setCategories((rows) => rows.map((row) => row._id === selectedCategory._id ? updated : row))
+
+      } else {
+
+        const created = await MaintenanceCategoryService.create(payload)
+
+        setCategories((rows) => [...rows, created].sort((a, b) => a.name.localeCompare(b.name)))
+
+      }
+
+      setCategoryDialogOpen(false)
+
+    } catch (error) {
+
+      const detail = apiErrorMessage(error)
+
+      helper.error(error, detail || undefined)
+
+      setCategoryFormError(true)
+
+      setCategoryFormErrorMessage(detail || strings.CATEGORY_SAVE_ERROR)
+
+    } finally {
+
+      setCategorySaving(false)
+
+    }
+
+  }
+
+
+  const handleCategoryDelete = async () => {
+
+    if (!categoryDeleteTarget?._id) {
+
+      return
+
+    }
+
+    try {
+
+      await MaintenanceCategoryService.remove(categoryDeleteTarget._id)
+
+      setCategories((rows) => rows.filter((row) => row._id !== categoryDeleteTarget._id))
+
+      setCategoryDeleteTarget(null)
+
+    } catch (error) {
+
+      const detail = apiErrorMessage(error)
+
+      helper.error(error, detail || undefined)
+
+      setCategoryFormError(true)
+
+      setCategoryFormErrorMessage(detail || strings.CATEGORY_DELETE_ERROR)
+
+      setCategoryDeleteTarget(null)
+
+    }
+
   }
 
 
@@ -1254,7 +1456,7 @@ return
 
             <Typography component="p" className="agency-maintenance__eyebrow">{strings.EYEBROW}</Typography>
 
-            <Typography component="h1" className="agency-maintenance__title">{strings.TITLE}</Typography>
+            <Typography component="h1" className="agency-maintenance__title">{strings.TITLE}<HelpIcon text={strings.HELP_EXPENSE_FORM} /></Typography>
 
             <Typography className="agency-maintenance__subtitle">{strings.SUBTITLE}</Typography>
 
@@ -1297,6 +1499,16 @@ return
 
             </TextField>
 
+            <TextField size="small" select label={strings.CATEGORY} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+
+              <MenuItem value="">{strings.ALL_CATEGORIES}</MenuItem>
+
+              <MenuItem value="none">{strings.NO_CATEGORY}</MenuItem>
+
+              {categories.filter((category) => category.active).map((category) => <MenuItem value={category._id} key={category._id}>{category.name}</MenuItem>)}
+
+            </TextField>
+
           </div>
 
           <div className="agency-maintenance__table-head">
@@ -1319,7 +1531,7 @@ return
 
               <span className="agency-maintenance__date">{formatDate(expense.date)}</span>
 
-              <span><span className="agency-maintenance__type">{typeLabel(expense.type)}</span></span>
+              <span><span className="agency-maintenance__type">{typeLabel(expense.type)}</span>{expense.category && <span className="agency-maintenance__type">{typeof expense.category === 'string' ? (categories.find((category) => category._id === expense.category)?.name || strings.NO_CATEGORY) : expense.category.name}</span>}</span>
 
               <strong className="agency-maintenance__vehicle">{carName(expense)}</strong>
 
@@ -1375,11 +1587,26 @@ return
 
         </section>
 
+        <section className="agency-maintenance__panel" aria-label={strings.CATEGORIES}>
+
+          <div className="agency-maintenance__section-heading">
+
+            <Typography component="h2">{strings.CATEGORIES}<HelpIcon text={strings.HELP_CATEGORY} /></Typography>
+
+            <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={openCategoryNew} disabled={!canManageExpenses}>{strings.ADD_CATEGORY}</Button>
+
+          </div>
+
+          {categories.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_CATEGORIES}</div> : categories.map((category) => <div className="agency-maintenance__schedule-row" key={category._id} style={{ opacity: category.active ? 1 : 0.5 }}><div><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', background: category.color || '#9e9e9e', marginRight: 8 }} /><strong>{category.name}</strong></div>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openCategoryEdit(category)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setCategoryDeleteTarget(category)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+
+        </section>
+
         <section className="agency-maintenance__panel" aria-label={strings.CATEGORY_REPORT}>
 
           <div className="agency-maintenance__section-heading"><Typography component="h2">{strings.CATEGORY_REPORT}</Typography><strong>{report ? formatAmount(report.total) : '—'}</strong></div>
 
           {report?.categories.length ? report.categories.map((row) => <div className="agency-maintenance__report-row" key={row.category}><span>{typeLabel(row.category as bookcarsTypes.MaintenanceExpenseType)}</span><span>{row.count} · {row.receipts} {strings.RECEIPTS} · {strings.PAID} {formatAmount(row.paidTotal ?? 0)}{row.untracked ? ` (${row.untracked} ${strings.UNPAID})` : ''}</span><strong>{formatAmount(row.total)}</strong></div>) : <div className="agency-maintenance__empty">{strings.NO_REPORT}</div>}
+          {report?.byCategory?.length ? (<><div className="agency-maintenance__section-heading"><Typography component="h3">{strings.BY_CATEGORY}<HelpIcon text={strings.HELP_REPORT} /></Typography></div>{report.byCategory.map((row) => <div className="agency-maintenance__report-row" key={row.category || 'none'}><span>{row.name || strings.UNCATEGORISED}</span><span>{row.count} - {row.receipts} {strings.RECEIPTS} - {strings.PAID} {formatAmount(row.paidTotal ?? 0)}{row.untracked ? ` (${row.untracked} ${strings.UNPAID})` : ''}</span><strong>{formatAmount(row.total)}</strong></div>)}</>) : null}
 
         </section>
 
@@ -1416,6 +1643,14 @@ return
 
             <TextField fullWidth required type="number" label={strings.AMOUNT} value={form.amount} onChange={setField('amount')} inputProps={{ min: 0.01, step: 0.01 }} />
 
+            <TextField select fullWidth label={strings.CATEGORY} value={form.category} onChange={setField('category')}>
+
+              <MenuItem value="">{strings.NO_CATEGORY}</MenuItem>
+
+              {categories.filter((category) => category.active).map((category) => <MenuItem value={category._id} key={category._id}>{category.name}</MenuItem>)}
+
+            </TextField>
+
             <TextField select fullWidth label={strings.WORK_ORDER} value={form.workOrder} onChange={setField('workOrder')}>
 
               <MenuItem value="">—</MenuItem>
@@ -1451,6 +1686,58 @@ return
       </Dialog>
 
 
+      <Dialog open={categoryDialogOpen} onClose={() => !categorySaving && setCategoryDialogOpen(false)} fullWidth maxWidth="xs">
+
+        <DialogTitle>{selectedCategory ? strings.EDIT_CATEGORY : strings.NEW_CATEGORY}</DialogTitle>
+
+        <DialogContent className="agency-maintenance__form">
+
+          {categoryFormError && <Alert severity="error">{categoryFormErrorMessage || strings.CATEGORY_SAVE_ERROR}</Alert>}
+
+          {isAdmin && (
+            <TextField select fullWidth required label={strings.AGENCY} value={adminSupplier} onChange={(event) => setAdminSupplier(event.target.value)}>
+
+              {suppliers.map((supplier) => <MenuItem value={supplier._id} key={supplier._id}>{supplier.fullName || supplier.email}</MenuItem>)}
+
+            </TextField>
+          )}
+
+          <TextField fullWidth required label={strings.CATEGORY_NAME} value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} inputProps={{ maxLength: 100 }} />
+
+          <TextField fullWidth label={strings.CATEGORY_COLOR} value={categoryForm.color} onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))} inputProps={{ maxLength: 7 }} placeholder="#2e7d32" />
+
+          {selectedCategory && <FormControlLabel control={<Checkbox checked={categoryForm.active} onChange={(event) => setCategoryForm((current) => ({ ...current, active: event.target.checked }))} />} label={strings.ACTIVE} />}
+
+        </DialogContent>
+
+        <DialogActions>
+
+          <Button onClick={() => setCategoryDialogOpen(false)} disabled={categorySaving}>{strings.CANCEL}</Button>
+
+          <Button variant="contained" onClick={handleCategorySave} disabled={categorySaving}>{strings.SAVE}</Button>
+
+        </DialogActions>
+
+      </Dialog>
+
+
+      <Dialog open={!!categoryDeleteTarget} onClose={() => setCategoryDeleteTarget(null)} maxWidth="xs" fullWidth>
+
+        <DialogTitle>{strings.DELETE}</DialogTitle>
+
+        <DialogContent>{strings.DELETE_CATEGORY_CONFIRM}</DialogContent>
+
+        <DialogActions>
+
+          <Button onClick={() => setCategoryDeleteTarget(null)}>{strings.CANCEL}</Button>
+
+          <Button color="error" variant="contained" onClick={handleCategoryDelete}>{strings.DELETE}</Button>
+
+        </DialogActions>
+
+      </Dialog>
+
+
       <Dialog open={scheduleDialogOpen} onClose={() => !scheduleSaving && setScheduleDialogOpen(false)} fullWidth maxWidth="sm">
 
         <DialogTitle>{selectedSchedule ? strings.EDIT_SCHEDULE : strings.NEW_SCHEDULE}</DialogTitle>
@@ -1470,6 +1757,14 @@ return
           <div className="agency-maintenance__form-grid">
 
             <TextField select fullWidth required label={strings.TYPE} value={scheduleForm.type} onChange={(event) => setScheduleForm((current) => ({ ...current, type: event.target.value as bookcarsTypes.MaintenanceExpenseType }))}>{Object.values(bookcarsTypes.MaintenanceExpenseType).map((type) => <MenuItem value={type} key={type}>{typeLabel(type)}</MenuItem>)}</TextField>
+
+            <TextField select fullWidth label={strings.CATEGORY} value={scheduleForm.category} onChange={(event) => setScheduleForm((current) => ({ ...current, category: event.target.value }))}>
+
+              <MenuItem value="">{strings.NO_CATEGORY}</MenuItem>
+
+              {categories.filter((category) => category.active).map((category) => <MenuItem value={category._id} key={category._id}>{category.name}</MenuItem>)}
+
+            </TextField>
 
             <TextField fullWidth required={!scheduleForm.intervalKm} type="date" label={strings.NEXT_DUE} value={scheduleForm.nextDueDate} onChange={(event) => setScheduleForm((current) => ({ ...current, nextDueDate: event.target.value }))} InputLabelProps={{ shrink: true }} />
 

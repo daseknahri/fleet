@@ -43,6 +43,7 @@ import * as UserService from '@/services/UserService'
 import env from '@/config/env.config'
 import * as helper from '@/utils/helper'
 import { strings } from '@/lang/dashboard'
+import HelpIcon from '@/components/HelpIcon'
 
 import '@/assets/css/dashboard.css'
 
@@ -808,7 +809,7 @@ const Dashboard = () => {
           <span className="agency-dashboard__metric-icon"><PaymentsRoundedIcon /></span>
           {renderCustomControls('kpi', 'amounts')}
         </div>
-        <Typography className="agency-dashboard__metric-label">{strings.CONTRACT_AMOUNTS}</Typography>
+        <Typography className="agency-dashboard__metric-label">{strings.CONTRACT_AMOUNTS}<HelpIcon text={strings.HELP_AMOUNTS} /></Typography>
         {summaryMode ? blockBody(summaryBlock.status, () => void loadSummary(), (
           <>
             <Tooltip title={strings.AMOUNTS_TOOLTIP}>

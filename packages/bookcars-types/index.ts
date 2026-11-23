@@ -84,6 +84,10 @@ export interface ClientBalance {
   overdue: number
   depositHeld: number
   bookings: number
+  // Next pass - what the client has already paid over the rent + approved
+  // charges + VAT across their bookings (an early return below posted
+  // payments surfaces here). Optional: older callers omit it.
+  overpaid?: number
 }
 
 /** Staff roles are agency-scoped and are resolved from AgencyMembership. */
@@ -703,6 +707,13 @@ export interface Booking {
   /** GA-PAR-11: contract amendment history (see BookingAmendment). */
   amendmentHistory?: BookingAmendment[]
   /**
+   * Next pass - early return record (see EarlyReturnAdjustment): set when
+   * the car comes back before its scheduled return. The booking price and
+   * financial snapshot already carry the adjusted total; this record is
+   * the audit trail (basis, days, amounts).
+   */
+  earlyReturn?: EarlyReturnAdjustment
+  /**
    * GA-PAR-12: online client signature record (see OnlineSignature).
    * API payloads only ever carry `{ signedAt }` — the stored file name
    * and content hash stay server-side (private contracts store).
@@ -941,6 +952,29 @@ export interface BookingAmendment {
   basisDays?: number
   /** F4 / W1 #6 — the correction this amendment recorded, if any. */
   correction?: BookingAmendmentCorrection
+}
+
+/**
+ * Next pass - early return (see contractOperationController): when the car
+ * comes back before its scheduled return, the rent is re-priced from the
+ * ORIGINAL snapshot's rate basis (same rule as an amendment): rent due =
+ * days actually used x the basis daily rate. The record is stamped on the
+ * booking at the return inspection; the financial snapshot is bumped with
+ * the adjusted rental total and booking.to moves to the return date, so
+ * the car is free for every consumer from that day. No refund is implied:
+ * the overpayment surfaces in the receivable (overpaidAmount) and any
+ * refund goes through the existing reverse path with a manager decision.
+ */
+export interface EarlyReturnAdjustment {
+  scheduledTo: Date
+  returnedAt: Date
+  scheduledDays: number
+  actualDays: number
+  basisDailyRate: number
+  adjustedRentalTotal: number
+  originalRentalTotal: number
+  recordedBy?: string | User
+  recordedAt: Date
 }
 
 /** GA-PAR-11 — payload for POST /api/bookings/:id/amend. */
@@ -2318,6 +2352,26 @@ export interface UpsertMaintenanceWorkOrderPayload {
   expense?: string
 }
 
+/** Next pass - an agency-created maintenance category. */
+export interface MaintenanceCategory {
+  _id?: string
+  supplier: string | User
+  name: string
+  color?: string
+  active: boolean
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+export interface UpsertMaintenanceCategoryPayload {
+  name: string
+  color?: string | null
+  active?: boolean
+  // Platform admin only: the agency the category belongs to (read from
+  // req.body.supplier by agencySupplierId). Agency callers never send it.
+  supplier?: string
+}
+
 export interface MaintenanceExpense {
   _id?: string
   supplier: string | User
@@ -2325,6 +2379,8 @@ export interface MaintenanceExpense {
   car?: string | Car | null
   // F7 / W3 M-5 — the work order this expense belongs to, if any.
   workOrder?: string | MaintenanceWorkOrder | null
+  // Next pass - the agency-created category, if any (null = uncategorised).
+  category?: string | MaintenanceCategory | null
   date: Date
   type: MaintenanceExpenseType
   amount: number
@@ -2349,6 +2405,10 @@ export interface UpsertMaintenanceExpensePayload {
   // create; null = unlink; an id must exist, belong to the expense's
   // agency, and (when the expense has a car) to that same car.
   workOrder?: string | null
+  // Next pass - omit = leave unchanged on update / uncategorised on
+  // create; null = uncategorised; an id must exist and belong to the
+  // expense's agency.
+  category?: string | null
   date: Date | string
   type: MaintenanceExpenseType
   amount: number
@@ -2433,6 +2493,8 @@ export interface MaintenanceSchedule {
   supplier: string | User
   car: string | Car
   type: MaintenanceExpenseType
+  // Next pass - the agency-created category, if any (null = uncategorised).
+  category?: string | MaintenanceCategory | null
   title: string
   intervalDays?: number
   intervalKm?: number
@@ -2454,6 +2516,10 @@ export interface MaintenanceSchedule {
 export interface UpsertMaintenanceSchedulePayload {
   car: string
   type: MaintenanceExpenseType
+  // Next pass - omit = leave unchanged on update / uncategorised on
+  // create; null = uncategorised; an id must exist and belong to the
+  // schedule's agency.
+  category?: string | null
   title: string
   intervalDays?: number
   intervalKm?: number

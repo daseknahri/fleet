@@ -1342,7 +1342,7 @@ const UpdateBooking = () => {
             </div>
           )}
           <div className="col-1">
-            <ContractOperations bookingId={booking._id!} supplierId={typeof booking.supplier === 'string' ? booking.supplier : booking.supplier?._id} lifecycle={booking.lifecycle} depositAmount={booking.financialSnapshot?.depositAmount} amendmentHistory={booking.amendmentHistory} whatsApp={{
+            <ContractOperations bookingId={booking._id!} supplierId={typeof booking.supplier === 'string' ? booking.supplier : booking.supplier?._id} lifecycle={booking.lifecycle} depositAmount={booking.financialSnapshot?.depositAmount} amendmentHistory={booking.amendmentHistory} earlyReturn={booking.earlyReturn} whatsApp={{
               // GA-PAR-23: contract send — driver phone arrives via getBooking
               // (backend populates driver with phone since this item).
               phone: typeof booking.driver !== 'string' ? booking.driver?.phone : undefined,

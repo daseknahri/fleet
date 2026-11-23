@@ -57,7 +57,7 @@ test('persists inspections, reviews charges, and creates a versioned PDF snapsho
   // the extension-spoof pattern that F-SEC-2 content validation now rejects.
   const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xd9])
   const upload = await request(app).post(`${base}/files`).set(env.X_ACCESS_TOKEN, token)
-    .attach('file', photoBytes, { filename: 'handover.jpg', contentType: 'image/jpeg' })
+    .attach('file', photoBytes, { filename: 'evidence.jpg', contentType: 'image/jpeg' })
   expect(upload.status).toBe(201); expect(upload.body.kind).toBe('photo'); ownedFiles.push(upload.body.filename)
   const fetched = await request(app).get(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, token)
   expect(fetched.status).toBe(200); expect(Buffer.from(fetched.body).toString('hex')).toBe(photoBytes.toString('hex'))
@@ -65,6 +65,14 @@ test('persists inspections, reviews charges, and creates a versioned PDF snapsho
   expect(otherDenied.status).toBe(404)
   const deleted = await request(app).delete(`${base}/files/${upload.body.filename}`).set(env.X_ACCESS_TOKEN, token)
   expect(deleted.status).toBe(200); ownedFiles.pop()
+  // Next pass - the inspections below need a photo each: upload one per
+  // leg (the returned filename is the stored name).
+  const handoverUpload = await request(app).post(`${base}/files`).set(env.X_ACCESS_TOKEN, token)
+    .attach('file', photoBytes, { filename: 'handover.jpg', contentType: 'image/jpeg' })
+  expect(handoverUpload.status).toBe(201); ownedFiles.push(handoverUpload.body.filename)
+  const returnUpload = await request(app).post(`${base}/files`).set(env.X_ACCESS_TOKEN, token)
+    .attach('file', photoBytes, { filename: 'return.jpg', contentType: 'image/jpeg' })
+  expect(returnUpload.status).toBe(201); ownedFiles.push(returnUpload.body.filename)
   // 2.2: handover is balance-based now — the fixture's Paid status
   // alone no longer opens the gate. The rent (300, the booking price;
   // no snapshot, so no deposit is due) is posted at the counter first.
@@ -74,9 +82,9 @@ test('persists inspections, reviews charges, and creates a versioned PDF snapsho
     purpose: types.RentalPaymentPurpose.Rent,
     source: types.RentalPaymentSource.Manual, actorId: supplier._id,
   })
-  const handover = await request(app).post(`${base}/handover`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover' })
+  const handover = await request(app).post(`${base}/handover`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover', photoFiles: [handoverUpload.body.filename] })
   expect(handover.status).toBe(201); ids.inspections.push(handover.body.inspection._id)
-  const returned = await request(app).post(`${base}/return`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark' })
+  const returned = await request(app).post(`${base}/return`).set(env.X_ACCESS_TOKEN, token).send({ occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark', photoFiles: [returnUpload.body.filename] })
   expect(returned.status).toBe(201); ids.inspections.push(returned.body.inspection._id); expect(returned.body.booking.lifecycle).toBe(types.ContractLifecycle.ReturnReview)
   const charge = await request(app).post(`${base}/charges`).set(env.X_ACCESS_TOKEN, token).send({ type: types.ContractChargeType.Damage, amount: 150, currency: 'MAD', reason: 'Bumper mark review' })
   expect(charge.status).toBe(201); ids.charges.push(charge.body._id)

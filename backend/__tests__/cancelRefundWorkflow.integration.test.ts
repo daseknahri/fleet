@@ -2,6 +2,8 @@ import 'dotenv/config'
 import { jest } from '@jest/globals'
 import request from 'supertest'
 import mongoose from 'mongoose'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../src/config/env.config'
 import * as databaseHelper from '../src/utils/databaseHelper'
@@ -55,6 +57,7 @@ const fixtureCarIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
+const fixtureSnapshotFiles: string[] = []
 
 
 type FixtureOpts = {
@@ -117,6 +120,12 @@ const makeFixture = async (label: string, opts: FixtureOpts = {}) => {
     },
   } as any)
   fixtureBookingIds.push(booking._id)
+  // Next pass - inspections require a photo each: the contract file the
+  // upload endpoint would store, pre-created on disk.
+  const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xd9])
+  const handoverFilename = `inspection_${booking._id}_handover.jpg`
+  await fs.writeFile(path.resolve(env.CDN_CONTRACTS, handoverFilename), photoBytes)
+  fixtureSnapshotFiles.push(handoverFilename)
   return { supplier, driver, location, car, booking }
 }
 
@@ -179,6 +188,10 @@ afterEach(async () => {
   await ContractCharge.deleteMany({ booking: { $in: fixtureBookingIds } })
   await ContractInspection.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Notification.deleteMany({ booking: { $in: fixtureBookingIds } })
+  for (const filename of fixtureSnapshotFiles) {
+    await fs.unlink(path.resolve(env.CDN_CONTRACTS, filename)).catch(() => undefined)
+  }
+  fixtureSnapshotFiles.length = 0
   await Booking.deleteMany({ _id: { $in: fixtureBookingIds } })
   await Car.deleteMany({ _id: { $in: fixtureCarIds } })
   await Location.deleteMany({ _id: { $in: fixtureLocationIds } })
@@ -578,7 +591,7 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
 describe('F3 / W1 #11 — handover payment gate', () => {
   // GA5: a handover now requires its readings (odometer + fuel) - the
   // payment-gate tests hand over with a realistic body.
-  const handoverAsAdmin = (fixture: any, body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80 }) =>
+  const handoverAsAdmin = (fixture: any, body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, photoFiles: ['handover.jpg'] }) =>
     request(app).post(`/api/contract-operations/${fixture.booking._id.toString()}/handover?supplier=${fixture.supplier._id.toString()}`)
       .set(env.X_ACCESS_TOKEN, adminToken).send(body)
 

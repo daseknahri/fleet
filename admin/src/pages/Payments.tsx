@@ -19,6 +19,7 @@ import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 import env from '@/config/env.config'
 import { strings } from '@/lang/payments'
+import HelpIcon from '@/components/HelpIcon'
 
 import '@/assets/css/payments.css'
 
@@ -460,7 +461,7 @@ const Payments = () => {
         <div className="agency-payments__heading">
           <div>
             <Typography component="p" className="agency-payments__eyebrow">{strings.EYEBROW}</Typography>
-            <Typography component="h1" className="agency-payments__title">{strings.TITLE}</Typography>
+            <Typography component="h1" className="agency-payments__title">{strings.TITLE}<HelpIcon text={strings.HELP_PAYMENTS} /></Typography>
             <Typography className="agency-payments__subtitle">{strings.SUBTITLE}</Typography>
           </div>
           {canRecordPayments && <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => openNew()} disabled={!eligibleBookings.length}>{strings.ADD}</Button>}
@@ -474,7 +475,7 @@ const Payments = () => {
           <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.COLLECTIONS}</small><strong>{loading || !collections ? '—' : `${formatAmount(collections.collected)} / ${formatAmount(collections.contractAmount)}`}</strong>{collections && <small>{strings.COLLECTION_RATE}: {collections.collectionRatePct === null ? '—' : `${collections.collectionRatePct.toFixed(2)}%`}</small>}</CardContent></Card>
         </div>
         <section className="agency-payments__panel agency-payments__receivables">
-          <div className="agency-payments__panel-title">{strings.RECEIVABLES}</div>
+          <div className="agency-payments__panel-title">{strings.RECEIVABLES}<HelpIcon text={strings.HELP_RECEIVABLES} /></div>
           <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.OUTSTANDING}</span><span>{strings.DEPOSIT}</span><span>{strings.DATE}</span></div>
           {loading ? <div className="agency-payments__empty">…</div> : overdueRows.length === 0 ? (
             <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_OVERDUE}</p></div>

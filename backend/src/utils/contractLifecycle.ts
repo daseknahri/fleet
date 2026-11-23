@@ -148,6 +148,18 @@ return null
   if (type === bookcarsTypes.InspectionType.Handover && (odometer === undefined || fuelLevel === undefined)) {
     return null
   }
+  // Next pass - the return leg is the arrival record: the odometer is
+  // required there too (it keeps the maintenance chain true and is the
+  // basis of the extra-km settlement), and BOTH legs are proof: at least
+  // one photo each (a slotted photo counts - the controller merges slots
+  // into photoFiles, so the count here is the union of both lists).
+  if (type === bookcarsTypes.InspectionType.Return && odometer === undefined) {
+    return null
+  }
+  if ((type === bookcarsTypes.InspectionType.Handover || type === bookcarsTypes.InspectionType.Return)
+    && photoFiles.length === 0 && (photos || []).length === 0) {
+    return null
+  }
   return { occurredAt, odometer, fuelLevel, condition: condition || undefined, damageNote: damageNote || undefined, photoFiles, checklist, photos, signatureFile }
 }
 

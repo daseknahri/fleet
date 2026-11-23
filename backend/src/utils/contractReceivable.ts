@@ -28,6 +28,12 @@ export interface ContractReceivable {
   vatAmount: number
   rentalTotalInclVat: number
   outstandingBalance: number
+  // Next pass - the exact complement of the outstanding balance: what the
+  // client has already paid over the rent + approved charges + VAT. 0 when
+  // nothing is overpaid. An early return (or a shortening amendment) below
+  // posted payments surfaces here - the ledger is untouched, no refund is
+  // implied; any refund goes through the existing reverse path.
+  overpaidAmount: number
   dueAt?: Date
   overdue: boolean
 }
@@ -167,6 +173,12 @@ export const getContractReceivable = async (
   )
 
   const outstandingBalance = outstandingMinor / (10 ** exponent)
+  const overpaidMinor = Math.max(
+    0,
+    toMinorUnits(postedPayments, currency) + toMinorUnits(chargeCredits, currency)
+      - toMinorUnits(rentalTotal + approvedCharges, currency) - vatMinor,
+  )
+  const overpaidAmount = overpaidMinor / (10 ** exponent)
   // F6 / W3 P-3 — the shared due-date rule (see above): overdue only
   // once the due date has passed. A balance with no known due date is
   // outstanding, never overdue.
@@ -184,6 +196,7 @@ export const getContractReceivable = async (
     vatAmount: Number(vatAmount.toFixed(exponent)),
     rentalTotalInclVat,
     outstandingBalance,
+    overpaidAmount,
     dueAt,
     overdue: isOverdue(outstandingBalance, dueAt),
   }
@@ -315,6 +328,12 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
       toMinorUnits(rentalTotal + approvedCharges, currency) + vatMinor - toMinorUnits(postedPayments, currency) - toMinorUnits(chargeCredits, currency),
     )
     const outstanding = outstandingMinor / (10 ** exponent)
+    const overpaidMinor = Math.max(
+      0,
+      toMinorUnits(postedPayments, currency) + toMinorUnits(chargeCredits, currency)
+        - toMinorUnits(rentalTotal + approvedCharges, currency) - vatMinor,
+    )
+    const overpaid = overpaidMinor / (10 ** exponent)
     // F6 / W3 P-3 — the same shared overdue rule as
     // getContractReceivable above (due = completion, else rental end).
     const dueAt = outstanding > 0
@@ -329,8 +348,10 @@ export const getClientBalances = async (driverIds: string[]): Promise<Map<string
       overdue: 0,
       depositHeld: 0,
       bookings: 0,
+      overpaid: 0,
     }
     row.outstanding = Number((row.outstanding + outstanding).toFixed(exponent))
+    row.overpaid = Number(((row.overpaid || 0) + overpaid).toFixed(exponent))
     if (isOverdueRow) {
       row.overdue = Number((row.overdue + outstanding).toFixed(exponent))
     }

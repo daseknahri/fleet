@@ -4,6 +4,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import MaintenanceCategory from '../models/MaintenanceCategory'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import { resolveScheduleDue } from '../utils/maintenanceSchedule'
 import * as logger from '../utils/logger'
@@ -40,6 +41,12 @@ return bookcarsTypes.MaintenanceScheduleStatus.Due
 
 const normalize = (input: bookcarsTypes.UpsertMaintenanceSchedulePayload) => {
   const title = String(input.title || '').trim()
+  // Next pass - category: undefined = not supplied, null = uncategorised.
+  const category = input.category === undefined
+    ? undefined
+    : input.category === null
+      ? null
+      : String(input.category).trim()
   const lastDate = input.lastServiceDate ? new Date(input.lastServiceDate) : undefined
   const requestedDue = input.nextDueDate ? new Date(input.nextDueDate) : undefined
   const intervalDays = input.intervalDays === undefined || input.intervalDays === null ? undefined : Number(input.intervalDays)
@@ -55,6 +62,7 @@ const normalize = (input: bookcarsTypes.UpsertMaintenanceSchedulePayload) => {
     || (lastMileage !== undefined && (!Number.isFinite(lastMileage) || lastMileage < 0))
     || (nextMileage !== undefined && (!Number.isFinite(nextMileage) || nextMileage < 0))
     || (intervalDays === undefined && intervalKm === undefined && !requestedDue)
+    || (category !== undefined && category !== null && !mongoose.isValidObjectId(category))
     || String(input.note || '').trim().length > 1000) {
 return null
 }
@@ -70,7 +78,7 @@ return null
   const status = input.status === bookcarsTypes.MaintenanceScheduleStatus.Completed
     ? bookcarsTypes.MaintenanceScheduleStatus.Completed
     : dueStatus(nextDueDate)
-  return { car: input.car, title, type: input.type, intervalDays, intervalKm, lastServiceDate: lastDate, lastServiceMileage: lastMileage, nextDueDate, nextDueMileage: nextMileage, status, note: String(input.note || '').trim() }
+  return { car: input.car, title, type: input.type, intervalDays, intervalKm, lastServiceDate: lastDate, lastServiceMileage: lastMileage, nextDueDate, nextDueMileage: nextMileage, status, note: String(input.note || '').trim(), ...(category !== undefined ? { category } : {}) }
 }
 
 const carInScope = async (carId: string, supplierId?: string, admin = false) => admin
@@ -97,7 +105,7 @@ export const list = async (req: Request, res: Response) => {
     if (Object.values(bookcarsTypes.MaintenanceScheduleStatus).includes(requestedStatus as bookcarsTypes.MaintenanceScheduleStatus)) {
 query.status = requestedStatus
 }
-    const rows = await MaintenanceSchedule.find(query).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate odometerKm').populate('supplier', 'fullName')
+    const rows = await MaintenanceSchedule.find(query).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate odometerKm').populate('supplier', 'fullName').populate('category', 'name color')
     res.json(rows.map(present))
   } catch (err) {
  logger.error('[maintenanceSchedule.list]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -121,8 +129,16 @@ export const create = async (req: Request, res: Response) => {
     if (user?.type === bookcarsTypes.UserType.Admin) {
       await logAdminCrossAgencyAccess(req, [car.supplier.toString()], 'maintenance-schedule:create')
     }
+    // Next pass - the category must belong to the schedule's agency.
+    if (payload.category) {
+      const category = await MaintenanceCategory.findOne({ _id: payload.category, supplier: car.supplier })
+      if (!category) {
+        res.status(400).send('Category not found for this schedule')
+        return
+      }
+    }
     const row = await MaintenanceSchedule.create({ ...payload, supplier: car.supplier })
-    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }])
+    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }, { path: 'category', select: 'name color' }])
     res.status(201).json(present(row))
   } catch (err) {
  logger.error('[maintenanceSchedule.create]', err); res.status(400).send(i18n.t('ERROR')) 
@@ -143,9 +159,17 @@ export const update = async (req: Request, res: Response) => {
     if (!car || car.supplier.toString() !== row.supplier.toString()) {
  res.status(400).send('Vehicle must belong to the schedule agency'); return 
 }
+    // Next pass - the category must belong to the schedule's agency.
+    if (payload.category) {
+      const category = await MaintenanceCategory.findOne({ _id: payload.category, supplier: row.supplier })
+      if (!category) {
+        res.status(400).send('Category not found for this schedule')
+        return
+      }
+    }
     Object.assign(row, payload, { car: car._id })
     await row.save()
-    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }])
+    await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }, { path: 'category', select: 'name color' }])
     res.json(present(row))
   } catch (err) {
  logger.error('[maintenanceSchedule.update]', err); res.status(400).send(i18n.t('ERROR')) 

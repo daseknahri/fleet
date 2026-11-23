@@ -116,11 +116,15 @@ const makeFixture = async (label: string, opts: FixtureOpts = {}) => {
   fixtureCarIds.push(car._id)
   const rentalTotal = opts.rentalTotal ?? 1000
   const depositAmount = opts.depositAmount ?? 250
+  // One clock read for both ends: two Date.now() calls can straddle a
+  // millisecond and make the window N days + 1ms, which the ceil day
+  // rule counts as N+1 days.
+  const now = Date.now()
   const booking = await Booking.create({
     supplier: supplier._id, car: car._id, driver: driver._id,
     pickupLocation: location._id, dropOffLocation: location._id,
-    from: new Date(Date.now() + (opts.fromOffsetDays ?? 1) * 86400000),
-    to: new Date(Date.now() + (opts.toOffsetDays ?? 3) * 86400000),
+    from: new Date(now + (opts.fromOffsetDays ?? 1) * 86400000),
+    to: new Date(now + (opts.toOffsetDays ?? 3) * 86400000),
     status: opts.status ?? bookcarsTypes.BookingStatus.Pending,
     lifecycle: opts.lifecycle ?? bookcarsTypes.ContractLifecycle.Draft,
     price: rentalTotal,
@@ -134,6 +138,15 @@ const makeFixture = async (label: string, opts: FixtureOpts = {}) => {
     },
   } as any)
   fixtureBookingIds.push(booking._id)
+  // Next pass - inspections require a photo each: the contract files the
+  // upload endpoint would store, pre-created on disk (the upload endpoint
+  // itself is covered by contractEvidence).
+  const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xd9])
+  for (const name of ['handover.jpg', 'return.jpg']) {
+    const filename = `inspection_${booking._id}_${name}`
+    fs.writeFileSync(path.resolve(env.CDN_CONTRACTS, filename), photoBytes)
+    fixtureSnapshotFiles.push(filename)
+  }
   const supplierToken = await authHelper.encryptJWT({ id: supplier._id.toString() })
   const driverToken = await authHelper.encryptJWT({ id: driver._id.toString() })
   return { supplier, driver, location, car, booking, supplierToken, driverToken }
@@ -213,9 +226,9 @@ const ops = (fixture: any) => {
   const header = { [env.X_ACCESS_TOKEN]: fixture.supplierToken }
   const adminHeader = { [env.X_ACCESS_TOKEN]: adminToken }
   return {
-    handover: (body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80 }) =>
+    handover: (body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, photoFiles: ['handover.jpg'] }) =>
       request(app).post(`${base}/handover`).set(header).send(body),
-    return: (body: object = { occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70 }) =>
+    return: (body: object = { occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, photoFiles: ['return.jpg'] }) =>
       request(app).post(`${base}/return`).set(header).send(body),
     // decideCharge forbids self-approval: the supplier requested the
     // charge, so the decision comes from the admin.
@@ -651,20 +664,26 @@ describe('W2 2.8 â€” contract guards', () => {
     expect(res.status).toBe(400)
   })
 
-  it('complete with priced extra-km and no return odometer returns 409', async () => {
+  it('a return without an odometer is refused at recording (400)', async () => {
     const fixture = await makeFixture('c9-odo', { status: bookcarsTypes.BookingStatus.Paid })
     await AgencyReturnSettings.create({ supplier: fixture.supplier._id, includedKmPerDay: 100, extraKmPrice: 5 })
     await payInFull(fixture)
     const api = ops(fixture)
     const handed = await api.handover()
     expect(handed.status).toBe(201)
-    const returned = await api.return({ occurredAt: new Date().toISOString(), fuelLevel: 70 })
+    // Next pass: the return inspection records the odometer, so a return
+    // without one is refused at recording (400) and can no longer reach
+    // complete(). The legacy backstop (complete() 409 on a pre-existing
+    // odometer-less return) is covered in f4ContractOps.
+    const noOdometer = await api.return({ occurredAt: new Date().toISOString(), fuelLevel: 70, photoFiles: ['return.jpg'] })
+    expect(noOdometer.status).toBe(400)
+    const returned = await api.return()
     expect(returned.status).toBe(201)
     const snapshot = await api.snapshot()
     expect(snapshot.status).toBe(201)
     fixtureSnapshotFiles.push(snapshot.body.pdfFile)
     const res = await api.complete()
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
   })
 
   it('complete refuses when a charge is decided after the snapshot (stale snapshot)', async () => {
@@ -978,7 +997,10 @@ describe('W2 remainder — 2.2 balance-based handover + completion gates (M5/C2/
   })
 
   it('complete with rent outstanding and no reason returns 409; with a reason it closes and records closeWithBalance', async () => {
-    const fixture = await makeFixture('g22-complete')
+    // On-time window (from 2 days ago, to today): the return "now" must not
+    // trip the early-return re-price - this test's intent is the balance
+    // gate at complete(), with the full rent outstanding.
+    const fixture = await makeFixture('g22-complete', { fromOffsetDays: -2, toOffsetDays: 0 })
     await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 250, bookcarsTypes.RentalPaymentMethod.Cash)
     const api = ops(fixture)
     // Q14 gets the car out with rent outstanding; return it.

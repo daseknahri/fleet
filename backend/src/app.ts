@@ -25,6 +25,7 @@ import settingRoutes from './routes/settingRoutes'
 import maintenanceExpenseRoutes from './routes/maintenanceExpenseRoutes'
 import maintenanceWorkOrderRoutes from './routes/maintenanceWorkOrderRoutes'
 import maintenanceScheduleRoutes from './routes/maintenanceScheduleRoutes'
+import maintenanceCategoryRoutes from './routes/maintenanceCategoryRoutes'
 import rentalPaymentRoutes from './routes/rentalPaymentRoutes'
 import documentRoutes from './routes/documentRoutes'
 import agencyMembershipRoutes from './routes/agencyMembershipRoutes'
@@ -118,6 +119,7 @@ app.use('/', settingRoutes)
 app.use('/', maintenanceExpenseRoutes)
 app.use('/', maintenanceWorkOrderRoutes)
 app.use('/', maintenanceScheduleRoutes)
+app.use('/', maintenanceCategoryRoutes)
 app.use('/', rentalPaymentRoutes)
 app.use('/', documentRoutes)
 app.use('/', agencyMembershipRoutes)

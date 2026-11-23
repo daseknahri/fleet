@@ -261,6 +261,24 @@ const bookingSchema = new Schema<env.Booking>(
         },
       },
     }],
+    // Next pass - early return record. Stamped by createInspection when
+    // the car comes back before its scheduled return: the rent is
+    // re-priced from the ORIGINAL snapshot's rate basis (same rule as an
+    // amendment), the snapshot is bumped with the adjusted total, and
+    // booking.to moves to the return date so the car is free from that
+    // day. No refund is implied - the overpayment surfaces in the
+    // receivable and any refund goes through the existing reverse path.
+    earlyReturn: {
+      scheduledTo: { type: Date },
+      returnedAt: { type: Date },
+      scheduledDays: { type: Number },
+      actualDays: { type: Number },
+      basisDailyRate: { type: Number },
+      adjustedRentalTotal: { type: Number },
+      originalRentalTotal: { type: Number },
+      recordedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      recordedAt: { type: Date },
+    },
     // GA-PAR-07: apporteur commission SNAPSHOT captured at booking time
     // (mode/value = the agent default or the per-contract override then in
     // force; amount computed server-side — see utils/agentCommission).

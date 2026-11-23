@@ -995,6 +995,18 @@ export interface Booking extends Document {
       optionsAfter?: { cancellation: boolean, amendments: boolean, theftProtection: boolean, collisionDamageWaiver: boolean, fullInsurance: boolean, additionalDriver: boolean }
     }
   }[]
+  /** Next pass - early return record (see bookcarsTypes.EarlyReturnAdjustment). */
+  earlyReturn?: {
+    scheduledTo: Date
+    returnedAt: Date
+    scheduledDays: number
+    actualDays: number
+    basisDailyRate: number
+    adjustedRentalTotal: number
+    originalRentalTotal: number
+    recordedBy?: Types.ObjectId
+    recordedAt: Date
+  }
   /** GA-PAR-10: recorded overlap exception (server-stamped). */
   overlapException?: {
     reason: string
@@ -1305,12 +1317,28 @@ export interface CashMovement extends Document {
 }
 
 /** Maintenance expense document. */
+/** Next pass - an agency-created maintenance category (see
+ * maintenanceCategoryController). The goal is the expenses: the agency
+ * groups its maintenance costs its own way, beyond the fixed
+ * MaintenanceExpenseType enum. A category is per-agency (supplier);
+ * names are unique per agency. Deactivating hides it from pickers;
+ * deleting is refused while any expense or schedule references it. */
+export interface MaintenanceCategory extends Document {
+  supplier: Types.ObjectId
+  name: string
+  color?: string
+  active: boolean
+}
+
 export interface MaintenanceExpense extends Document {
   supplier: Types.ObjectId
   // GA-PAR-16: optional — a general expense is tied to no car.
   car?: Types.ObjectId | null
   // F7 / W3 M-5 — the work order this expense belongs to, if any.
   workOrder?: Types.ObjectId | null
+  // Next pass - the agency-created category (MaintenanceCategory), if any.
+  // Null/absent = uncategorised (legacy expenses stay valid).
+  category?: Types.ObjectId | null
   date: Date
   type: bookcarsTypes.MaintenanceExpenseType
   amount: number
@@ -1361,6 +1389,8 @@ export interface MaintenanceSchedule extends Document {
   supplier: Types.ObjectId
   car: Types.ObjectId
   type: bookcarsTypes.MaintenanceExpenseType
+  // Next pass - the agency-created category (MaintenanceCategory), if any.
+  category?: Types.ObjectId | null
   title: string
   intervalDays?: number
   intervalKm?: number

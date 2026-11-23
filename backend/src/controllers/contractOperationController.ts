@@ -88,6 +88,65 @@ const isLiveBooking = (booking: env.Booking | null): booking is env.Booking => !
 const contractFile = (bookingId: string, filename: string) => path.resolve(env.CDN_CONTRACTS, `inspection_${bookingId}_${filename}`)
 const safeContractFilename = (filename: string) => filename === path.basename(filename) && /^[A-Za-z0-9._-]+$/.test(filename)
 
+/**
+ * Next pass - early return: when the car comes back before its scheduled
+ * return, the rent is re-priced from the ORIGINAL snapshot's rate basis
+ * (same rule as an amendment: basis daily rate = snapshot rentalTotal /
+ * original rental days, minor-rounded x the days actually used). The
+ * snapshot is bumped with the adjusted total, booking.price follows it,
+ * and booking.to moves to the return date so the car is free for every
+ * consumer from that day (availability, search, receivable due date,
+ * settlement-preview allowance). On-time and late returns do nothing
+ * (a late fee stays a decided charge). The deposit settlement is
+ * untouched. No refund is implied: the overpayment surfaces in the
+ * receivable (overpaidAmount). Mutates the booking in place; the caller
+ * saves it inside the same transaction.
+ */
+const applyEarlyReturnAdjustment = (
+  booking: env.Booking,
+  occurredAt: Date,
+  actor?: mongoose.Types.ObjectId,
+): void => {
+  const scheduledTo = new Date(booking.to)
+  if (Number.isNaN(scheduledTo.getTime()) || occurredAt.getTime() >= scheduledTo.getTime()) {
+    return
+  }
+  const snapshot = booking.financialSnapshot
+  const hasRealSnapshot = !!snapshot && typeof snapshot.rentalTotal === 'number'
+  const basisTotal = hasRealSnapshot ? Number(snapshot.rentalTotal) : Number(booking.price || 0)
+  const currency = String((hasRealSnapshot ? snapshot.baseCurrency : undefined) || env.BASE_CURRENCY).toUpperCase()
+  const exponent = currencyExponent(currency)
+  const scheduledDays = helper.days(booking.from, booking.to)
+  const actualDays = Math.max(1, helper.days(booking.from, occurredAt))
+  if (scheduledDays < 1 || actualDays < 1 || actualDays >= scheduledDays || !Number.isFinite(basisTotal) || basisTotal < 0) {
+    return
+  }
+  const basisDailyRate = basisTotal / scheduledDays
+  const adjustedRentalTotal = toMinorUnits(basisDailyRate * actualDays, currency) / (10 ** exponent)
+  const now = new Date()
+  booking.earlyReturn = {
+    scheduledTo,
+    returnedAt: occurredAt,
+    scheduledDays,
+    actualDays,
+    basisDailyRate,
+    adjustedRentalTotal,
+    originalRentalTotal: basisTotal,
+    recordedBy: actor,
+    recordedAt: now,
+  }
+  if (hasRealSnapshot) {
+    booking.financialSnapshot = {
+      ...snapshot,
+      version: (typeof snapshot.version === 'number' ? snapshot.version : 1) + 1,
+      rentalTotal: adjustedRentalTotal,
+      quotedAt: now,
+    }
+  }
+  booking.price = adjustedRentalTotal
+  booking.to = occurredAt
+}
+
 export const list = async (req: Request, res: Response) => {
   try {
     const booking = await bookingScope(req)
@@ -223,6 +282,12 @@ throw new Error('INVALID_CONTRACT_TRANSITION')
       const actor = req.user?._id && mongoose.isValidObjectId(req.user._id) ? new mongoose.Types.ObjectId(req.user._id) : undefined
       const [inspection] = await ContractInspection.create([{ supplier: booking!.supplier, booking: booking!._id, car: booking!.car, type, ...payload, photoFiles: mergedPhotoFiles, actor, acknowledgedBy: actor }], { session })
       booking!.lifecycle = nextLifecycle
+      // Next pass - an early return re-prices the rent from the original
+      // snapshot basis and frees the car from the return day (see
+      // applyEarlyReturnAdjustment). On-time/late returns do nothing.
+      if (type === bookcarsTypes.InspectionType.Return) {
+        applyEarlyReturnAdjustment(booking!, payload.occurredAt, actor)
+      }
       await booking!.save({ session })
       // Wave 2 remainder — 2.2 / GPS option A: the inspection odometer
       // is the freshest km the system has — save it onto the car (max
@@ -1170,6 +1235,16 @@ export const complete = async (req: Request, res: Response) => {
       AgencyReturnSettings.findOne({ supplier: booking!.supplier }),
       Car.findById(booking!.car).select('tankCapacityLitres'),
     ])
+    // Next pass - the return odometer is required to complete, always:
+    // the reading is the arrival record (it keeps the maintenance chain
+    // true and is the basis of the extra-km settlement). The C9 gates
+    // below stay for fuel and wash. A return inspection recorded after
+    // this change always carries an odometer (validateInspectionFields);
+    // a legacy ReturnReview booking without one needs its return
+    // inspection re-recorded before completion.
+    if (returnInsp?.odometer === undefined || returnInsp?.odometer === null) {
+      res.status(409).send('The return inspection is missing the odometer reading'); return
+    }
     if (returnSettings?.extraKmPrice !== null && returnSettings?.extraKmPrice !== undefined
       && returnSettings?.includedKmPerDay !== null && returnSettings?.includedKmPerDay !== undefined
       && (returnInsp?.odometer === undefined || returnInsp?.odometer === null)) {

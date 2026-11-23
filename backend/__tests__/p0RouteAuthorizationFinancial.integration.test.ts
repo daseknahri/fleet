@@ -16,6 +16,7 @@ import Invoice from '../src/models/Invoice'
 import CashSession from '../src/models/CashSession'
 import CashMovement from '../src/models/CashMovement'
 import ContractSnapshot from '../src/models/ContractSnapshot'
+import ContractInspection from '../src/models/ContractInspection'
 
 const createdIds = {
   users: [] as mongoose.Types.ObjectId[],
@@ -28,6 +29,7 @@ const createdIds = {
   cashSessions: [] as mongoose.Types.ObjectId[],
   cashMovements: [] as mongoose.Types.ObjectId[],
   snapshots: [] as mongoose.Types.ObjectId[],
+  inspections: [] as mongoose.Types.ObjectId[],
 }
 
 let supplierA: env.User
@@ -164,6 +166,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await CashMovement.deleteMany({ _id: { $in: createdIds.cashMovements } })
   await ContractSnapshot.deleteMany({ _id: { $in: createdIds.snapshots } })
+  await ContractInspection.deleteMany({ _id: { $in: createdIds.inspections } })
   await CashSession.deleteMany({ _id: { $in: createdIds.cashSessions } })
   await Invoice.deleteMany({ _id: { $in: createdIds.invoices } })
   await RentalPayment.deleteMany({ _id: { $in: createdIds.payments } })
@@ -325,6 +328,15 @@ createdIds.payments.push(payment._id)
     }
     await completionBooking.save()
     createdIds.bookings.push(completionBooking._id)
+    // Next pass (item 4): complete() requires the return inspection to
+    // carry an odometer - it 409s a ReturnReview booking with no return
+    // inspection at all. This test fabricates the ReturnReview state
+    // directly in the DB, so seed both inspections here (direct DB
+    // insert, like f4's insertInspection: no API call, so no
+    // early-return re-price fires and the rental total stays 1000).
+    const handoverInsp = await new ContractInspection({ supplier: supplierA._id, booking: completionBooking._id, car: carA._id, type: bookcarsTypes.InspectionType.Handover, occurredAt: new Date(), odometer: 100, fuelLevel: 80 } as any).save()
+    const returnInsp = await new ContractInspection({ supplier: supplierA._id, booking: completionBooking._id, car: carA._id, type: bookcarsTypes.InspectionType.Return, occurredAt: new Date(), odometer: 130, fuelLevel: 70 } as any).save()
+    createdIds.inspections.push(handoverInsp._id, returnInsp._id)
     const completionSnapshot = await new ContractSnapshot({ supplier: supplierA._id, booking: completionBooking._id, version: 1, pdfFile: `p0-${suffix}.pdf`, contentHash: 'a'.repeat(64), generatedAt: new Date() }).save()
     createdIds.snapshots.push(completionSnapshot._id)
 

@@ -116,11 +116,15 @@ const makeFixture = async (label: string, opts: FixtureOpts = {}) => {
   fixtureCarIds.push(car._id)
   const rentalTotal = opts.rentalTotal ?? 1000
   const depositAmount = opts.depositAmount ?? 250
+  // One clock read for both ends: two Date.now() calls can straddle a
+  // millisecond and make the window N days + 1ms, which the ceil day
+  // rule counts as N+1 days.
+  const now = Date.now()
   const booking = await Booking.create({
     supplier: supplier._id, car: car._id, driver: driver._id,
     pickupLocation: locationA._id, dropOffLocation: locationA._id,
-    from: new Date(Date.now() + (opts.fromOffsetDays ?? 1) * DAY),
-    to: new Date(Date.now() + (opts.toOffsetDays ?? 3) * DAY),
+    from: new Date(now + (opts.fromOffsetDays ?? 1) * DAY),
+    to: new Date(now + (opts.toOffsetDays ?? 3) * DAY),
     status: opts.status ?? bookcarsTypes.BookingStatus.Pending,
     lifecycle: opts.lifecycle ?? bookcarsTypes.ContractLifecycle.Draft,
     price: rentalTotal,
@@ -135,6 +139,16 @@ const makeFixture = async (label: string, opts: FixtureOpts = {}) => {
     },
   } as any)
   fixtureBookingIds.push(booking._id)
+  // Next pass - inspections require a photo each: the contract files the
+  // upload endpoint would store, pre-created on disk (the upload endpoint
+  // itself is covered by contractEvidence). Real JFIF bytes, as in that
+  // test, so any content sniffing sees a JPEG.
+  const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xd9])
+  for (const name of ['handover.jpg', 'return.jpg']) {
+    const filename = `inspection_${booking._id}_${name}`
+    await fs.writeFile(path.resolve(env.CDN_CONTRACTS, filename), photoBytes)
+    fixtureSnapshotFiles.push(filename)
+  }
   const supplierToken = await authHelper.encryptJWT({ id: supplier._id.toString() })
   return { supplier, driver, locationA, locationB, car, booking, supplierToken }
 }
@@ -160,9 +174,9 @@ const ops = (fixture: any) => {
   const base = `/api/contract-operations/${fixture.booking._id.toString()}`
   const header = { [env.X_ACCESS_TOKEN]: fixture.supplierToken }
   return {
-    handover: (body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover' }) =>
+    handover: (body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover', photoFiles: ['handover.jpg'] }) =>
       request(app).post(`${base}/handover`).set(header).send(body),
-    return: (body: object = { occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark' }) =>
+    return: (body: object = { occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark', photoFiles: ['return.jpg'] }) =>
       request(app).post(`${base}/return`).set(header).send(body),
     complete: () => request(app).post(`${base}/complete`).set(header),
     snapshot: () => request(app).post(`${base}/snapshots`).set(header),
@@ -643,5 +657,81 @@ describe('F4 / W1 #14 — a missing wash checklist is an omission, not washed', 
     const body = await washOmission(fixture, { washed: false })
     expect(body.omissions).toContainEqual({ kind: 'wash', reason: 'missingWashFee' })
     expect(body.lines.find((line: any) => line.kind === 'wash')).toBeUndefined()
+  })
+})
+
+describe('Next pass - early return re-prices the rent and frees the car', () => {
+  it('re-prices a 14-day booking returned after 7 days to 7 days, stamps the record, and surfaces the overpayment', async () => {
+    const fixture = await makeFixture('early-return', { rentalTotal: 1400, fromOffsetDays: -7, toOffsetDays: 7 })
+    await payInFull(fixture)
+    const api = ops(fixture)
+    // Pin both inspections: the return to exactly 7 days after `from` (a
+    // return "now" is 7 days + seconds, and the ceil day rule counts it as
+    // 8 days), and the handover 1 hour earlier - a return cannot predate
+    // its handover (C15), and the handover default "now" is seconds after
+    // the pinned return time.
+    const handed = await api.handover({ occurredAt: new Date(fixture.booking.from.getTime() + 7 * 86400000 - 3600000).toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover', photoFiles: ['handover.jpg'] })
+    expect(handed.status).toBe(201)
+    const returned = await api.return({ occurredAt: new Date(fixture.booking.from.getTime() + 7 * 86400000).toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark', photoFiles: ['return.jpg'] })
+    expect(returned.status).toBe(201)
+    const booking = await Booking.findById(fixture.booking._id).lean() as any
+    expect(booking.price).toBe(700)
+    expect(new Date(booking.to).getTime()).toBeLessThanOrEqual(Date.now() + 5 * 60 * 1000)
+    expect(booking.earlyReturn).toBeDefined()
+    expect(booking.earlyReturn.scheduledDays).toBe(14)
+    expect(booking.earlyReturn.actualDays).toBe(7)
+    expect(booking.earlyReturn.basisDailyRate).toBe(100)
+    expect(booking.earlyReturn.adjustedRentalTotal).toBe(700)
+    expect(booking.earlyReturn.originalRentalTotal).toBe(1400)
+    expect(booking.financialSnapshot.version).toBe(2)
+    expect(booking.financialSnapshot.rentalTotal).toBe(700)
+    const snap = await api.snapshot()
+    expect(snap.status).toBe(201)
+    const completed = await api.complete()
+    expect(completed.status).toBe(200)
+    expect(completed.body.receivable.outstandingBalance).toBe(0)
+    expect(completed.body.receivable.overpaidAmount).toBe(700)
+    expect(completed.body.receivable.rentalTotal).toBe(700)
+  })
+
+  it('does not adjust an on-time return', async () => {
+    const fixture = await makeFixture('on-time-return', { rentalTotal: 1000, fromOffsetDays: -2, toOffsetDays: 0 })
+    await payInFull(fixture)
+    const api = ops(fixture)
+    expect((await api.handover()).status).toBe(201)
+    const returned = await api.return()
+    expect(returned.status).toBe(201)
+    const booking = await Booking.findById(fixture.booking._id).lean() as any
+    expect(booking.earlyReturn).toBeUndefined()
+    expect(booking.price).toBe(1000)
+    expect(booking.financialSnapshot.rentalTotal).toBe(1000)
+  })
+
+  it('refuses a photo-less handover and a photo-less return, and a return without an odometer', async () => {
+    const fixture = await makeFixture('photo-gate')
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const noPhotoHandover = await api.handover({ occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80 })
+    expect(noPhotoHandover.status).toBe(400)
+    expect((await api.handover()).status).toBe(201)
+    const noPhotoReturn = await api.return({ occurredAt: new Date().toISOString(), odometer: 130, fuelLevel: 70 })
+    expect(noPhotoReturn.status).toBe(400)
+    const noOdometerReturn = await api.return({ occurredAt: new Date().toISOString(), fuelLevel: 70, photoFiles: ['return.jpg'] })
+    expect(noOdometerReturn.status).toBe(400)
+    expect((await api.return()).status).toBe(201)
+  })
+
+  it('refuses completion when the return inspection has no odometer (legacy backstop)', async () => {
+    const fixture = await makeFixture('complete-no-odometer')
+    await payInFull(fixture)
+    await insertInspection(fixture, bookcarsTypes.InspectionType.Handover, { photoFiles: ['handover.jpg'] })
+    await insertInspection(fixture, bookcarsTypes.InspectionType.Return, { odometer: undefined, photoFiles: ['return.jpg'] })
+    await Booking.updateOne({ _id: fixture.booking._id }, { lifecycle: bookcarsTypes.ContractLifecycle.ReturnReview })
+    const api = ops(fixture)
+    const snap = await api.snapshot()
+    expect(snap.status).toBe(201)
+    const completed = await api.complete()
+    expect(completed.status).toBe(409)
+    expect(completed.text).toContain('odometer')
   })
 })

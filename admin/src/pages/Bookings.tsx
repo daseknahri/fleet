@@ -11,6 +11,7 @@ import { strings as trashStrings } from '@/lang/trash'
 import { strings as cancelStrings } from '@/lang/cancel-requests'
 import * as helper from '@/utils/helper'
 import BookingList from '@/components/BookingList'
+import HelpIcon from '@/components/HelpIcon'
 import SupplierFilter from '@/components/SupplierFilter'
 import StatusFilter from '@/components/StatusFilter'
 import BookingFilter from '@/components/BookingFilter'
@@ -85,9 +86,12 @@ const Bookings = () => {
             {leftPanel && (
               <>
                 {canManageBookings && (
-                  <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
-                    {strings.NEW_BOOKING}
-                  </Button>
+                  <>
+                    <Button variant="contained" className="btn-primary cl-new-booking" size="small" onClick={() => navigate('/create-booking')}>
+                      {strings.NEW_BOOKING}
+                    </Button>
+                    <HelpIcon text={strings.HELP_BOOKINGS} />
+                  </>
                 )}
                 {canManageBookings && (
                   <Button variant="text" size="small" onClick={() => navigate('/trash')}>

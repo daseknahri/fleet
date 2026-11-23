@@ -6,6 +6,7 @@ import strings from '@/lang/contract-operations'
 import * as ContractOperationService from '@/services/ContractOperationService'
 import { contractWhatsAppUrl } from '@/utils/whatsapp'
 import * as UserService from '@/services/UserService'
+import HelpIcon from '@/components/HelpIcon'
 import * as helper from '@/utils/helper'
 
 interface Props {
@@ -15,6 +16,9 @@ interface Props {
   depositAmount?: number
   /** GA-PAR-11: amendment history rows from the booking (read-only). */
   amendmentHistory?: bookcarsTypes.BookingAmendment[]
+  /** Next pass - item 2: the early-return stamp, when the car came back
+   * before the booked end date (read-only; rent already recalculated). */
+  earlyReturn?: bookcarsTypes.EarlyReturnAdjustment
   /** GA-PAR-23: WhatsApp contract send — supplied by the booking detail page. */
   whatsApp?: {
     phone?: string | null
@@ -90,7 +94,7 @@ const inspectionTypeLabel = (type: bookcarsTypes.InspectionType) => (
   type === bookcarsTypes.InspectionType.Return ? strings.RETURN : strings.HANDOVER
 )
 
-const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, amendmentHistory, whatsApp, onCompleted }: Props) => {
+const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, amendmentHistory, earlyReturn, whatsApp, onCompleted }: Props) => {
   const [inspections, setInspections] = useState<bookcarsTypes.ContractInspection[]>([])
   const [charges, setCharges] = useState<bookcarsTypes.ContractCharge[]>([])
   const [loading, setLoading] = useState(true)
@@ -204,6 +208,18 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
     // enforces the same rule; the return leg keeps its own form).
     if (type === 'handover' && (form.odometer.trim() === '' || form.fuelLevel.trim() === '')) {
       setError(strings.HANDOVER_READINGS_REQUIRED)
+      return
+    }
+    // Next pass - item 4: a photo is required for each inspection, and
+    // the return leg also needs its odometer reading (the backend
+    // enforces the same rules; this keeps the manager from hitting a
+    // bare error).
+    if (photoFiles.length === 0 && !Object.values(slotPhotos).some(Boolean)) {
+      setError(strings.PHOTO_REQUIRED)
+      return
+    }
+    if (type === 'return' && form.odometer.trim() === '') {
+      setError(strings.RETURN_READINGS_REQUIRED)
       return
     }
     setBusy(true)
@@ -377,7 +393,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
         {loading ? <Typography>{strings.LOADING}</Typography> : (
           <>
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1" component="h3">{strings.INSPECTIONS}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.INSPECTIONS}<HelpIcon text={strings.HELP_INSPECTIONS} /></Typography>
             {!inspections.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {inspections.map((x) => (
               <div key={x._id} style={{ marginBottom: 4 }}>
@@ -467,6 +483,15 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               <Button disabled={busy || loading || (currentLifecycle !== undefined && currentLifecycle !== bookcarsTypes.ContractLifecycle.Draft && currentLifecycle !== bookcarsTypes.ContractLifecycle.Confirmed)} variant="contained" onClick={() => inspection('handover')}>{strings.HANDOVER}</Button>
               <Button disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.Active} variant="contained" onClick={() => inspection('return')}>{strings.RETURN}</Button>
             </div>
+            {earlyReturn && (
+              <>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle1" component="h3">{strings.EARLY_RETURN}</Typography>
+                <Typography variant="body2">
+                  {strings.EARLY_RETURN_DETAIL.replace('{actualDays}', String(earlyReturn.actualDays)).replace('{scheduledDays}', String(earlyReturn.scheduledDays)).replace('{amount}', String(earlyReturn.adjustedRentalTotal))}
+                </Typography>
+              </>
+            )}
             {!!amendmentHistory?.length && (
               <>
                 <Divider sx={{ my: 1 }} />
@@ -479,7 +504,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               </>
             )}
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1" component="h3">{strings.CHARGES}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.CHARGES}<HelpIcon text={strings.HELP_CHARGES} /></Typography>
             {!charges.length && <Typography color="text.secondary">{strings.EMPTY}</Typography>}
             {charges.map((x) => (
               <div key={x._id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -501,7 +526,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
             <Button sx={{ mt: 1 }} disabled={busy || !chargeForm.amount || chargeForm.reason.length < 3} onClick={createCharge}>{strings.ADD_CHARGE}</Button>
             {hasPendingCharge && <Alert severity="warning" sx={{ mt: 1 }}>{strings.AWAITING_APPROVAL}</Alert>}
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1" component="h3">{strings.SETTLEMENT}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.SETTLEMENT}<HelpIcon text={strings.HELP_SETTLEMENT} /></Typography>
             <Button disabled={busy} variant="outlined" onClick={loadPreview}>{strings.PREVIEW_SETTLEMENT}</Button>
             {preview && (
               <>
@@ -521,7 +546,7 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               </>
             )}
             <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1" component="h3">{strings.DEPOSIT_SETTLEMENT}</Typography>
+            <Typography variant="subtitle1" component="h3">{strings.DEPOSIT_SETTLEMENT}<HelpIcon text={strings.HELP_DEPOSIT} /></Typography>
             <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginTop: 8 }}>
               <TextField label={strings.DEPOSIT_HELD} type="number" value={deposit.held} onChange={(e) => setDeposit({ ...deposit, held: e.target.value })} />
               <TextField label={strings.DEPOSIT_KEPT} type="number" value={deposit.kept} onChange={(e) => setDeposit({ ...deposit, kept: e.target.value })} />
@@ -530,11 +555,15 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               <TextField label={strings.DEPOSIT_NOTE} value={deposit.note} onChange={(e) => setDeposit({ ...deposit, note: e.target.value })} />
             </div>
             <Divider sx={{ my: 1 }} />
-            <Button variant="contained" disabled={busy} onClick={() => makeSnapshot(false)}>{strings.SNAPSHOT}</Button>
-            <Button sx={{ ms: 1 }} variant="outlined" disabled={busy} onClick={() => makeSnapshot(true)}>{strings.SNAPSHOT_WITH_STAMP}</Button>
-            {snapshot && <Button sx={{ ms: 1 }} disabled={busy} onClick={downloadSnapshot}>{strings.DOWNLOAD}</Button>}
-            {whatsApp && <Button sx={{ ms: 1 }} variant="outlined" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>}
-            <Button sx={{ ms: 1 }} variant="outlined" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Button variant="contained" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
+              <HelpIcon text={strings.HELP_COMPLETE} />
+              <Button variant="outlined" disabled={busy} onClick={() => makeSnapshot(false)}>{strings.SNAPSHOT}</Button>
+              <HelpIcon text={strings.HELP_SNAPSHOT} />
+              <Button variant="outlined" disabled={busy} onClick={() => makeSnapshot(true)}>{strings.SNAPSHOT_WITH_STAMP}</Button>
+              {snapshot && <Button disabled={busy} onClick={downloadSnapshot}>{strings.DOWNLOAD}</Button>}
+              {whatsApp && <Button variant="outlined" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>}
+            </div>
           </>
         )}
       </CardContent>

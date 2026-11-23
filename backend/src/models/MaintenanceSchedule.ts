@@ -6,6 +6,8 @@ const schema = new Schema<env.MaintenanceSchedule>({
   supplier: { type: Schema.Types.ObjectId, required: true, ref: 'User', index: true },
   car: { type: Schema.Types.ObjectId, required: true, ref: 'Car', index: true },
   type: { type: String, required: true, enum: Object.values(bookcarsTypes.MaintenanceExpenseType) },
+  // Next pass - the agency-created category, if any.
+  category: { type: Schema.Types.ObjectId, ref: 'MaintenanceCategory', index: true },
   title: { type: String, required: true, trim: true, maxlength: 200 },
   intervalDays: { type: Number, min: 1 },
   intervalKm: { type: Number, min: 1 },
