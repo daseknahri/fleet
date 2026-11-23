@@ -115,6 +115,12 @@ const CheckoutStatus = (
             </div>
             <div className="status-details">
               <div className="status-detail">
+                <span className="status-detail-title">{strings.REFERENCE}</span>
+                <div className="status-detail-value">
+                  <span>{booking.reference}</span>
+                </div>
+              </div>
+              <div className="status-detail">
                 <span className="status-detail-title">{checkoutStrings.CAR}</span>
                 <div className="status-detail-value">
                   <span>{(booking.car as bookcarsTypes.Car).name}</span>

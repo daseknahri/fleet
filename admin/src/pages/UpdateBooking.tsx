@@ -1370,7 +1370,7 @@ const UpdateBooking = () => {
               className="car"
               user={user}
               booking={booking}
-              cars={((carObj && [booking.car]) as bookcarsTypes.Car[]) || []}
+              cars={carObj ? [carObj] : []}
               language={language}
               hidePrice
             />

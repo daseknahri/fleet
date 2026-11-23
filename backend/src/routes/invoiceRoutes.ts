@@ -4,7 +4,7 @@ import authJwt from '../middlewares/authJwt'
 import agencyAuth from '../middlewares/agencyAuth'
 import * as controller from '../controllers/invoiceController'
 const routes = express.Router()
-routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadInvoices), controller.list)
+routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadInvoices, { allowPlatformAdminAll: true }), controller.list)
 routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.create)
 routes.post(routeNames.issue, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.issue)
 routes.post(routeNames.void, authJwt.verifyToken, agencyAuth.requireInvoiceAgencyPermission(agencyAuth.AgencyPermission.ManageInvoices), controller.voidInvoice)

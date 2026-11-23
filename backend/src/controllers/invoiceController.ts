@@ -10,7 +10,7 @@ import Counter from '../models/Counter'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
-import { recomputeInvoicePayment } from '../utils/invoicePayment'
+import { linkPostedRentPaymentToInvoice, recomputeInvoicePayment } from '../utils/invoicePayment'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { renderInvoicePdf } from '../utils/invoicePdf'
 import { createInvoiceForBooking, InvoiceCreationError } from '../utils/invoiceCreation'
@@ -145,6 +145,18 @@ export const issue = async (req: Request, res: Response) => {
     invoice.issuedAt = new Date()
     invoice.issuedBy = req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined
     await invoice.save()
+    // GA5 - rent posted while the invoice was still Draft never had a
+    // link target; at issue time the posted rent joins the invoice, so
+    // paidAmount reflects money already in. Below-threshold only (the
+    // helper's own guard); above-threshold stays manual with approval.
+    try {
+      const postedRent = await RentalPayment.find({ booking: invoice.booking, purpose: { $in: [bookcarsTypes.RentalPaymentPurpose.Rent, null] }, status: bookcarsTypes.RentalPaymentStatus.Posted })
+      for (const payment of postedRent) {
+        await linkPostedRentPaymentToInvoice(payment)
+      }
+    } catch (linkErr) {
+      logger.error('[invoice.issue] Issued invoice could not link pre-issue rent payments', linkErr)
+    }
     await invoice.populate(populate)
     res.json(invoice)
   } catch (err) {

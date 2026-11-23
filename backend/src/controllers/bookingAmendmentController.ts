@@ -16,7 +16,7 @@ import { BookingConflictError, saveBookingWithAvailability } from '../utils/book
 import { refreshBookingPaymentStatus } from '../utils/ledger'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { findActiveInvoice, refreshDraftInvoiceAfterAmendment } from '../utils/invoiceCreation'
-import { resolveOverlapExceptionGate } from './bookingController'
+import { populateBookingForDetail, resolveOverlapExceptionGate } from './bookingController'
 import { trashedMessage } from '../utils/trash'
 
 /**
@@ -536,7 +536,7 @@ export const amend = async (req: Request, res: Response) => {
       logger.error('[booking.amend] booking payment status could not be refreshed', refreshErr)
     }
 
-    res.json(booking)
+    res.json(await populateBookingForDetail(booking._id))
   } catch (err) {
     if (err instanceof BookingConflictError) {
       // F4 / W1 #6 — a conflict after an additional-driver row was

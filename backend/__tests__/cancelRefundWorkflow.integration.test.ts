@@ -576,7 +576,9 @@ describe('F3 / W1 #9 + W4 GAP-11 — cancel-request queue and customer cancel of
 })
 
 describe('F3 / W1 #11 — handover payment gate', () => {
-  const handoverAsAdmin = (fixture: any, body: object = {}) =>
+  // GA5: a handover now requires its readings (odometer + fuel) - the
+  // payment-gate tests hand over with a realistic body.
+  const handoverAsAdmin = (fixture: any, body: object = { occurredAt: new Date().toISOString(), odometer: 100, fuelLevel: 80 }) =>
     request(app).post(`/api/contract-operations/${fixture.booking._id.toString()}/handover?supplier=${fixture.supplier._id.toString()}`)
       .set(env.X_ACCESS_TOKEN, adminToken).send(body)
 

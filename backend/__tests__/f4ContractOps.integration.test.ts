@@ -263,7 +263,7 @@ describe('F4 / W1 #6 — correction workflow on snapshot bookings', () => {
       dropOffLocation: fixture.locationB._id.toString(),
     })
     expect(response.status).toBe(200)
-    expect(response.body.dropOffLocation.toString()).toBe(fixture.locationB._id.toString())
+    expect(response.body.dropOffLocation._id).toBe(fixture.locationB._id.toString())
     expect(response.body.price).toBe(1000)
     expect(response.body.financialSnapshot.version).toBe(2)
     const history = response.body.amendmentHistory as any[]
@@ -280,7 +280,7 @@ describe('F4 / W1 #6 — correction workflow on snapshot bookings', () => {
       car: car2._id.toString(),
     })
     expect(response.status).toBe(200)
-    expect(response.body.car.toString()).toBe(car2._id.toString())
+    expect(response.body.car._id).toBe(car2._id.toString())
     // 2 rental days at the new car's 150/day, no options.
     expect(response.body.price).toBe(300)
     expect(response.body.financialSnapshot.depositAmount).toBe(400)

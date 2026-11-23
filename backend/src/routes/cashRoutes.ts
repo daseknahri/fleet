@@ -6,15 +6,15 @@ import * as controller from '../controllers/cashController'
 
 const routes = express.Router()
 routes.get(routeNames.sessions, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash, { allowPlatformAdminAll: true }), controller.listSessions)
-routes.get(routeNames.current, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash), controller.current)
+routes.get(routeNames.current, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash, { allowPlatformAdminAll: true }), controller.current)
 routes.post(routeNames.open, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.open)
 routes.get(routeNames.movements, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash), controller.listMovements)
 routes.post(routeNames.movements, authJwt.verifyToken, agencyAuth.requireAnyAgencyPermission([agencyAuth.AgencyPermission.ManageCash, agencyAuth.AgencyPermission.RecordCash]), controller.createMovement)
 routes.post(routeNames.confirmMovement, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.confirmMovement)
 routes.post(routeNames.close, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.close)
 routes.get(routeNames.zReport, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.zReport)
-routes.get(routeNames.journal, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash), controller.journal)
-routes.get(routeNames.journalCsv, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash), controller.journalCsv)
+routes.get(routeNames.journal, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash, { allowPlatformAdminAll: true }), controller.journal)
+routes.get(routeNames.journalCsv, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash, { allowPlatformAdminAll: true }), controller.journalCsv)
 routes.get(routeNames.previousClose, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadCash), controller.previousClose)
 routes.post(routeNames.transfer, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageCash), controller.transfer)
 export default routes

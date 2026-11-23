@@ -256,10 +256,16 @@ describe('Approvals producer wiring (GA-P1-APPROVALS-PRODUCER-02)', () => {
     expect(payment.status).toBe(201)
     ids.payments.push(payment.body._id)
 
+    // GA5: a rent payment posted after issue joins the invoice at once,
+    // so the manual link is a duplicate and is refused (409) - the
+    // below-threshold invoice still takes the payment immediately.
     const linked = await request(app).post(`/api/invoices/${invoiceId}/payments`).set(env.X_ACCESS_TOKEN, tokenA)
       .send({ payment: payment.body._id })
-    expect(linked.status).toBe(200)
-    expect(linked.body.paymentStatus).toBe('paid')
+    expect(linked.status).toBe(409)
+    const listed = await request(app).get('/api/invoices').set(env.X_ACCESS_TOKEN, tokenA)
+    const row = (listed.body as Array<{ _id: string; paidAmount: number; paymentStatus: string }>).find((inv) => inv._id === invoiceId)
+    expect(row?.paidAmount).toBe(500)
+    expect(row?.paymentStatus).toBe('paid')
   })
 
   it('contract charge at/above threshold produces a request; decisions mirror both ways', async () => {

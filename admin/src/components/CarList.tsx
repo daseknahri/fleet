@@ -440,7 +440,7 @@ const CarList = ({
               </Card>
             )
             : rows.map((car, index) => {
-              const edit = admin || car.supplier._id === user._id
+              const edit = admin || car.supplier?._id === user._id
               // Fleet statuses (scorecard #15): derived display status of
               // the row (server value wins; the fallback never claims
               // `rented` from the client).

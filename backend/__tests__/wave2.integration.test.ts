@@ -310,6 +310,16 @@ describe('W2 2.1 â€” confirm reservation', () => {
     expect(again.body.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
   })
 
+  it('the confirm response carries the populated booking (GA5: the workspace crashed on the bare-id doc)', async () => {
+    const fixture = await makeFixture('confirm-populated')
+    const res = await confirmAs(adminToken, fixture.booking._id.toString())
+    expect(res.status).toBe(200)
+    expect(res.body.car).toMatchObject({ _id: fixture.car._id.toString(), name: fixture.car.name })
+    expect(res.body.car.supplier).toMatchObject({ _id: fixture.supplier._id.toString() })
+    expect(res.body.driver).toMatchObject({ _id: fixture.driver._id.toString(), fullName: fixture.driver.fullName })
+    expect(res.body.supplier).toMatchObject({ _id: fixture.supplier._id.toString(), fullName: fixture.supplier.fullName })
+  })
+
   it('a Manager staff confirms, a CounterAgent staff gets 403', async () => {
     const fixture = await makeFixture('confirm-roles')
     const manager = await makeStaff(fixture.supplier, bookcarsTypes.AgencyRole.Manager)
@@ -827,6 +837,42 @@ describe('W2 2.11 â€” admin bypass audit', () => {
     expect(movements.status).toBe(200)
     expect(movements.body).toEqual([])
   })
+
+  it('a platform admin reads the current session, the journal and the invoice list unscoped (GA5: CashJournal + invoices, same class as Treasury)', async () => {
+    const a = await makeFixture('ga5-current-a')
+    const b = await makeFixture('ga5-current-b')
+    const sessionA = await openSession(a.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+    const sessionB = await openSession(b.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+
+    // Current session, no selector: the CashJournal onLoad calls this
+    // alongside listSessions; before the fix it 400d and the page
+    // showed "Could not load journal entries" with no session open.
+    const current = await request(app).get('/api/cash/sessions/current?account=cash').set(env.X_ACCESS_TOKEN, adminToken)
+    expect(current.status).toBe(200)
+    expect([sessionA._id, sessionB._id]).toContain(current.body?._id)
+
+    // Journal for one session, no selector: the controller scopes by
+    // the session id, so the unscoped admin read is valid.
+    const journal = await request(app).get(`/api/cash/journal?sessionId=${sessionA._id}`).set(env.X_ACCESS_TOKEN, adminToken)
+    expect(journal.status).toBe(200)
+    expect(journal.body.session._id).toBe(sessionA._id)
+    expect(journal.body.rows).toEqual([])
+
+    // Invoice list, no selector: the controller already returns the
+    // unscoped view for admins; the middleware blocked it before.
+    const createdA = await request(app).post('/api/invoices').set(env.X_ACCESS_TOKEN, a.supplierToken).send({ booking: a.booking._id.toString() })
+    expect(createdA.status).toBe(201)
+    const createdB = await request(app).post('/api/invoices').set(env.X_ACCESS_TOKEN, b.supplierToken).send({ booking: b.booking._id.toString() })
+    expect(createdB.status).toBe(201)
+    const adminList = await request(app).get('/api/invoices').set(env.X_ACCESS_TOKEN, adminToken)
+    expect(adminList.status).toBe(200)
+    const adminIds = (adminList.body as Array<{ _id: string }>).map((inv) => inv._id)
+    expect(adminIds).toContain(createdA.body._id)
+    expect(adminIds).toContain(createdB.body._id)
+    const agencyList = await request(app).get('/api/invoices').set(env.X_ACCESS_TOKEN, a.supplierToken)
+    expect(agencyList.status).toBe(200)
+    expect((agencyList.body as Array<{ _id: string }>).map((inv) => inv._id)).toEqual([createdA.body._id])
+  })
 })
 
 describe('W2 remainder — 2.2 balance-based handover + completion gates (M5/C2/C3, Q14)', () => {
@@ -867,6 +913,23 @@ describe('W2 remainder — 2.2 balance-based handover + completion gates (M5/C2/
     expect(returned.status).toBe(201)
     const carAfterReturn = await Car.findById(fixture.car._id).lean()
     expect(carAfterReturn?.odometerKm).toBe(130)
+  })
+
+  it('handover without odometer/fuel readings is refused (400) and leaves the booking Draft (GA5)', async () => {
+    const fixture = await makeFixture('g22-readings')
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const blank = await api.handover({ occurredAt: new Date().toISOString() })
+    expect(blank.status).toBe(400)
+    const noFuel = await api.handover({ occurredAt: new Date().toISOString(), odometer: 100 })
+    expect(noFuel.status).toBe(400)
+    const noOdo = await api.handover({ occurredAt: new Date().toISOString(), fuelLevel: 80 })
+    expect(noOdo.status).toBe(400)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
+    const ok = await api.handover()
+    expect(ok.status).toBe(201)
+    expect(ok.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Active)
   })
 
   it('Q14: rent outstanding with deposit collected and no future booking hands over; a future confirmed booking blocks it', async () => {

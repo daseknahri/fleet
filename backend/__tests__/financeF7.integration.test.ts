@@ -584,6 +584,53 @@ describe('F7 / W3 B-5 + B-4 + B-2 — link only Posted, record deliveries, void 
   })
 })
 
+describe('F7 / W3 B-5 - GA5: ledger postings reach the issued invoice', () => {
+  it('a rent payment posted after issue lands on the invoice paidAmount', async () => {
+    const booking = await makeBooking(utc('2026-12-21T10:00:00.000'), utc('2026-12-23T10:00:00.000'), 500, snapshot(500, 0))
+    const created = await post(ownerToken, '/api/invoices', { booking: booking._id.toString() })
+    expect(created.status).toBe(201)
+    const invoiceId = created.body._id as string
+    invoiceIds.push(new mongoose.Types.ObjectId(invoiceId))
+    const issued = await post(ownerToken, `/api/invoices/${invoiceId}/issue`, {})
+    expect(issued.status).toBe(200)
+    const paid = await post(ownerToken, '/api/rental-payments', {
+      booking: booking._id.toString(), date: new Date().toISOString(), amount: 200,
+      method: types.RentalPaymentMethod.Cash, purpose: types.RentalPaymentPurpose.Rent,
+      reference: 'GA5-POST-ISSUE', idempotencyKey: key('pay'),
+    })
+    expect(paid.status).toBe(201)
+    const listed = await get(ownerToken, '/api/invoices')
+    expect(listed.status).toBe(200)
+    const row = (listed.body as Array<any>).find((inv) => inv._id === invoiceId)
+    expect(row.paidAmount).toBe(200)
+    expect(row.paymentStatus).toBe('partial')
+    expect(row.payments.map(String)).toContain(paid.body._id)
+  })
+
+  it('rent posted while the invoice is Draft joins it at issue time', async () => {
+    const booking = await makeBooking(utc('2026-12-24T10:00:00.000'), utc('2026-12-26T10:00:00.000'), 500, snapshot(500, 0))
+    const created = await post(ownerToken, '/api/invoices', { booking: booking._id.toString() })
+    expect(created.status).toBe(201)
+    const invoiceId = created.body._id as string
+    invoiceIds.push(new mongoose.Types.ObjectId(invoiceId))
+    const paid = await post(ownerToken, '/api/rental-payments', {
+      booking: booking._id.toString(), date: new Date().toISOString(), amount: 200,
+      method: types.RentalPaymentMethod.Cash, purpose: types.RentalPaymentPurpose.Rent,
+      reference: 'GA5-PRE-ISSUE', idempotencyKey: key('pay'),
+    })
+    expect(paid.status).toBe(201)
+    const before = await get(ownerToken, '/api/invoices')
+    const draft = (before.body as Array<any>).find((inv) => inv._id === invoiceId)
+    expect(draft.paidAmount).toBe(0)
+    const issued = await post(ownerToken, `/api/invoices/${invoiceId}/issue`, {})
+    expect(issued.status).toBe(200)
+    const after = await get(ownerToken, '/api/invoices')
+    const row = (after.body as Array<any>).find((inv) => inv._id === invoiceId)
+    expect(row.paidAmount).toBe(200)
+    expect(row.paymentStatus).toBe('partial')
+  })
+})
+
 describe('F7 / W3 R-5 — drilldown and saved views keep the cash/bank scope', () => {
   it('drilldown filters its payment list by scope and reports the scope', async () => {
     // A bank payment on booking B, inside the November window: it must

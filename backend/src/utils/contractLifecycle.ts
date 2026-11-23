@@ -92,7 +92,7 @@ export const validateInspectionFields = (input: {
   checklist?: unknown
   photos?: unknown
   signatureFile?: unknown
-}) => {
+}, type?: bookcarsTypes.InspectionType) => {
   // GA-PAR-06: structured checklist (booleans only, known keys only) and
   // guided photo slots (slot enum + the existing filename safety rules).
   // Both are optional: legacy payloads without them remain valid.
@@ -142,6 +142,12 @@ export const validateInspectionFields = (input: {
     || condition.length > 4000 || damageNote.length > 4000 || !safePhoto || !safeSignature) {
 return null
 }
+  // GA5: a handover is the departure record - it is meaningless
+  // without the readings (the mobile test handed over blank). Only the
+  // handover leg is gated; the return leg keeps its existing shape.
+  if (type === bookcarsTypes.InspectionType.Handover && (odometer === undefined || fuelLevel === undefined)) {
+    return null
+  }
   return { occurredAt, odometer, fuelLevel, condition: condition || undefined, damageNote: damageNote || undefined, photoFiles, checklist, photos, signatureFile }
 }
 

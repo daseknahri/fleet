@@ -9,7 +9,7 @@ import Car from '../models/Car'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
 import Invoice from '../models/Invoice'
 import ContractCharge from '../models/ContractCharge'
-import { recomputeInvoicePayment } from './invoicePayment'
+import { linkPostedRentPaymentToInvoice, recomputeInvoicePayment } from './invoicePayment'
 import { BookingConflictError, saveBookingWithAvailability } from './bookingReservationHelper'
 import { getContractReceivable, getSupplierVatRatePercent } from './contractReceivable'
 import { vatAmountMinor } from './fiscal'
@@ -585,6 +585,12 @@ existingQuery.session(session)
       } catch (err) {
         logger.error(`[ledger.postWithinSession] Bank payment ${existing._id.toString()} replayed but could not be linked to a bank session`, err)
       }
+      // GA5 - a replayed posting also repairs its invoice link.
+      try {
+        await linkPostedRentPaymentToInvoice(existing)
+      } catch (err) {
+        logger.error(`[ledger.postWithinSession] Rent payment ${existing._id.toString()} replayed but could not be linked to the invoice`, err)
+      }
       return existing
     }
   }
@@ -659,6 +665,16 @@ existingQuery.session(session)
     await linkLedgerBankPayment(payment, session)
   } catch (err) {
     logger.error(`[ledger.postWithinSession] Bank payment ${payment._id.toString()} posted but could not be linked to a bank session`, err)
+  }
+  // GA5 - a posted rent payment belongs on the booking
+  // issued invoice (paidAmount only moved via the manual link
+  // before, so ledger postings never reached the invoice).
+  // Best-effort, as the drawer links above: the posting
+  // already succeeded.
+  try {
+    await linkPostedRentPaymentToInvoice(payment)
+  } catch (err) {
+    logger.error(`[ledger.postWithinSession] Rent payment ${payment._id.toString()} posted but could not be linked to the invoice`, err)
   }
   return payment
 }
@@ -749,6 +765,13 @@ export const confirmRentalPayment = async (input: {
       await linkLedgerBankPayment(payment)
     } catch (err) {
       logger.error(`[ledger.confirmRentalPayment] Payment ${payment._id.toString()} confirmed but could not be linked to a bank session`, err)
+    }
+    // GA5 - a pending rent entry confirmed into posted money joins
+    // the issued invoice the same way a fresh posting does.
+    try {
+      await linkPostedRentPaymentToInvoice(payment)
+    } catch (err) {
+      logger.error(`[ledger.confirmRentalPayment] Payment ${payment._id.toString()} confirmed but could not be linked to the invoice`, err)
     }
     // Keep linked invoices in step with the ledger (GAQ12B2-D2): the
     // reversal path already recomputes them; confirmation must too, or

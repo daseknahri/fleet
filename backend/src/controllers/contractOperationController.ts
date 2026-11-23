@@ -179,7 +179,7 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
           }
         }
       }
-      const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload)
+      const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload, type)
       if (!payload) {
  throw new Error('INVALID_INSPECTION') 
 }

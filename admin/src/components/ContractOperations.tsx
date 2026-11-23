@@ -199,6 +199,13 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
   }
 
   const inspection = async (type: 'handover' | 'return') => {
+    // GA5: a handover with no readings is not proof of the car's state -
+    // odometer + fuel are required before the car leaves (the backend
+    // enforces the same rule; the return leg keeps its own form).
+    if (type === 'handover' && (form.odometer.trim() === '' || form.fuelLevel.trim() === '')) {
+      setError(strings.HANDOVER_READINGS_REQUIRED)
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -415,8 +422,8 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
             )}
             <Divider sx={{ my: 1 }} />
             <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
-              <TextField label={strings.ODOMETER} type="number" value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} />
-              <TextField label={strings.FUEL} type="number" value={form.fuelLevel} onChange={(e) => setForm({ ...form, fuelLevel: e.target.value })} />
+              <TextField label={strings.ODOMETER} type="number" required value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} />
+              <TextField label={strings.FUEL} type="number" required value={form.fuelLevel} onChange={(e) => setForm({ ...form, fuelLevel: e.target.value })} />
               <TextField label={strings.CONDITION} value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })} />
               <TextField label={strings.DAMAGE} value={form.damageNote} onChange={(e) => setForm({ ...form, damageNote: e.target.value })} />
             </div>

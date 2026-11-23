@@ -58,6 +58,17 @@ describe('contract lifecycle operations', () => {
     expect(validateInspectionFields({ photoFiles: ['../private.jpg'] })).toBeNull()
     expect(validateInspectionFields({ occurredAt: 'not-a-date' })).toBeNull()
   })
+
+  // GA5 - a handover is the departure record: it needs the readings.
+  test('handover requires odometer and fuel readings; return keeps its shape', () => {
+    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Handover)).toBeNull()
+    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
+    expect(validateInspectionFields({ fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
+    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0 }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
+    expect(validateInspectionFields({ odometer: 100, fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
+    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Return)).not.toBeNull()
+    expect(validateInspectionFields({})).not.toBeNull()
+  })
 })
 
 describe('isBookingOverdue (F4 / W1 #7)', () => {

@@ -3160,7 +3160,7 @@ export const cancelBookingStaff = async (req: Request, res: Response) => {
       return
     }
     res.json({
-      booking,
+      booking: await populateBookingForDetail(booking._id),
       refund: {
         decision: refundDecision,
         status: result.refundStatus,
@@ -3316,7 +3316,7 @@ export const decideCancelRequest = async (req: Request, res: Response) => {
       return
     }
     res.json({
-      booking,
+      booking: await populateBookingForDetail(booking._id),
       refund: {
         decision: refundDecision,
         status: result.refundStatus,
@@ -3391,6 +3391,44 @@ export const getRefundPlan = async (req: Request, res: Response) => {
  * @param {Response} res
  * @returns {unknown}
  */
+/**
+ * GA5 — mutation responses must carry the same populated shape as
+ * getBooking: the booking workspace replaces its booking with the
+ * response, and CarList dereferences car.supplier._id, so the raw
+ * unpopulated doc (car/driver/supplier as bare ids) crashed the page
+ * to the error boundary right after CONFIRM RESERVATION. The amend
+ * and staff-cancel mutations return the same shape.
+ */
+export const populateBookingForDetail = async (id: string | mongoose.Types.ObjectId) => Booking.findById(id)
+  .populate<{ supplier: env.UserInfo }>('supplier')
+  .populate<{ car: env.CarInfo }>({
+    path: 'car',
+    populate: {
+      path: 'supplier',
+      model: 'User',
+    },
+  })
+  .populate<{ driver: env.UserInfo }>({
+    path: 'driver',
+    select: '_id fullName avatar phone',
+  })
+  .populate<{ pickupLocation: env.LocationInfo }>({
+    path: 'pickupLocation',
+    populate: {
+      path: 'values',
+      model: 'LocationValue',
+    },
+  })
+  .populate<{ dropOffLocation: env.LocationInfo }>({
+    path: 'dropOffLocation',
+    populate: {
+      path: 'values',
+      model: 'LocationValue',
+    },
+  })
+  .populate<{ _additionalDriver: env.AdditionalDriver }>('_additionalDriver')
+  .lean()
+
 export const confirmReservation = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
@@ -3436,7 +3474,7 @@ export const confirmReservation = async (req: Request, res: Response) => {
     }
     // Safe retry: already confirmed.
     if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
-      res.json(booking)
+      res.json(await populateBookingForDetail(booking._id))
       return
     }
     if (booking.status === bookcarsTypes.BookingStatus.Reserved) {
@@ -3453,7 +3491,7 @@ export const confirmReservation = async (req: Request, res: Response) => {
     } catch (err) {
       logger.error(`[booking.confirmReservation] Confirmation notification failed for booking ${booking._id.toString()}; booking stays confirmed`, err)
     }
-    res.json(booking)
+    res.json(await populateBookingForDetail(booking._id))
   } catch (err) {
     if (err instanceof BookingConflictError) {
       res.status(409).send(err.message)

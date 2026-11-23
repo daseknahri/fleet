@@ -1196,7 +1196,7 @@ const Dashboard = () => {
             <Typography component="h1" className="agency-dashboard__title">{strings.TITLE}</Typography>
             <Typography className="agency-dashboard__subtitle">{strings.SUBTITLE}</Typography>
           </div>
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} flexWrap="wrap" className="agency-dashboard__heading-actions">
             <Button variant="outlined" startIcon={<TuneRoundedIcon />} onClick={() => setCustomizeMode((v) => !v)}>
               {customizeMode ? strings.CUSTOMIZE_DONE : strings.CUSTOMIZE}
             </Button>
@@ -1210,7 +1210,7 @@ const Dashboard = () => {
 
         <Box className="agency-dashboard__period-bar">
           <Typography className="agency-dashboard__period-label">{strings.PERIOD_LABEL}</Typography>
-          <Stack direction="row" spacing={0.75} className="agency-dashboard__period-buttons">
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" className="agency-dashboard__period-buttons">
             {periodButtons.map(({ kind, label }) => (
               <Button key={kind} size="small" variant={period === kind ? 'contained' : 'outlined'} onClick={() => setPeriod(kind)}>{label}</Button>
             ))}

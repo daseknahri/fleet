@@ -372,6 +372,14 @@
   font-weight: 650;
 }
 
+.agency-dashboard__period-buttons {
+  min-width: 0;
+}
+
+.agency-dashboard__heading-actions .MuiButton-root {
+  flex-shrink: 0;
+}
+
 .agency-dashboard__customize-bar {
   display: flex;
   align-items: center;
