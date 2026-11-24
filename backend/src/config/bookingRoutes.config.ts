@@ -27,6 +27,9 @@ const routes = {
   // Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
   // only) + the "confirmed, unpaid" watchlist (ReadBookings).
   confirmReservation: '/api/bookings/:id/confirm-reservation',
+  // Audit-fix 2026-11-24 (F-02) — retry a failed payment-status refresh
+  // (e.g. after the blocking maintenance is completed). RecordPayments.
+  refreshPaymentStatus: '/api/bookings/:id/refresh-payment-status',
   getConfirmedUnpaid: '/api/confirmed-unpaid-bookings/:page/:size/:language',
   amend: '/api/bookings/:id/amend',
   // F4 / W1 #7 — no-show marking + overdue (late-return) list.

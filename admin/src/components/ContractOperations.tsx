@@ -556,7 +556,11 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
             </div>
             <Divider sx={{ my: 1 }} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button variant="contained" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
+              {currentLifecycle === bookcarsTypes.ContractLifecycle.Completed ? (
+                <Typography variant="body2">{strings.COMPLETED_NOTE}</Typography>
+              ) : (
+                <Button variant="contained" disabled={busy || loading || currentLifecycle !== bookcarsTypes.ContractLifecycle.ReturnReview} onClick={complete}>{strings.COMPLETE}</Button>
+              )}
               <HelpIcon text={strings.HELP_COMPLETE} />
               <Button variant="outlined" disabled={busy} onClick={() => makeSnapshot(false)}>{strings.SNAPSHOT}</Button>
               <HelpIcon text={strings.HELP_SNAPSHOT} />

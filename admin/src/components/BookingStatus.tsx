@@ -18,6 +18,8 @@ interface BookingStatusProps {
    * outstanding: show "Rent paid — deposit due" instead of plain "Paid".
    * Only applies to Paid (PaidInFull means the deposit is in). */
   depositDue?: boolean,
+  /** F-04 — the contract lifecycle is Completed: show "Completed" instead of the payment status. */
+  completed?: boolean,
   onClick?: (e: React.MouseEvent<HTMLElement>) => void
 }
 
@@ -46,7 +48,8 @@ const BookingStatus = ({
   showIcon,
   onClick,
   value,
-  depositDue
+  depositDue,
+  completed
 }: BookingStatusProps) => (
   <div
     className="booking-status"
@@ -58,7 +61,7 @@ const BookingStatus = ({
     role="presentation"
   >
     {showIcon && getIcon(value)}
-    <span className={`bs bs-${value?.toLowerCase()}`}>{depositDue && value === bookcarsTypes.BookingStatus.Paid ? commonStrings.BOOKING_STATUS_PAID_DEPOSIT_DUE : helper.getBookingStatus(value)}</span>
+    <span className={`bs bs-${value?.toLowerCase()}`}>{completed ? commonStrings.BOOKING_COMPLETED : depositDue && value === bookcarsTypes.BookingStatus.Paid ? commonStrings.BOOKING_STATUS_PAID_DEPOSIT_DUE : helper.getBookingStatus(value)}</span>
   </div>
 )
 

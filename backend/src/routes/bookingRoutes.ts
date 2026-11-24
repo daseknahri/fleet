@@ -39,6 +39,7 @@ routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAut
 // the controller) + the confirmed-unpaid watchlist (ReadBookings).
 routes.route(routeNames.getRefundPlan).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getRefundPlan)
 routes.route(routeNames.confirmReservation).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmReservation)
+routes.route(routeNames.refreshPaymentStatus).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.RecordPayments), bookingController.refreshPaymentStatus)
 routes.route(routeNames.getConfirmedUnpaid).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), bookingController.getConfirmedUnpaid)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)
 // F4 / W1 #7 — no-show marking + overdue list (ManageBookings, same

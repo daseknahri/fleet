@@ -178,12 +178,18 @@ export const create = async (req: Request, res: Response) => {
     // payment status follows the ledger (Pending → Paid when nothing is
     // outstanding). Best-effort: the payment already posted, so a sync
     // failure (e.g. the car's dates are now taken) is logged, not thrown
-    // — staff can retry the confirmation from the booking. Pending
+    // — staff retry the confirmation from the booking (POST
+    // /api/bookings/:id/refresh-payment-status, audit-fix F-02). Pending
     // entries (counter-agent) sync when an accountant confirms them
     // (see ledger.confirmRentalPayment), not here.
+    // Audit-fix 2026-11-24 (F-02): the refresh outcome rides on the 201
+    // so the manager sees a conflict (e.g. an overdue maintenance
+    // schedule blocked the confirmation) instead of a silent no-op.
+    let statusRefresh: { conflict: boolean, conflictReason?: string, updated: boolean } | undefined
     if (!pendingEntry) {
       try {
-        await refreshBookingPaymentStatus(payload.booking)
+        const refresh = await refreshBookingPaymentStatus(payload.booking)
+        statusRefresh = { conflict: refresh.conflict, conflictReason: refresh.conflictReason, updated: refresh.updated }
       } catch (err) {
         logger.error(`[rentalPayment.create] Payment ${payment._id.toString()} posted but booking payment status could not be refreshed`, err)
       }
@@ -195,7 +201,7 @@ export const create = async (req: Request, res: Response) => {
     if (user.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
       await logAdminCrossAgencyAccess(req, [payment.supplier.toString()], 'payment:create')
     }
-    res.status(201).json(payment)
+    res.status(201).json(statusRefresh ? { ...payment.toJSON(), statusRefresh } : payment)
   } catch (err) {
     if (err instanceof LedgerError) {
       // GA-PAR-22: a payment against a trashed booking refuses 409.

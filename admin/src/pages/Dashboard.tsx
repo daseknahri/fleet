@@ -125,6 +125,14 @@ const formatDay = (value: Date | string) => new Intl.DateTimeFormat(uiLocale(), 
   day: '2-digit', month: 'short', year: 'numeric',
 }).format(new Date(value))
 
+// F-06 — a return-before-from booking (an early return moved `to` before
+// `from`) must not render an inverted range: show the earlier date first.
+const formatRange = (from: Date | string, to: Date | string) => {
+  const start = new Date(from) <= new Date(to) ? from : to
+  const end = new Date(from) <= new Date(to) ? to : from
+  return `${formatDay(start)} → ${formatDay(end)}`
+}
+
 const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -817,6 +825,9 @@ const Dashboard = () => {
             </Tooltip>
             <Typography className="agency-dashboard__metric-detail">{`${strings.COLLECTED}: ${formatAmount(summaryBlock.data?.collected || 0)}`}</Typography>
             <Typography className="agency-dashboard__metric-detail">{`${strings.REMAINING}: ${formatAmount(summaryBlock.data?.remaining || 0)}`}</Typography>
+            {overdueBlock.status === 'ready' && (
+              <Typography className="agency-dashboard__metric-detail">{`${strings.OVERDUE_TOTAL}: ${formatAmount(overdueBlock.data?.overdueTotal || 0)}`}</Typography>
+            )}
           </>
         )) : blockBody(bookingsBlock.status, () => void loadBookings(supplierIdsRef.current), (
           <>
@@ -830,6 +841,9 @@ const Dashboard = () => {
                 <>
                   <Typography className="agency-dashboard__metric-detail">{`${strings.COLLECTED}: ${formatAmount(periodAmounts.collected)}`}</Typography>
                   <Typography className="agency-dashboard__metric-detail">{`${strings.REMAINING}: ${formatAmount(periodAmounts.remaining)}`}</Typography>
+                  {overdueBlock.status === 'ready' && (
+                    <Typography className="agency-dashboard__metric-detail">{`${strings.OVERDUE_TOTAL}: ${formatAmount(overdueBlock.data?.overdueTotal || 0)}`}</Typography>
+                  )}
                 </>
               )}
             {partialChip(bookingsBlock.partial)}
@@ -1147,7 +1161,7 @@ const Dashboard = () => {
                       <td><strong>{bookingLabel(booking)}</strong></td>
                       <td>{getCustomerName(booking)}</td>
                       <td>{getCarName(booking)}</td>
-                      <td>{`${formatDay(booking.from)} → ${formatDay(booking.to)}`}</td>
+                      <td>{formatRange(booking.from, booking.to)}</td>
                       <td>{formatAmount(rentalTotalOf(booking))}</td>
                       <td>{paymentChipFor(booking)}</td>
                     </tr>

@@ -67,6 +67,9 @@ app.use(helmet.crossOriginOpenerPolicy())
 
 app.use(nocache())
 app.use(compression({ threshold: 0 }))
+// F-10 — CORS headers must be set before the body parsers run, so a
+// malformed body rejected by the parser still carries them.
+app.use(cors())
 app.use(express.urlencoded({ limit: '50mb', extended: true }))
 // F2 / W4 GAP-04: Stripe webhook signature verification needs the raw
 // request body — mount it BEFORE the global JSON parser consumes the
@@ -75,7 +78,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }))
 app.use(stripeRoutesConfig.webhook, express.raw({ type: 'application/json', limit: '1mb' }), stripeController.handleStripeWebhook)
 app.use(express.json({ limit: '50mb' }))
 
-app.use(cors())
 // app.options('*', cors())
 app.use(cookieParser(env.COOKIE_SECRET))
 app.use(allowedMethods)
@@ -156,8 +158,14 @@ app.use((err: unknown, req: express.Request, res: express.Response, next: expres
   logger.error(`[app] Unhandled error on ${req.method} ${req.originalUrl}`, err)
   const name = (err as { name?: string } | null)?.name
   const type = (err as { type?: string } | null)?.type
-  if (name === 'MulterError' || type === 'entity.parse.failed' || type === 'entity.too.large') {
+  if (name === 'MulterError') {
     res.status(400).send(i18n.t('ERROR'))
+    return
+  }
+  // F-10 — a malformed body is a client error with a usable JSON message
+  // (not the generic "Internal Error" text).
+  if (type === 'entity.parse.failed' || type === 'entity.too.large') {
+    res.status(400).json({ message: 'Invalid request body' })
     return
   }
   res.status(500).send(i18n.t('ERROR'))

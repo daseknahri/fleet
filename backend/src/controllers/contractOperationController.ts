@@ -238,10 +238,11 @@ const createInspection = async (req: Request, res: Response, type: bookcarsTypes
           }
         }
       }
-      const payload = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload, type)
-      if (!payload) {
- throw new Error('INVALID_INSPECTION') 
-}
+      const validated = validateInspectionFields(req.body as bookcarsTypes.CreateContractInspectionPayload, type)
+      if (!validated.ok) {
+        throw new Error(validated.reason === 'PHOTO_REQUIRED' ? 'PHOTO_REQUIRED' : 'INVALID_INSPECTION')
+      }
+      const payload = validated.value
       // GA-PAR-06: a return odometer below the handover odometer is a
       // field-level invalid input — reject before anything persists.
       if (type === bookcarsTypes.InspectionType.Return && payload.odometer !== undefined) {
@@ -315,6 +316,9 @@ throw new Error('CONTRACT_OPERATION_FAILED')
 }
     if (code === 'TRASHED') {
  res.status(409).send(trashedMessage('booking')); return 
+}
+    if (code === 'PHOTO_REQUIRED') {
+ res.status(400).send(`A photo is required for the ${type === bookcarsTypes.InspectionType.Handover ? 'handover' : 'return'} inspection`); return 
 }
     if (code === 'INVALID_INSPECTION') {
  res.status(400).send('Invalid inspection'); return 
@@ -845,7 +849,10 @@ export const getSnapshotFile = async (req: Request, res: Response) => {
  * the booking currency's minor unit (the house round2 convention used by
  * charges/invoices). rentalDays is the booking's priced day count:
  * helper.days(from, to) — the same ceil((to-from)/24h) count the price
- * logic uses. Every omitted line kind is reported in `unavailable` (and
+ * logic uses. An early return floors it at the recorded actualDays
+ * (never negative: a return-before-from booking would otherwise price
+ * negative days); any other return-before-from range floors at 1 day.
+ * Every omitted line kind is reported in `unavailable` (and
  * its alias `omissions`) with a machine-readable reason — never a silent 0.
  */
 export const settlementPreview = async (req: Request, res: Response) => {
@@ -858,7 +865,7 @@ export const settlementPreview = async (req: Request, res: Response) => {
     const currency = String(booking!.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
     const exponent = currencyExponent(currency)
     const roundMoney = (value: number) => toMinorUnits(value, currency) / (10 ** exponent)
-    const rentalDays = helper.days(booking!.from, booking!.to)
+    const rentalDays = booking!.earlyReturn ? Math.max(1, booking!.earlyReturn.actualDays) : Math.max(1, helper.days(booking!.from, booking!.to))
     const [handover, returnInsp, settings, car] = await Promise.all([
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Handover }).sort({ occurredAt: -1, createdAt: -1 }),
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Return }).sort({ occurredAt: -1, createdAt: -1 }),

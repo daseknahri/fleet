@@ -39,6 +39,7 @@ import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissi
 import AccessDenied from '@/components/AccessDenied'
 import * as UserService from '@/services/UserService'
 import * as BookingService from '@/services/BookingService'
+import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as AgentService from '@/services/AgentService'
 import { strings as agentStrings } from '@/lang/agents'
 import * as CarService from '@/services/CarService'
@@ -172,6 +173,9 @@ const UpdateBooking = () => {
   const [noMatch, setNoMatch] = useState(false)
   const [formError, setFormError] = useState(false)
   const [booking, setBooking] = useState<bookcarsTypes.Booking>()
+  // F-04 — the shared outstanding figure for the completed banner
+  // (same source as the Payments page overdue list).
+  const [completedOutstanding, setCompletedOutstanding] = useState<{ amount: number, currency: string } | null>(null)
   const [visible, setVisible] = useState(false)
   const [carObj, setCarObj] = useState<bookcarsTypes.Car>()
   const [isSupplier, setIsSupplier] = useState(false)
@@ -617,6 +621,13 @@ const UpdateBooking = () => {
               }
 
               setBooking(_booking)
+              // F-04 — load the shared outstanding figure for the completed banner.
+              RentalPaymentService.overdue()
+                .then((res) => {
+                  const row = res.rows?.find((r) => (typeof r.booking === 'string' ? r.booking : r.booking._id) === id)
+                  setCompletedOutstanding(row ? { amount: row.outstandingBalance, currency: row.currency } : { amount: 0, currency: commonStrings.CURRENCY })
+                })
+                .catch(() => setCompletedOutstanding(null))
               setPrice(_booking.price)
               // GA-PAR-07: initialise the apporteur picker from the stored
               // snapshot and load the agency's active agents.
@@ -728,6 +739,20 @@ const UpdateBooking = () => {
             <div className="signed-online-notice">
               <span>{strings.CLIENT_SIGNED_ONLINE}</span>
               <span>{` — ${new Date(booking.onlineSignature.signedAt).toLocaleString()}`}</span>
+            </div>
+          )}
+          {booking.lifecycle === bookcarsTypes.ContractLifecycle.Completed && (
+            <div style={{ margin: '8px 0', padding: '12px 16px', border: '1px solid #a5d6a7', borderRadius: 4, backgroundColor: '#e8f5e9' }}>
+              <div style={{ fontWeight: 600 }}>{strings.COMPLETED_BANNER}</div>
+              {booking.depositSettlement && (
+                <div>{strings.COMPLETED_DEPOSIT.replace('{held}', bookcarsHelper.formatPrice(booking.depositSettlement.heldAmount, commonStrings.CURRENCY, language)).replace('{kept}', bookcarsHelper.formatPrice(booking.depositSettlement.keptAmount, commonStrings.CURRENCY, language)).replace('{returned}', bookcarsHelper.formatPrice(booking.depositSettlement.returnedAmount, commonStrings.CURRENCY, language))}{booking.depositSettlement.method ? ` — ${booking.depositSettlement.method}` : ''}{booking.depositSettlement.note ? ` — ${booking.depositSettlement.note}` : ''}</div>
+              )}
+              {completedOutstanding && completedOutstanding.amount > 0 && (
+                <div>{strings.COMPLETED_OUTSTANDING.replace('{amount}', bookcarsHelper.formatPrice(completedOutstanding.amount, completedOutstanding.currency, language))}</div>
+              )}
+              {booking.closeWithBalance?.reason && (
+                <div>{strings.COMPLETED_CLOSE_REASON.replace('{reason}', booking.closeWithBalance.reason)}</div>
+              )}
             </div>
           )}
           <div className="col-1">

@@ -804,4 +804,71 @@ describe('F7 / W3 M-4 — mileage-aware due status blocks booking', () => {
     expect(fresh.status).toBe(200)
     ids.push(new mongoose.Types.ObjectId(fresh.body.bookingId))
   })
+
+  // Audit-fix 2026-11-24 (F-02) — a payment posted while an overdue
+  // schedule blocks the car: the 201 must surface the refresh conflict
+  // (not hide it), the booking stays Pending, and the retry endpoint
+  // confirms it once the schedule is completed.
+  it('surfaces a blocked payment confirmation on the 201 and confirms on retry once the schedule is completed', async () => {
+    // The schedule is Completed after the restore test: checkout a new
+    // pay-later hold first (checkout itself is blocked while overdue).
+    const created = await post(ownerToken, '/api/checkout', bookingPayload('2027-01-04T10:00:00.000Z', '2027-01-06T10:00:00.000Z'))
+    expect(created.status).toBe(200)
+    const retryBookingId = created.body.bookingId as string
+    ids.push(new mongoose.Types.ObjectId(retryBookingId))
+    const stored = await Booking.findById(retryBookingId).lean()
+    const rentalTotal = Number(stored?.financialSnapshot?.rentalTotal || stored?.price || 0)
+    expect(rentalTotal).toBeGreaterThan(0)
+    // The rent leg is VAT-inclusive in the shared receivable (the B-3
+    // describe enables VAT on this supplier), so the payment must cover
+    // rentalTotal + VAT or the refresh stops early on the outstanding
+    // balance and never reaches the availability check.
+    const supplierRow = await User.findById(supplier._id).select('vatEnabled vatRate').lean()
+    const vatRate = supplierRow?.vatEnabled ? Number(supplierRow.vatRate || 0) : 0
+    const rentDue = Number((rentalTotal * (1 + vatRate / 100)).toFixed(2))
+    expect(rentDue).toBeGreaterThan(0)
+    // Reopen the schedule so it is overdue by mileage again.
+    await put(ownerToken, `/api/maintenance-schedules/${scheduleId}`, {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+      status: types.MaintenanceScheduleStatus.Upcoming,
+    })
+    const listed = await get(ownerToken, '/api/maintenance-schedules')
+    const row = (listed.body as Array<{ _id: string, status: string }>)
+      .find((r) => r._id === scheduleId)
+    expect(row?.status).toBe(types.MaintenanceScheduleStatus.Overdue)
+
+    const payment = await post(ownerToken, '/api/rental-payments', {
+      booking: retryBookingId, date: new Date().toISOString(), amount: rentDue,
+      currency: env.BASE_CURRENCY, method: types.RentalPaymentMethod.Cash,
+      purpose: types.RentalPaymentPurpose.Rent, idempotencyKey: key('f02-pay'),
+    })
+    expect(payment.status).toBe(201)
+    expect(payment.body.statusRefresh?.conflict).toBe(true)
+    expect(payment.body.statusRefresh?.conflictReason).toContain('F7 M4 oil service')
+    const stillPending = await Booking.findById(retryBookingId).lean()
+    expect(stillPending?.status).toBe(types.BookingStatus.Pending)
+    expect(stillPending?.expireAt).toBeTruthy()
+
+    const blocked = await post(ownerToken, `/api/bookings/${retryBookingId}/refresh-payment-status`, {})
+    expect(blocked.status).toBe(200)
+    expect(blocked.body.conflict).toBe(true)
+    expect(blocked.body.conflictReason).toContain('F7 M4 oil service')
+    expect(blocked.body.updated).toBe(false)
+
+    await put(ownerToken, `/api/maintenance-schedules/${scheduleId}`, {
+      car: m4car._id.toString(), title: 'F7 M4 oil service', type: types.MaintenanceExpenseType.Oil,
+      nextDueDate: '2027-06-01', intervalKm: 10000, lastServiceMileage: 40000,
+      status: types.MaintenanceScheduleStatus.Completed,
+    })
+    const retried = await post(ownerToken, `/api/bookings/${retryBookingId}/refresh-payment-status`, {})
+    expect(retried.status).toBe(200)
+    expect(retried.body.conflict).toBe(false)
+    expect(retried.body.updated).toBe(true)
+    expect(retried.body.status).toBe(types.BookingStatus.Paid)
+    const confirmed = await Booking.findById(retryBookingId).lean()
+    expect(confirmed?.status).toBe(types.BookingStatus.Paid)
+    expect(confirmed?.expireAt).toBeFalsy()
+    await RentalPayment.deleteOne({ _id: payment.body._id })
+  })
 })

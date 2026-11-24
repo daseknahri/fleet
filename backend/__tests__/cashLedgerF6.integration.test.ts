@@ -533,6 +533,55 @@ describe('F6 / W3 C-7 — ledger cash payments link to their cash session', () =
     await RentalPayment.deleteMany({ booking: fresh._id })
     await Booking.deleteOne({ _id: fresh._id })
   })
+
+  // Audit-fix 2026-11-24 (F-01) — the original payment posted while no
+  // session was open, so it has no linked movement (unlinked). Its
+  // reversal must still post the compensating Out movement into the
+  // open session, or the drawer stays overstated by the refund.
+  it('a cash reversal of an unlinked payment creates a compensating Out movement in the open session', async () => {
+    const current = await get(ownerToken, '/api/cash/sessions/current?account=cash')
+    expect(current.body).toBeNull()
+    const fresh = await makeBooking(carDeposit, 300, snapshot(300, 0), new Date(Date.now() + 86400000))
+    const payment = await createPayment({ booking: fresh._id.toString(), amount: 80, purpose: 'rent' })
+    expect(payment.status).toBe(201)
+    const session = await openSession(100)
+    const before = await journal(session._id)
+    expect(before.unlinkedCashPayments.some((row) => row.id === payment.body._id)).toBe(true)
+    const reversal = await post(ownerToken, `/api/rental-payments/${payment.body._id}/reverse`, { idempotencyKey: key('rev-unlinked'), note: 'F-01 cash reversal of unlinked payment' })
+    expect(reversal.status).toBe(201)
+    expect(reversal.body.cashSession).toBe(session._id)
+    const j = await journal(session._id)
+    const out = j.rows.find((row) => row.rentalPayment === reversal.body._id)
+    expect(out?.direction).toBe('out')
+    expect(out?.amount).toBe(80)
+    expect(j.totals.income).toBe(0)
+    expect(j.totals.expenses).toBe(80)
+    expect(j.totals.expectedBalance).toBe(20)
+    await RentalPayment.deleteMany({ booking: fresh._id })
+    await Booking.deleteOne({ _id: fresh._id })
+  })
+
+  it('a wire reversal of an unlinked payment creates a compensating Out movement in the open bank session', async () => {
+    const current = await get(ownerToken, '/api/cash/sessions/current?account=bank')
+    expect(current.body).toBeNull()
+    const fresh = await makeBooking(carDeposit, 300, snapshot(300, 0), new Date(Date.now() + 86400000))
+    const payment = await createPayment({ booking: fresh._id.toString(), amount: 60, purpose: 'rent', method: types.RentalPaymentMethod.BankTransfer })
+    expect(payment.status).toBe(201)
+    const opened = await post(ownerToken, '/api/cash/sessions', { account: types.CashAccountType.Bank, openingBalance: 100, openingDifferenceReason: 'F-01 fixture' })
+    expect(opened.status).toBe(201)
+    const session = opened.body as { _id: string, openingBalance: number }
+    const reversal = await post(ownerToken, `/api/rental-payments/${payment.body._id}/reverse`, { idempotencyKey: key('rev-unlinked-bank'), note: 'F-01 bank reversal of unlinked payment' })
+    expect(reversal.status).toBe(201)
+    expect(reversal.body.bankSession).toBe(session._id)
+    const j = await journal(session._id)
+    const out = j.rows.find((row) => row.rentalPayment === reversal.body._id)
+    expect(out?.direction).toBe('out')
+    expect(out?.amount).toBe(60)
+    expect(j.totals.expectedBalance).toBe(40)
+    await closeSession(session._id, { countedClosingBalance: j.totals.expectedBalance, closingNote: 'F-01 bank cleanup' })
+    await RentalPayment.deleteMany({ booking: fresh._id })
+    await Booking.deleteOne({ _id: fresh._id })
+  })
 })
 
 describe('F6 / W3 P-8 — manual debit and pending entry edit / delete', () => {

@@ -82,6 +82,12 @@ export const isBookingOverdue = (
 const CHECKLIST_KEYS = ['spareWheelAndTools', 'radio', 'washed'] as const
 const PHOTO_SLOTS: string[] = Object.values(bookcarsTypes.InspectionPhotoSlot)
 
+/** F-08 — discriminated inspection validation: the caller can tell a
+ * missing photo apart from any other invalid field. */
+export type InspectionValidationResult =
+  | { ok: true, value: { occurredAt: Date, odometer?: number, fuelLevel?: number, condition?: string, damageNote?: string, photoFiles: string[], checklist?: bookcarsTypes.InspectionChecklist, photos?: bookcarsTypes.InspectionPhoto[], signatureFile?: string } }
+  | { ok: false, reason: 'INVALID' | 'PHOTO_REQUIRED' }
+
 export const validateInspectionFields = (input: {
   occurredAt?: Date | string
   odometer?: unknown
@@ -92,19 +98,19 @@ export const validateInspectionFields = (input: {
   checklist?: unknown
   photos?: unknown
   signatureFile?: unknown
-}, type?: bookcarsTypes.InspectionType) => {
+}, type?: bookcarsTypes.InspectionType): InspectionValidationResult => {
   // GA-PAR-06: structured checklist (booleans only, known keys only) and
   // guided photo slots (slot enum + the existing filename safety rules).
   // Both are optional: legacy payloads without them remain valid.
   let checklist: bookcarsTypes.InspectionChecklist | undefined
   if (input.checklist !== undefined && input.checklist !== null) {
     if (typeof input.checklist !== 'object' || Array.isArray(input.checklist)) {
-      return null
+      return { ok: false, reason: 'INVALID' }
     }
     checklist = {}
     for (const [key, value] of Object.entries(input.checklist as Record<string, unknown>)) {
       if (!(CHECKLIST_KEYS as readonly string[]).includes(key) || typeof value !== 'boolean') {
-        return null
+        return { ok: false, reason: 'INVALID' }
       }
       ;(checklist as Record<string, boolean>)[key] = value
     }
@@ -112,17 +118,17 @@ export const validateInspectionFields = (input: {
   let photos: bookcarsTypes.InspectionPhoto[] | undefined
   if (input.photos !== undefined && input.photos !== null) {
     if (!Array.isArray(input.photos)) {
-      return null
+      return { ok: false, reason: 'INVALID' }
     }
     photos = []
     for (const entry of input.photos as unknown[]) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null
+        return { ok: false, reason: 'INVALID' }
       }
       const slot = String((entry as { slot?: unknown }).slot || '')
       const file = String((entry as { file?: unknown }).file || '').trim()
       if (!PHOTO_SLOTS.includes(slot) || file.length === 0 || file.length > 200 || !/^[A-Za-z0-9._-]+$/.test(file)) {
-        return null
+        return { ok: false, reason: 'INVALID' }
       }
       photos.push({ slot: slot as bookcarsTypes.InspectionPhotoSlot, file })
     }
@@ -140,13 +146,13 @@ export const validateInspectionFields = (input: {
     || (odometer !== undefined && (!Number.isFinite(odometer) || odometer < 0))
     || (fuelLevel !== undefined && (!Number.isFinite(fuelLevel) || fuelLevel < 0 || fuelLevel > 100))
     || condition.length > 4000 || damageNote.length > 4000 || !safePhoto || !safeSignature) {
-return null
+return { ok: false, reason: 'INVALID' }
 }
   // GA5: a handover is the departure record - it is meaningless
   // without the readings (the mobile test handed over blank). Only the
   // handover leg is gated; the return leg keeps its existing shape.
   if (type === bookcarsTypes.InspectionType.Handover && (odometer === undefined || fuelLevel === undefined)) {
-    return null
+    return { ok: false, reason: 'INVALID' }
   }
   // Next pass - the return leg is the arrival record: the odometer is
   // required there too (it keeps the maintenance chain true and is the
@@ -154,13 +160,13 @@ return null
   // one photo each (a slotted photo counts - the controller merges slots
   // into photoFiles, so the count here is the union of both lists).
   if (type === bookcarsTypes.InspectionType.Return && odometer === undefined) {
-    return null
+    return { ok: false, reason: 'INVALID' }
   }
   if ((type === bookcarsTypes.InspectionType.Handover || type === bookcarsTypes.InspectionType.Return)
     && photoFiles.length === 0 && (photos || []).length === 0) {
-    return null
+    return { ok: false, reason: 'PHOTO_REQUIRED' }
   }
-  return { occurredAt, odometer, fuelLevel, condition: condition || undefined, damageNote: damageNote || undefined, photoFiles, checklist, photos, signatureFile }
+  return { ok: true, value: { occurredAt, odometer, fuelLevel, condition: condition || undefined, damageNote: damageNote || undefined, photoFiles, checklist, photos, signatureFile } }
 }
 
 

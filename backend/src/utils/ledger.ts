@@ -404,18 +404,21 @@ const linkReversalCashMovement = async (
     originalMovementQuery.session(dbSession)
   }
   const originalMovement = await originalMovementQuery
-  if (!originalMovement) {
-    return null
-  }
-  const openSessionQuery = CashSession.findOne({
+  // F-01 / audit-fix 2026-11-24 — the original payment may have no
+  // linked movement (it posted while no session was open and landed in
+  // unlinkedCashPayments). The reversal must still post its compensating
+  // movement: fall back to the latest open session for the account,
+  // exactly as the closed-original-session case already does. Only when
+  // no open session exists at all is the movement dropped (logged below).
+  const openSessionQuery = originalMovement ? CashSession.findOne({
     _id: originalMovement.session,
     supplier: original.supplier,
     status: bookcarsTypes.CashSessionStatus.Open,
-  })
-  if (dbSession) {
+  }) : null
+  if (dbSession && openSessionQuery) {
     openSessionQuery.session(dbSession)
   }
-  const openSession = await openSessionQuery
+  const openSession = openSessionQuery ? await openSessionQuery : null
   const targetQuery = CashSession.findOne({
     supplier: original.supplier,
     account: bookcarsTypes.CashAccountType.Cash,
@@ -473,18 +476,21 @@ const linkReversalBankMovement = async (
     originalMovementQuery.session(dbSession)
   }
   const originalMovement = await originalMovementQuery
-  if (!originalMovement) {
-    return null
-  }
-  const openSessionQuery = CashSession.findOne({
+  // F-01 / audit-fix 2026-11-24 — the original payment may have no
+  // linked movement (it posted while no session was open and landed in
+  // unlinkedCashPayments). The reversal must still post its compensating
+  // movement: fall back to the latest open session for the account,
+  // exactly as the closed-original-session case already does. Only when
+  // no open session exists at all is the movement dropped (logged below).
+  const openSessionQuery = originalMovement ? CashSession.findOne({
     _id: originalMovement.session,
     supplier: original.supplier,
     status: bookcarsTypes.CashSessionStatus.Open,
-  })
-  if (dbSession) {
+  }) : null
+  if (dbSession && openSessionQuery) {
     openSessionQuery.session(dbSession)
   }
-  const openSession = await openSessionQuery
+  const openSession = openSessionQuery ? await openSessionQuery : null
   const targetQuery = CashSession.findOne({
     supplier: original.supplier,
     account: bookcarsTypes.CashAccountType.Bank,
@@ -826,7 +832,22 @@ export const postProviderPayment = (input: Omit<PostRentalPaymentInput, 'method'
  * @param {mongoose.Types.ObjectId | string} bookingId
  * @returns {Promise<{ status: bookcarsTypes.BookingStatus, updated: boolean, outstandingBalance: number, currency: string, postedRent: number, depositPaid: number, conflict: boolean }>}
  */
-export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.ObjectId | string) => {
+// Audit-fix 2026-11-24 (F-02) — the refresh outcome, including the
+// blocking reason when a conflict refuses the flip (e.g. an overdue
+// maintenance schedule). Callers surface `conflictReason` to the
+// manager instead of silently leaving the booking unconfirmed.
+export type BookingPaymentStatusRefresh = {
+  status: bookcarsTypes.BookingStatus
+  updated: boolean
+  conflict: boolean
+  conflictReason?: string
+  outstandingBalance: number
+  currency: string
+  postedRent: number
+  depositPaid: number
+}
+
+export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.ObjectId | string): Promise<BookingPaymentStatusRefresh> => {
   const booking = await Booking.findById(bookingId)
   if (!booking) {
     throw new LedgerError('BOOKING_NOT_FOUND', 'Rental contract not found')
@@ -893,7 +914,7 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
     booking.expireAt = previousExpireAt
     if (err instanceof BookingConflictError) {
       logger.error(`[ledger.refreshBookingPaymentStatus] Booking ${booking._id.toString()} cannot be confirmed: the car is no longer available for the dates`, err)
-      return { status: previousStatus, updated: false, ...base, conflict: true }
+      return { status: previousStatus, updated: false, ...base, conflict: true, conflictReason: err.message }
     }
     throw err
   }

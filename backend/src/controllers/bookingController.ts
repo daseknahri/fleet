@@ -3503,6 +3503,63 @@ export const confirmReservation = async (req: Request, res: Response) => {
 }
 
 /**
+ * Audit-fix 2026-11-24 (F-02) — retry a booking's payment-status refresh
+ * after a failed one (e.g. the confirmation was blocked by an overdue
+ * maintenance schedule that has since been completed). The refresh is
+ * best-effort in the payment create/confirm paths, so a conflict there
+ * leaves the booking unconfirmed with no way back; this endpoint is that
+ * way back. It re-runs the same refresh and returns its outcome as 200
+ * JSON — a conflict is data, not an HTTP error, so the manager sees the
+ * blocking reason and can clear it and retry again.
+ */
+export const refreshPaymentStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const booking = await Booking.findById(id)
+    if (!booking) {
+      res.status(404).send('Booking not found')
+      return
+    }
+    const scope = await authorizeStaffBooking(req, booking, 'retry the payment confirmation')
+    if (!scope.ok) {
+      res.status(scope.status).send(scope.message)
+      return
+    }
+    // Counter agents record pending entries; they never confirm them
+    // (same rule as the payment confirm endpoint).
+    if (req.agency?.role === bookcarsTypes.AgencyRole.CounterAgent) {
+      res.status(403).send('Counter agents cannot confirm payment entries')
+      return
+    }
+    if (booking.deletedAt) {
+      res.status(409).send(trashedMessage('booking'))
+      return
+    }
+    const refresh = await refreshBookingPaymentStatus(booking._id)
+    res.json({
+      status: refresh.status,
+      updated: refresh.updated,
+      conflict: refresh.conflict,
+      conflictReason: refresh.conflictReason,
+      outstandingBalance: refresh.outstandingBalance,
+      currency: refresh.currency,
+    })
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      res.status(err.code === 'BOOKING_NOT_FOUND' ? 404 : 409).send(err.message)
+      return
+    }
+    logger.error(`[booking.refreshPaymentStatus] ${i18n.t('ERROR')} ${req.params.id}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+
+/**
  * Wave 2.1 — the "confirmed, unpaid" watchlist: Confirmed holds with
  * an outstanding balance, plus legacy Reserved rows (which still need
  * confirming). ReadBookings. Same response shape as the cancel-request

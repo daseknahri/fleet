@@ -102,6 +102,11 @@ const Payments = () => {
   const [selectedTotals, setSelectedTotals] = useState<{ rent: number, deposit: number } | null>(null)
   const [reversingId, setReversingId] = useState('')
   const [notice, setNotice] = useState('')
+  // Audit-fix 2026-11-24 (F-02) — a payment whose confirmation was
+  // blocked (e.g. an overdue maintenance schedule): the 201 carries the
+  // conflict, and the manager retries from here once it is cleared.
+  const [refreshConflict, setRefreshConflict] = useState<{ bookingId: string, reason: string } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const reversalInFlight = useRef<Set<string>>(new Set())
   // Keep one key per payment interaction so a lost response can be safely retried.
   // A new payment ID gets a new key; the server remains the final idempotency authority.
@@ -353,11 +358,40 @@ const Payments = () => {
       setDialogOpen(false)
       createKey.current = ''
       setNotice('')
+      if (payment.statusRefresh?.conflict) {
+        setRefreshConflict({ bookingId: form.booking, reason: payment.statusRefresh.conflictReason || '' })
+      } else {
+        setRefreshConflict(null)
+      }
     } catch (error) {
       helper.error(error, helper.getErrorMessage(error, strings.SAVE_ERROR))
       setFormError(true)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Audit-fix 2026-11-24 (F-02) — retry a blocked payment confirmation
+  // once the blocking condition is cleared. The endpoint re-runs the
+  // refresh and returns its outcome; a confirmed booking clears the
+  // warning, a still-blocked one refreshes the reason.
+  const handleRetryConfirmation = async () => {
+    if (!refreshConflict || refreshing) {
+      return
+    }
+    setRefreshing(true)
+    try {
+      const result = await RentalPaymentService.refreshPaymentStatus(refreshConflict.bookingId)
+      if (result.conflict) {
+        setRefreshConflict({ bookingId: refreshConflict.bookingId, reason: result.conflictReason || refreshConflict.reason })
+      } else {
+        setRefreshConflict(null)
+        setNotice(strings.REFRESH_CONFIRMED)
+      }
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -468,6 +502,14 @@ const Payments = () => {
         </div>
         {loadError && <Alert severity="error">{strings.LOAD_ERROR}</Alert>}
         {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+        {refreshConflict && (
+          <Alert
+            severity="warning"
+            action={<Button size="small" disabled={refreshing} onClick={() => void handleRetryConfirmation()}>{strings.RETRY_CONFIRMATION}</Button>}
+          >
+            {strings.REFRESH_CONFLICT.replace('{reason}', refreshConflict.reason)}
+          </Alert>
+        )}
         <div className="agency-payments__summary">
           <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.TOTAL}</small><strong>{loading || postedNetTotal === null ? '—' : formatAmount(postedNetTotal)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-payments__summary-icon">T</span><small>{strings.ENTRIES}</small><strong>{loading ? '—' : paymentsTotal}</strong></CardContent></Card>

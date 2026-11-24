@@ -546,7 +546,10 @@ const Maintenance = () => {
 
         : [user._id || '']
 
-      const [carResult, expenseRows, scheduleRows, workOrderRows, reportData, categoryRows] = await Promise.all([
+      // Audit-fix 2026-11-24 (F-03) — one failing call must not blank
+      // the whole page: each list settles independently, and the banner
+      // only flags the failure while the sections that loaded render.
+      const [carResult, expenseRows, scheduleRows, workOrderRows, reportData, categoryRows] = await Promise.allSettled([
 
         CarService.getCars('', { suppliers: supplierIds, includeAlreadyBookedCars: true, includeComingSoonCars: true }, 1, 1000),
 
@@ -562,17 +565,33 @@ const Maintenance = () => {
 
       ])
 
-      setCars(carResult?.[0]?.resultData || [])
+      if (carResult.status === 'fulfilled') {
+        setCars(carResult.value?.[0]?.resultData || [])
+      }
 
-      setExpenses(expenseRows || [])
+      if (expenseRows.status === 'fulfilled') {
+        setExpenses(expenseRows.value || [])
+      }
 
-      setSchedules(scheduleRows || [])
+      if (scheduleRows.status === 'fulfilled') {
+        setSchedules(scheduleRows.value || [])
+      }
 
-      setWorkOrders(workOrderRows || [])
+      if (workOrderRows.status === 'fulfilled') {
+        setWorkOrders(workOrderRows.value || [])
+      }
 
-      setReport(reportData || null)
+      if (reportData.status === 'fulfilled') {
+        setReport(reportData.value || null)
+      }
 
-      setCategories(categoryRows || [])
+      if (categoryRows.status === 'fulfilled') {
+        setCategories(categoryRows.value || [])
+      }
+
+      if ([carResult, expenseRows, scheduleRows, workOrderRows, reportData, categoryRows].some((result) => result.status === 'rejected')) {
+        setLoadError(true)
+      }
     } catch (error) {
       setLoadError(true)
 

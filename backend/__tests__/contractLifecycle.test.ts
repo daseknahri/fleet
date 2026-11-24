@@ -52,29 +52,30 @@ describe('contract lifecycle operations', () => {
   })
 
   test('validates odometer, fuel and private photo names', () => {
-    expect(validateInspectionFields({ odometer: 100, fuelLevel: 50, photoFiles: ['handover-front.jpg'] })).not.toBeNull()
-    expect(validateInspectionFields({ odometer: -1 })).toBeNull()
-    expect(validateInspectionFields({ fuelLevel: 101 })).toBeNull()
-    expect(validateInspectionFields({ photoFiles: ['../private.jpg'] })).toBeNull()
-    expect(validateInspectionFields({ occurredAt: 'not-a-date' })).toBeNull()
+    expect(validateInspectionFields({ odometer: 100, fuelLevel: 50, photoFiles: ['handover-front.jpg'] }).ok).toBe(true)
+    expect(validateInspectionFields({ odometer: -1 })).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ fuelLevel: 101 })).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ photoFiles: ['../private.jpg'] })).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ occurredAt: 'not-a-date' })).toEqual({ ok: false, reason: 'INVALID' })
   })
 
   // GA5 - a handover is the departure record: it needs the readings.
   // Next pass - BOTH legs are proof: at least one photo each (a slotted
   // photo counts), and the return leg needs its odometer too.
+  // F-08 — a missing photo is PHOTO_REQUIRED, every other failure INVALID.
   test('handover requires odometer, fuel and a photo; return requires odometer and a photo', () => {
-    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Handover)).toBeNull()
-    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
-    expect(validateInspectionFields({ fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
-    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0 }, bookcarsTypes.InspectionType.Handover)).toBeNull()
-    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0, photoFiles: ['handover.jpg'] }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
-    expect(validateInspectionFields({ odometer: 100, fuelLevel: 80, photos: [{ slot: bookcarsTypes.InspectionPhotoSlot.Front, file: 'front.jpg' }] }, bookcarsTypes.InspectionType.Handover)).not.toBeNull()
-    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Return)).toBeNull()
-    expect(validateInspectionFields({ photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).toBeNull()
-    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Return)).toBeNull()
-    expect(validateInspectionFields({ odometer: 100, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).not.toBeNull()
-    expect(validateInspectionFields({ odometer: 0, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).not.toBeNull()
-    expect(validateInspectionFields({})).not.toBeNull()
+    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Handover)).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Handover)).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ fuelLevel: 80 }, bookcarsTypes.InspectionType.Handover)).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0 }, bookcarsTypes.InspectionType.Handover)).toEqual({ ok: false, reason: 'PHOTO_REQUIRED' })
+    expect(validateInspectionFields({ odometer: 0, fuelLevel: 0, photoFiles: ['handover.jpg'] }, bookcarsTypes.InspectionType.Handover).ok).toBe(true)
+    expect(validateInspectionFields({ odometer: 100, fuelLevel: 80, photos: [{ slot: bookcarsTypes.InspectionPhotoSlot.Front, file: 'front.jpg' }] }, bookcarsTypes.InspectionType.Handover).ok).toBe(true)
+    expect(validateInspectionFields({}, bookcarsTypes.InspectionType.Return)).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return)).toEqual({ ok: false, reason: 'INVALID' })
+    expect(validateInspectionFields({ odometer: 100 }, bookcarsTypes.InspectionType.Return)).toEqual({ ok: false, reason: 'PHOTO_REQUIRED' })
+    expect(validateInspectionFields({ odometer: 100, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return).ok).toBe(true)
+    expect(validateInspectionFields({ odometer: 0, photoFiles: ['return.jpg'] }, bookcarsTypes.InspectionType.Return).ok).toBe(true)
+    expect(validateInspectionFields({}).ok).toBe(true)
   })
 })
 
