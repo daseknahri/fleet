@@ -61,7 +61,7 @@ const bookingScope = async (req: Request, session?: mongoose.ClientSession) => {
   const query = (supplier && mongoose.isValidObjectId(supplier)
     ? Booking.findOne({ _id: bookingId, supplier })
     : Booking.findOne({ _id: bookingId })
-  ).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature deletedAt')
+  ).select('_id reference supplier car driver status lifecycle from to expireAt price financialSnapshot depositSettlement amendmentHistory onlineSignature deletedAt earlyReturn')
   if (session) {
     query.session(session)
   }
@@ -842,6 +842,22 @@ export const getSnapshotFile = async (req: Request, res: Response) => {
 }
 }
 
+export const listSnapshots = async (req: Request, res: Response) => {
+  try {
+    const booking = await chargeScope(req)
+    if (!booking) {
+ res.sendStatus(404); return 
+}
+    const snapshots = await ContractSnapshot.find({ booking: booking._id, supplier: booking.supplier })
+      .sort({ version: 1 })
+      .select('version generatedAt withStamp termsSha256 pdfFile')
+      .lean()
+    res.json(snapshots)
+  } catch (err) {
+ logger.error('[contractOperations.listSnapshots]', err); res.status(400).send(i18n.t('ERROR')) 
+}
+}
+
 /**
  * GA-PAR-06 settlement preview: computes PROPOSED charge lines from the
  * handover + return inspections, the agency's AgencyReturnSettings rates
@@ -865,7 +881,16 @@ export const settlementPreview = async (req: Request, res: Response) => {
     const currency = String(booking!.financialSnapshot?.baseCurrency || env.BASE_CURRENCY).toUpperCase()
     const exponent = currencyExponent(currency)
     const roundMoney = (value: number) => toMinorUnits(value, currency) / (10 ** exponent)
-    const rentalDays = booking!.earlyReturn ? Math.max(1, booking!.earlyReturn.actualDays) : Math.max(1, helper.days(booking!.from, booking!.to))
+    // F-07 follow-up — bookingScope used not to select earlyReturn,
+    // and Mongoose hydrates the nested path as a truthy empty
+    // subdocument, so a bare truthiness test took the early-return
+    // branch with actualDays undefined (Math.max(1, undefined) is
+    // NaN, JSON null) for every booking. Only a real recorded
+    // actualDays counts; anything else falls back to from/to.
+    const earlyReturnDays = booking!.earlyReturn?.actualDays
+    const rentalDays = typeof earlyReturnDays === 'number' && Number.isFinite(earlyReturnDays)
+      ? Math.max(1, earlyReturnDays)
+      : Math.max(1, helper.days(booking!.from, booking!.to))
     const [handover, returnInsp, settings, car] = await Promise.all([
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Handover }).sort({ occurredAt: -1, createdAt: -1 }),
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Return }).sort({ occurredAt: -1, createdAt: -1 }),

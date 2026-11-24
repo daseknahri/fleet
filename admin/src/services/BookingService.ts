@@ -285,6 +285,24 @@ export const confirmReservation = (id: string): Promise<bookcarsTypes.Booking> =
     .then((res) => res.data)
 
 /**
+ * GH-02 / Wave 3.1 — mark a booking as no-show from the receivables
+ * action column (F4 / W1 #7: Draft/Confirmed, unpaid, pickup passed;
+ * the server enforces every guard and 409s otherwise). The booking
+ * is cancelled and the car freed; no refund or fee is decided here.
+ *
+ * @param {string} id
+ * @returns {Promise<bookcarsTypes.Booking>}
+ */
+export const markNoShow = (id: string): Promise<bookcarsTypes.Booking> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/mark-no-show`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
  * Wave 2.1 — the "confirmed, unpaid" watchlist: Confirmed holds with
  * an outstanding balance, plus legacy Reserved rows (which still need
  * confirming).

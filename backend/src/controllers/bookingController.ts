@@ -275,6 +275,18 @@ export const create = async (req: Request, res: Response) => {
     // (e.g. a blockOnPay=false car), no record is stamped — an exception
     // that excepts nothing would be audit noise.
     let overlapConflictingBookingId: string | undefined
+    // O-02 — an admin draft does not reserve the car (Pending, no
+    // expireAt, Draft lifecycle), so the save below skips the
+    // availability check entirely and a gated exception would never be
+    // stamped. When an exception reason was supplied, run the check
+    // explicitly to discover the conflicting booking; maintenance
+    // conflicts still throw here (never excepted).
+    if (overlapGate.reason) {
+      await checkBookingAvailability(booking, [booking._id], {
+        allowOverlapException: true,
+        onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
+      })
+    }
     await saveBookingWithAvailability(booking, {
       allowOverlapException: !!overlapGate.reason,
       onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
@@ -2259,6 +2271,13 @@ export const getBooking = async (req: Request, res: Response) => {
   const sessionId = req.query.sessionId as string | undefined
 
   try {
+    // R-1: a malformed id must fail fast with a specific 400, not as
+    // a Mongoose CastError in the catch (opaque "Internal Error: ").
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).send('Invalid booking id')
+      return
+    }
+
     const sessionUserId = req.user?._id
     const sessionUser = sessionUserId ? await User.findById(sessionUserId) : null
 
@@ -2360,7 +2379,11 @@ export const getBooking = async (req: Request, res: Response) => {
     }
 
     logger.error('[booking.getBooking] Booking not found:', id)
-    res.sendStatus(204)
+    // R-2: a nonexistent booking is a 404, not 204. All three callers
+    // (frontend Booking / CheckoutStatus, admin UpdateBooking) wrap
+    // getBooking in try/catch, so the rejection reaches their error
+    // state; a 204 resolved with an empty string instead.
+    res.sendStatus(404)
   } catch (err) {
     logger.error(`[booking.getBooking] ${i18n.t('ERROR')} ${id}`, err)
     res.status(400).send(i18n.t('ERROR'))
@@ -2408,6 +2431,20 @@ export const getBookings = async (req: Request, res: Response) => {
     const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
     const page = Number.parseInt(req.params.page, 10)
     const size = Number.parseInt(req.params.size, 10)
+    // R-1: validate before the query so a bad page/size or a missing
+    // `statuses` fails fast with a specific 400 instead of a Mongoose
+    // throw in the catch (opaque "Internal Error: "). Same message as
+    // the finance lists (`parsePagination`) for page/size. No size cap
+    // here — R-3 is deferred (admin callers legitimately request
+    // size 200-10000; a cap would 400 them).
+    if (!Number.isInteger(page) || !Number.isInteger(size) || page < 1 || size < 1) {
+      res.status(400).send('Invalid page or size')
+      return
+    }
+    if (!Array.isArray(body.statuses)) {
+      res.status(400).send('Invalid booking statuses')
+      return
+    }
     let suppliers = body.suppliers.map((id) => new mongoose.Types.ObjectId(id))
     const {
       statuses,
@@ -3485,7 +3522,16 @@ export const confirmReservation = async (req: Request, res: Response) => {
     booking.expireAt = null
     booking.confirmedBy = new mongoose.Types.ObjectId(scope.sessionUser._id.toString())
     booking.confirmedAt = new Date()
-    await saveBookingWithAvailability(booking)
+    // O-02 — a stored overlap exception carries this booking past the
+    // booking-vs-booking conflict it was granted for (same rule as the
+    // update flow). Only a real record counts: Mongoose hydrates the
+    // nested path as an empty subdocument, so truthiness alone would
+    // bypass every confirm. Maintenance conflicts still throw inside
+    // the helper (never excepted).
+    const storedOverlapException = booking.overlapException?.reason ? booking.overlapException : undefined
+    await saveBookingWithAvailability(booking, {
+      allowOverlapException: !!storedOverlapException,
+    })
     try {
       await notifyDriver(booking)
     } catch (err) {
@@ -4048,6 +4094,12 @@ export const getTrashedBookings = async (req: Request, res: Response) => {
     const { body }: { body: bookcarsTypes.GetBookingsPayload } = req
     const page = Number.parseInt(req.params.page, 10)
     const size = Number.parseInt(req.params.size, 10)
+    // R-1 (same as getBookings): bad page/size fails fast with a
+    // specific 400 instead of a Mongoose throw in the catch.
+    if (!Number.isInteger(page) || !Number.isInteger(size) || page < 1 || size < 1) {
+      res.status(400).send('Invalid page or size')
+      return
+    }
     let suppliers = body.suppliers.map((id) => new mongoose.Types.ObjectId(id))
     let keyword = (body.filter && body.filter.keyword) || ''
 

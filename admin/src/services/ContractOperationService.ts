@@ -14,7 +14,20 @@ export const decideCharge = (bookingId: string, chargeId: string, decision: book
 // GA-PAR-14: withStamp requests the agency stamp in the generated PDF
 // (explicit opt-in per generation; absent = without stamp).
 export const createSnapshot = (bookingId: string, supplierId?: string, withStamp?: boolean) => axiosInstance.post(withSupplier(`${base}/${bookingId}/snapshots`, supplierId), withStamp === undefined ? null : { withStamp }, config()).then((res) => res.data as bookcarsTypes.ContractSnapshot)
-export const complete = (bookingId: string, supplierId?: string, depositSettlement?: bookcarsTypes.DepositSettlement) => axiosInstance.post(withSupplier(`${base}/${bookingId}/complete`, supplierId), depositSettlement ? { depositSettlement } : null, config()).then((res) => res.data as { booking: bookcarsTypes.Booking; receivable: { approvedCharges: number; outstandingBalance: number; overdue: boolean } })
+export const listSnapshots = (bookingId: string, supplierId?: string) => axiosInstance.get(withSupplier(`${base}/${bookingId}/snapshots`, supplierId), config()).then((res) => res.data as bookcarsTypes.ContractSnapshot[])
+export const complete = (bookingId: string, supplierId?: string, depositSettlement?: bookcarsTypes.DepositSettlement, closeWithBalanceReason?: string) => {
+  // GH-06 — the close-with-balance reason rides in the same POST body
+  // the backend's complete() already reads (closeWithBalanceReason,
+  // 1–1000 chars when a balance remains). Sent only when non-empty.
+  const body: Record<string, unknown> = {}
+  if (depositSettlement) {
+    body.depositSettlement = depositSettlement
+  }
+  if (closeWithBalanceReason) {
+    body.closeWithBalanceReason = closeWithBalanceReason
+  }
+  return axiosInstance.post(withSupplier(`${base}/${bookingId}/complete`, supplierId), Object.keys(body).length > 0 ? body : null, config()).then((res) => res.data as { booking: bookcarsTypes.Booking; receivable: { approvedCharges: number; outstandingBalance: number; overdue: boolean } })
+}
 export const settlementPreview = (bookingId: string, supplierId?: string) => axiosInstance.get(withSupplier(`${base}/${bookingId}/settlement-preview`, supplierId), config()).then((res) => res.data as bookcarsTypes.SettlementPreview)
 
 const filePath = (bookingId: string, filename: string, supplierId?: string) => withSupplier(`${base}/${bookingId}/files/${encodeURIComponent(filename)}`, supplierId)

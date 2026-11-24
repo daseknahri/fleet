@@ -245,6 +245,22 @@ export const amend = async (req: Request, res: Response) => {
       }
     }
 
+    // GH-01 / gap-hunt 2026-11-24 — date changes are refused on
+    // ReturnReview: `from`/`to` must not move after the return
+    // inspection. The early-return stamp (actualDays, `to` moved to
+    // the return moment) stays frozen, so a post-return date change
+    // would rewrite the settlement basis (extra-km allowance, rental
+    // days) after the car is back. Date-only amendments remain allowed
+    // on Active (the previous rule); Completed is already refused by
+    // the terminal guard above.
+    if (datesChanged) {
+      const dateLifecycle = booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft
+      if (dateLifecycle === bookcarsTypes.ContractLifecycle.ReturnReview) {
+        res.status(409).send('AMENDMENT_DATE_AFTER_RETURN: Rental dates cannot be changed after the return inspection. Settle the contract through the return flow.')
+        return
+      }
+    }
+
     // F4 / W1 #6 — the corrected vehicle must belong to the agency and
     // serve both (possibly corrected) locations; a NEW vehicle must also
     // be bookable (not maintenance/stopped), mirroring create. The

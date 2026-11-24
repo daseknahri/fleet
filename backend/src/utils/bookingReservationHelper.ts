@@ -3,8 +3,11 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
+import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
-import { findOverdueSchedule } from './maintenanceSchedule'
+import AgencyReturnSettings from '../models/AgencyReturnSettings'
+import { effectiveNextDueMileage, findOverdueSchedule } from './maintenanceSchedule'
+import * as helper from '../utils/helper'
 
 export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Deposit,
@@ -71,6 +74,21 @@ export class OverdueMaintenanceError extends BookingConflictError {
     super()
     this.name = 'OverdueMaintenanceError'
     this.message = `The car has an overdue maintenance schedule (${scheduleTitle}: ${trigger}) and cannot be booked until it is serviced`
+  }
+}
+
+/**
+ * GH-08 — a maintenance schedule that becomes due DURING the rental
+ * blocks the booking, even though it is not overdue yet. Extends
+ * BookingConflictError like OverdueMaintenanceError, so every existing
+ * `instanceof BookingConflictError` catch answers 409 with this
+ * message; no overlap exception bypasses it.
+ */
+export class DueInWindowMaintenanceError extends BookingConflictError {
+  constructor(scheduleTitle: string, trigger: string) {
+    super()
+    this.name = 'DueInWindowMaintenanceError'
+    this.message = `The car has a maintenance schedule due during the rental (${scheduleTitle}: ${trigger}) and cannot be booked until it is serviced`
   }
 }
 
@@ -203,6 +221,12 @@ export const checkBookingAvailability = async (
   const overdue = await findOverdueSchedule(booking.supplier, carId, session)
   if (overdue) {
     throw new OverdueMaintenanceError(overdue.title, overdue.trigger)
+  }
+  // GH-08 — a schedule that becomes due DURING the rental blocks it
+  // too (date or mileage leg), same never-bypassed rule.
+  const dueInWindow = await findDueInWindowSchedule(booking.supplier, carId, new Date(booking.from), new Date(booking.to), session)
+  if (dueInWindow) {
+    throw new DueInWindowMaintenanceError(dueInWindow.title, dueInWindow.trigger)
   }
   const query = Booking.findOne({
     _id: { $nin: bookingIds },
@@ -342,6 +366,98 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
 export const saveBookingWithAvailability = async (booking: env.Booking, options?: BookingSaveOptions) =>
   saveBookingsWithAvailability([booking], options)
 
+export interface DueInWindowSchedule {
+  id: string
+  title: string
+  trigger: string
+}
+
+/**
+ * GH-08 — the first non-completed maintenance schedule for a car that
+ * becomes due at any point in [from, to], or null when none does.
+ * Evaluated live (never the stored date-only status):
+ * - date leg: nextDueDate inside [from, to] (inclusive — the same
+ *   bounds as the handover check findBlockingScheduleForHandover);
+ * - mileage leg: the car's current odometer + the rental's expected
+ *   km, where expected km = the supplier's includedKmPerDay x the
+ *   rental days (helper.days, floored at 1 — the same day count the
+ *   price logic and the settlement preview use). The schedule blocks
+ *   when its effective next-due mileage (stored nextDueMileage, else
+ *   lastServiceMileage + intervalKm) is reached by the projected
+ *   odometer. When includedKmPerDay is null (the agency's km are
+ *   unlimited) or the car has no odometer reading, the mileage leg is
+ *   SKIPPED — no km/day number is invented. A schedule already overdue
+ *   now is caught by findOverdueSchedule first at both call sites, so
+ *   in practice this leg only fires for newly-due schedules; the
+ *   `<= projected` test still blocks it if called standalone.
+ * Candidates are checked earliest-due-date-first so the reported
+ * blocker is deterministic.
+ */
+export const findDueInWindowSchedule = async (
+  supplier: mongoose.Types.ObjectId | string,
+  carId: mongoose.Types.ObjectId | string,
+  from: Date,
+  to: Date,
+  dbSession?: mongoose.ClientSession,
+): Promise<DueInWindowSchedule | null> => {
+  const scheduleQuery = MaintenanceSchedule.find({
+    supplier,
+    car: new mongoose.Types.ObjectId(carId),
+    status: { $ne: bookcarsTypes.MaintenanceScheduleStatus.Completed },
+  }).select('title nextDueDate nextDueMileage intervalKm lastServiceMileage status').lean()
+  if (dbSession) {
+    scheduleQuery.session(dbSession)
+  }
+  const schedules = await scheduleQuery
+  if (schedules.length === 0) {
+    return null
+  }
+  const carQuery = Car.findById(carId).select('odometerKm').lean()
+  if (dbSession) {
+    carQuery.session(dbSession)
+  }
+  const car = await carQuery
+  const settingsQuery = AgencyReturnSettings.findOne({ supplier }).select('includedKmPerDay').lean()
+  if (dbSession) {
+    settingsQuery.session(dbSession)
+  }
+  const settings = await settingsQuery
+  const rentalDays = Math.max(1, helper.days(from, to))
+  const includedKmPerDay = typeof settings?.includedKmPerDay === 'number' ? settings.includedKmPerDay : null
+  const odometerKm = typeof car?.odometerKm === 'number' ? car.odometerKm : null
+  const projectedOdometerKm = includedKmPerDay !== null && odometerKm !== null
+    ? odometerKm + includedKmPerDay * rentalDays
+    : null
+  const fromLabel = new Date(from).toISOString().slice(0, 10)
+  const toLabel = new Date(to).toISOString().slice(0, 10)
+  const sorted = [...schedules].sort((a, b) => {
+    const aDue = a.nextDueDate ? new Date(a.nextDueDate).getTime() : Number.POSITIVE_INFINITY
+    const bDue = b.nextDueDate ? new Date(b.nextDueDate).getTime() : Number.POSITIVE_INFINITY
+    return aDue - bDue
+  })
+  for (const schedule of sorted) {
+    if (schedule.nextDueDate) {
+      const dueDate = new Date(schedule.nextDueDate)
+      if (dueDate >= from && dueDate <= to) {
+        return {
+          id: schedule._id.toString(),
+          title: schedule.title,
+          trigger: `due date ${dueDate.toISOString().slice(0, 10)} falls inside the rental (${fromLabel} to ${toLabel})`,
+        }
+      }
+    }
+    const nextMileage = effectiveNextDueMileage(schedule as unknown as Parameters<typeof effectiveNextDueMileage>[0])
+    if (nextMileage !== null && projectedOdometerKm !== null && nextMileage <= projectedOdometerKm) {
+      return {
+        id: schedule._id.toString(),
+        title: schedule.title,
+        trigger: `projected odometer ${projectedOdometerKm} km reaches next due ${nextMileage} km during the rental (${rentalDays} days x ${includedKmPerDay} km/day from ${odometerKm} km)`,
+      }
+    }
+  }
+  return null
+}
+
 export interface RestoreConflict {
   conflictingBookingId?: string
   /** A scheduled/in-progress maintenance work order covers the window. */
@@ -393,6 +509,15 @@ export const findBookingConflictForRestore = async (booking: env.Booking): Promi
   const overdue = await findOverdueSchedule(booking.supplier, carId)
   if (overdue) {
     return { overdueSchedule: { title: overdue.title, trigger: overdue.trigger } }
+  }
+  // GH-08 — a schedule due DURING the rental blocks a restore too.
+  // Reported through the existing `overdueSchedule` field (the restore
+  // endpoint in bookingController.ts is out of scope for this pass, so
+  // no new field is added there); the trigger names the in-window
+  // reason, so the 409 still reads correctly.
+  const dueInWindow = await findDueInWindowSchedule(booking.supplier, carId, new Date(booking.from), new Date(booking.to))
+  if (dueInWindow) {
+    return { overdueSchedule: { title: dueInWindow.title, trigger: dueInWindow.trigger } }
   }
 
   const conflict = await Booking.findOne({

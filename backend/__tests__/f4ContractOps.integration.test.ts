@@ -735,3 +735,33 @@ describe('Next pass - early return re-prices the rent and frees the car', () => 
     expect(completed.text).toContain('odometer')
   })
 })
+
+describe('F-07 follow-up — settlement preview rentalDays never null', () => {
+  it('returns the from/to day count for a booking with no early return', async () => {
+    const fixture = await makeFixture('preview-days', { fromOffsetDays: -2, toOffsetDays: 0 })
+    await payInFull(fixture)
+    const api = ops(fixture)
+    expect((await api.handover()).status).toBe(201)
+    expect((await api.return()).status).toBe(201)
+    const booking = await Booking.findById(fixture.booking._id).lean() as any
+    expect(booking.earlyReturn).toBeUndefined()
+    const preview = await api.preview()
+    expect(preview.status).toBe(200)
+    expect(preview.body.rentalDays).toBe(2)
+  })
+
+  it('returns the recorded actualDays for an early-return booking', async () => {
+    const fixture = await makeFixture('preview-early-return', { rentalTotal: 1400, fromOffsetDays: -7, toOffsetDays: 7 })
+    await payInFull(fixture)
+    const api = ops(fixture)
+    const handed = await api.handover({ occurredAt: new Date(fixture.booking.from.getTime() + 7 * 86400000 - 3600000).toISOString(), odometer: 100, fuelLevel: 80, condition: 'Clean at handover', photoFiles: ['handover.jpg'] })
+    expect(handed.status).toBe(201)
+    const returned = await api.return({ occurredAt: new Date(fixture.booking.from.getTime() + 7 * 86400000).toISOString(), odometer: 130, fuelLevel: 70, damageNote: 'Small bumper mark', photoFiles: ['return.jpg'] })
+    expect(returned.status).toBe(201)
+    const booking = await Booking.findById(fixture.booking._id).lean() as any
+    expect(booking.earlyReturn.actualDays).toBe(7)
+    const preview = await api.preview()
+    expect(preview.status).toBe(200)
+    expect(preview.body.rentalDays).toBe(7)
+  })
+})

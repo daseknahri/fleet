@@ -1049,12 +1049,23 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 return
 }
 
+    // GH-09 — a hard delete requires a recorded reason (same as expenses).
+    if (deleteReason.trim().length < 3) {
+      setDeleteError(true)
+
+      return
+    }
+
     try {
-      await MaintenanceScheduleService.remove(scheduleDeleteTarget._id)
+      await MaintenanceScheduleService.remove(scheduleDeleteTarget._id, deleteReason.trim())
 
       setSchedules((rows) => rows.filter((row) => row._id !== scheduleDeleteTarget._id))
 
       setScheduleDeleteTarget(null)
+
+      setDeleteReason('')
+
+      setDeleteError(false)
     } catch (error) {
       helper.error(error)
     }
@@ -1335,12 +1346,23 @@ return '—'
 return
 }
 
+    // GH-09 — a hard delete requires a recorded reason (same as expenses).
+    if (deleteReason.trim().length < 3) {
+      setDeleteError(true)
+
+      return
+    }
+
     try {
-      await MaintenanceWorkOrderService.remove(workOrderDeleteTarget._id)
+      await MaintenanceWorkOrderService.remove(workOrderDeleteTarget._id, deleteReason.trim())
 
       setWorkOrders((rows) => rows.filter((row) => row._id !== workOrderDeleteTarget._id))
 
       setWorkOrderDeleteTarget(null)
+
+      setDeleteReason('')
+
+      setDeleteError(false)
     } catch (error) {
       helper.error(error)
     }
@@ -1588,7 +1610,7 @@ return
 
           </div>
 
-          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{schedule.nextDueDate ? formatDate(schedule.nextDueDate) : '—'}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button>{schedule.status !== bookcarsTypes.MaintenanceScheduleStatus.Completed && (<Button size="small" onClick={() => openCompleteService(schedule)}>{strings.COMPLETE_SERVICE}</Button>)}<Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setScheduleDeleteTarget(schedule)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+          {schedules.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_SCHEDULES}</div> : schedules.map((schedule) => <div className="agency-maintenance__schedule-row" key={schedule._id}><div><strong>{schedule.title}</strong><span>{!schedule.car || typeof schedule.car === 'string' ? '—' : schedule.car.name || '—'}</span></div><span>{schedule.nextDueDate ? formatDate(schedule.nextDueDate) : '—'}</span><span className={`agency-maintenance__status agency-maintenance__status--${schedule.status}`}>{scheduleStatusLabel(schedule.status)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openScheduleEdit(schedule)}><EditRoundedIcon /></Button>{schedule.status !== bookcarsTypes.MaintenanceScheduleStatus.Completed && (<Button size="small" onClick={() => openCompleteService(schedule)}>{strings.COMPLETE_SERVICE}</Button>)}<Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setScheduleDeleteTarget(schedule); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
@@ -1602,7 +1624,7 @@ return
 
           </div>
 
-          {workOrders.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_WORK_ORDERS}</div> : workOrders.map((workOrder) => <div className="agency-maintenance__schedule-row" key={workOrder._id}><div><strong>{workOrder.title}</strong><span>{workOrderCarName(workOrder)}</span></div><span>{formatDate(workOrder.scheduledStart)} → {formatDate(workOrder.scheduledEnd)}</span><span className={`agency-maintenance__status agency-maintenance__status--${workOrder.status}`}>{workOrderStatusLabel(workOrder.status)}</span><span>{strings.LINKED_EXPENSES}: {workOrder.expenseCount || 0} · {formatAmount(workOrder.expenseTotal || 0)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openWorkOrderEdit(workOrder)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setWorkOrderDeleteTarget(workOrder)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+          {workOrders.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_WORK_ORDERS}</div> : workOrders.map((workOrder) => <div className="agency-maintenance__schedule-row" key={workOrder._id}><div><strong>{workOrder.title}</strong><span>{workOrderCarName(workOrder)}</span></div><span>{formatDate(workOrder.scheduledStart)} → {formatDate(workOrder.scheduledEnd)}</span><span className={`agency-maintenance__status agency-maintenance__status--${workOrder.status}`}>{workOrderStatusLabel(workOrder.status)}</span><span>{strings.LINKED_EXPENSES}: {workOrder.expenseCount || 0} · {formatAmount(workOrder.expenseTotal || 0)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openWorkOrderEdit(workOrder)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setWorkOrderDeleteTarget(workOrder); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
@@ -1841,7 +1863,7 @@ return
 
         <DialogTitle>{strings.DELETE}</DialogTitle>
 
-        <DialogContent>{strings.DELETE_SCHEDULE_CONFIRM}</DialogContent>
+        <DialogContent>{strings.DELETE_SCHEDULE_CONFIRM}<TextField fullWidth required label={strings.DELETE_REASON} value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} error={deleteError} helperText={deleteError ? strings.DELETE_REASON_REQUIRED : ''} inputProps={{ maxLength: 1000 }} sx={{ mt: 2 }} /></DialogContent>
 
         <DialogActions>
 
@@ -1938,7 +1960,7 @@ return
 
         <DialogTitle>{strings.DELETE}</DialogTitle>
 
-        <DialogContent>{strings.DELETE_WORK_ORDER_CONFIRM}</DialogContent>
+        <DialogContent>{strings.DELETE_WORK_ORDER_CONFIRM}<TextField fullWidth required label={strings.DELETE_REASON} value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} error={deleteError} helperText={deleteError ? strings.DELETE_REASON_REQUIRED : ''} inputProps={{ maxLength: 1000 }} sx={{ mt: 2 }} /></DialogContent>
 
         <DialogActions>
 

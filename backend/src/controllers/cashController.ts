@@ -7,7 +7,7 @@ import RentalPayment from '../models/RentalPayment'
 import User from '../models/User'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminResourceAccess } from '../utils/agencyAuthorization'
 import { normalizeLedgerAmount } from '../utils/ledger'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { renderCashSessionPdf } from '../utils/cashSessionPdf'
@@ -178,6 +178,9 @@ export const listMovements = async (req: Request, res: Response) => {
     if (!session) {
  res.sendStatus(404); return 
 }
+    // GH-07 — a platform admin read this session's movements without a
+    // selector; audit with the session's agency.
+    await logAdminResourceAccess(req, session.supplier?.toString(), 'cash:list-movements')
     // F6 / W3 X-1 — server-side pagination + direction / source /
     // status filters. No page/size params keeps the legacy full-array
     // response.

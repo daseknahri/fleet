@@ -35,6 +35,7 @@ import quoteRoutes from './routes/quoteRoutes'
 import agentRoutes from './routes/agentRoutes'
 import reminderRoutes from './routes/reminderRoutes'
 import notificationDeliveryRoutes from './routes/notificationDeliveryRoutes'
+import adminAccessLogRoutes from './routes/adminAccessLogRoutes'
 import agencyReturnSettingsRoutes from './routes/agencyReturnSettingsRoutes'
 import approvalRoutes from './routes/approvalRoutes'
 import contractOperationRoutes from './routes/contractOperationRoutes'
@@ -131,6 +132,7 @@ app.use('/', quoteRoutes)
 app.use('/', agentRoutes)
 app.use('/', reminderRoutes)
 app.use('/', notificationDeliveryRoutes)
+app.use('/', adminAccessLogRoutes)
 app.use('/', agencyReturnSettingsRoutes)
 app.use('/', approvalRoutes)
 app.use('/', contractOperationRoutes)

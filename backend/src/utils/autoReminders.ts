@@ -79,7 +79,7 @@ const driverName = (booking: { driver?: { fullName?: string } | string | null })
 
 interface AutoEvent {
   templateKey: bookcarsTypes.NotificationTemplateKey
-  kind: 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid'
+  kind: 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid' | 'holdExpiring' | 'paymentDue' | 'missedPickup' | 'overdueEscalate' | 'pendingRefund'
   subjectType: string
   subjectId: string
   dedupeKey: string
@@ -97,6 +97,12 @@ export interface AutoReminderPassResult {
   // Wave 2.1 — confirmed holds with an outstanding balance, reminded
   // once per day.
   confirmedUnpaid: number
+  // GH-03 / GH-14 / GH-11 (Wave 3.2) — the new events.
+  holdExpiring: number
+  paymentDue: number
+  missedPickup: number
+  overdueEscalated: number
+  pendingRefunds: number
 }
 
 const LIVE_BOOKING_FILTER = {
@@ -154,8 +160,52 @@ const fanoutEvent = async (
   }
 }
 
+// GH-03 — the customer leg of a money reminder: one email to the
+// driver, rendered in the driver's language, claimed in the delivery
+// log under its own dedupe key (staff and customer legs dedupe
+// independently). Email only — the customer gets no in-app/push copy
+// (they are not agency staff). Never throws; skipped when the driver
+// has no email or opted out of email notifications.
+const emailCustomer = async (
+  supplierId: string,
+  driver: unknown,
+  event: AutoEvent,
+  dedupeKey: string,
+): Promise<void> => {
+  try {
+    const d = (driver && typeof driver === 'object'
+      ? driver as { _id?: unknown, email?: string, fullName?: string, language?: string, enableEmailNotifications?: boolean }
+      : null)
+    if (!d || !d._id || !d.email || d.enableEmailNotifications === false) {
+      return
+    }
+    const rendered = renderNotificationTemplate(event.templateKey, d.language, event.vars)
+    await deliverNotification(supplierId, {
+      templateKey: event.templateKey,
+      subjectType: event.subjectType,
+      subjectId: event.subjectId,
+      dedupeKey,
+      channel: 'email',
+      recipient: String(d._id),
+      subject: rendered.subject,
+      body: rendered.body,
+    }, async () => {
+      const mailOptions: SendMailOptions = {
+        from: env.SMTP_FROM,
+        to: d.email as string,
+        subject: rendered.subject,
+        html: `<p>Hello ${d.fullName},<br><br>${rendered.body}<br><br>Regards<br></p>`,
+      }
+      const info = await mailHelper.sendMail(mailOptions)
+      return info?.messageId as string | undefined
+    })
+  } catch (err) {
+    logger.error('[autoReminders] customer reminder email failed', err)
+  }
+}
+
 const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<AutoReminderPassResult, 'skipped' | 'agencies'>> => {
-  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0 }
+  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0, holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0 }
   const recipients = await resolveReminderRecipients(supplierId)
   if (recipients.length === 0) {
     return counts
@@ -224,6 +274,12 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
 
   // -- Overdue: live bookings whose rental ended, with an outstanding
   // balance under the ONE shared definition (contractReceivable). ------
+  // GH-03 / GH-14 — the repeat is WEEKLY, not once-ever: the dedupe
+  // key is `overdue:<id>:<iso-week>` (the same ISO-week key the
+  // weekly recap uses), so the chase re-fires every week until the
+  // money is in, and the message carries the repeat count (week 1, 2,
+  // 3, ... of the overdue). A second pass in the same week still finds
+  // the claim taken and stays silent.
   const ended = await Booking.find({
     ...LIVE_BOOKING_FILTER,
     supplier: supplierId,
@@ -235,22 +291,48 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     if (!isOverdue(receivable.outstandingBalance, receivable.dueAt, now)) {
       continue
     }
+    const dueAt = receivable.dueAt ? new Date(receivable.dueAt) : new Date(booking.to)
+    const daysOverdue = Math.max(0, Math.floor((startOfDay(now).getTime() - startOfDay(dueAt).getTime()) / 86400000))
+    const repeatCount = Math.floor(daysOverdue / 7) + 1
     overdueAmount += receivable.outstandingBalance
     await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.overdue',
       kind: 'overdue',
       subjectType: 'booking',
       subjectId: String(booking._id),
-      dedupeKey: `overdue:${booking._id}:${dateKey(booking.to)}`,
+      dedupeKey: `overdue:${booking._id}:${isoWeekKey(now)}`,
       vars: {
-        date: dateKey(booking.to),
+        date: dateKey(dueAt),
         car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
         driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
         amount: receivable.outstandingBalance,
         currency: receivable.currency,
+        repeatCount,
+        days: daysOverdue,
       },
     })
     counts.overdue += 1
+    // GH-03 — 30+ days overdue escalates to the OWNER ONLY (staff get
+    // the weekly repeat above; the owner gets this on top of it, once
+    // per week, until resolved).
+    if (daysOverdue >= 30 && owner) {
+      await fanoutEvent(supplierId, [owner], owner, {
+        templateKey: 'auto.overdueEscalate' as bookcarsTypes.NotificationTemplateKey,
+        kind: 'overdueEscalate',
+        subjectType: 'booking',
+        subjectId: String(booking._id),
+        dedupeKey: `overdue-escalate:${booking._id}:${isoWeekKey(now)}`,
+        vars: {
+          date: dateKey(dueAt),
+          days: daysOverdue,
+          car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+          driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+          amount: receivable.outstandingBalance,
+          currency: receivable.currency,
+        },
+      })
+      counts.overdueEscalated += 1
+    }
   }
 
   // -- Confirmed, unpaid (Wave 2.1): Confirmed holds with an
@@ -287,6 +369,109 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       },
     })
     counts.confirmedUnpaid += 1
+  }
+
+  // -- Hold-expiring (GH-03 / Wave 3.2): pay-later holds whose
+  // deadline falls within 24h. Staff fan-out + one email to the
+  // customer with the amount and the deadline. One notice per hold
+  // deadline (the dedupe key carries the deadline date). Temp
+  // checkout bookings are Void and never reach this filter; the
+  // financialSnapshot.mode guard keeps it to real pay-later holds.
+  const holdsExpiring = await Booking.find({
+    ...LIVE_BOOKING_FILTER,
+    supplier: supplierId,
+    status: bookcarsTypes.BookingStatus.Pending,
+    'financialSnapshot.mode': bookcarsTypes.CheckoutPaymentMode.PayLater,
+    expireAt: { $gt: now, $lte: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
+  }).populate('car', 'name licensePlate').populate('driver', 'fullName email language enableEmailNotifications').lean()
+  for (const booking of holdsExpiring) {
+    const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+    if (receivable.outstandingBalance <= 0) {
+      continue
+    }
+    const event: AutoEvent = {
+      templateKey: 'auto.holdExpiring' as bookcarsTypes.NotificationTemplateKey,
+      kind: 'holdExpiring',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `hold-expiring:${booking._id}:${dateKey(booking.expireAt as Date)}`,
+      vars: {
+        date: dateKey(booking.expireAt as Date),
+        car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+        driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+        amount: receivable.outstandingBalance,
+        currency: receivable.currency,
+      },
+    }
+    await fanoutEvent(supplierId, recipients, owner, event)
+    await emailCustomer(supplierId, booking.driver, event, `hold-expiring-customer:${booking._id}:${dateKey(booking.expireAt as Date)}`)
+    counts.holdExpiring += 1
+  }
+
+  // -- Payment-due-before-pickup (GH-03 / Wave 3.2): pickup
+  // tomorrow, balance > 0. Staff fan-out + one email to the customer
+  // with the amount and the pickup date. One notice per pickup date.
+  const tomorrowStart = startOfDay(addDays(now, 1))
+  const dayAfterStart = startOfDay(addDays(now, 2))
+  const dueTomorrow = await Booking.find({
+    ...LIVE_BOOKING_FILTER,
+    supplier: supplierId,
+    from: { $gte: tomorrowStart, $lt: dayAfterStart },
+  }).populate('car', 'name licensePlate').populate('driver', 'fullName email language enableEmailNotifications').lean()
+  for (const booking of dueTomorrow) {
+    const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+    if (receivable.outstandingBalance <= 0) {
+      continue
+    }
+    const event: AutoEvent = {
+      templateKey: 'auto.paymentDue' as bookcarsTypes.NotificationTemplateKey,
+      kind: 'paymentDue',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `payment-due:${booking._id}:${dateKey(booking.from)}`,
+      vars: {
+        date: dateKey(booking.from),
+        car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+        driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+        amount: receivable.outstandingBalance,
+        currency: receivable.currency,
+      },
+    }
+    await fanoutEvent(supplierId, recipients, owner, event)
+    await emailCustomer(supplierId, booking.driver, event, `payment-due-customer:${booking._id}:${dateKey(booking.from)}`)
+    counts.paymentDue += 1
+  }
+
+  // -- Missed pickup (GH-03 / GH-14 / Wave 3.2): the pickup day
+  // passed with no handover (lifecycle still Draft/Confirmed) and no
+  // no-show marked. Staff only, DAILY key — re-fires every day until
+  // resolved (handover, cancel, or mark-no-show).
+  const missedPickups = await Booking.find({
+    ...LIVE_BOOKING_FILTER,
+    supplier: supplierId,
+    lifecycle: { $in: [bookcarsTypes.ContractLifecycle.Draft, bookcarsTypes.ContractLifecycle.Confirmed] },
+    from: { $lt: todayStart },
+  }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
+  for (const booking of missedPickups) {
+    if ((booking as unknown as { noShowAt?: Date | null }).noShowAt) {
+      continue
+    }
+    const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+    await fanoutEvent(supplierId, recipients, owner, {
+      templateKey: 'auto.missedPickup' as bookcarsTypes.NotificationTemplateKey,
+      kind: 'missedPickup',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `missed-pickup:${booking._id}:${dateKey(now)}`,
+      vars: {
+        date: dateKey(booking.from),
+        car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+        driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+        amount: receivable.outstandingBalance,
+        currency: receivable.currency,
+      },
+    })
+    counts.missedPickup += 1
   }
 
   // -- Expiry: car document dates within 30 days + open maintenance
@@ -423,6 +608,46 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     }
   }
 
+  // -- Pending refunds (GH-11): Cancelled bookings whose
+  // cancellationRecord still says 'pending' — money the agency owes
+  // back. Owner only, once per day per booking, until resolved (the
+  // record flips to 'refunded'/'none' and the row drops out of this
+  // query). The list itself is GET /api/rental-payments/
+  // pending-refunds; this is the chase for it.
+  const pendingRefundBookings = await Booking.find({
+    supplier: supplierId,
+    status: bookcarsTypes.BookingStatus.Cancelled,
+    'cancellationRecord.refundStatus': 'pending',
+    deletedAt: null,
+  }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
+  for (const booking of pendingRefundBookings) {
+    const record = booking.cancellationRecord
+    if (!record || !owner) {
+      continue
+    }
+    const amount = Math.max(0, Number(record.rentPaid || 0) + Number(record.depositPaid || 0)
+      - Number(record.refundedRent || 0) - Number(record.refundedDeposit || 0))
+    if (amount <= 0) {
+      continue
+    }
+    await fanoutEvent(supplierId, [owner], owner, {
+      templateKey: 'auto.pendingRefund' as bookcarsTypes.NotificationTemplateKey,
+      kind: 'pendingRefund',
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      dedupeKey: `pending-refund:${booking._id}:${dateKey(now)}`,
+      vars: {
+        date: record.cancelledAt ? dateKey(record.cancelledAt) : dateKey(now),
+        reason: record.reason || (record.refundDecision === 'manual' ? 'manual refund' : 'wire refund'),
+        car: carLabel(booking.car as { name?: string, licensePlate?: string } | undefined),
+        driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
+        amount,
+        currency: env.BASE_CURRENCY.toUpperCase(),
+      },
+    })
+    counts.pendingRefunds += 1
+  }
+
   return counts
 }
 
@@ -438,6 +663,7 @@ export const runAutoReminderPass = async (
 ): Promise<AutoReminderPassResult> => {
   const result: AutoReminderPassResult = {
     skipped: false, agencies: 0, pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0,
+    holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0,
   }
   if (!opts?.force && now.getTime() - lastPassAt < PASS_INTERVAL_MS) {
     result.skipped = true
@@ -456,6 +682,11 @@ export const runAutoReminderPass = async (
         result.expiries += counts.expiries
         result.recaps += counts.recaps
         result.confirmedUnpaid += counts.confirmedUnpaid
+        result.holdExpiring += counts.holdExpiring
+        result.paymentDue += counts.paymentDue
+        result.missedPickup += counts.missedPickup
+        result.overdueEscalated += counts.overdueEscalated
+        result.pendingRefunds += counts.pendingRefunds
       } catch (err) {
         logger.error(`[autoReminders] pass failed for supplier ${supplier._id}`, err)
       }

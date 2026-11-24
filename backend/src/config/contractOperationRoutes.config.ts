@@ -15,6 +15,7 @@ const routes = {
   disputeInspection: '/api/contract-operations/:bookingId/inspections/:inspectionId/dispute',
   resolveInspectionDispute: '/api/contract-operations/:bookingId/inspections/:inspectionId/dispute/resolve',
   snapshot: '/api/contract-operations/:bookingId/snapshots',
+  listSnapshots: '/api/contract-operations/:bookingId/snapshots',
   snapshotFile: '/api/contract-operations/:bookingId/snapshots/:filename',
 }
 export default routes

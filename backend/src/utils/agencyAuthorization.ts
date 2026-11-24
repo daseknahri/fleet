@@ -303,6 +303,62 @@ export const logAdminCrossAgencyAccess = async (
 }
 
 /**
+ * GH-07 — one audit row for a platform-wide admin call: the admin read
+ * the whole platform (allowPlatformAdminAll, no agency selector), so
+ * there is no agency to attribute. The row carries agency null — the
+ * read endpoint treats null as "platform-wide". Best-effort like the
+ * selector logger: a logging failure never refuses the call it audits.
+ */
+export const logAdminPlatformWideAccess = async (
+  req: Request,
+  action: string,
+): Promise<void> => {
+  try {
+    const actor = req.user?._id
+    if (!actor || !mongoose.isValidObjectId(actor)) {
+      return
+    }
+    await AdminAccessLog.create({
+      actor: new mongoose.Types.ObjectId(actor),
+      agency: null,
+      action,
+      method: req.method,
+      path: req.path,
+    })
+  } catch (err) {
+    logger.error('[agencyAuthorization.logAdminPlatformWideAccess] audit log failed', err)
+  }
+}
+
+/**
+ * GH-07 — audit helper for controllers. A platform admin reached a
+ * single resource without an agency selector (the middleware deferred
+ * to this controller because the path/body carries a resource id):
+ * audit with the resource's agency. Skipped when the middleware
+ * already logged the call (a selector was sent) and for non-admin
+ * callers acting in their own agency (not cross-agency access). When
+ * the resource itself has no agency (platform reference data), the
+ * call is logged platform-wide instead of not at all.
+ */
+export const logAdminResourceAccess = async (
+  req: Request,
+  supplierId: string | undefined | null,
+  action: string,
+): Promise<void> => {
+  if (req.user?.type !== bookcarsTypes.UserType.Admin) {
+    return
+  }
+  if (adminSelectorSupplierIds(req).length > 0) {
+    return
+  }
+  if (supplierId) {
+    await logAdminCrossAgencyAccess(req, [supplierId], action)
+  } else {
+    await logAdminPlatformWideAccess(req, action)
+  }
+}
+
+/**
  * True when this request addresses specific resources: an ObjectId in
  * the path (e.g. /api/bookings/:id/cancel) OR the resource ids in the
  * body (bulk staff routes — updateStatus / delete / trash / restore —
@@ -406,6 +462,9 @@ export const requireAnyAgencyPermission = (permissions: AgencyPermission[], opti
           supplierId: '',
           role: bookcarsTypes.AgencyRole.Owner,
         }
+        // GH-07 — the platform-wide read is audited too (agency null:
+        // no agency was named). Previously this branch logged nothing.
+        await logAdminPlatformWideAccess(req, `agency:${permissions.join('+')}`)
         next()
         return
       }
@@ -470,6 +529,9 @@ export const requireAgencyPermission = (permission: AgencyPermission, options?: 
           supplierId: '',
           role: bookcarsTypes.AgencyRole.Owner,
         }
+        // GH-07 — the platform-wide read is audited too (agency null:
+        // no agency was named). Previously this branch logged nothing.
+        await logAdminPlatformWideAccess(req, `agency:${permission}`)
         next()
         return
       }

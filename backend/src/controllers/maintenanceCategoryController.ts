@@ -7,7 +7,7 @@ import MaintenanceExpense from '../models/MaintenanceExpense'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminResourceAccess } from '../utils/agencyAuthorization'
 
 /**
  * Next pass - agency-created maintenance categories (the goal is the
@@ -102,6 +102,9 @@ export const update = async (req: Request, res: Response) => {
       res.status(row ? 400 : 404).send(row ? 'Invalid maintenance category' : 'Not found')
       return
     }
+    // GH-07 — a platform admin updated this category without a
+    // selector; audit with the category's agency.
+    await logAdminResourceAccess(req, row.supplier?.toString(), 'maintenance-category:update')
     if (payload.name.toLowerCase() !== row.name.toLowerCase() && await duplicateName(row.supplier.toString(), payload.name, row._id.toString())) {
       res.status(409).send('A category with this name already exists')
       return
@@ -126,6 +129,9 @@ export const remove = async (req: Request, res: Response) => {
       res.status(404).send('Not found')
       return
     }
+    // GH-07 — a platform admin deleted this category without a
+    // selector; audit with the category's agency.
+    await logAdminResourceAccess(req, row.supplier?.toString(), 'maintenance-category:delete')
     const [expenseCount, scheduleCount] = await Promise.all([
       MaintenanceExpense.countDocuments({ category: row._id }),
       MaintenanceSchedule.countDocuments({ category: row._id }),

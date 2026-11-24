@@ -84,6 +84,9 @@ export const signedContractEmailAllowed = (
  * - expiry (car documents + maintenance due): master + `carDueDates`.
  */
 export type AutoReminderKind = 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid'
+// GH-03 / GH-14 / GH-11 (Wave 3.2) — the new kinds gate on the master
+// boolean only, like pickup / overdue (no per-category toggle).
+  | 'holdExpiring' | 'paymentDue' | 'missedPickup' | 'overdueEscalate' | 'pendingRefund'
 // Wave 2.1 — 'confirmedUnpaid' gates on the master boolean only, like
 // pickup / overdue (no per-category toggle).
 

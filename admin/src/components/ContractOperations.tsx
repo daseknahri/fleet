@@ -102,6 +102,9 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
   const typeLabelId = useId()
   const [error, setError] = useState('')
   const [snapshot, setSnapshot] = useState<bookcarsTypes.ContractSnapshot>()
+  // GH-13 — the booking's snapshots, listed from the backend so they
+  // survive a page reload (re-downloading no longer needs a re-create).
+  const [snapshots, setSnapshots] = useState<bookcarsTypes.ContractSnapshot[]>([])
   const [currentLifecycle, setCurrentLifecycle] = useState(lifecycle)
   const [form, setForm] = useState({ odometer: '', fuelLevel: '', condition: '', damageNote: '' })
   const [chargeForm, setChargeForm] = useState({ type: bookcarsTypes.ContractChargeType.Damage as bookcarsTypes.ContractChargeType, amount: '', currency: 'MAD', reason: '' })
@@ -115,6 +118,10 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
   const [preview, setPreview] = useState<bookcarsTypes.SettlementPreview>()
   const [previewLines, setPreviewLines] = useState<{ kind: bookcarsTypes.ContractChargeType; amount: string; include: boolean }[]>([])
   const [deposit, setDeposit] = useState({ held: '', kept: '', method: '', note: '' })
+  // GH-06 — reason for closing with an outstanding balance (the
+  // backend's closeWithBalanceReason; F-04 shows it on the completed
+  // banner). Empty means "no reason".
+  const [closeWithBalanceReason, setCloseWithBalanceReason] = useState('')
 
   useEffect(() => {
     if (depositAmount !== undefined && depositAmount !== null) {
@@ -128,25 +135,34 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
     setLoading(true)
     setError('')
     try {
-      const [i, c] = await Promise.all([
+      const [i, c, s] = await Promise.all([
         ContractOperationService.list(bookingId, supplierId),
         ContractOperationService.listCharges(bookingId, supplierId),
+        ContractOperationService.listSnapshots(bookingId, supplierId),
       ])
       setInspections(i)
       setCharges(c)
+      setSnapshots(s)
       const hasReturn = i.some((inspection) => inspection.type === bookcarsTypes.InspectionType.Return)
       const hasHandover = i.some((inspection) => inspection.type === bookcarsTypes.InspectionType.Handover)
-      if (hasReturn) {
-        setCurrentLifecycle(bookcarsTypes.ContractLifecycle.ReturnReview)
-      } else if (hasHandover) {
-        setCurrentLifecycle(bookcarsTypes.ContractLifecycle.Active)
+      // F-04 — the inspection-derived lifecycle must never overwrite a
+      // terminal lifecycle: a completed (or cancelled) contract keeps
+      // its API lifecycle, so COMPLETED_NOTE renders and COMPLETE stays
+      // hidden. The useEffect sets the prop lifecycle first, then
+      // reload() runs — without this guard the async overwrite wins.
+      if (lifecycle !== bookcarsTypes.ContractLifecycle.Completed && lifecycle !== bookcarsTypes.ContractLifecycle.Cancelled) {
+        if (hasReturn) {
+          setCurrentLifecycle(bookcarsTypes.ContractLifecycle.ReturnReview)
+        } else if (hasHandover) {
+          setCurrentLifecycle(bookcarsTypes.ContractLifecycle.Active)
+        }
       }
     } catch (err) {
       setError(helper.getErrorMessage(err, strings.ERROR))
     } finally {
       setLoading(false)
     }
-  }, [bookingId, supplierId])
+  }, [bookingId, supplierId, lifecycle])
 
   useEffect(() => {
     setCurrentLifecycle(lifecycle)
@@ -343,6 +359,15 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
   }
 
   const complete = async () => {
+    // GH-06 — the reason must be 1–1000 chars when given (the same
+    // validation as the backend's closeWithBalanceReason gate); empty
+    // means no reason, which the backend only rejects when a balance
+    // actually remains.
+    const closeReason = closeWithBalanceReason.trim()
+    if (closeReason.length > 1000) {
+      setError(strings.CLOSE_BALANCE_REASON_INVALID)
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -357,7 +382,8 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
         method: deposit.method || undefined,
         note: deposit.note || undefined,
       } : undefined
-      await ContractOperationService.complete(bookingId, supplierId, settlement)
+      await ContractOperationService.complete(bookingId, supplierId, settlement, closeReason || undefined)
+      setCloseWithBalanceReason('')
       onCompleted()
     } catch (err) {
       setError(helper.getErrorMessage(err, strings.ERROR))
@@ -555,6 +581,9 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               <TextField label={strings.DEPOSIT_NOTE} value={deposit.note} onChange={(e) => setDeposit({ ...deposit, note: e.target.value })} />
             </div>
             <Divider sx={{ my: 1 }} />
+            <div style={{ marginTop: 8 }}>
+              <TextField fullWidth label={strings.CLOSE_BALANCE_REASON} value={closeWithBalanceReason} onChange={(e) => setCloseWithBalanceReason(e.target.value)} helperText={strings.CLOSE_BALANCE_REASON_HINT} />
+            </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               {currentLifecycle === bookcarsTypes.ContractLifecycle.Completed ? (
                 <Typography variant="body2">{strings.COMPLETED_NOTE}</Typography>
@@ -566,6 +595,17 @@ const ContractOperations = ({ bookingId, supplierId, lifecycle, depositAmount, a
               <HelpIcon text={strings.HELP_SNAPSHOT} />
               <Button variant="outlined" disabled={busy} onClick={() => makeSnapshot(true)}>{strings.SNAPSHOT_WITH_STAMP}</Button>
               {snapshot && <Button disabled={busy} onClick={downloadSnapshot}>{strings.DOWNLOAD}</Button>}
+              {snapshots.length > 0 && (
+                <div style={{ flexBasis: '100%' }}>
+                  <Typography variant="subtitle2" component="h4">{strings.SNAPSHOTS}</Typography>
+                  {snapshots.map((s) => (
+                    <div key={s._id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Typography variant="body2">{`v${s.version} | ${formatDateTime(s.generatedAt)}${s.withStamp ? ` | ${strings.SNAPSHOT_STAMP}` : ''}`}</Typography>
+                      <Button size="small" disabled={busy} onClick={() => openBlob(() => ContractOperationService.fetchSnapshotUrl(bookingId, s.pdfFile, supplierId))}>{strings.DOWNLOAD}</Button>
+                    </div>
+                  ))}
+                </div>
+              )}
               {whatsApp && <Button variant="outlined" startIcon={<WhatsAppIcon />} disabled={busy || !waUrl} title={waUrl ? undefined : strings.WA_NO_PHONE} onClick={() => openWhatsApp(waUrl)}>{strings.WA_SEND}</Button>}
             </div>
           </>

@@ -18,7 +18,7 @@ import * as logger from '../utils/logger'
 import { invalidCoordinateField } from '../utils/locationHelper'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, adminSelectorSupplierIds, logAdminResourceAccess } from '../utils/agencyAuthorization'
 
 const canAccessAgencyLocation = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -364,6 +364,10 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
+      // GH-07 — a platform admin updated this location without a
+      // selector; audit with the location's agency.
+      await logAdminResourceAccess(req, location.supplier?.toString(), 'location:update-location')
+
       const {
         country,
         longitude,
@@ -532,6 +536,10 @@ export const deleteLocation = async (req: Request, res: Response) => {
       return
     }
     // end of security check
+
+    // GH-07 — a platform admin deleted this location without a
+    // selector; audit with the location's agency.
+    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:delete-location')
 
     await LocationValue.deleteMany({ _id: { $in: location.values } })
     await Location.deleteOne({ _id: id })
@@ -837,6 +845,13 @@ export const checkLocation = async (req: Request, res: Response) => {
   try {
     const _id = new mongoose.Types.ObjectId(id)
 
+    // GH-07 — a platform admin probed this location without a selector;
+    // audit with the location's agency (platform-wide when it has none).
+    if (req.user?.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+      const location = await Location.findById(_id).select('supplier').lean()
+      await logAdminResourceAccess(req, location?.supplier?.toString(), 'location:check-location')
+    }
+
     const carCount = await Car
       .find({ locations: _id } as any).find(agencyLocationMatch(req) as any)
       .limit(1)
@@ -963,6 +978,10 @@ export const updateImage = async (req: Request, res: Response) => {
       return
     }
 
+    // GH-07 — a platform admin changed this location's image without a
+    // selector; audit with the location's agency.
+    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:update-image')
+
     if (location) {
       if (location.image) {
         const image = path.join(env.CDN_LOCATIONS, location.image)
@@ -1027,6 +1046,10 @@ export const deleteImage = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot delete this location image')
       return
     }
+
+    // GH-07 — a platform admin deleted this location's image without a
+    // selector; audit with the location's agency.
+    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:delete-image')
 
     if (location) {
       if (location.image) {

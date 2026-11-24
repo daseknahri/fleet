@@ -379,8 +379,18 @@ const UserList = ({
           field: 'balanceDue',
           headerName: strings.BALANCE_DUE,
           flex: 1,
-          renderCell: ({ value }: GridRenderCellParams<bookcarsTypes.User, number>) => (
-            <span>{bookcarsHelper.formatPrice(value || 0, commonStrings.CURRENCY, UserService.getLanguage())}</span>
+          // GH-04 — a positive balance links to the Payments
+          // receivables view filtered to this client (?clientId=<id>,
+          // the param the receivables tab accepts). Zero stays plain
+          // text: there is nothing to filter to.
+          renderCell: ({ row, value }: GridRenderCellParams<bookcarsTypes.User, number>) => (
+            (value || 0) > 0 ? (
+              <Link href={`/payments?clientId=${row._id}`}>
+                <span>{bookcarsHelper.formatPrice(value || 0, commonStrings.CURRENCY, UserService.getLanguage())}</span>
+              </Link>
+            ) : (
+              <span>{bookcarsHelper.formatPrice(value || 0, commonStrings.CURRENCY, UserService.getLanguage())}</span>
+            )
           ),
           valueGetter: (value: number) => value,
         },

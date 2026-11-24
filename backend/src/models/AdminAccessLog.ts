@@ -11,7 +11,10 @@ import * as env from '../config/env.config'
 const schema = new Schema<env.AdminAccessLog>(
   {
     actor: { type: Schema.Types.ObjectId, required: true, ref: 'User', index: true },
-    agency: { type: Schema.Types.ObjectId, required: true, ref: 'User', index: true },
+    // GH-07 — nullable: a platform-wide admin read (allowPlatformAdminAll,
+    // no agency selector) has no agency to attribute, so its row carries
+    // agency null. Attributed rows keep their agency.
+    agency: { type: Schema.Types.ObjectId, required: false, ref: 'User', index: true, default: null },
     action: { type: String, required: true, maxlength: 200, trim: true },
     method: { type: String, maxlength: 10, trim: true },
     path: { type: String, maxlength: 500, trim: true },

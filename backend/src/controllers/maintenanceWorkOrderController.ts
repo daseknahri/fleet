@@ -4,6 +4,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import Car from '../models/Car'
 import MaintenanceExpense from '../models/MaintenanceExpense'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import MaintenanceWorkOrderAudit from '../models/MaintenanceWorkOrderAudit'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
@@ -100,13 +101,45 @@ export const update = async (req: Request, res: Response) => {
 
 export const remove = async (req: Request, res: Response) => {
   try {
- if (!mongoose.isValidObjectId(req.params.id)) {
- res.status(400).send('Invalid work order'); return 
-}; const result = await MaintenanceWorkOrder.deleteOne({ _id: req.params.id, ...scope(req) }); if (!result.deletedCount) {
- res.sendStatus(404); return 
-}; res.sendStatus(200) 
-} catch (err) {
- logger.error(`[workOrder.remove] ${i18n.t('ERROR')}`, err); res.status(400).send(i18n.t('ERROR')) 
-}
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid work order')
+      return
+    }
+    // GH-09 — mirror the expense remove() pattern (F7 / W3 M-7): a
+    // hard delete requires a recorded reason (at least 3 characters)
+    // and the audit row is written BEFORE the delete, so the trail
+    // survives it (the work order id is kept on the row).
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (reason.length < 3) {
+      res.status(400).send('A reason is required to delete a work order')
+      return
+    }
+    const row = await MaintenanceWorkOrder.findOne({ _id: req.params.id, ...scope(req) }).select('_id supplier')
+    if (!row) {
+      res.sendStatus(404)
+      return
+    }
+    // A work order with linked expenses cannot be hard-deleted: the
+    // expenses (and their payments) would be orphaned with no work
+    // order to explain them — the same 409 the expense delete applies
+    // to expenses with payments. Remove or unlink the expenses first.
+    const expenseCount = await MaintenanceExpense.countDocuments({ workOrder: row._id })
+    if (expenseCount > 0) {
+      res.status(409).send('This work order has linked expenses and cannot be deleted. Remove or unlink the expenses first.')
+      return
+    }
+    await MaintenanceWorkOrderAudit.create({
+      supplier: row.supplier,
+      workOrder: row._id,
+      action: bookcarsTypes.MaintenanceExpenseAuditAction.Deleted,
+      actor: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+      reason,
+    })
+    await MaintenanceWorkOrder.deleteOne({ _id: row._id })
+    res.sendStatus(200)
+  } catch (err) {
+    logger.error(`[workOrder.remove] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
 }
 

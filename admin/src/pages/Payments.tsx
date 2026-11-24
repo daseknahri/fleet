@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogTitle,
   MenuItem, TextField, Typography,
@@ -74,6 +75,28 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: '
 
 const formatAmount = (amount: number) => `${new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2 }).format(amount)} ${env.CURRENCY}`
 
+// GH-02 — the extended receivable row: a local extension of the
+// shared OverdueReceivableRow until the shared type gains these
+// fields (see the optional types script). Payments.tsx reads the new
+// fields through this cast.
+interface ReceivableRow extends bookcarsTypes.OverdueReceivableRow {
+  daysOverdue: number
+  paymentDueAt?: string | Date
+  daysToPaymentDue: number | null
+  depositHeld: number
+  lastRemindedAt?: string | Date
+  reminderCount: number
+  paidInFull: boolean
+  paidRent: number
+  contractTotal: number
+  ageBucket: string
+  lifecycle?: bookcarsTypes.ContractLifecycle
+  status?: bookcarsTypes.BookingStatus
+  pickupAt?: string | Date
+  holdExpiresAt?: string | Date
+  actions: { canTakePayment: boolean, canConfirm: boolean, canCancel: boolean, canMarkNoShow: boolean }
+}
+
 const Payments = () => {
   const agencyPermissions = useAgencyPermissions()
   const paymentsDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadPayments)
@@ -107,6 +130,17 @@ const Payments = () => {
   // conflict, and the manager retries from here once it is cleared.
   const [refreshConflict, setRefreshConflict] = useState<{ bookingId: string, reason: string } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const navigate = useNavigate()
+  // GH-02 / Wave 3.1 + GH-11 — Payments tabs: the receivables chase
+  // ('receivables', the morning view), the ledger ('payments') and
+  // the pending refunds ('refunds').
+  type PaymentsTab = 'payments' | 'receivables' | 'refunds'
+  type ReceivablesFilter = 'all' | 'overdue-due-soon' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
+  const [activeTab, setActiveTab] = useState<PaymentsTab>('receivables')
+  const [receivablesFilter, setReceivablesFilter] = useState<ReceivablesFilter>('overdue-due-soon')
+  const [pendingRefunds, setPendingRefunds] = useState<RentalPaymentService.PendingRefundsResponse | null>(null)
+  const [confirmingId, setConfirmingId] = useState('')
+  const [noShowId, setNoShowId] = useState('')
   const reversalInFlight = useRef<Set<string>>(new Set())
   // Keep one key per payment interaction so a lost response can be safely retried.
   // A new payment ID gets a new key; the server remains the final idempotency authority.
@@ -152,13 +186,14 @@ const Payments = () => {
       } catch {
         setCollections(null)
       }
-      // F6 / W3 P-3 — shared outstanding/receivable table. A failure
-      // leaves the table empty and the OVERDUE card at '—' rather than
-      // a wrong client-side number, never the page.
+      // GH-11 — pending wire/manual refunds. A failure leaves the
+      // tab empty rather than breaking the page. (The receivables
+      // table itself is fetched by the filter effect below, so the
+      // default overdue + due-today view applies on mount.)
       try {
-        setServerOverdue(await RentalPaymentService.overdue())
+        setPendingRefunds(await RentalPaymentService.pendingRefunds())
       } catch {
-        setServerOverdue(null)
+        setPendingRefunds(null)
       }
     } catch (error) {
       setLoadError(true)
@@ -169,6 +204,21 @@ const Payments = () => {
   }, [])
 
   const onLoad = reload
+
+  // GH-02 — the receivables table is fetched per filter (the
+  // 'overdue-due-soon' default view fetches 'all' and narrows
+  // client-side, since it is the union of two server filters).
+  const refreshReceivables = useCallback(async () => {
+    try {
+      setServerOverdue(await RentalPaymentService.overdue(receivablesFilter === 'overdue-due-soon' ? { filter: 'all' } : { filter: receivablesFilter }))
+    } catch {
+      setServerOverdue(null)
+    }
+  }, [receivablesFilter])
+
+  useEffect(() => {
+    void refreshReceivables()
+  }, [refreshReceivables])
 
   // F6 / W3 X-1 — the dialog's caps come from an on-demand fetch of
   // the selected booking's payments (see the effect below): the list is
@@ -216,13 +266,23 @@ const Payments = () => {
   // payment list; the list is server-paginated now (X-1), so the
   // endpoint is the single source — when it fails, the table stays
   // empty and the OVERDUE card shows '—' rather than a wrong number.
-  const overdueRows = (serverOverdue?.rows || []).map((row) => ({
+  // GH-02 — the full extended rows (cast until the shared type
+  // gains the new fields) + the paid-in-full rows from the same
+  // response.
+  const receivableRows = (serverOverdue?.rows || []) as unknown as ReceivableRow[]
+  const paidInFullRows = ((serverOverdue || {}) as unknown as { paidInFullRows?: ReceivableRow[] }).paidInFullRows || []
+  const overdueRows = receivableRows.map((row) => ({
     booking: row.booking,
     outstanding: row.outstandingBalance,
     depositDue: row.depositDue,
     dueAt: row.dueAt ? new Date(row.dueAt) : undefined,
     overdue: row.overdue,
   }))
+  // The default view (overdue + due today/tomorrow) is the union of
+  // two server filters, narrowed client-side from the 'all' fetch.
+  const visibleReceivableRows = receivablesFilter === 'overdue-due-soon'
+    ? receivableRows.filter((row) => row.overdue || (row.daysToPaymentDue !== null && row.daysToPaymentDue >= 0 && row.daysToPaymentDue <= 1))
+    : receivablesFilter === 'paid-in-full' ? paidInFullRows : receivableRows
 
   // The OVERDUE card sums only the rows whose due date has passed;
   // the table itself lists every outstanding receivable.
@@ -473,6 +533,56 @@ const Payments = () => {
     }
   }
 
+  // GH-02 — receivables action column. Take payment reuses the
+  // existing dialog (openNew); Confirm / Mark no-show call the
+  // booking endpoints and refresh the table; Cancel opens the booking
+  // page, where the staff-cancel flow (reason + explicit refund
+  // decision) lives.
+  const handleConfirmReservation = async (bookingId?: string) => {
+    if (!bookingId || confirmingId) {
+      return
+    }
+    setConfirmingId(bookingId)
+    try {
+      await BookingService.confirmReservation(bookingId)
+      setNotice(strings.CONFIRMED_OK)
+      await refreshReceivables()
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setConfirmingId('')
+    }
+  }
+
+  const handleMarkNoShow = async (bookingId?: string) => {
+    if (!bookingId || noShowId || !globalThis.window.confirm(strings.NO_SHOW_CONFIRM)) {
+      return
+    }
+    setNoShowId(bookingId)
+    try {
+      await BookingService.markNoShow(bookingId)
+      setNotice(strings.NO_SHOW_DONE)
+      await refreshReceivables()
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setNoShowId('')
+    }
+  }
+
+  const ageLabel = (row: ReceivableRow) => {
+    if (row.overdue) {
+      return strings.OVERDUE_BY.replace('{days}', String(row.daysOverdue))
+    }
+    if (row.daysToPaymentDue === 0) {
+      return strings.DUE_TODAY
+    }
+    if (row.daysToPaymentDue !== null && row.daysToPaymentDue > 0) {
+      return strings.DUE_IN.replace('{days}', String(row.daysToPaymentDue))
+    }
+    return '—'
+  }
+
   const methodLabel = (method: bookcarsTypes.RentalPaymentMethod) => {
     switch (method) {
       case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK
@@ -516,22 +626,82 @@ const Payments = () => {
           <Card><CardContent><span className="agency-payments__summary-icon agency-payments__summary-icon--warning"><WarningAmberRoundedIcon /></span><small>{strings.OVERDUE}</small><strong>{loading || overdueTotal === null ? '—' : formatAmount(overdueTotal)}</strong></CardContent></Card>
           <Card><CardContent><span className="agency-payments__summary-icon"><PaymentsRoundedIcon /></span><small>{strings.COLLECTIONS}</small><strong>{loading || !collections ? '—' : `${formatAmount(collections.collected)} / ${formatAmount(collections.contractAmount)}`}</strong>{collections && <small>{strings.COLLECTION_RATE}: {collections.collectionRatePct === null ? '—' : `${collections.collectionRatePct.toFixed(2)}%`}</small>}</CardContent></Card>
         </div>
+        <div className="agency-payments__tabs" role="tablist">
+          <Button variant={activeTab === 'receivables' ? 'contained' : 'outlined'} size="small" onClick={() => setActiveTab('receivables')}>{strings.TAB_RECEIVABLES}</Button>
+          <Button variant={activeTab === 'payments' ? 'contained' : 'outlined'} size="small" onClick={() => setActiveTab('payments')}>{strings.TAB_PAYMENTS}</Button>
+          <Button variant={activeTab === 'refunds' ? 'contained' : 'outlined'} size="small" onClick={() => setActiveTab('refunds')}>{strings.TAB_REFUNDS}{pendingRefunds && pendingRefunds.count > 0 ? ` (${pendingRefunds.count})` : ''}</Button>
+        </div>
+        {activeTab === 'receivables' && (
         <section className="agency-payments__panel agency-payments__receivables">
           <div className="agency-payments__panel-title">{strings.RECEIVABLES}<HelpIcon text={strings.HELP_RECEIVABLES} /></div>
-          <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.OUTSTANDING}</span><span>{strings.DEPOSIT}</span><span>{strings.DATE}</span></div>
-          {loading ? <div className="agency-payments__empty">…</div> : overdueRows.length === 0 ? (
+          <div className="agency-payments__toolbar">
+            <TextField select size="small" label={strings.FILTER_LABEL} value={receivablesFilter} onChange={(event) => setReceivablesFilter(event.target.value as typeof receivablesFilter)}>
+              <MenuItem value="overdue-due-soon">{strings.FILTER_OVERDUE_DUE_SOON}</MenuItem>
+              <MenuItem value="all">{strings.FILTER_ALL}</MenuItem>
+              <MenuItem value="overdue">{strings.FILTER_OVERDUE}</MenuItem>
+              <MenuItem value="due-soon">{strings.FILTER_DUE_SOON}</MenuItem>
+              <MenuItem value="confirmed-unpaid">{strings.FILTER_CONFIRMED_UNPAID}</MenuItem>
+              <MenuItem value="holds-expiring">{strings.FILTER_HOLDS_EXPIRING}</MenuItem>
+              <MenuItem value="paid-in-full">{strings.FILTER_PAID_IN_FULL}</MenuItem>
+              <MenuItem value="age-current">{strings.FILTER_AGE_CURRENT}</MenuItem>
+              <MenuItem value="age-1-7">{strings.FILTER_AGE_1_7}</MenuItem>
+              <MenuItem value="age-8-30">{strings.FILTER_AGE_8_30}</MenuItem>
+              <MenuItem value="age-30-plus">{strings.FILTER_AGE_30_PLUS}</MenuItem>
+            </TextField>
+          </div>
+          <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.OUTSTANDING}</span><span>{strings.PAID}</span><span>{strings.DEPOSIT}</span><span>{strings.DEPOSIT_HELD}</span><span>{strings.DUE}</span><span>{strings.AGE}</span><span>{strings.LAST_REMINDED}</span><span>{strings.ACTIONS}</span></div>
+          {loading ? <div className="agency-payments__empty">…</div> : visibleReceivableRows.length === 0 ? (
             <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_OVERDUE}</p></div>
-          ) : overdueRows.map((row) => (
+          ) : visibleReceivableRows.map((row) => (
             <div className="agency-payments__row agency-payments__receivables-row" key={row.booking._id}>
               <strong data-label={strings.CONTRACT}>{bookingLabel(row.booking)}</strong>
               <span data-label={strings.CUSTOMER}>{customerName(row.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
-              <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstanding)}</strong>
+              <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstandingBalance)}</strong>
+              <span data-label={strings.PAID}>{formatAmount(row.paidRent)}</span>
               <span data-label={strings.DEPOSIT}>{formatAmount(row.depositDue)}</span>
-              <span data-label={strings.DATE}>{formatDate(row.dueAt ?? row.booking.to)}</span>
+              <span data-label={strings.DEPOSIT_HELD}>{formatAmount(row.depositHeld)}</span>
+              <span data-label={strings.DUE}>{formatDate(new Date(row.paymentDueAt || row.dueAt || row.booking.to))}</span>
+              <span data-label={strings.AGE}>{ageLabel(row)}</span>
+              <span data-label={strings.LAST_REMINDED}>{row.lastRemindedAt ? `${formatDate(new Date(row.lastRemindedAt))} (${row.reminderCount})` : '—'}</span>
+              <span data-label={strings.ACTIONS}>
+                {row.actions.canTakePayment && canRecordPayments && (
+                  <Button size="small" variant="outlined" onClick={() => openNew(row.booking._id)}>{strings.TAKE_PAYMENT}</Button>
+                )}
+                {row.actions.canConfirm && (
+                  <Button size="small" variant="outlined" disabled={confirmingId === row.booking._id} onClick={() => handleConfirmReservation(row.booking._id)}>{strings.CONFIRM_RESERVATION}</Button>
+                )}
+                {row.actions.canCancel && (
+                  <Button size="small" variant="outlined" onClick={() => navigate(`/update-booking?b=${row.booking._id}`)}>{strings.OPEN_BOOKING}</Button>
+                )}
+                {row.actions.canMarkNoShow && (
+                  <Button size="small" color="error" variant="outlined" disabled={noShowId === row.booking._id} onClick={() => handleMarkNoShow(row.booking._id)}>{strings.MARK_NO_SHOW}</Button>
+                )}
+              </span>
             </div>
           ))}
         </section>
+        )}
+        {activeTab === 'refunds' && (
+        <section className="agency-payments__panel agency-payments__receivables">
+          <div className="agency-payments__panel-title">{strings.REFUNDS_TITLE}</div>
+          <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.AMOUNT}</span><span>{strings.REFUND_METHOD}</span><span>{strings.REFUND_REASON}</span><span>{strings.REFUND_SINCE}</span></div>
+          {loading ? <div className="agency-payments__empty">…</div> : !pendingRefunds || pendingRefunds.rows.length === 0 ? (
+            <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_REFUNDS}</p></div>
+          ) : pendingRefunds.rows.map((refund) => (
+            <div className="agency-payments__row agency-payments__receivables-row" key={refund.booking._id}>
+              <strong data-label={strings.CONTRACT}>{bookingLabel(refund.booking)}</strong>
+              <span data-label={strings.CUSTOMER}>{customerName(refund.booking)}</span>
+              <span data-label={strings.VEHICLE}>{carName(refund.booking)}</span>
+              <strong data-label={strings.AMOUNT}>{formatAmount(refund.amount)}</strong>
+              <span data-label={strings.REFUND_METHOD}>{refund.method ? methodLabel(refund.method) : '—'}{refund.wireRefundPending ? ` · ${strings.WIRE_PENDING}` : ''}</span>
+              <span data-label={strings.REFUND_REASON}>{refund.reason || '—'}</span>
+              <span data-label={strings.REFUND_SINCE}>{refund.since ? formatDate(new Date(refund.since)) : '—'}</span>
+            </div>
+          ))}
+        </section>
+        )}
+        {activeTab === 'payments' && (
         <section className="agency-payments__panel">
           <div className="agency-payments__toolbar">
             <TextField size="small" fullWidth placeholder={strings.SEARCH} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
@@ -585,6 +755,7 @@ const Payments = () => {
             </div>
           )}
         </section>
+        )}
       </div>
       )}
       <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">

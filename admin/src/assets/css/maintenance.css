@@ -68,6 +68,16 @@
   .agency-maintenance__toolbar { flex-direction: column; }
   .agency-maintenance__toolbar .MuiTextField-root:first-child, .agency-maintenance__toolbar .MuiTextField-root:last-child { width: 100%; }
   .agency-maintenance__form-grid { grid-template-columns: 1fr; }
+  /* M-01 — at 390px the 3-column row (<=900px) still overflows: the
+     actions cell (RECORD PAYMENT + HISTORY + 2 icon buttons, flex with
+     no wrap) forces the `auto` column ~250px wide, so the row is
+     ~500px and the page scrolls sideways (docW 481). Move the actions
+     to a full-width row of their own and let them wrap; the `auto`
+     column then only holds the amount, and the row fits 390px. */
+  .agency-maintenance__row { grid-template-columns: minmax(90px, 1fr) minmax(0, 1.4fr) auto; }
+  .agency-maintenance__row > :nth-child(2) { display: flex; flex-wrap: wrap; gap: 4px; }
+  .agency-maintenance__row > :nth-child(7) { grid-column: 1 / -1; grid-row: 4; }
+  .agency-maintenance__actions { flex-wrap: wrap; }
 }
 
 .agency-maintenance__section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid #edf1ef; }

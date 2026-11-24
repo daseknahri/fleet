@@ -9,6 +9,8 @@ const routes = {
   exportCsv: '/api/rental-payments/export.csv',
   // F6 / W3 P-3 — shared outstanding/receivable table (ReadPayments).
   overdue: '/api/rental-payments/overdue',
+  // GH-11 — pending wire/manual refunds list (ReadPayments).
+  pendingRefunds: '/api/rental-payments/pending-refunds',
   // F6 / W3 C-7 — manually link a posted cash payment into a chosen
   // open cash session (RecordPayments, like create/confirm).
   linkCashSession: '/api/rental-payments/:id/link-cash-session',

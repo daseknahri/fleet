@@ -19,7 +19,7 @@
 .agency-payments__table-head,.agency-payments__row { display:grid; gap:12px; align-items:center; padding:14px 16px; }
 .agency-payments__table-head { color:#5a6d71; font-size:12px; font-weight:700; background:#f8faf9; }
 .agency-payments__payments-head,.agency-payments__payments-row { grid-template-columns:1fr 1.1fr 1.1fr 1.3fr .9fr 1fr 1fr .8fr 1.3fr 1.1fr; }
-.agency-payments__receivables-head,.agency-payments__receivables-row { grid-template-columns:1.1fr 1.2fr 1.4fr 1fr 1fr 1fr; }
+.agency-payments__receivables-head,.agency-payments__receivables-row { grid-template-columns:1.1fr 1.2fr 1.1fr .9fr .8fr .8fr .8fr .9fr .7fr 1fr 1.4fr; }
 .agency-payments__row { border-top:1px solid #edf1f0; font-size:14px; }
 .agency-payments__row strong { font-weight:650; }
 .agency-payments__receivables-row strong { color:#a33b35; }

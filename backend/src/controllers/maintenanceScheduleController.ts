@@ -4,6 +4,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../config/env.config'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import MaintenanceScheduleAudit from '../models/MaintenanceScheduleAudit'
 import MaintenanceCategory from '../models/MaintenanceCategory'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import { resolveScheduleDue } from '../utils/maintenanceSchedule'
@@ -311,10 +312,30 @@ export const remove = async (req: Request, res: Response) => {
     if (!mongoose.isValidObjectId(req.params.id)) {
  res.status(400).send('Invalid maintenance schedule'); return 
 }
-    const result = await MaintenanceSchedule.deleteOne({ _id: req.params.id, ...scope(req) })
-    if (!result.deletedCount) {
+    // GH-09 — mirror the expense remove() pattern (F7 / W3 M-7): a
+    // hard delete requires a recorded reason (at least 3 characters)
+    // and the audit row is written BEFORE the delete, so the trail
+    // survives it (the schedule id is kept on the row). A schedule
+    // has no payments or linked expenses to guard — nothing
+    // references a schedule — so there is no 409 leg here (unlike
+    // the work-order delete, which refuses when expenses exist).
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (reason.length < 3) {
+      res.status(400).send('A reason is required to delete a maintenance schedule')
+      return
+    }
+    const row = await MaintenanceSchedule.findOne({ _id: req.params.id, ...scope(req) }).select('_id supplier')
+    if (!row) {
  res.sendStatus(404); return 
 }
+    await MaintenanceScheduleAudit.create({
+      supplier: row.supplier,
+      schedule: row._id,
+      action: bookcarsTypes.MaintenanceExpenseAuditAction.Deleted,
+      actor: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+      reason,
+    })
+    await MaintenanceSchedule.deleteOne({ _id: row._id })
     res.sendStatus(200)
   } catch (err) {
  logger.error('[maintenanceSchedule.remove]', err); res.status(400).send(i18n.t('ERROR')) 

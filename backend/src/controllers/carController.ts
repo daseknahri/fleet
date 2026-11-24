@@ -17,7 +17,7 @@ import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
 import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
 import { deriveFleetStatus, emptyFleetStatusCounts, fleetStatusForList, isFleetStatus } from '../utils/fleetStatus'
-import { agencySupplierId } from '../utils/agencyAuthorization'
+import { agencySupplierId, adminSelectorSupplierIds, logAdminCrossAgencyAccess, logAdminResourceAccess } from '../utils/agencyAuthorization'
 import { defaultDeposit } from '../utils/depositDefaults'
 import DateBasedPrice from '../models/DateBasedPrice'
 import User from '../models/User'
@@ -1560,6 +1560,13 @@ export const checkCar = async (req: Request, res: Response) => {
         return
       }
     }
+    // GH-07 — a platform admin reached this car without a selector;
+    // audit with the car's agency (the middleware deferred to this
+    // controller because the path carries the car id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+      const targetCar = await Car.findById(_id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCar?.supplier?.toString(), 'car:check-car')
+    }
     const count = await Booking
       .find({ car: _id })
       .limit(1)
@@ -1657,6 +1664,13 @@ export const validateCarLicensePlate = async (req: Request, res: Response) => {
         filter.supplier = new mongoose.Types.ObjectId(supplierParam)
       }
     }
+    // GH-07 — a platform admin reached this car without a selector;
+    // audit with the car's agency (the middleware deferred to this
+    // controller because the path carries the car id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+      const targetCar = await Car.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCar?.supplier?.toString(), 'car:validate-license-plate')
+    }
     const car = await Car.findOne(filter)
     if (car) {
       res.sendStatus(204)
@@ -1706,6 +1720,10 @@ export const deleteCar = async (req: Request, res: Response) => {
         return
       }
       // end of security check
+
+      // GH-07 — a platform admin purged this car without a selector;
+      // audit with the car's agency.
+      await logAdminResourceAccess(req, car.supplier?.toString(), 'car:delete-car')
 
       if (!car.deletedAt) {
         res.status(409).send(`NOT_TRASHED: Car ${car._id.toString()} is not trashed. Trash it before purging.`)
@@ -1817,6 +1835,10 @@ export const updateImage = async (req: Request, res: Response) => {
       return
     }
 
+    // GH-07 — a platform admin changed this car's cover image without a
+    // selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:update-image')
+
     if (car) {
       // GA-PAR-22: a trashed car's image cannot change.
       if (car.deletedAt) {
@@ -1885,6 +1907,10 @@ export const deleteImage = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot delete this car image')
       return
     }
+
+    // GH-07 — a platform admin deleted this car's cover image without a
+    // selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:delete-image')
 
     if (car) {
       // GA-PAR-22: a trashed car's image cannot be deleted.
@@ -2001,6 +2027,9 @@ export const uploadCarImage = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot manage this car gallery')
       return
     }
+    // GH-07 — a platform admin added a gallery image to this car without
+    // a selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:upload-image')
     // GA-PAR-22: a trashed car's gallery cannot change.
     if (car.deletedAt) {
       res.status(409).send(trashedMessage('car'))
@@ -2066,6 +2095,9 @@ export const deleteCarImage = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot manage this car gallery')
       return
     }
+    // GH-07 — a platform admin deleted a gallery image of this car
+    // without a selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:delete-gallery-image')
     // GA-PAR-22: a trashed car's gallery cannot change.
     if (car.deletedAt) {
       res.status(409).send(trashedMessage('car'))
@@ -2124,6 +2156,9 @@ export const uploadCarDocument = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot manage this car\'s documents')
       return
     }
+    // GH-07 — a platform admin uploaded a document to this car without
+    // a selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:upload-document')
     // GA-PAR-22: a trashed car's documents cannot change.
     if (car.deletedAt) {
       res.status(409).send(trashedMessage('car'))
@@ -2213,6 +2248,9 @@ export const deleteCarDocument = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: You cannot manage this car\'s documents')
       return
     }
+    // GH-07 — a platform admin deleted a document of this car without a
+    // selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:delete-document')
     // GA-PAR-22: a trashed car's documents cannot be deleted.
     if (car.deletedAt) {
       res.status(409).send(trashedMessage('car'))
@@ -3064,6 +3102,10 @@ export const trashCar = async (req: Request, res: Response) => {
     }
     // end of security check
 
+    // GH-07 — a platform admin trashed this car without a selector;
+    // audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:trash-car')
+
     if (car.deletedAt) {
       res.status(409).send(`TRASHED: Car ${car._id.toString()} is already trashed.`)
       return
@@ -3123,6 +3165,10 @@ export const restoreCar = async (req: Request, res: Response) => {
       return
     }
     // end of security check
+
+    // GH-07 — a platform admin restored this car without a selector;
+    // audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:restore-car')
 
     if (!car.deletedAt) {
       res.status(409).send(`NOT_TRASHED: Car ${car._id.toString()} is not trashed.`)
@@ -3297,6 +3343,10 @@ export const getCarTrashWarning = async (req: Request, res: Response) => {
       res.status(403).send('Forbidden: Access denied')
       return
     }
+
+    // GH-07 — a platform admin read this car's trash warning without a
+    // selector; audit with the car's agency.
+    await logAdminResourceAccess(req, car.supplier?.toString(), 'car:get-trash-warning')
 
     const [liveBookingsCount, trashedBookingsCount] = await Promise.all([
       Booking.countDocuments({ car: car._id, deletedAt: null }),

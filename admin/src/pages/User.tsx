@@ -20,6 +20,7 @@ import { strings as commonStrings } from '@/lang/common'
 import { strings as ulStrings } from '@/lang/user-list'
 import { strings as trashStrings } from '@/lang/trash'
 import * as UserService from '@/services/UserService'
+import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as helper from '@/utils/helper'
 import Layout from '@/components/Layout'
 import Backdrop from '@/components/SimpleBackdrop'
@@ -49,6 +50,7 @@ const User = () => {
   const [trashWarning, setTrashWarning] = useState<bookcarsTypes.TrashWarning | null>(null)
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [balance, setBalance] = useState<bookcarsTypes.ClientBalance>()
+  const [oldestDue, setOldestDue] = useState<Date | undefined>(undefined)
   const [offset, setOffset] = useState(0)
 
   useEffect(() => {
@@ -156,6 +158,22 @@ const User = () => {
 
               if (_user.type === bookcarsTypes.UserType.User) {
                 UserService.getClientBalance(_user._id as string).then(setBalance).catch(() => setBalance(undefined))
+                // GH-04 — oldest due date: the earliest dueAt among
+                // this client's outstanding receivables. getClientBalance
+                // carries no due date, so it is derived here from the
+                // shared overdue endpoint (same definition the Payments
+                // page uses); a failure hides the line, never the page.
+                RentalPaymentService.overdue().then((res) => {
+                  const rows = (res?.rows || []).filter((row) => {
+                    const driver = row.booking?.driver as unknown
+                    const driverId = typeof driver === 'string' ? driver : (driver as { _id?: unknown })?._id?.toString()
+                    return driverId === _user._id && row.dueAt
+                  })
+                  const dates = rows
+                    .map((row) => new Date(row.dueAt as unknown as string).getTime())
+                    .filter((t) => !Number.isNaN(t))
+                  setOldestDue(dates.length > 0 ? new Date(Math.min(...dates)) : undefined)
+                }).catch(() => setOldestDue(undefined))
               }
 
               const admin = helper.admin(_loggedUser)
@@ -287,7 +305,10 @@ const User = () => {
                 {balance && (
                   <>
                     <Typography variant="body2" className="user-info">
-                      {`${commonStrings.BALANCE_DUE}: ${bookcarsHelper.formatPrice(balance.outstanding, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
+                      {`${commonStrings.BALANCE_DUE}: `}
+                      <Link href={`/payments?clientId=${user._id}`}>
+                        {bookcarsHelper.formatPrice(balance.outstanding, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}
+                      </Link>
                     </Typography>
                     <Typography variant="body2" className="user-info">
                       {`${commonStrings.OVERDUE_BALANCE}: ${bookcarsHelper.formatPrice(balance.overdue, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
@@ -296,6 +317,14 @@ const User = () => {
                       {`${commonStrings.DEPOSIT_HELD}: ${bookcarsHelper.formatPrice(balance.depositHeld, commonStrings.CURRENCY, loggedUser.language || env.DEFAULT_LANGUAGE)}`}
                     </Typography>
                   </>
+                )}
+                {oldestDue && (
+                  <Typography variant="body2" className="user-info">
+                    {`${commonStrings.OLDEST_DUE}: `}
+                    <Link href={`/payments?clientId=${user._id}`}>
+                      {oldestDue.toLocaleDateString(loggedUser.language)}
+                    </Link>
+                  </Typography>
                 )}
                 <ClientDocuments user={user} />
               </div>

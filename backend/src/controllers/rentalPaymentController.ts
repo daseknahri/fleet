@@ -7,6 +7,7 @@ import Booking from '../models/Booking'
 import CashSession from '../models/CashSession'
 import CashMovement from '../models/CashMovement'
 import ContractCharge from '../models/ContractCharge'
+import NotificationDelivery from '../models/NotificationDelivery'
 import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerBankPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
@@ -341,41 +342,349 @@ const round2 = (n: number) => Number(n.toFixed(2))
 // same definition; it does not compute its own.
 // ---------------------------------------------------------------------
 
+// GH-02 / Wave 3.1 (money-build-plan §3.1) — money-reminder
+// template keys: a "reminder" for a receivable row is a SENT delivery
+// of one of these for the booking. The overdue repeat / escalate keys
+// (GH-03) count too; the pending-refund key does not (that is a
+// cancelled booking, never a receivable row).
+const MONEY_REMINDER_TEMPLATE_KEYS = [
+  'auto.overdue',
+  'auto.confirmedUnpaid',
+  'auto.holdExpiring',
+  'auto.paymentDue',
+  'auto.missedPickup',
+  'auto.overdueEscalate',
+] as bookcarsTypes.NotificationTemplateKey[]
+
+export type ReceivablesFilter = 'all' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
+
+const RECEIVABLES_FILTERS: ReceivablesFilter[] = ['all', 'overdue', 'due-soon', 'confirmed-unpaid', 'holds-expiring', 'paid-in-full', 'age-current', 'age-1-7', 'age-8-30', 'age-30-plus']
+
+export type ReceivableAgeBucket = 'current' | '1-7' | '8-30' | '30+'
+
+// GH-02 — the extended receivable row. The shared
+// bookcarsTypes.OverdueReceivableRow gains these fields in the
+// optional types script (edit-gh02-types-optional.py); until then this
+// local extension keeps the backend compiling with no packages change.
+export interface ReceivableRow extends bookcarsTypes.OverdueReceivableRow {
+  daysOverdue: number
+  paymentDueAt?: Date
+  daysToPaymentDue: number | null
+  depositHeld: number
+  lastRemindedAt?: Date
+  reminderCount: number
+  paidInFull: boolean
+  paidRent: number
+  contractTotal: number
+  ageBucket: ReceivableAgeBucket
+  lifecycle?: bookcarsTypes.ContractLifecycle
+  status?: bookcarsTypes.BookingStatus
+  pickupAt?: Date
+  holdExpiresAt?: Date
+  actions: { canTakePayment: boolean, canConfirm: boolean, canCancel: boolean, canMarkNoShow: boolean }
+}
+
+const receivableStartOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+
+const receivableAgeBucket = (daysOverdue: number): ReceivableAgeBucket => (
+  daysOverdue <= 0 ? 'current' : daysOverdue <= 7 ? '1-7' : daysOverdue <= 30 ? '8-30' : '30+'
+)
+
 export const overdue = async (req: Request, res: Response) => {
   try {
+    const now = new Date()
+    const filter = typeof req.query.filter === 'string' && req.query.filter ? req.query.filter : 'all'
+    if (!RECEIVABLES_FILTERS.includes(filter as ReceivablesFilter)) {
+      res.status(400).send('Invalid receivables filter')
+      return
+    }
+    const clientId = typeof req.query.clientId === 'string' && req.query.clientId ? req.query.clientId : undefined
+    if (clientId && !mongoose.isValidObjectId(clientId)) {
+      res.status(400).send('Invalid client filter')
+      return
+    }
     const bookings = await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
       deletedAt: null,
     })
-      .select('_id reference price financialSnapshot to lifecycle car driver supplier')
+      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier')
       .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
       .sort({ to: 1 })
       .lean()
-    const rows: bookcarsTypes.OverdueReceivableRow[] = []
+    // One delivery-log read for every row: last sent money reminder
+    // + how many were sent (the chase history, no new stored fields).
+    const bookingIds = bookings.map((booking) => String(booking._id))
+    const reminderRows = bookingIds.length > 0 ? await NotificationDelivery.find({
+      subjectType: 'booking',
+      subjectId: { $in: bookingIds },
+      templateKey: { $in: MONEY_REMINDER_TEMPLATE_KEYS },
+      status: 'sent',
+    }).select('subjectId sentAt').lean() : []
+    const remindersByBooking = new Map<string, { lastRemindedAt?: Date, reminderCount: number }>()
+    for (const delivery of reminderRows) {
+      const key = String(delivery.subjectId)
+      const entry = remindersByBooking.get(key) || { lastRemindedAt: undefined, reminderCount: 0 }
+      entry.reminderCount += 1
+      const sentAt = delivery.sentAt ? new Date(delivery.sentAt) : undefined
+      if (sentAt && (!entry.lastRemindedAt || sentAt.getTime() > entry.lastRemindedAt.getTime())) {
+        entry.lastRemindedAt = sentAt
+      }
+      remindersByBooking.set(key, entry)
+    }
+    const rows: ReceivableRow[] = []
+    const paidInFullRows: ReceivableRow[] = []
     for (const booking of bookings) {
-      const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
-      if (receivable.outstandingBalance <= 0) {
+      // ?clientId= filters by the booking's driver.
+      const driver = booking.driver as unknown as { _id?: unknown } | string | null | undefined
+      const driverId = typeof driver === 'object' && driver !== null ? String(driver._id || '') : String(driver || '')
+      if (clientId && driverId !== clientId) {
         continue
       }
-      rows.push({
+      const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
+      const depositDue = Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments))
+      const depositHeld = round2(receivable.depositPayments)
+      const dueAt = receivable.dueAt ? new Date(receivable.dueAt) : undefined
+      const daysOverdue = receivable.overdue && dueAt
+        ? Math.max(0, Math.floor((receivableStartOfDay(now).getTime() - receivableStartOfDay(dueAt).getTime()) / 86400000))
+        : 0
+      // §3.1 — TWO due dates, not one: the payment due date is the
+      // hold deadline for a pay-later hold, the pickup day for an
+      // unpaid booking whose pickup is still ahead, else the shared
+      // dueAt (rental end / completion). Without it the most urgent
+      // receivables (unpaid pickups today/tomorrow) never age.
+      const expireAt = (booking as unknown as { expireAt?: Date | string | null }).expireAt
+        ? new Date((booking as unknown as { expireAt: Date | string }).expireAt) : undefined
+      const from = booking.from ? new Date(booking.from) : undefined
+      const paymentDueAt = expireAt
+        ? expireAt
+        : (receivable.outstandingBalance > 0 && from && from.getTime() > now.getTime() ? from : dueAt)
+      const daysToPaymentDue = paymentDueAt
+        ? Math.floor((receivableStartOfDay(paymentDueAt).getTime() - receivableStartOfDay(now).getTime()) / 86400000)
+        : null
+      const lifecycle = (booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft) as bookcarsTypes.ContractLifecycle
+      const status = booking.status as bookcarsTypes.BookingStatus
+      const noShowAt = (booking as unknown as { noShowAt?: Date | string | null }).noShowAt
+      const reminders = remindersByBooking.get(String(booking._id)) || { lastRemindedAt: undefined, reminderCount: 0 }
+      const row: ReceivableRow = {
         booking: booking as unknown as bookcarsTypes.Booking,
         outstandingBalance: receivable.outstandingBalance,
-        depositDue: Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments)),
-        dueAt: receivable.dueAt,
+        depositDue,
+        depositHeld,
+        dueAt,
         overdue: receivable.overdue,
         currency: receivable.currency,
-      })
+        daysOverdue,
+        paymentDueAt,
+        daysToPaymentDue,
+        lastRemindedAt: reminders.lastRemindedAt,
+        reminderCount: reminders.reminderCount,
+        // Paid in full means nothing is owed at all (rent AND deposit
+        // collected). A rent-paid / deposit-due row is still listed in
+        // paidInFullRows (its rent is paid in full) with the deposit
+        // due visible — it must not vanish from every list.
+        paidInFull: receivable.outstandingBalance <= 0 && depositDue <= 0,
+        paidRent: round2(receivable.postedPayments),
+        contractTotal: round2(receivable.rentalTotalInclVat + receivable.approvedCharges),
+        ageBucket: receivableAgeBucket(daysOverdue),
+        lifecycle,
+        status,
+        pickupAt: from,
+        holdExpiresAt: expireAt,
+        // The actions already exist; the endpoint only exposes what
+        // the UI needs to show them. canCancel mirrors the staff-cancel
+        // guard (pre-handover only); canMarkNoShow mirrors markNoShow
+        // (Draft/Confirmed, unpaid, pickup passed, not already marked).
+        actions: {
+          canTakePayment: receivable.outstandingBalance > 0,
+          canConfirm: lifecycle === bookcarsTypes.ContractLifecycle.Draft && status === bookcarsTypes.BookingStatus.Pending,
+          canCancel: lifecycle === bookcarsTypes.ContractLifecycle.Draft || lifecycle === bookcarsTypes.ContractLifecycle.Confirmed,
+          canMarkNoShow: (lifecycle === bookcarsTypes.ContractLifecycle.Draft || lifecycle === bookcarsTypes.ContractLifecycle.Confirmed)
+            && status === bookcarsTypes.BookingStatus.Pending && !!from && from.getTime() <= now.getTime() && !noShowAt,
+        },
+      }
+      if (receivable.outstandingBalance > 0) {
+        rows.push(row)
+      } else if (lifecycle !== bookcarsTypes.ContractLifecycle.Completed) {
+        // Completed contracts are history, not receivables: a paid
+        // Completed booking belongs to reports, not to this chase.
+        paidInFullRows.push(row)
+      }
     }
-    rows.sort((a, b) => b.outstandingBalance - a.outstandingBalance)
+    // Filters apply to the outstanding rows; a filtered view shows
+    // only matching outstanding rows (paid-in-full rows are returned
+    // only for filter=all and filter=paid-in-full).
+    let filteredRows = rows
+    let filteredPaidInFullRows = paidInFullRows
+    switch (filter as ReceivablesFilter) {
+      case 'overdue':
+        filteredRows = rows.filter((row) => row.overdue)
+        filteredPaidInFullRows = []
+        break
+      case 'due-soon':
+        filteredRows = rows.filter((row) => row.daysToPaymentDue !== null && row.daysToPaymentDue >= 0 && row.daysToPaymentDue <= 1)
+        filteredPaidInFullRows = []
+        break
+      case 'confirmed-unpaid':
+        filteredRows = rows.filter((row) => row.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed && row.outstandingBalance > 0)
+        filteredPaidInFullRows = []
+        break
+      case 'holds-expiring':
+        filteredRows = rows.filter((row) => !!row.holdExpiresAt
+          && row.holdExpiresAt.getTime() > now.getTime()
+          && row.holdExpiresAt.getTime() <= now.getTime() + 24 * 60 * 60 * 1000)
+        filteredPaidInFullRows = []
+        break
+      case 'paid-in-full':
+        filteredRows = []
+        break
+      case 'age-current':
+        filteredRows = rows.filter((row) => row.ageBucket === 'current')
+        filteredPaidInFullRows = []
+        break
+      case 'age-1-7':
+        filteredRows = rows.filter((row) => row.ageBucket === '1-7')
+        filteredPaidInFullRows = []
+        break
+      case 'age-8-30':
+        filteredRows = rows.filter((row) => row.ageBucket === '8-30')
+        filteredPaidInFullRows = []
+        break
+      case 'age-30-plus':
+        filteredRows = rows.filter((row) => row.ageBucket === '30+')
+        filteredPaidInFullRows = []
+        break
+      default:
+        break
+    }
+    // Default sort: age-desc (oldest money first), outstanding as
+    // tie-break. Paid-in-full rows sort by pickup ascending.
+    filteredRows.sort((a, b) => b.daysOverdue - a.daysOverdue || b.outstandingBalance - a.outstandingBalance)
+    filteredPaidInFullRows.sort((a, b) => (a.pickupAt?.getTime() || 0) - (b.pickupAt?.getTime() || 0) || b.contractTotal - a.contractTotal)
     res.json({
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
-      rows,
-      outstandingTotal: round2(rows.reduce((sum, row) => sum + row.outstandingBalance, 0)),
-      overdueTotal: round2(rows.filter((row) => row.overdue).reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      rows: filteredRows,
+      paidInFullRows: filteredPaidInFullRows,
+      outstandingTotal: round2(filteredRows.reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      overdueTotal: round2(filteredRows.filter((row) => row.overdue).reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      paidInFullCount: filteredPaidInFullRows.length,
     })
   } catch (err) {
     logger.error(`[rentalPayment.overdue] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// GH-11 — pending refunds: money the agency owes back. One row per
+// Cancelled booking whose cancellationRecord.refundStatus is
+// 'pending' (a wire refund with no bank movement, or a `manual`
+// refund decision). Amounts come from the cancellation record — the
+// audit trail of the cancel — never recomputed from live payments.
+// The reminder until resolved is the auto pass's pending-refund event
+// (autoReminders.ts), owner-only. Q20 (a configurable/different
+// owner) stays open; the owner here is the agency owner.
+export interface PendingRefundRow {
+  booking: bookcarsTypes.Booking
+  amount: number
+  currency: string
+  method: bookcarsTypes.RentalPaymentMethod | null
+  methods: Array<{ method: bookcarsTypes.RentalPaymentMethod, amount: number }>
+  reason: string
+  since?: Date
+  refundDecision: bookcarsTypes.CancelRefundDecision
+  wireRefundPending: boolean
+  rentPaid: number
+  depositPaid: number
+  refundedRent: number
+  refundedDeposit: number
+}
+
+export const pendingRefunds = async (req: Request, res: Response) => {
+  try {
+    const bookings = await Booking.find({
+      ...getScope(req),
+      status: bookcarsTypes.BookingStatus.Cancelled,
+      'cancellationRecord.refundStatus': 'pending',
+      deletedAt: null,
+    })
+      .select('_id reference price financialSnapshot to lifecycle status car driver supplier cancellationRecord')
+      .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
+      .sort({ 'cancellationRecord.cancelledAt': 1 })
+      .lean()
+    const rows: PendingRefundRow[] = []
+    for (const booking of bookings) {
+      const record = (booking as unknown as { cancellationRecord?: {
+        reason?: string, cancelledAt?: Date, refundDecision?: bookcarsTypes.CancelRefundDecision,
+        rentPaid?: number, depositPaid?: number, refundedRent?: number, refundedDeposit?: number,
+      } }).cancellationRecord
+      if (!record) {
+        continue
+      }
+      const rentPaid = Number(record.rentPaid || 0)
+      const depositPaid = Number(record.depositPaid || 0)
+      const refundedRent = Number(record.refundedRent || 0)
+      const refundedDeposit = Number(record.refundedDeposit || 0)
+      const amount = round2(Math.max(0, rentPaid + depositPaid - refundedRent - refundedDeposit))
+      if (amount <= 0) {
+        continue
+      }
+      const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
+      // The refund most likely follows the largest posted leg; the
+      // full per-method split is returned alongside it.
+      const posted = await RentalPayment.find({
+        booking: booking._id,
+        status: bookcarsTypes.RentalPaymentStatus.Posted,
+        direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
+      }).select('method amount').lean()
+      const byMethod = new Map<bookcarsTypes.RentalPaymentMethod, number>()
+      for (const payment of posted) {
+        const method = payment.method as bookcarsTypes.RentalPaymentMethod
+        byMethod.set(method, (byMethod.get(method) || 0) + Number(payment.amount || 0))
+      }
+      const methods = [...byMethod.entries()]
+        .map(([method, total]) => ({ method, amount: round2(total) }))
+        .sort((a, b) => b.amount - a.amount)
+      // Wire-pending, exactly as executeStaffCancel flags it: a
+      // `full`-decision wire reversal with no bank movement.
+      let wireRefundPending = false
+      if (record.refundDecision === 'full') {
+        const reversals = await RentalPayment.find({
+          booking: booking._id,
+          status: bookcarsTypes.RentalPaymentStatus.Posted,
+          direction: bookcarsTypes.RentalPaymentDirection.Debit,
+          method: bookcarsTypes.RentalPaymentMethod.BankTransfer,
+        }).select('_id').lean()
+        for (const reversal of reversals) {
+          if (!(await CashMovement.exists({ rentalPayment: reversal._id }))) {
+            wireRefundPending = true
+            break
+          }
+        }
+      }
+      rows.push({
+        booking: booking as unknown as bookcarsTypes.Booking,
+        amount,
+        currency: receivable.currency,
+        method: methods[0]?.method ?? null,
+        methods,
+        reason: record.reason || '',
+        since: record.cancelledAt,
+        refundDecision: record.refundDecision || 'manual',
+        wireRefundPending,
+        rentPaid,
+        depositPaid,
+        refundedRent,
+        refundedDeposit,
+      })
+    }
+    res.json({
+      rows,
+      count: rows.length,
+      total: round2(rows.reduce((sum, row) => sum + row.amount, 0)),
+      currency: rows[0]?.currency || env.BASE_CURRENCY.toUpperCase(),
+    })
+  } catch (err) {
+    logger.error(`[rentalPayment.pendingRefunds] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

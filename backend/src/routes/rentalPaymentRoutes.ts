@@ -8,6 +8,7 @@ const routes = express.Router()
 
 routes.route(routeNames.list).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true }), rentalPaymentController.list)
 routes.route(routeNames.overdue).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true }), rentalPaymentController.overdue)
+routes.route(routeNames.pendingRefunds).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true }), rentalPaymentController.pendingRefunds)
 routes.route(routeNames.collectionsSummary).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true }), rentalPaymentController.collectionsSummary)
 routes.route(routeNames.exportCsv).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadPayments, { allowPlatformAdminAll: true }), rentalPaymentController.exportPaymentsCsv)
 routes.route(routeNames.create).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.RecordPayments), rentalPaymentController.create)

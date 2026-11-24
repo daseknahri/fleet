@@ -281,7 +281,8 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
     // blocks, nothing is persisted.
     expect(denied.status).toBe(409)
     expect(persisted).toBe(0)
-    const removed = await request(app).delete(`/api/maintenance-work-orders/${wo2._id}`).set(env.X_ACCESS_TOKEN, token)
+    // GH-09 — work-order deletes require a recorded reason.
+    const removed = await request(app).delete(`/api/maintenance-work-orders/${wo2._id}`).set(env.X_ACCESS_TOKEN, token).send({ reason: 'P0 evidence cleanup' })
     record('c-delete-work-order', { status: removed.status })
     expect(removed.status).toBe(200)
     const res = await tryCheckoutHold(W2.from, W2.to)
@@ -294,7 +295,8 @@ describe('GA-P0-EVIDENCE-AVAILABILITY-01 - maintenance downtime blocks availabil
   }, 60000)
 
   it('deletes the remaining work order through the API and reads back an empty list for the fixture car', async () => {
-    const removed = await request(app).delete(`/api/maintenance-work-orders/${wo1._id}`).set(env.X_ACCESS_TOKEN, token)
+    // GH-09 — work-order deletes require a recorded reason.
+    const removed = await request(app).delete(`/api/maintenance-work-orders/${wo1._id}`).set(env.X_ACCESS_TOKEN, token).send({ reason: 'P0 evidence cleanup' })
     expect(removed.status).toBe(200)
     const list = await request(app).get('/api/maintenance-work-orders').set(env.X_ACCESS_TOKEN, token)
     const forCar = (list.body as any[]).filter((row) => (row.car?._id || row.car) === car._id.toString())

@@ -1866,7 +1866,9 @@ export interface BankDetails extends Document {
  */
 export interface AdminAccessLog extends Document {
   actor: Types.ObjectId
-  agency: Types.ObjectId
+  // GH-07 — null when the row audits a platform-wide admin read (no
+  // agency was named); an ObjectId when it audits one agency.
+  agency?: Types.ObjectId | null
   action: string
   method?: string
   path?: string

@@ -50,6 +50,7 @@ import {
   SupportAgent as AgentsIcon,
   NotificationsActive as RemindersIcon,
   UploadFile as ImportsIcon,
+  History as AuditLogIcon,
   Groups as TeamIcon,
   Assessment as ReportsIcon,
   Close as CloseIcon,
@@ -122,6 +123,9 @@ const Header = ({
   // GA-PAR-22: the trash tab needs a Manage* capability (Read* alone
   // must not see deleted records' reasons/actors — §6).
   const showTrash = !!agencyPermissions?.loaded && (agencyPermissions.can(AgencyPermission.ManageFleet) || agencyPermissions.can(AgencyPermission.ManageClients) || agencyPermissions.can(AgencyPermission.ManageBookings))
+  // GH-07 — the admin-access audit page is platform-admin only (its
+  // endpoint is authAdmin-only); hidden for everyone else.
+  const showAuditLog = helper.admin(user)
 
   const [currentUser, setCurrentUser] = useState<bookcarsTypes.User>()
   const [lang, setLang] = useState(helper.getLanguage(env.DEFAULT_LANGUAGE))
@@ -381,6 +385,7 @@ const Header = ({
       items: [
         { path: '/notifications', label: strings.NOTIFICATIONS, icon: <NotificationsIcon />, visible: true, badge: notificationCount > 0 ? notificationCount : undefined },
         { path: '/trash', label: strings.TRASH, icon: <TrashIcon />, visible: showTrash },
+        { path: '/admin-access-log', label: strings.ADMIN_ACCESS_LOG, icon: <AuditLogIcon />, visible: showAuditLog },
         { path: '/settings', label: strings.SETTINGS, icon: <SettingsIcon />, visible: true },
         { path: '/about', label: strings.ABOUT, icon: <AboutIcon />, visible: true },
         { path: '/tos', label: strings.TOS, icon: <TosIcon />, visible: true },

@@ -21,6 +21,7 @@ router.post(routes.resolveChargeDispute, authJwt.verifyToken, agencyAuth.require
 router.post(routes.disputeInspection, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.disputeInspection)
 router.post(routes.resolveInspectionDispute, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.resolveInspectionDispute)
 router.post(routes.snapshot, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), controller.createSnapshot)
+router.get(routes.listSnapshots, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.listSnapshots)
 router.get(routes.snapshotFile, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), controller.getSnapshotFile)
 export default router
 

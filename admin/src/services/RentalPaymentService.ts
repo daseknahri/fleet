@@ -45,8 +45,40 @@ export const collectionsSummary = (): Promise<bookcarsTypes.CollectionsSummary> 
 
 // F6 / W3 P-3 — shared outstanding/receivable table (dictionary
 // v2026-11-15.1): charges included, overdue per the shared due rule.
-export const overdue = (): Promise<bookcarsTypes.OverdueReceivableResponse> =>
-  axiosInstance.get('/api/rental-payments/overdue', { withCredentials: true }).then((res) => res.data)
+// GH-02 / Wave 3.1 — filters (?filter=, ?clientId=) + paid-in-full
+// rows in the same response (read in Payments.tsx through a cast
+// until the shared OverdueReceivableResponse gains them).
+export const overdue = (params?: { filter?: string, clientId?: string }): Promise<bookcarsTypes.OverdueReceivableResponse> =>
+  axiosInstance.get('/api/rental-payments/overdue', { params, withCredentials: true }).then((res) => res.data)
+
+// GH-11 — pending wire/manual refunds: money the agency owes back.
+// One row per Cancelled booking whose cancellationRecord.refundStatus
+// is 'pending'.
+export interface PendingRefundRow {
+  booking: bookcarsTypes.Booking
+  amount: number
+  currency: string
+  method: bookcarsTypes.RentalPaymentMethod | null
+  methods: Array<{ method: bookcarsTypes.RentalPaymentMethod, amount: number }>
+  reason: string
+  since?: string
+  refundDecision: bookcarsTypes.CancelRefundDecision
+  wireRefundPending: boolean
+  rentPaid: number
+  depositPaid: number
+  refundedRent: number
+  refundedDeposit: number
+}
+
+export interface PendingRefundsResponse {
+  rows: PendingRefundRow[]
+  count: number
+  total: number
+  currency: string
+}
+
+export const pendingRefunds = (): Promise<PendingRefundsResponse> =>
+  axiosInstance.get('/api/rental-payments/pending-refunds', { withCredentials: true }).then((res) => res.data)
 
 // F6 / W3 C-7 — link a posted cash payment into a chosen open cash
 // session (the repair path for payments posted unlinked).
