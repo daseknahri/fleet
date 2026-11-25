@@ -35,6 +35,7 @@ let wo8: string
 let wo6: string
 let woFuture: string
 let woDone: string
+let woTrashed: string
 
 const seedWorkOrder = async (supplierId: string, carId: string, label: string, start: Date, status: bookcarsTypes.WorkOrderStatus) => {
   const wo = await MaintenanceWorkOrder.create({
@@ -83,11 +84,27 @@ beforeAll(async () => {
   } as any)
   fixtureCarIds.push(car._id)
 
+  // R3-02 — a trashed car with a stale Scheduled job on it: the job must
+  // not appear in the aging view (but stays in the plain list: history).
+  const trashedCar = await Car.create({
+    name: 'GH-21 trashed car', supplier: supplier._id, minimumAge: 21,
+    locations: [location._id], dailyPrice: 100, deposit: 250, available: true,
+    type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+    aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+    mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+    collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+    range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+    odometerKm: 20000,
+  } as any)
+  fixtureCarIds.push(trashedCar._id)
+  await Car.updateOne({ _id: trashedCar._id }, { $set: { deletedAt: new Date() } })
+
   const now = Date.now()
   wo8 = await seedWorkOrder(supplier._id.toString(), car._id.toString(), '8 days', new Date(now - 8 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
   wo6 = await seedWorkOrder(supplier._id.toString(), car._id.toString(), '6 days', new Date(now - 6 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
   woFuture = await seedWorkOrder(supplier._id.toString(), car._id.toString(), 'future', new Date(now + 7 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
   woDone = await seedWorkOrder(supplier._id.toString(), car._id.toString(), 'done', new Date(now - 30 * DAY), bookcarsTypes.WorkOrderStatus.Completed)
+  woTrashed = await seedWorkOrder(supplier._id.toString(), trashedCar._id.toString(), 'trashed 8 days', new Date(now - 8 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
 })
 
 afterAll(async () => {
@@ -110,7 +127,7 @@ describe('GH-21 stale work order list', () => {
   it('flags only the 8-day Scheduled row stale, with its whole days', async () => {
     const res = await list()
     expect(res.status).toBe(200)
-    expect((res.body as any[]).length).toBe(4)
+    expect((res.body as any[]).length).toBe(5)
     const r8 = rowById(res.body, wo8)
     expect(r8.stale).toBe(true)
     expect(r8.daysStale).toBe(8)
@@ -128,6 +145,18 @@ describe('GH-21 stale work order list', () => {
     expect((res.body as any[]).map((r) => String(r._id))).toEqual([wo8])
   })
 
+  it('R3-02: the plain list still shows the trashed car\'s job (history), the aging view does not', async () => {
+    const all = await list()
+    expect(all.status).toBe(200)
+    const trashedRow = rowById(all.body, woTrashed)
+    expect(trashedRow).toBeDefined()
+    expect(trashedRow.stale).toBe(true)
+    expect(trashedRow.daysStale).toBe(8)
+    const stale = await list('?stale=true')
+    expect(stale.status).toBe(200)
+    expect((stale.body as any[]).map((r) => String(r._id))).toEqual([wo8])
+  })
+
   it('?status=completed returns only Completed rows', async () => {
     const res = await list('?status=completed')
     expect(res.status).toBe(200)
@@ -137,6 +166,6 @@ describe('GH-21 stale work order list', () => {
   it('?status=bogus returns everything', async () => {
     const res = await list('?status=bogus')
     expect(res.status).toBe(200)
-    expect((res.body as any[]).length).toBe(4)
+    expect((res.body as any[]).length).toBe(5)
   })
 })

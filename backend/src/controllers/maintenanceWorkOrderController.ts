@@ -51,6 +51,13 @@ export const list = async (req: Request, res: Response) => {
     if (req.query.stale === 'true') {
       query.status = bookcarsTypes.WorkOrderStatus.Scheduled
       query.scheduledStart = { $lt: staleWorkOrderCutoff() }
+      // R3-02 — the aging view excludes trashed cars, like the GH-21
+      // reminder: a trashed car's job stays Scheduled forever, so
+      // without this it would show as stale forever. The plain list is
+      // NOT filtered — a trashed car's job is still a historical record
+      // there (GH-19 precedent: reminder + stale view only).
+      const liveCarIds = (await Car.find({ ...scope(req), deletedAt: null }).select('_id').lean()).map((c) => c._id)
+      query.car = { $in: liveCarIds }
     }
     const rows = await MaintenanceWorkOrder.find(query).sort({ scheduledStart: 1, createdAt: -1 }).populate('car', 'name licensePlate').populate('supplier', 'fullName')
     // F7 / W3 M-5 — each work order carries the total amount and count

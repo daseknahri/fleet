@@ -10,6 +10,7 @@ import NotificationCounter from '../models/NotificationCounter'
 import User from '../models/User'
 import * as logger from './logger'
 import * as mailHelper from './mailHelper'
+import { createInAppNotification, resolveReminderRecipients } from './reminderNotify'
 import { getContractReceivable } from './contractReceivable'
 import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } from './checkoutReconciliation'
 
@@ -85,7 +86,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         { paymentIntentId: { $nin: [null, ''] } },
         { paypalOrderId: { $nin: [null, ''] } },
       ],
-    }).select('_id sessionId paymentIntentId paypalOrderId')
+    }).select('_id sessionId paymentIntentId paypalOrderId supplier reference')
     for (const booking of bookings) {
       summary.checked += 1
       try {
@@ -121,6 +122,28 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         } else if (outcome === 'held') {
           summary.held += 1
           logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
+          // R3-01 — defuse the TTL on the same pass: a held Void booking
+          // keeps its past `expireAt`, so the TTL index would delete it
+          // ~70 min after expiry (BOOKING_EXPIRE_AT) and orphan the
+          // provider payment. Extending drops the booking out of both
+          // sweep queries until the new deadline, so the 15-minute
+          // finalisation retry becomes a per-review-window retry; a
+          // still-blocked booking is re-held (and re-extended) then.
+          // A successful retry clears `expireAt` (refresh path), so the
+          // extension never blocks confirmation. The status guard means
+          // a booking finalised concurrently does not get its `expireAt`
+          // moved. A Void hold has no retry button and is not in the
+          // paid-unconfirmed queue — the hold notification below is its
+          // only review signal.
+          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+          const extended = await Booking.updateOne(
+            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+            { $set: { expireAt: reviewUntil } },
+          )
+          if (extended.modifiedCount > 0) {
+            logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
+            await notifyHeldForReview(booking, reviewUntil)
+          }
         } else if (outcome === 'not-paid' || outcome === 'no-booking') {
           summary.notPaid += 1
         } else if (outcome === 'refund-failed') {
@@ -183,6 +206,24 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         if (receivable.outstandingBalance <= 0) {
           summary.held += 1
           logger.error(`[checkoutSweeper] Booking ${hold._id} is fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          // R3-01 — defuse the TTL on the same pass (same reason as the
+          // reconcile-loop hold above): the hold keeps its past
+          // `expireAt`, so the TTL would delete the paid booking ~70 min
+          // after expiry. Extending drops it out of this query until the
+          // new deadline, so the per-pass error above fires at most once
+          // per hold cycle (see R3-13). The status guard means a booking
+          // confirmed concurrently does not get its `expireAt` moved.
+          // The held row surfaces in the paid-unconfirmed filter; the
+          // notification below is the alert that it is there.
+          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+          const extended = await Booking.updateOne(
+            { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending },
+            { $set: { expireAt: reviewUntil } },
+          )
+          if (extended.modifiedCount > 0) {
+            logger.info(`[checkoutSweeper] Booking ${hold._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
+            await notifyHeldForReview(hold, reviewUntil)
+          }
           continue
         }
         const voided = await Booking.updateOne(
@@ -208,6 +249,62 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     logger.info(`[checkoutSweeper] sweep finished: ${JSON.stringify(summary)}`)
   }
   return summary
+}
+
+/**
+ * R3-01 — tell the agency a fully-paid booking was held for manual
+ * review. Best effort, log-and-continue: a failing notifier must never
+ * break the sweep (same rule as the hold-expiry notice below).
+ * In-app notification to the owner + active staff (with a View button
+ * to the booking via subjectType 'booking'), email to the owner only
+ * (weekly-recap pattern). The hold notification is the alert that the
+ * booking is in the paid-unconfirmed review queue — for a Void hold it
+ * is the only review signal, because the queue serves Draft+Pending
+ * rows only. Fires once per hold cycle: the TTL-defusing extension
+ * drops the booking out of the sweep queries until the new deadline.
+ */
+const notifyHeldForReview = async (
+  hold: { _id: mongoose.Types.ObjectId, supplier?: mongoose.Types.ObjectId | string, reference?: string },
+  reviewUntil: Date,
+): Promise<void> => {
+  try {
+    if (!hold.supplier) {
+      logger.error(`[checkoutSweeper] Cannot notify held-for-review for booking ${hold._id}: no supplier`)
+      return
+    }
+    const recipients = await resolveReminderRecipients(String(hold.supplier))
+    if (recipients.length === 0) {
+      logger.error(`[checkoutSweeper] Cannot notify held-for-review for booking ${hold._id}: no agency recipients`)
+      return
+    }
+    const reference = hold.reference || String(hold._id)
+    const deadline = reviewUntil.toISOString().slice(0, 10)
+    for (const recipient of recipients) {
+      i18n.locale = recipient.language
+      const message = `${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART2')}`
+      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(hold._id), booking: hold._id })
+    }
+    const owner = recipients[0]
+    if (!owner?.email) {
+      logger.error(`[checkoutSweeper] Held-for-review email skipped for booking ${hold._id}: owner has no email`)
+      return
+    }
+    i18n.locale = owner.language
+    const subject = `${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART2')}`
+    const mailOptions: SendMailOptions = {
+      from: env.SMTP_FROM,
+      to: owner.email,
+      subject,
+      html: `<p>
+    ${i18n.t('HELLO')}${owner.fullName},<br><br>
+    ${i18n.t('BOOKING_HELD_FOR_REVIEW_EMAIL_PART1')}${reference}${i18n.t('BOOKING_HELD_FOR_REVIEW_EMAIL_PART2')}${deadline}${i18n.t('BOOKING_HELD_FOR_REVIEW_EMAIL_PART3')}<br><br>
+    ${i18n.t('REGARDS')}<br>
+    </p>`,
+    }
+    await mailHelper.sendMail(mailOptions)
+  } catch (err) {
+    logger.error(`[checkoutSweeper] Held-for-review notice failed for booking ${hold._id}`, err)
+  }
 }
 
 /**

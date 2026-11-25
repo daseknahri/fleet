@@ -593,6 +593,10 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   // uses, so the reminder and the aging view can never disagree.
   const staleWorkOrders = await MaintenanceWorkOrder.find({
     supplier: supplierId,
+    // R3-02 — same trashed-car filter as the GH-19 schedule loop above:
+    // a trashed car's job stays Scheduled forever, so without this it
+    // would notify weekly forever.
+    car: { $in: cars.map((car) => car._id) },
     status: bookcarsTypes.WorkOrderStatus.Scheduled,
     scheduledStart: { $lt: staleWorkOrderCutoff(now) },
   }).populate('car', 'name licensePlate').lean()

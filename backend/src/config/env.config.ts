@@ -519,6 +519,25 @@ payLaterHoldExpireAt = payLaterHoldExpireAt > 604800 ? 604800 : payLaterHoldExpi
 export const PAY_LATER_HOLD_EXPIRE_AT = payLaterHoldExpireAt
 
 /**
+ * R3-01 — held-booking review window in seconds.
+ * When the checkout sweeper holds a fully-paid booking for manual
+ * review (GH-32) instead of voiding/refunding it, the booking's
+ * `expireAt` is extended by this long: the TTL index would otherwise
+ * delete the booking ~70 min after its original expiry (BOOKING_EXPIRE_AT),
+ * orphaning the payments. A still-blocked booking is re-held (and
+ * re-extended) when the window passes. Default is 604800 seconds (7d).
+ * Configurable via `BC_HELD_BOOKING_REVIEW_EXPIRE_AT`, clamped to 1d–30d.
+ * The 7-day default is packed per the gap hunt's suggestion and needs
+ * the user's confirmation before deploy #16.
+ *
+ * @type {number}
+ */
+let heldBookingReviewExpireAt = Number.parseInt(__env__('BC_HELD_BOOKING_REVIEW_EXPIRE_AT', false, '604800'), 10)
+heldBookingReviewExpireAt = heldBookingReviewExpireAt < 86400 ? 86400 : heldBookingReviewExpireAt
+heldBookingReviewExpireAt = heldBookingReviewExpireAt > 2592000 ? 2592000 : heldBookingReviewExpireAt
+export const HELD_BOOKING_REVIEW_EXPIRE_AT = heldBookingReviewExpireAt
+
+/**
  * User expiration in seconds.
  * Non verified and active users created from checkout with Stripe are temporary and are automatically deleted if the payment checkout session expires.
  *

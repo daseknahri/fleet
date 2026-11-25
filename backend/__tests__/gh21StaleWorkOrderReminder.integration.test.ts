@@ -84,6 +84,7 @@ let wo8: any
 let wo6: any
 let woFuture: any
 let woInProgress: any
+let woTrashed: any
 
 beforeAll(async () => {
   ;({ runAutoReminderPass } = await import('../src/utils/autoReminders'))
@@ -138,6 +139,27 @@ beforeAll(async () => {
   wo6 = await seed('6 days', new Date(now - 6 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
   woFuture = await seed('future', new Date(now + 7 * DAY), bookcarsTypes.WorkOrderStatus.Scheduled)
   woInProgress = await seed('in progress', new Date(now - 30 * DAY), bookcarsTypes.WorkOrderStatus.InProgress)
+  // R3-02 — a trashed car with a stale Scheduled job on it.
+  const trashedCar = await Car.create({
+    name: 'GH-21 trashed car', supplier: supplier._id, minimumAge: 21,
+    locations: [location._id], dailyPrice: 100, deposit: 250, available: true,
+    type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+    aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+    mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+    collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+    range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+  } as any)
+  fixtureCarIds.push(trashedCar._id)
+  await Car.updateOne({ _id: trashedCar._id }, { $set: { deletedAt: new Date() } })
+  woTrashed = await MaintenanceWorkOrder.create({
+    supplier: supplier._id, car: trashedCar._id,
+    type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+    title: 'GH-21 trashed 8 days',
+    status: bookcarsTypes.WorkOrderStatus.Scheduled,
+    scheduledStart: new Date(now - 8 * DAY),
+    scheduledEnd: new Date(now - 8 * DAY + 2 * 3600000),
+  } as any)
+  fixtureWorkOrderIds.push(woTrashed._id)
 })
 
 afterEach(async () => {
@@ -188,5 +210,15 @@ describe('GH-21 stale work order reminder', () => {
     expect(rendered.subject).toMatch(/GH-21 vidange/)
     expect(rendered.body).toMatch(/GH-21 vidange/)
     expect(rendered.body).toMatch(/8/)
+  })
+
+  it('R3-02: a trashed car\'s stale job never notifies', async () => {
+    const result = await runAutoReminderPass(new Date(), { force: true })
+    // No delivery row at all for the trashed job — not even a deduped
+    // one — and the pass count covers only the live car's stale job
+    // (wo8, counted once per pass even when its weekly dedupe is
+    // already claimed by the earlier test in this file).
+    expect((await deliveries({ templateKey: 'auto.staleWorkOrder', subjectType: 'maintenance-work-order', subjectId: String(woTrashed._id) }))).toHaveLength(0)
+    expect(result.staleWorkOrders).toBe(1)
   })
 })

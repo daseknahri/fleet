@@ -260,7 +260,16 @@ export const createInAppNotification = async (userId: Types.ObjectId, message: s
 // the Wave 3.5 auto-retry cap); `DeviceNotRegistered` prunes at once -
 // Expo guarantees that token will never deliver again. A pruned token is
 // re-creatable: the next app open re-registers via createPushToken (3d).
+// R3-03 — only PERMANENT Expo ticket errors count toward N=3
+// (`DeviceNotRegistered` prunes at once; `InvalidCredentials` /
+// `MismatchSenderId` increment). Transient ticket errors
+// (`MessageRateExceeded`, 5xx, anything else) and thrown transport
+// errors never increment — they only stamp lastFailureAt /
+// lastFailureReason via recordPushTransientFailure. A malformed stored
+// token (not an Expo push token) keeps counting: it is permanent by
+// construction and can never deliver.
 const PUSH_PRUNE_AFTER_FAILURES = 3
+const PERMANENT_PUSH_TICKET_ERRORS = ['DeviceNotRegistered', 'InvalidCredentials', 'MismatchSenderId']
 
 const recordPushFailure = async (userId: Types.ObjectId, reason: string, immediate: boolean): Promise<void> => {
   try {
@@ -288,6 +297,19 @@ const recordPushSuccess = async (userId: Types.ObjectId): Promise<void> => {
     await PushToken.updateOne({ user: userId }, { $set: { consecutiveFailures: 0, lastFailureAt: undefined, lastFailureReason: undefined } })
   } catch (err) {
     logger.error('[reminderNotify] recordPushSuccess failed', err)
+  }
+}
+
+// R3-03 — a transient push failure (transient Expo ticket error or a
+// thrown transport error) is recorded for observability only: it stamps
+// lastFailureAt / lastFailureReason but never increments
+// consecutiveFailures, so a brief Expo outage cannot burn the N=3 prune
+// budget inside a single reminder pass.
+const recordPushTransientFailure = async (userId: Types.ObjectId, reason: string): Promise<void> => {
+  try {
+    await PushToken.updateOne({ user: userId }, { $set: { lastFailureAt: new Date(), lastFailureReason: reason.slice(0, 1000) } })
+  } catch (err) {
+    logger.error('[reminderNotify] recordPushTransientFailure failed', err)
   }
 }
 
@@ -320,11 +342,23 @@ export const sendPush = async (user: env.User, message: string, reminderId: Type
           const details = (ticket as { details?: { error?: string } }).details
           const reason = details?.error ? `${ticket.message} (${details.error})` : (ticket.message || 'Push ticket error')
           logger.error(`[reminderNotify] Push ticket error: ${reason}`)
-          await recordPushFailure(user._id, reason, details?.error === 'DeviceNotRegistered')
+          // R3-03 — only permanent ticket errors count toward the prune
+          // threshold: DeviceNotRegistered prunes at once, the other
+          // permanent errors increment; transient ones are noted only.
+          const ticketError = details?.error
+          if (ticketError === 'DeviceNotRegistered') {
+            await recordPushFailure(user._id, reason, true)
+          } else if (ticketError && PERMANENT_PUSH_TICKET_ERRORS.includes(ticketError)) {
+            await recordPushFailure(user._id, reason, false)
+          } else {
+            await recordPushTransientFailure(user._id, reason)
+          }
         }
       }
     } catch (err) {
-      await recordPushFailure(user._id, err instanceof Error ? err.message : 'Push send threw', false)
+      // R3-03 — a thrown transport error (network / Expo outage) never
+      // counts toward the prune threshold; note it only.
+      await recordPushTransientFailure(user._id, err instanceof Error ? err.message : 'Push send threw')
       logger.error('[reminderNotify] Error while sending push notification', err)
     }
   }

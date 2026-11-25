@@ -108,6 +108,67 @@ describe('GH-23 dead push token cleanup', () => {
     expect(await PushToken.findOne({ user: user._id }).lean()).toBeNull()
   })
 
+  it('R3-03: a MessageRateExceeded ticket does not count — 3 consecutive transient tickets leave the token alive with counter 0', async () => {
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'MessageRateExceeded', details: { error: 'MessageRateExceeded' } }])
+    await PushToken.create({ user: user._id, token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' } as any)
+
+    for (let i = 0; i < 3; i++) {
+      expect(await sendPush(user, 'test', undefined)).toBe(false)
+      const row = await PushToken.findOne({ user: user._id }).lean()
+      expect(row).toBeTruthy()
+      expect(row?.consecutiveFailures || 0).toBe(0)
+      expect(row?.lastFailureReason).toContain('MessageRateExceeded')
+    }
+  })
+
+  it('R3-03: a thrown transport error does not count — 3 consecutive throws leave the token alive with counter 0', async () => {
+    expoSendMock.mockRejectedValue(new Error('network down'))
+    await PushToken.create({ user: user._id, token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' } as any)
+
+    for (let i = 0; i < 3; i++) {
+      expect(await sendPush(user, 'test', undefined)).toBe(false)
+      const row = await PushToken.findOne({ user: user._id }).lean()
+      expect(row).toBeTruthy()
+      expect(row?.consecutiveFailures || 0).toBe(0)
+      expect(row?.lastFailureReason).toContain('network down')
+    }
+  })
+
+  it('R3-03: InvalidCredentials and MismatchSenderId tickets count toward the prune threshold', async () => {
+    await PushToken.create({ user: user._id, token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' } as any)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'InvalidCredentials', details: { error: 'InvalidCredentials' } }])
+    expect(await sendPush(user, 'test', undefined)).toBe(false)
+    expect((await PushToken.findOne({ user: user._id }).lean())?.consecutiveFailures).toBe(1)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'MismatchSenderId', details: { error: 'MismatchSenderId' } }])
+    expect(await sendPush(user, 'test', undefined)).toBe(false)
+    expect((await PushToken.findOne({ user: user._id }).lean())?.consecutiveFailures).toBe(2)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'InvalidCredentials', details: { error: 'InvalidCredentials' } }])
+    expect(await sendPush(user, 'test', undefined)).toBe(false)
+    expect(await PushToken.findOne({ user: user._id }).lean()).toBeNull()
+  })
+
+  it('R3-03: a transient failure neither increments nor resets — 2 permanent + 1 transient leaves the counter at 2, then 1 more permanent prunes', async () => {
+    await PushToken.create({ user: user._id, token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' } as any)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'InvalidCredentials', details: { error: 'InvalidCredentials' } }])
+    await sendPush(user, 'test', undefined)
+    await sendPush(user, 'test', undefined)
+    expect((await PushToken.findOne({ user: user._id }).lean())?.consecutiveFailures).toBe(2)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'MessageRateExceeded', details: { error: 'MessageRateExceeded' } }])
+    expect(await sendPush(user, 'test', undefined)).toBe(false)
+    let row = await PushToken.findOne({ user: user._id }).lean()
+    expect(row).toBeTruthy()
+    expect(row?.consecutiveFailures).toBe(2)
+
+    expoSendMock.mockResolvedValue([{ status: 'error', message: 'InvalidCredentials', details: { error: 'InvalidCredentials' } }])
+    expect(await sendPush(user, 'test', undefined)).toBe(false)
+    expect(await PushToken.findOne({ user: user._id }).lean()).toBeNull()
+  })
+
   it('a successful send resets the failure counter', async () => {
     await PushToken.create({ user: user._id, token: 'ExponentPushToken[yyyyyyyyyyyyyyyyyyyyyy]', consecutiveFailures: 2 } as any)
 

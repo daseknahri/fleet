@@ -624,6 +624,9 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
       $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
     })
 
+    // R3-01 — the hold defuses the TTL: the new deadline is now +
+    // review window (7d default), far past the 70-minute TTL fuse.
+    mailSendMock.mockClear()
     const summary = await runCheckoutSweep()
     expect(summary.checked).toBe(0)
     expect(summary.held).toBe(1)
@@ -631,7 +634,29 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const heldBooking = await Booking.findById(held.booking._id).lean()
     expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
     expect(heldBooking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
-    expect(heldBooking?.expireAt).toBeDefined()
+    const nowMs = Date.now()
+    const newExpireAt = new Date(heldBooking?.expireAt as unknown as Date).getTime()
+    expect(newExpireAt).toBeGreaterThan(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 - 5 * 60 * 1000)
+    expect(newExpireAt).toBeLessThanOrEqual(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
+    // R3-01 — the hold notifies the agency once: one in-app row for the
+    // owner (with a View destination to the booking) and one email to
+    // the owner — distinct from the unpaid control's expiry mail, which
+    // goes to that booking's driver.
+    const heldNotes = await Notification.find({ user: held.supplier._id, subjectType: 'booking', subjectId: held.booking._id.toString() }).lean()
+    expect(heldNotes).toHaveLength(1)
+    expect(heldNotes[0].booking?.toString()).toBe(held.booking._id.toString())
+    const heldMail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === held.supplier.email)
+    expect(heldMail).toHaveLength(1)
+    expect(heldMail[0][0].subject).toMatch(/held for manual review/)
+    const unpaidMail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === unpaid.driver.email)
+    expect(unpaidMail).toHaveLength(1)
+    // R3-01 — the extension gates re-holding: an immediate second sweep
+    // sees nothing (the held booking's deadline is 7 days out) and
+    // notifies no second time.
+    const secondSweep = await runCheckoutSweep()
+    expect(secondSweep.held).toBe(0)
+    expect(secondSweep.expiredHolds).toBe(0)
+    expect((await Notification.find({ user: held.supplier._id, subjectType: 'booking', subjectId: held.booking._id.toString() }).lean())).toHaveLength(1)
     const unpaidBooking = await Booking.findById(unpaid.booking._id).lean()
     expect(unpaidBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
 
@@ -673,10 +698,22 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const heldBooking = await Booking.findById(fixture.booking._id).lean()
     expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+    // R3-01 — the hold defuses the TTL (new deadline now + review
+    // window) and notifies the agency once.
+    const nowMs = Date.now()
+    const newExpireAt = new Date(heldBooking?.expireAt as unknown as Date).getTime()
+    expect(newExpireAt).toBeGreaterThan(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 - 5 * 60 * 1000)
+    expect(newExpireAt).toBeLessThanOrEqual(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
+    const heldNotes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(heldNotes).toHaveLength(1)
+    expect(heldNotes[0].booking?.toString()).toBe(fixture.booking._id.toString())
 
     // The blocker clears; the next tick finalises instead of refunding.
+    // R3-01 — the tick must run past the extended deadline: the hold
+    // dropped the booking out of the sweep queries until then, so an
+    // immediate second sweep would see nothing.
     await MaintenanceSchedule.deleteOne({ _id: schedule._id })
-    const second = await runCheckoutSweep()
+    const second = await runCheckoutSweep(new Date(Date.now() + 8 * 86400000))
     expect(second.checked).toBe(1)
     expect(second.finalized).toBe(1)
     expect(second.held).toBe(0)
@@ -686,5 +723,34 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const payments = await paymentsOf(fixture.booking._id)
     expect(payments).toHaveLength(1)
     expect(payments[0].amount).toBe(1000)
+  })
+
+  it('Path C: the extended deadline sits far beyond the 70-minute TTL window (no wall-clock TTL wait)', async () => {
+    // Same shape as Path A: pay-later hold, expired, fully paid, car blocked.
+    const held = await makeFixture('gh32-ttlm', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: held.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    await blockCar(held.supplier._id, held.car._id)
+    await ledger.postRentalPayment({
+      bookingId: held.booking._id, date: new Date(), amount: 1000,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    })
+    const refresh = await ledger.refreshBookingPaymentStatus(held.booking._id)
+    expect(refresh.conflict).toBe(true)
+
+    await runCheckoutSweep()
+    const heldBooking = await Booking.findById(held.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    const marginMs = new Date(heldBooking?.expireAt as unknown as Date).getTime() - Date.now()
+    // The TTL would fire at expireAt + BOOKING_EXPIRE_AT (4200 s); the
+    // new deadline is ~7 days out — orders of magnitude beyond it. No
+    // wall-clock TTL wait: the TTL monitor's 60 s cadence makes a real
+    // wait test slow and flaky; the mechanism assertion is the proof.
+    expect(marginMs).toBeGreaterThan(env.BOOKING_EXPIRE_AT * 1000)
+    expect(marginMs).toBeLessThanOrEqual(env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
   })
 })
