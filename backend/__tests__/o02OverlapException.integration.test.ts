@@ -126,6 +126,22 @@ const readBooking = (id: string) =>
 const confirmBooking = (id: string) =>
   request(app).post(`/api/bookings/${id}/confirm-reservation`).set(env.X_ACCESS_TOKEN, adminToken).send({})
 
+const amendBooking = (id: string, fromOffset: number, toOffset: number, extra: Record<string, unknown> = {}) => {
+  const now = Date.now()
+  return request(app).post(`/api/bookings/${id}/amend`).set(env.X_ACCESS_TOKEN, adminToken).send({
+    from: new Date(now + fromOffset * DAY),
+    to: new Date(now + toOffset * DAY),
+    reason: 'C01 test: move the contract window',
+    ...extra,
+  })
+}
+
+const trashBooking = (id: string) =>
+  request(app).post('/api/trash-bookings').set(env.X_ACCESS_TOKEN, adminToken).send({ ids: [id], reason: 'C01 test: trash before restore' })
+
+const restoreBooking = (id: string) =>
+  request(app).post('/api/restore-bookings').set(env.X_ACCESS_TOKEN, adminToken).send({ ids: [id], reason: 'C01 test: restore' })
+
 beforeAll(async () => {
   app = (await import('../src/app')).default
   await databaseHelper.connect(env.DB_URI, false, false)
@@ -226,5 +242,103 @@ describe('O-02 — PAR-10 overlap exception', () => {
     fixtureWorkOrderIds.push(new mongoose.Types.ObjectId(wo.body._id.toString()))
     const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'O-02 test: maintenance must still block' } })
     expect(created.status).toBe(409)
+  })
+
+  it('R2-C01 \u2014 amend to a non-conflicting window clears the stored exception', async () => {
+    const fixture = await makeFixture('c01clear')
+    await makeReservingBooking(fixture, 10, 13)
+    const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'C01 test: first exception' } })
+    expect(created.status).toBe(200)
+    const createdId = created.body._id.toString()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(createdId))
+    const amended = await amendBooking(createdId, 20, 23)
+    expect(amended.status).toBe(200)
+    // Stored doc, not the response: the record itself must be gone.
+    const stored = await Booking.findById(createdId).lean() as any
+    expect(stored.overlapException).toBeUndefined()
+    // And the amended booking still confirms cleanly.
+    const confirmed = await confirmBooking(createdId)
+    expect(confirmed.status).toBe(200)
+    expect(confirmed.body.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
+  })
+
+  it('R2-C01 \u2014 amend into a conflict without a fresh exception 409s', async () => {
+    const fixture = await makeFixture('c01conflict')
+    await makeReservingBooking(fixture, 10, 13)
+    const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'C01 test: first exception' } })
+    expect(created.status).toBe(200)
+    const createdId = created.body._id.toString()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(createdId))
+    // Confirm first: a Pending/Draft booking with no expireAt does not
+    // reserve the car, so the amend's availability check would not run
+    // at all. Pending + Confirmed reserves indefinitely.
+    const confirmed = await confirmBooking(createdId)
+    expect(confirmed.status).toBe(200)
+    // 11-14 still overlaps the reserving booking (10-13); the stored
+    // exception does not carry into the amend's availability save.
+    const amended = await amendBooking(createdId, 11, 14)
+    expect(amended.status).toBe(409)
+    // The failed amend leaves the stored exception untouched.
+    const stored = await Booking.findById(createdId).lean() as any
+    expect(stored.overlapException?.reason).toBe('C01 test: first exception')
+  })
+
+  it('R2-C01 \u2014 confirm re-checks without the stale exception after an amend', async () => {
+    const fixture = await makeFixture('c01confirm')
+    await makeReservingBooking(fixture, 10, 13)
+    const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'C01 test: stale exception' } })
+    expect(created.status).toBe(200)
+    const createdId = created.body._id.toString()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(createdId))
+    const amended = await amendBooking(createdId, 20, 23)
+    expect(amended.status).toBe(200)
+    const stored = await Booking.findById(createdId).lean() as any
+    expect(stored.overlapException).toBeUndefined()
+    // A new reservation now takes the amended window; confirm must 409.
+    // Before R2-C01 the stale exception (honoured by reason alone on
+    // confirm) would have bypassed this conflict.
+    await makeReservingBooking(fixture, 21, 24)
+    const confirmed = await confirmBooking(createdId)
+    expect(confirmed.status).toBe(409)
+  })
+
+  it('R2-C01 \u2014 amend WITH a fresh exception stamps the new record', async () => {
+    const fixture = await makeFixture('c01fresh')
+    const existing = await makeReservingBooking(fixture, 10, 13)
+    const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'C01 test: first exception' } })
+    expect(created.status).toBe(200)
+    const createdId = created.body._id.toString()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(createdId))
+    const confirmed = await confirmBooking(createdId)
+    expect(confirmed.status).toBe(200)
+    const freshReason = 'C01 test: fresh exception on amend'
+    const amended = await amendBooking(createdId, 11, 14, { overlapException: { reason: freshReason } })
+    expect(amended.status).toBe(200)
+    const stored = await Booking.findById(createdId).lean() as any
+    expect(stored.overlapException?.reason).toBe(freshReason)
+    expect(stored.overlapException?.conflictingBooking.toString()).toBe(existing._id.toString())
+  })
+
+  it('R2-C01 \u2014 restore against the named conflict 409s once the amend cleared the exception', async () => {
+    const fixture = await makeFixture('c01restore')
+    const existing = await makeReservingBooking(fixture, 10, 13)
+    const created = await createViaApi(fixture, 12, 15, { overlapException: { reason: 'C01 test: stale exception' } })
+    expect(created.status).toBe(200)
+    const createdId = created.body._id.toString()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(createdId))
+    const confirmed = await confirmBooking(createdId)
+    expect(confirmed.status).toBe(200)
+    const amended = await amendBooking(createdId, 20, 23)
+    expect(amended.status).toBe(200)
+    expect((await Booking.findById(createdId).lean() as any).overlapException).toBeUndefined()
+    const trashed = await trashBooking(createdId)
+    expect(trashed.status).toBe(200)
+    // Move the named conflicting booking onto A's new window (trashed
+    // bookings are excluded from availability, so the move succeeds).
+    // Restore must now 409: the OQ-8 bypass has no stored record left.
+    const moved = await amendBooking(existing._id.toString(), 20, 23)
+    expect(moved.status).toBe(200)
+    const restored = await restoreBooking(createdId)
+    expect(restored.status).toBe(409)
   })
 })

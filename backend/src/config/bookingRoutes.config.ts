@@ -14,6 +14,7 @@ const routes = {
   deleteTempBooking: '/api/delete-temp-booking/:bookingId/:sessionId',
   getBooking: '/api/booking/:id/:language',
   getBookingId: '/api/booking-id/:sessionId',
+  guestBookingLookup: '/api/guest-booking-lookup',
   getBookings: '/api/bookings/:page/:size/:language',
   hasBookings: '/api/has-bookings/:driver',
   cancelBooking: '/api/cancel-booking/:id',
@@ -27,6 +28,9 @@ const routes = {
   // Wave 2.1 — staff confirmation of a pay-later hold (Owner/Manager
   // only) + the "confirmed, unpaid" watchlist (ReadBookings).
   confirmReservation: '/api/bookings/:id/confirm-reservation',
+  // R2-B02 - re-send a paid / pay-later booking's confirmation email
+  // (ManageBookings, same capability as the confirm it repeats).
+  resendConfirmation: '/api/bookings/:id/resend-confirmation',
   // Audit-fix 2026-11-24 (F-02) — retry a failed payment-status refresh
   // (e.g. after the blocking maintenance is completed). RecordPayments.
   refreshPaymentStatus: '/api/bookings/:id/refresh-payment-status',

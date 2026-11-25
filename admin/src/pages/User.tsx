@@ -158,19 +158,17 @@ const User = () => {
 
               if (_user.type === bookcarsTypes.UserType.User) {
                 UserService.getClientBalance(_user._id as string).then(setBalance).catch(() => setBalance(undefined))
-                // GH-04 — oldest due date: the earliest dueAt among
-                // this client's outstanding receivables. getClientBalance
-                // carries no due date, so it is derived here from the
-                // shared overdue endpoint (same definition the Payments
-                // page uses); a failure hides the line, never the page.
-                RentalPaymentService.overdue().then((res) => {
-                  const rows = (res?.rows || []).filter((row) => {
-                    const driver = row.booking?.driver as unknown
-                    const driverId = typeof driver === 'string' ? driver : (driver as { _id?: unknown })?._id?.toString()
-                    return driverId === _user._id && row.dueAt
-                  })
-                  const dates = rows
-                    .map((row) => new Date(row.dueAt as unknown as string).getTime())
+                // R2-B05 — oldest due date: the earliest PAYMENT due
+                // date among this client's outstanding receivables.
+                // paymentDueAt is the hold deadline / pickup day (the
+                // date the money is actually due); dueAt is the rental
+                // end and is only the fallback. The endpoint filters by
+                // clientId server-side — no full-list fetch.
+                RentalPaymentService.overdue({ clientId: _user._id }).then((res) => {
+                  const dates = ((res?.rows || []) as unknown as Array<{ paymentDueAt?: string | Date, dueAt?: string | Date }>)
+                    .map((row) => row.paymentDueAt || row.dueAt)
+                    .filter((d): d is string | Date => !!d)
+                    .map((d) => new Date(d).getTime())
                     .filter((t) => !Number.isNaN(t))
                   setOldestDue(dates.length > 0 ? new Date(Math.min(...dates)) : undefined)
                 }).catch(() => setOldestDue(undefined))

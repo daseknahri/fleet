@@ -226,6 +226,7 @@ const UpdateBooking = () => {
   const [refundPlan, setRefundPlan] = useState<bookcarsTypes.RefundPlan | null>(null)
   // Wave 2.1 — confirm-reservation busy flag.
   const [confirmBusy, setConfirmBusy] = useState(false)
+  const [resendBusy, setResendBusy] = useState(false)
   // GA-PAR-12: online signing panel. The issued link is held only in
   // this component's state (it is the sole live copy of the capability
   // token); booking payloads carry only the derived signed state.
@@ -414,6 +415,22 @@ const UpdateBooking = () => {
       helper.error(err, helper.getErrorMessage(err))
     } finally {
       setConfirmBusy(false)
+    }
+  }
+
+  // R2-B02 - re-send the confirmation email for this booking.
+  const handleResendConfirmation = async () => {
+    if (!booking?._id) {
+      return
+    }
+    setResendBusy(true)
+    try {
+      await BookingService.resendConfirmation(booking._id)
+      helper.info(strings.RESEND_DONE)
+    } catch (err) {
+      helper.error(err, helper.getErrorMessage(err))
+    } finally {
+      setResendBusy(false)
     }
   }
 
@@ -1320,6 +1337,11 @@ const UpdateBooking = () => {
                     && [bookcarsTypes.BookingStatus.Pending, bookcarsTypes.BookingStatus.Reserved].includes(booking.status) && (
                     <Button variant="contained" className="btn-primary btn-margin-bottom" size="small" onClick={handleConfirmReservation} disabled={confirmBusy}>
                       {strings.CONFIRM_RESERVATION}
+                    </Button>
+                  )}
+                  {booking && ![bookcarsTypes.BookingStatus.Cancelled, bookcarsTypes.BookingStatus.Void].includes(booking.status) && (
+                    <Button variant="contained" className="btn-secondary btn-margin-bottom" size="small" onClick={handleResendConfirmation} disabled={resendBusy}>
+                      {strings.RESEND_CONFIRMATION}
                     </Button>
                   )}
                   <Button variant="contained" className="btn-secondary btn-margin-bottom" size="small" onClick={() => navigate('/')}>

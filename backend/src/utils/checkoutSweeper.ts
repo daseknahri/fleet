@@ -63,6 +63,8 @@ export interface CheckoutSweepSummary {
   expiredHolds: number
   /** GH-32 — expired holds NOT voided because they are fully paid but unconfirmed (refresh failed); needs manual review. */
   held: number
+  /** R4-03 - reconcile-loop provider errors: the booking was preserved (TTL defused) because its payment state could not be established. */
+  providerErrors: number
 }
 
 export const runCheckoutSweep = async (now: Date = new Date()): Promise<CheckoutSweepSummary> => {
@@ -76,6 +78,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     errors: 0,
     expiredHolds: 0,
     held: 0,
+    providerErrors: 0,
   }
   try {
     const bookings = await Booking.find({
@@ -86,28 +89,35 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         { paymentIntentId: { $nin: [null, ''] } },
         { paypalOrderId: { $nin: [null, ''] } },
       ],
-    }).select('_id sessionId paymentIntentId paypalOrderId supplier reference')
+    }).select('_id sessionId paymentIntentId paypalOrderId supplier reference financialSnapshot')
     for (const booking of bookings) {
       summary.checked += 1
       try {
         let outcome: string
+        let outcomeDetail: string | undefined
         if (booking.paypalOrderId) {
           // PayPal bookings carry a random (non-Stripe) sessionId, so the
           // order id is the only provider reference that can be checked.
           const paypal = await import('../payment/paypal.js')
           const order = await paypal.getOrder(booking.paypalOrderId)
-          outcome = (await reconcilePayPalOrder(order)).outcome
+          const reconciled = await reconcilePayPalOrder(order)
+          outcome = reconciled.outcome
+          outcomeDetail = reconciled.detail
         } else if (booking.paymentIntentId) {
           // PaymentSheet bookings: the intent id is the reference; the
           // sessionId is a random UUID, not a Stripe session.
           const stripeAPI = (await import('../payment/stripe.js')).default
           const intent: Stripe.PaymentIntent = await stripeAPI.paymentIntents.retrieve(booking.paymentIntentId)
-          outcome = (await reconcileStripeIntent(intent)).outcome
+          const reconciled = await reconcileStripeIntent(intent)
+          outcome = reconciled.outcome
+          outcomeDetail = reconciled.detail
         } else if (booking.sessionId?.startsWith('cs_')) {
           // Embedded-checkout bookings: the session id is the reference.
           const stripeAPI = (await import('../payment/stripe.js')).default
           const session: Stripe.Checkout.Session = await stripeAPI.checkout.sessions.retrieve(booking.sessionId)
-          outcome = (await reconcileStripeSession(session)).outcome
+          const reconciled = await reconcileStripeSession(session)
+          outcome = reconciled.outcome
+          outcomeDetail = reconciled.detail
         } else {
           logger.info(`[checkoutSweeper] Booking ${booking._id} has no retrievable provider reference; skipping`)
           summary.skipped += 1
@@ -119,6 +129,18 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
           summary.alreadyFinalized += 1
         } else if (outcome === 'refunded') {
           summary.refunded += 1
+          // R4-01 companion - a refunded booking must not keep reserving
+          // the car for the remainder of a review window it no longer
+          // needs: clear the hold extension so the booking stops
+          // reserving the car. No time filter on the update: the sweep
+          // only selects bookings whose expireAt already passed, so a
+          // $gt: now filter could never match and the clear would never
+          // fire. The status guard is the concurrency protection (a
+          // booking finalised concurrently is not touched).
+          await Booking.updateOne(
+            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+            { $set: { expireAt: null } },
+          )
         } else if (outcome === 'held') {
           summary.held += 1
           logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
@@ -147,27 +169,54 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         } else if (outcome === 'not-paid' || outcome === 'no-booking') {
           summary.notPaid += 1
         } else if (outcome === 'refund-failed') {
-          // Money was taken but the refund could not be completed — the
-          // reconcile call already logged the detail; count it so the
-          // sweep summary shows manual review is outstanding.
+          // R4-01 - same TTL defuse as held: a Void booking with a failed
+          // refund keeps its past `expireAt`, so the TTL index would delete it
+          // ~70 min after expiry and orphan the provider payment with no record
+          // and no refund trigger. Extend to the review window and notify, so a
+          // still-failed refund is re-held (and re-notified) each window like held.
           summary.errors += 1
           logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
+          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+          const extended = await Booking.updateOne(
+            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+            { $set: { expireAt: reviewUntil } },
+          )
+          if (extended.modifiedCount > 0) {
+            logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
+            await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
+          }
         }
         if (outcome === 'finalized' || outcome === 'refunded' || outcome === 'already-finalized') {
           logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
         }
       } catch (err) {
-        // A provider lookup can fail transiently (404 on an expired
-        // session, network error on getOrder). Log, count, and continue
-        // with the next booking — the next tick retries this one, and
-        // the booking is still inside its TTL window.
+        // R4-03 - a provider lookup failure is NOT "still inside its TTL
+        // window": the booking entered this loop because its expireAt
+        // already passed, so the TTL deletes it ~70 min after expiry
+        // whether or not the provider ever answers. A sustained outage
+        // would delete bookings whose payment state was never established.
+        // Defuse like held (status-guarded), count separately, and notify
+        // once per defuse: the extension drops the booking out of the
+        // sweep query until the new deadline, so a down provider notifies
+        // at most once per review window per booking.
         const providerError = err as { code?: string, statusCode?: number }
+        const detail = err instanceof Error ? err.message : 'Provider lookup failed'
         if (providerError?.code === 'resource_missing' || providerError?.statusCode === 404) {
-          logger.info(`[checkoutSweeper] Provider reference for booking ${booking._id} no longer exists; skipping`)
-          summary.skipped += 1
+          logger.info(`[checkoutSweeper] Provider reference for booking ${booking._id} no longer exists; preserving for manual review`)
         } else {
           logger.error(`[checkoutSweeper] Sweep failed for booking ${booking._id}`, err)
-          summary.errors += 1
+        }
+        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+        const preserved = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+          { $set: { expireAt: reviewUntil } },
+        )
+        if (preserved.modifiedCount > 0) {
+          summary.providerErrors += 1
+          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
+          await notifyProviderUnreachable(booking, reviewUntil, detail)
+        } else {
+          summary.skipped += 1
         }
       }
     }
@@ -304,6 +353,117 @@ const notifyHeldForReview = async (
     await mailHelper.sendMail(mailOptions)
   } catch (err) {
     logger.error(`[checkoutSweeper] Held-for-review notice failed for booking ${hold._id}`, err)
+  }
+}
+
+/**
+ * R4-01 - tell the agency a paid booking's refund failed. Best effort,
+ * log-and-continue (same rule as notifyHeldForReview). In-app notification
+ * to the owner + active staff (View button to the booking), email to the
+ * owner only. Carries the booking reference, the amount taken
+ * (financialSnapshot.amountDueNowInPaymentCurrency), the reconcile detail,
+ * and the review deadline. Fires once per hold cycle: the TTL-defusing
+ * extension drops the booking out of the sweep queries until the new deadline.
+ */
+const notifyRefundFailed = async (
+  booking: { _id: mongoose.Types.ObjectId, supplier?: mongoose.Types.ObjectId | string, reference?: string, financialSnapshot?: { amountDueNowInPaymentCurrency?: number, paymentCurrency?: string } },
+  reviewUntil: Date,
+  detail?: string,
+): Promise<void> => {
+  try {
+    if (!booking.supplier) {
+      logger.error(`[checkoutSweeper] Cannot notify refund-failed for booking ${booking._id}: no supplier`)
+      return
+    }
+    const recipients = await resolveReminderRecipients(String(booking.supplier))
+    if (recipients.length === 0) {
+      logger.error(`[checkoutSweeper] Cannot notify refund-failed for booking ${booking._id}: no agency recipients`)
+      return
+    }
+    const reference = booking.reference || String(booking._id)
+    const deadline = reviewUntil.toISOString().slice(0, 10)
+    const amount = booking.financialSnapshot?.amountDueNowInPaymentCurrency
+    const currency = booking.financialSnapshot?.paymentCurrency
+    const amountText = typeof amount === 'number' && currency ? `${amount} ${currency}` : 'unknown amount'
+    const reason = detail || 'The payment refund requires support review'
+    for (const recipient of recipients) {
+      i18n.locale = recipient.language
+      const message = `${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART2')}`
+      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id })
+    }
+    const owner = recipients[0]
+    if (!owner?.email) {
+      logger.error(`[checkoutSweeper] Refund-failed email skipped for booking ${booking._id}: owner has no email`)
+      return
+    }
+    i18n.locale = owner.language
+    const subject = `${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART2')}`
+    const mailOptions: SendMailOptions = {
+      from: env.SMTP_FROM,
+      to: owner.email,
+      subject,
+      html: `<p>
+    ${i18n.t('HELLO')}${owner.fullName},<br><br>
+    ${i18n.t('BOOKING_REFUND_FAILED_EMAIL_PART1')}${reference}${i18n.t('BOOKING_REFUND_FAILED_EMAIL_PART2')}${amountText}${i18n.t('BOOKING_REFUND_FAILED_EMAIL_PART3')}${reason}${i18n.t('BOOKING_REFUND_FAILED_EMAIL_PART4')}${deadline}${i18n.t('BOOKING_REFUND_FAILED_EMAIL_PART5')}<br><br>
+    ${i18n.t('REGARDS')}<br>
+    </p>`,
+    }
+    await mailHelper.sendMail(mailOptions)
+  } catch (err) {
+    logger.error(`[checkoutSweeper] Refund-failed notice failed for booking ${booking._id}`, err)
+  }
+}
+
+/**
+ * R4-03 - tell the agency a booking was preserved because the payment
+ * provider could not be reached. Best effort, log-and-continue. Same
+ * recipients and shape as notifyHeldForReview (in-app to owner + active
+ * staff, email to the owner only). Fires at most once per review window:
+ * the defusing extension drops the booking out of the sweep query until
+ * the new deadline.
+ */
+const notifyProviderUnreachable = async (
+  booking: { _id: mongoose.Types.ObjectId, supplier?: mongoose.Types.ObjectId | string, reference?: string },
+  reviewUntil: Date,
+  detail: string,
+): Promise<void> => {
+  try {
+    if (!booking.supplier) {
+      logger.error(`[checkoutSweeper] Cannot notify provider-unreachable for booking ${booking._id}: no supplier`)
+      return
+    }
+    const recipients = await resolveReminderRecipients(String(booking.supplier))
+    if (recipients.length === 0) {
+      logger.error(`[checkoutSweeper] Cannot notify provider-unreachable for booking ${booking._id}: no agency recipients`)
+      return
+    }
+    const reference = booking.reference || String(booking._id)
+    const deadline = reviewUntil.toISOString().slice(0, 10)
+    for (const recipient of recipients) {
+      i18n.locale = recipient.language
+      const message = `${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART2')}`
+      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id })
+    }
+    const owner = recipients[0]
+    if (!owner?.email) {
+      logger.error(`[checkoutSweeper] Provider-unreachable email skipped for booking ${booking._id}: owner has no email`)
+      return
+    }
+    i18n.locale = owner.language
+    const subject = `${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART2')}`
+    const mailOptions: SendMailOptions = {
+      from: env.SMTP_FROM,
+      to: owner.email,
+      subject,
+      html: `<p>
+    ${i18n.t('HELLO')}${owner.fullName},<br><br>
+    ${i18n.t('BOOKING_PROVIDER_UNREACHABLE_EMAIL_PART1')}${reference}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_EMAIL_PART2')}${detail}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_EMAIL_PART3')}${deadline}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_EMAIL_PART4')}<br><br>
+    ${i18n.t('REGARDS')}<br>
+    </p>`,
+    }
+    await mailHelper.sendMail(mailOptions)
+  } catch (err) {
+    logger.error(`[checkoutSweeper] Provider-unreachable notice failed for booking ${booking._id}`, err)
   }
 }
 

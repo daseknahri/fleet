@@ -206,6 +206,10 @@ beforeAll(async () => {
   await makeBooking('paid', { from: at(1), to: at(3), price: 200, deposit: 100 })
   await postPayment(B.paid, 200, bookcarsTypes.RentalPaymentPurpose.Rent)
   await postPayment(B.paid, 100, bookcarsTypes.RentalPaymentPurpose.Deposit)
+  // R2-B16 - rent fully paid, deposit still due: listed in
+  // paidInFullRows (so it does not vanish) but paidInFull is false.
+  await makeBooking('rentPaidDepositDue', { from: at(1), to: at(3), price: 200, deposit: 100 })
+  await postPayment(B.rentPaidDepositDue, 200, bookcarsTypes.RentalPaymentPurpose.Rent)
 })
 
 afterAll(async () => {
@@ -292,6 +296,15 @@ describe('GH-02 / Wave 3.1 — extended receivables endpoint', () => {
     expect(paid!.paidRent).toBe(200)
     expect(paid!.depositHeld).toBe(100)
     expect(paid!.depositDue).toBe(0)
+    // R2-B16 - the rent-paid / deposit-due row is listed but does not
+    // count as paid in full; rentPaidCount is the list length.
+    const rentPaid = paidRows.find((r) => r.booking._id === B.rentPaidDepositDue.toString())
+    expect(rentPaid).toBeDefined()
+    expect(rentPaid!.outstandingBalance).toBe(0)
+    expect(rentPaid!.paidInFull).toBe(false)
+    expect(rentPaid!.depositDue).toBe(100)
+    expect(res.body.paidInFullCount).toBe(1)
+    expect(res.body.rentPaidCount).toBe(2)
     // Totals keep their old meaning: outstanding rows only.
     expect(res.body.outstandingTotal).toBe(1800)
     expect(res.body.overdueTotal).toBe(700)
@@ -338,8 +351,27 @@ describe('GH-02 / Wave 3.1 — extended receivables endpoint', () => {
     const res = await getOverdue('?filter=paid-in-full')
     expect(res.body.rows).toHaveLength(0)
     const paidRows = res.body.paidInFullRows as Row[]
-    expect(paidRows).toHaveLength(1)
-    expect(paidRows[0].booking._id).toBe(B.paid.toString())
+    expect(paidRows).toHaveLength(2)
+    expect(paidRows.map((r) => r.booking._id).sort()).toEqual([B.paid.toString(), B.rentPaidDepositDue.toString()].sort())
+    // R2-B04 - the summary totals are filter-independent.
+    expect(res.body.outstandingTotal).toBe(1800)
+    expect(res.body.overdueTotal).toBe(700)
+    // R2-B16 - the count is the paid-in-full FLAG, not the list length.
+    expect(res.body.paidInFullCount).toBe(1)
+    expect(res.body.rentPaidCount).toBe(2)
+  })
+
+  it('R2-B04 - summary totals are filter-independent, but scoped by clientId', async () => {
+    const dueSoon = await getOverdue('?filter=due-soon')
+    expect(dueSoon.body.outstandingTotal).toBe(1800)
+    expect(dueSoon.body.overdueTotal).toBe(700)
+    const mine = await getOverdue(`?clientId=${driver._id.toString()}`)
+    expect(mine.body.outstandingTotal).toBe(1800)
+    expect(mine.body.overdueTotal).toBe(700)
+    const nobody = await getOverdue(`?clientId=${oid().toString()}`)
+    expect(nobody.body.outstandingTotal).toBe(0)
+    expect(nobody.body.overdueTotal).toBe(0)
+    expect(nobody.body.rows).toHaveLength(0)
   })
 
   it('age-bucket filters split current / 1-7d / 8-30d', async () => {

@@ -174,13 +174,18 @@ export const listMovements = async (req: Request, res: Response) => {
     if (!mongoose.isValidObjectId(req.params.sessionId)) {
  res.status(400).send('Invalid session'); return 
 }
+    // GH-07 — a platform admin reached this session without a selector;
+    // audit with the session's agency (the middleware deferred to this
+    // controller because the path carries the session id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetSession = await CashSession.findById(req.params.sessionId).select('supplier').lean()
+      await logAdminResourceAccess(req, targetSession?.supplier?.toString(), 'cash:list-movements')
+    }
+
     const session = await CashSession.findOne({ _id: req.params.sessionId, ...getScope(req) })
     if (!session) {
  res.sendStatus(404); return 
 }
-    // GH-07 — a platform admin read this session's movements without a
-    // selector; audit with the session's agency.
-    await logAdminResourceAccess(req, session.supplier?.toString(), 'cash:list-movements')
     // F6 / W3 X-1 — server-side pagination + direction / source /
     // status filters. No page/size params keeps the legacy full-array
     // response.

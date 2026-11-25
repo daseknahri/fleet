@@ -318,7 +318,18 @@ const SearchForm = ({
       return
     }
 
-    setTimeout(navigate, 0, '/search', {
+    // R2-A03 - the search lives in the URL (shareable, refresh-proof)
+    // and in sessionStorage (tab-scoped, carries the filter ranges too).
+    // ranges stays out of the URL: it is a filter list, not part of the
+    // shareable search.
+    const params = new URLSearchParams({
+      pickupLocationId,
+      dropOffLocationId,
+      from: data.from.toISOString(),
+      to: data.to.toISOString(),
+    })
+    sessionStorage.setItem('bc-search-state', JSON.stringify({ pickupLocationId, dropOffLocationId, from: data.from.toISOString(), to: data.to.toISOString(), ranges }))
+    setTimeout(navigate, 0, `/search?${params.toString()}`, {
       state: {
         pickupLocationId: pickupLocationId,
         dropOffLocationId: dropOffLocationId,

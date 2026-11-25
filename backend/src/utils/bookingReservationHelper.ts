@@ -9,6 +9,10 @@ import AgencyReturnSettings from '../models/AgencyReturnSettings'
 import { effectiveNextDueMileage, findOverdueSchedule } from './maintenanceSchedule'
 import * as helper from '../utils/helper'
 
+// R2-B13 - calendar-day comparison (same server-local convention
+// as maintenanceSchedule.ts:47; helper exposes no startOfDay).
+const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+
 export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Deposit,
   bookcarsTypes.BookingStatus.Paid,
@@ -437,8 +441,12 @@ export const findDueInWindowSchedule = async (
   })
   for (const schedule of sorted) {
     if (schedule.nextDueDate) {
-      const dueDate = new Date(schedule.nextDueDate)
-      if (dueDate >= from && dueDate <= to) {
+      // R2-B13 - calendar-day comparison: a schedule due ON the
+      // pickup day blocks the booking. nextDueDate is stored at
+      // midnight while from/to carry pickup/return times, so a raw
+      // datetime comparison misses the whole pickup day.
+      const dueDate = startOfDay(new Date(schedule.nextDueDate))
+      if (dueDate >= startOfDay(from) && dueDate <= startOfDay(to)) {
         return {
           id: schedule._id.toString(),
           title: schedule.title,

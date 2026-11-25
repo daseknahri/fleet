@@ -2,6 +2,8 @@
 import React, { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import * as bookcarsTypes from ':bookcars-types'
 import * as UserService from '@/services/UserService'
+import { strings } from '@/lang/common'
+import * as helper from '@/utils/helper'
 
 // Create context
 export interface UserContextType {
@@ -10,6 +12,8 @@ export interface UserContextType {
   userLoaded: boolean
   setUserLoaded: React.Dispatch<React.SetStateAction<boolean>>
   unauthorized: boolean
+  authOffline: boolean
+  retryAuth: () => Promise<void>
 }
 
 const UserContext = createContext<UserContextType | null>(null)
@@ -24,13 +28,12 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children, refreshKey
   const [user, setUser] = useState<bookcarsTypes.User | null>(null)
   const [userLoaded, setUserLoaded] = useState(false)
   const [unauthorized, setUnauthorized] = useState(false)
-
-  const value = useMemo(() => ({ user, setUser, userLoaded, setUserLoaded, unauthorized }), [user, userLoaded, unauthorized])
+  const [authOffline, setAuthOffline] = useState(false)
 
   const exit = useCallback(async () => {
     setUser(null)
     setUserLoaded(true)
-    await UserService.signout(false, false)
+    try { await UserService.signout(false, false) } catch { /* already signed out locally; the server call is best-effort */ }
   }, [])
 
   const checkUser = useCallback(async () => {
@@ -46,6 +49,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children, refreshKey
       const status = await UserService.validateAccessToken()
 
       if (status === 200) {
+        setAuthOffline(false)
         const _user = await UserService.getUser(currentUser._id)
         if (_user) {
           if (_user.blacklisted) {
@@ -58,15 +62,33 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children, refreshKey
         } else {
           await exit()
         }
-      } else {
+      } else if (status === 401 || status === 403) {
+        // R2-A10 - only 401/403 mean "signed out".
         await exit()
+        helper.info(strings.SESSION_EXPIRED)
+      } else {
+        // R2-A10 - any other status is a connection problem: keep the session.
+        setAuthOffline(true)
       }
-    } catch {
-      await exit()
+    } catch (err) {
+      if (UserService.isAuthError(err)) {
+        await exit()
+        helper.info(strings.SESSION_EXPIRED)
+      } else {
+        // R2-A10 - network blip, not a sign-out: keep the session, show Retry.
+        setAuthOffline(true)
+      }
     } finally {
       setUserLoaded(true)
     }
   }, [exit])
+
+  const retryAuth = useCallback(async () => {
+    setAuthOffline(false)
+    await checkUser()
+  }, [checkUser])
+
+  const value = useMemo(() => ({ user, setUser, userLoaded, setUserLoaded, unauthorized, authOffline, retryAuth }), [user, userLoaded, unauthorized, authOffline, retryAuth])
 
   // Ref to track the previous refreshKey
   const prevRefreshKey = useRef(refreshKey)

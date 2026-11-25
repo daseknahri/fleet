@@ -23,6 +23,7 @@ import PushToken from '../models/PushToken'
 import AdditionalDriver from '../models/AdditionalDriver'
 import * as helper from '../utils/helper'
 import * as mailHelper from '../utils/mailHelper'
+import { deliverNotification } from '../utils/reminderNotify'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
@@ -384,7 +385,7 @@ export const notify = async (driver: env.User, bookingId: string, user: env.User
  * @param {boolean} payLater
  * @returns {unknown}
  */
-export const confirm = async (user: env.User, supplier: env.User, booking: env.Booking, payLater: boolean) => {
+export const confirm = async (user: env.User, supplier: env.User, booking: env.Booking, payLater: boolean, opts?: { dedupeKey?: string }) => {
   const { language } = user
   // F1 / W1 #2: upstream's 7-locale map, plus `ar` (Gestion Auto added an
   // Arabic UI but location values are conventionally en/fr/es — a bare
@@ -471,9 +472,27 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
     }
   }
 
-  await mailHelper.sendMail(mailOptions)
-
-  return true
+  // R2-B02 - the confirmation email is claimed in the delivery log
+  // (dedupe `confirmation:<bookingId>`, channel email, recipient
+  // driver), so a failed send is visible in the Reminders log and
+  // re-sendable - instead of a log line only. The send itself is
+  // unchanged (same mailOptions, same attachment). Returns true only
+  // when the mail actually went out; a duplicate claim (already sent)
+  // returns false, and both callers already log-and-continue on false.
+  const delivered = await deliverNotification(String(supplier._id), {
+    templateKey: 'booking.confirmation' as bookcarsTypes.NotificationTemplateKey,
+    subjectType: 'booking',
+    subjectId: String(booking._id),
+    dedupeKey: opts?.dedupeKey || `confirmation:${booking._id}`,
+    channel: 'email',
+    recipient: user._id,
+    subject: mailOptions.subject,
+    body: mailOptions.html as string,
+  }, async () => {
+    const info = await mailHelper.sendMail(mailOptions)
+    return info?.messageId as string | undefined
+  })
+  return delivered
 }
 
 /**
@@ -1614,7 +1633,10 @@ export const update = async (req: Request, res: Response) => {
       }
 
       // Wave 2.11 — a platform admin acts on a single resource here:
-      // audit with the resource's agency.
+      // audit with the resource's agency. R2-B15 — the middleware no
+      // longer logs resource-id calls, so the controller is the sole
+      // logger: no selector guard (the R2-B09 guard's premise, that the
+      // middleware already logged selector calls, is gone).
       if (sessionUser.type === bookcarsTypes.UserType.Admin) {
         await logAdminCrossAgencyAccess(req, [booking.supplier.toString()], 'booking:update-booking')
       }
@@ -2362,7 +2384,7 @@ export const getBooking = async (req: Request, res: Response) => {
       })
       .populate<{ driver: env.UserInfo }>({
         path: 'driver',
-        select: '_id fullName avatar phone', // GA-PAR-23: driver phone for the WhatsApp contract send
+        select: '_id fullName avatar phone verified email', // GA-PAR-23: driver phone for the WhatsApp contract send
       })
       .populate<{ pickupLocation: env.LocationInfo }>({
         path: 'pickupLocation',
@@ -2449,6 +2471,15 @@ export const getBooking = async (req: Request, res: Response) => {
         to: booking.to,
       })
 
+      // R2-A15 - the driver's own verified state + email, for the
+      // CheckoutStatus activation notice. Rides on the existing
+      // session/ownership checks above (the sessionId capability path
+      // already returns the full booking to whoever holds the return
+      // URL, so these two fields add no new exposure class). Detail
+      // only - never attached on the list endpoint getBookings.
+      ;(booking as unknown as Record<string, unknown>).driverVerified = (booking.driver as env.UserInfo)?.verified ?? false
+      ;(booking as unknown as Record<string, unknown>).driverEmail = (booking.driver as env.UserInfo)?.email
+
       // GA-PAR-12: signing secrets never leave the server. The nonce is
       // `select: false` (absent here by construction) and is deleted
       // defensively; the signature record is reduced to its derived
@@ -2500,6 +2531,21 @@ export const getBookingId = async (req: Request, res: Response) => {
     logger.error(`[booking.getBookingId] (sessionId) ${i18n.t('ERROR')} ${sessionId}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
+}
+
+// R2-A15 - guest booking lookup by reference + email. No oracle: a wrong
+// reference OR a wrong email answers the same generic 404. The returned
+// sessionId is the same capability token getBooking already accepts via
+// ?sessionId= - no new credential is minted.
+export const lookupGuestBooking = async (req: Request, res: Response) => {
+  const { reference, email } = (req.body || {}) as { reference?: string, email?: string }
+  if (!reference || !email) { res.status(400).send('Reference and email are required'); return }
+  const booking = await Booking.findOne({ reference: String(reference).trim() }).populate<{ driver: env.UserInfo }>('driver', 'email').lean()
+  if (!booking || (booking.driver as env.UserInfo)?.email?.toLowerCase() !== String(email).trim().toLowerCase()) {
+    res.status(404).send('No booking found for this reference and email')
+    return
+  }
+  res.json({ bookingId: booking._id, sessionId: booking.sessionId })
 }
 
 /**
@@ -3550,6 +3596,46 @@ export const populateBookingForDetail = async (id: string | mongoose.Types.Objec
   })
   .populate<{ _additionalDriver: env.AdditionalDriver }>('_additionalDriver')
   .lean()
+
+/**
+ * R2-B02 - re-send the confirmation email for a booking whose first
+ * send failed or was missed. Re-renders via confirm() (current
+ * wording, current contract attachment - GH-38b's amount-due block
+ * included), it does NOT re-send the delivery log's stored body.
+ * Each resend is its own logged row (dedupe
+ * `confirmation-resend:<bookingId>:<timestamp>`), so a resend never
+ * collides with the original `confirmation:<bookingId>` claim and a
+ * second resend is a second row, not a silent no-op.
+ */
+export const resendConfirmation = async (req: Request, res: Response) => {
+  try {
+    const booking = await Booking.findById(req.params.id)
+    if (!booking) {
+      res.sendStatus(404)
+      return
+    }
+    if (booking.status === bookcarsTypes.BookingStatus.Void || booking.status === bookcarsTypes.BookingStatus.Cancelled) {
+      res.status(409).send('Cannot resend a confirmation email for a void or cancelled booking')
+      return
+    }
+    const supplier = await User.findById(booking.supplier)
+    const user = await User.findById(booking.driver)
+    if (!supplier || !user || !user.email) {
+      res.status(400).send('Confirmation email cannot be sent: supplier or driver email missing')
+      return
+    }
+    const payLater = booking.financialSnapshot?.mode === bookcarsTypes.CheckoutPaymentMode.PayLater
+    const sent = await confirm(user, supplier, booking, payLater, { dedupeKey: `confirmation-resend:${booking._id}:${new Date().toISOString()}` })
+    if (!sent) {
+      res.status(502).send('Confirmation email could not be sent')
+      return
+    }
+    res.json({ sent: true })
+  } catch (err) {
+    logger.error('[booking.resendConfirmation]', err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
 
 export const confirmReservation = async (req: Request, res: Response) => {
   try {

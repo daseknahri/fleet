@@ -2,6 +2,7 @@ import React, { useState, useEffect, ReactNode } from 'react'
 import { Button } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import { strings } from '@/lang/master'
+import { strings as commonStrings } from '@/lang/common'
 import * as UserService from '@/services/UserService'
 import * as helper from '@/utils/helper'
 import { useAnalytics } from '@/utils/useAnalytics'
@@ -21,7 +22,7 @@ const Layout = ({
 }: LayoutProps) => {
   useAnalytics()
 
-  const { user, userLoaded, unauthorized } = useUserContext() as UserContextType
+  const { user, userLoaded, unauthorized, authOffline, retryAuth } = useUserContext() as UserContextType
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -62,7 +63,15 @@ const Layout = ({
       {
         !(unauthorized && strict) && (
           (!user && !loading) || (user && user.verified) ? (
-            <div className="content" role="main">{children}</div>
+            <div className="content" role="main">
+              {authOffline && (
+                <div className="auth-offline">
+                  <span>{commonStrings.CONNECTION_OFFLINE}</span>
+                  <Button type="button" variant="outlined" onClick={retryAuth}>{commonStrings.RETRY}</Button>
+                </div>
+              )}
+              {children}
+            </div>
           ) : (
             !loading && (
               <div className="validate-email">

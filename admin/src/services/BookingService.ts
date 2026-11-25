@@ -285,6 +285,21 @@ export const confirmReservation = (id: string): Promise<bookcarsTypes.Booking> =
     .then((res) => res.data)
 
 /**
+ * R2-B02 - re-send the confirmation email for this booking.
+ *
+ * @param {string} id
+ * @returns {Promise<{ sent: boolean }>}
+ */
+export const resendConfirmation = (id: string): Promise<{ sent: boolean }> =>
+  axiosInstance
+    .post(
+      `/api/bookings/${encodeURIComponent(id)}/resend-confirmation`,
+      {},
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
  * GH-02 / Wave 3.1 — mark a booking as no-show from the receivables
  * action column (F4 / W1 #7: Draft/Confirmed, unpaid, pickup passed;
  * the server enforces every guard and 409s otherwise). The booking

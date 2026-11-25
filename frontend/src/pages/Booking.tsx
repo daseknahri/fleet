@@ -16,11 +16,13 @@ import { strings as csStrings } from '@/lang/cars'
 import { strings as headerStrings } from '@/lang/header'
 import env from '@/config/env.config'
 import * as helper from '@/utils/helper'
+import { formatDateTimeCasablanca } from '@/utils/dateHelper'
 import Layout from '@/components/Layout'
 import * as UserService from '@/services/UserService'
 import * as BookingService from '@/services/BookingService'
 import * as CarService from '@/services/CarService'
 import * as PaymentService from '@/services/PaymentService'
+import * as InvoiceService from '@/services/InvoiceService'
 import Backdrop from '@/components/SimpleBackdrop'
 import NoMatch from './NoMatch'
 import Error from './Error'
@@ -39,6 +41,7 @@ const Booking = () => {
   const [error, setError] = useState(false)
   const [language, setLanguage] = useState(env.DEFAULT_LANGUAGE)
   const [booking, setBooking] = useState<bookcarsTypes.Booking>()
+  const [invoice, setInvoice] = useState<InvoiceService.CustomerInvoiceSummary | null>()
   const [visible, setVisible] = useState(false)
   const [supplier, setSupplier] = useState<bookcarsTypes.Option>()
   const [car, setCar] = useState<bookcarsTypes.Car>()
@@ -261,10 +264,12 @@ const Booking = () => {
       const id = params.get('b')
       if (id && id !== '') {
         try {
-          const _booking = await BookingService.getBooking(id)
+          const _booking = await BookingService.getBooking(id, params.get('session') || undefined)
           if (_booking) {
             setBooking(_booking)
             setPrice(await PaymentService.convertPrice(_booking.price!))
+            // R2-A06 - invoice summary for the customer; 401/403/204 -> null (no invoice available).
+            InvoiceService.getByBooking(_booking._id as string).then(setInvoice).catch(() => setInvoice(null))
             setLoading(false)
             setVisible(true)
             const cmp = _booking.supplier as bookcarsTypes.User
@@ -513,11 +518,26 @@ const Booking = () => {
                 <span className="price-main">{bookcarsHelper.formatPrice(price as number, commonStrings.CURRENCY, language)}</span>
                 <span className="price-day">{`${csStrings.PRICE_PER_DAY} ${bookcarsHelper.formatPrice((price as number) / days, commonStrings.CURRENCY, language)}`}</span>
               </div>
+              {booking.expireAt && booking.status === bookcarsTypes.BookingStatus.Pending && (
+                <div className="booking-hold">
+                  {`${bookingStrings.HOLD_EXPIRES} ${formatDateTimeCasablanca(booking.expireAt)} (${commonStrings.TIMEZONE_MOROCCO})`}
+                </div>
+              )}
               {typeof booking.outstandingBalance === 'number' && (
                 <div className="booking-balance">
                   {booking.outstandingBalance > 0
                     ? bookingStrings.BALANCE_DUE_AT_PICKUP.replace('{amount}', bookcarsHelper.formatPrice(booking.outstandingBalance, commonStrings.CURRENCY, language))
                     : bookingStrings.BALANCE_NOTHING_DUE}
+                </div>
+              )}
+              {invoice && invoice.status === 'Issued' && (
+                <div className="booking-invoice">
+                  <Button variant="text" onClick={() => InvoiceService.downloadPdf(invoice.id, `invoice-${invoice.number || invoice.id}.pdf`)}>{bookingStrings.INVOICE_VIEW}</Button>
+                </div>
+              )}
+              {invoice && invoice.status === 'Draft' && (
+                <div className="booking-invoice">
+                  {bookingStrings.INVOICE_PENDING}
                 </div>
               )}
             </div>

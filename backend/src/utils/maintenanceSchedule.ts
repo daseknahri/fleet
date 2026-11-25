@@ -45,6 +45,7 @@ export interface ScheduleDue {
 }
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
 
 export const effectiveNextDueMileage = (schedule: ScheduleDueInput): number | null => {
   if (schedule.nextDueMileage !== undefined && schedule.nextDueMileage !== null) {
@@ -162,7 +163,10 @@ export const findBlockingScheduleForHandover = async (
     supplier,
     car: new mongoose.Types.ObjectId(carId),
     status: { $ne: bookcarsTypes.MaintenanceScheduleStatus.Completed },
-    nextDueDate: { $ne: null, $gte: from, $lte: to },
+    // R2-B13 - the query bounds are whole calendar days (same fix as
+    // findDueInWindowSchedule): a midnight nextDueDate on the pickup
+    // day must be fetched so the live check below can see it.
+    nextDueDate: { $ne: null, $gte: startOfDay(from), $lte: endOfDay(to) },
   }).select('title nextDueDate nextDueMileage intervalKm lastServiceMileage status').sort({ nextDueDate: 1 }).lean()
   if (dbSession) {
     query.session(dbSession)

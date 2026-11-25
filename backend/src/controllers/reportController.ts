@@ -56,6 +56,7 @@ import * as logger from '../utils/logger'
  *   booking counts in full in every period its [from,to] intersects
  *   (from < periodTo && to > periodFrom), excluding Void/Cancelled
  *   and unexpired checkout placeholders (expireAt set). No prorating.
+ *   (v2026-11-25.1, R2-B18: the live-booking queries now apply this exclusion, so the numbers match this text.)
  * - expenses = Σ MaintenanceExpense.amount for the agency (and the
  *   car, when car-scoped) with expense `date` inside the period.
  * - net = collected − expenses (NEW metric `netCollected` for builder
@@ -177,7 +178,7 @@ import * as logger from '../utils/logger'
  * definition — never from a client-side recomputation.
  */
 
-export const METRIC_DICTIONARY_VERSION = '2026-11-16.2'
+export const METRIC_DICTIONARY_VERSION = '2026-11-25.1'
 
 const round = (n: number) => Number(n.toFixed(2))
 const date = (value: unknown, fallback: Date) => {
@@ -404,6 +405,11 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
     from: { $lt: to },
     to: { $gt: from },
     status: { $nin: [types.BookingStatus.Void, types.BookingStatus.Cancelled] },
+    // R2-B18 (option a) — dictionary v2026-11-11.1/11.2: unexpired
+    // checkout placeholders (expireAt set) are excluded from the
+    // dashboard/collections universe. A confirmed booking has
+    // expireAt cleared (confirmReservation), so it stays included.
+    expireAt: null,
     // GA-PAR-22: trashed bookings leave contractAmount / contracts /
     // occupancy (§2.5); their posted payments still count as
     // collected, so `remaining` can understate — accepted semantics.
@@ -444,9 +450,15 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
   ])
 
   const rentByBooking = new Map<string, number>()
+  // R2-B17 (Wave 2.4, same as collectionsSummary) — posted Charge
+  // credits per booking: a charge settled from the kept deposit is
+  // paid, not remaining. Collected stays posted rent only.
+  const chargeByBooking = new Map<string, number>()
   for (const row of paymentRows as Array<{ _id: { booking: mongoose.Types.ObjectId, purpose: string }, total: number }>) {
     if (row._id.purpose === types.RentalPaymentPurpose.Rent) {
       rentByBooking.set(row._id.booking.toString(), Number(row.total || 0))
+    } else if (row._id.purpose === types.RentalPaymentPurpose.Charge) {
+      chargeByBooking.set(row._id.booking.toString(), Number(row.total || 0))
     }
   }
   const chargesByBooking = new Map<string, Array<{ currency: string, total: number }>>()
@@ -466,7 +478,13 @@ const computePeriod = async (supplier: mongoose.Types.ObjectId, from: Date, to: 
       .reduce((sum, row) => sum + row.total, 0)
     const contractAmount = round(rentalTotal + approvedCharges)
     const collected = round(rentByBooking.get(b._id.toString()) || 0)
-    const remaining = round(Math.max(0, contractAmount - collected))
+    const chargeCredits = round(chargeByBooking.get(b._id.toString()) || 0)
+    // R2-B17 — minus posted Charge credits, exactly as
+    // collectionsSummary (and contractReceivable) do. computePeriod's
+    // contractAmount carries no VAT (dictionary: "No VAT in
+    // contractAmount"), so the credit subtracts from the same HT base
+    // the collections summary uses.
+    const remaining = round(Math.max(0, contractAmount - collected - chargeCredits))
     const intersectDays = Math.max(0, Math.ceil((Math.min(to.getTime(), new Date(b.to).getTime()) - Math.max(from.getTime(), new Date(b.from).getTime())) / 86400000))
     return {
       id: b._id.toString(),

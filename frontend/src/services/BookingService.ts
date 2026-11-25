@@ -63,6 +63,22 @@ export const getBooking = (id: string, sessionId?: string): Promise<bookcarsType
     .then((res) => res.data)
 
 /**
+ * Guest booking lookup by reference + email.
+ *
+ * @param {string} reference
+ * @param {string} email
+ * @returns {Promise<{ bookingId: string, sessionId: string }>}
+ */
+export const lookupGuest = (reference: string, email: string): Promise<{ bookingId: string, sessionId: string }> =>
+  axiosInstance
+    .post(
+      '/api/guest-booking-lookup',
+      { reference, email },
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
+/**
  * Cancel a Booking.
  *
  * @param {string} id

@@ -19,9 +19,10 @@ const strings = new LocalizedStrings({
     UPDATE: 'Modifier cette réservation',
     DAYS: 'Jours',
     COST: 'Total',
+    HOLD_EXPIRES: 'Confirmer et payer avant le',
     CANCEL: 'Annuler cette réservation',
     CANCEL_BOOKING: 'Êtes-vous sûr de vouloir annuler cette réservation ?',
-    CANCEL_BOOKING_REQUEST_SENT: "Votre requête d'annulation a bien été prise en compte. Nous vous contacterons pour finaliser la procédure d'annulation.",
+    CANCEL_BOOKING_REQUEST_SENT: 'Votre demande d’annulation a bien été envoyée. L’agence la confirmera et vous remboursera votre acompte en intégralité, généralement sous quelques jours ouvrés. Si vous n’avez pas de nouvelles, contactez l’agence avec votre référence de réservation.', CANCEL_NOT_INCLUDED: 'Cette réservation ne comprend pas l’option d’annulation : elle ne peut pas être annulée en ligne. Veuillez contacter l’agence en indiquant votre référence de réservation — elle pourra examiner l’annulation et le remboursement de votre acompte avec vous.', CANCEL_REQUESTED: 'Annulation demandée',
   },
   en: {
     CAR: 'Car',
@@ -40,9 +41,10 @@ const strings = new LocalizedStrings({
     UPDATE: 'Edit this booking',
     DAYS: 'Days',
     COST: 'Cost',
+    HOLD_EXPIRES: 'Confirm and pay before',
     CANCEL: 'Cancel this booking',
     CANCEL_BOOKING: 'Are you sure you want to cancel this booking?',
-    CANCEL_BOOKING_REQUEST_SENT: 'Your cancel request has been submitted. We will contact you to finalize the cancellation procedure.',
+    CANCEL_BOOKING_REQUEST_SENT: 'Your cancellation request has been sent. The agency will confirm it and refund your deposit in full, usually within a few working days. If you do not hear back, contact the agency with your booking reference.', CANCEL_NOT_INCLUDED: 'This booking does not include the cancellation option, so it cannot be cancelled online. Please contact the agency and quote your booking reference — they can review the cancellation and the refund of your deposit with you.', CANCEL_REQUESTED: 'Cancellation requested',
   },
   ar: {
     CAR: 'السيارة',
@@ -61,9 +63,10 @@ const strings = new LocalizedStrings({
     UPDATE: 'تعديل هذا الحجز',
     DAYS: 'أيام',
     COST: 'المجموع',
+    HOLD_EXPIRES: 'أكّد وادفع قبل',
     CANCEL: 'إلغاء هذا الحجز',
     CANCEL_BOOKING: 'هل أنت متأكد من إلغاء هذا الحجز؟',
-    CANCEL_BOOKING_REQUEST_SENT: 'تم استلام طلب الإلغاء الخاص بك. سنتصل بك لإنهاء إجراءات الإلغاء.',
+    CANCEL_BOOKING_REQUEST_SENT: 'تم إرسال طلب الإلغاء الخاص بك. ستؤكده الوكالة وتسترد مبلغ التأمين بالكامل، عادةً خلال بضعة أيام عمل. إذا لم تتلقَ ردًا، اتصل بالوكالة مع مرجع حجزك.', CANCEL_NOT_INCLUDED: 'هذا الحجز لا يشمل خيار الإلغاء، لذا لا يمكن إلغاؤه عبر الإنترنت. يرجى الاتصال بالوكالة مع ذكر مرجع حجزك — يمكنهم مراجعة الإلغاء واسترداد مبلغ التأمين معك.', CANCEL_REQUESTED: 'تم طلب الإلغاء',
   },
   es: {
     CAR: 'Coche',
@@ -82,9 +85,10 @@ const strings = new LocalizedStrings({
     UPDATE: 'Modificar esta reserva',
     DAYS: 'Días',
     COST: 'Total',
+    HOLD_EXPIRES: 'Confirme y pague antes del',
     CANCEL: 'Cancelar esta reserva',
     CANCEL_BOOKING: '¿Está seguro de que desea cancelar esta reserva?',
-    CANCEL_BOOKING_REQUEST_SENT: 'Su solicitud de cancelación ha sido recibida. Nos pondremos en contacto con usted para finalizar el procedimiento de cancelación.',
+    CANCEL_BOOKING_REQUEST_SENT: 'Su solicitud de cancelación ha sido enviada. La agencia la confirmará y le reembolsará el depósito íntegramente, normalmente en unos días laborables. Si no recibe noticias, contacte con la agencia con su referencia de reserva.', CANCEL_NOT_INCLUDED: 'Esta reserva no incluye la opción de cancelación, por lo que no puede cancelarse en línea. Contacte con la agencia indicando su referencia de reserva: podrán revisar la cancelación y el reembolso de su depósito con usted.', CANCEL_REQUESTED: 'Cancelación solicitada',
   },
 })
 

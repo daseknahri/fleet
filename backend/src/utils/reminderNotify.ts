@@ -384,6 +384,17 @@ export interface ReminderFanoutResult {
  * message id); it must throw (or, for push, resolve false via the
  * wrapper below) when the channel did not deliver.
  */
+// R2-B01 - auto-retry (Wave 3.5a): a failed AUTO delivery releases its
+// claim instead of keeping it. The failed row stays under the unique
+// dedupe index, so the next pass would hit E11000 -> 'duplicate' and
+// skip forever - one mailer blip permanently losing a date-keyed money
+// reminder. Deleting the row lets the next pass re-claim while the
+// window is still open; the failure itself stays in the logs.
+// Manual reminders are NOT deleted: no auto pass re-claims them, and
+// their failed row is the manual-retry path.
+const isAutoKind = (templateKey: string): boolean =>
+  templateKey.startsWith('auto.') || templateKey === 'weekly.recap'
+
 export const deliverNotification = async (
   supplier: string,
   claim: DeliveryClaim,
@@ -403,8 +414,14 @@ export const deliverNotification = async (
     return true
   } catch (err) {
     if (row) {
-      await markDeliveryFailed(row._id, err)
-    } else {
+      if (isAutoKind(claim.templateKey)) {
+        await NotificationDelivery.deleteOne({ _id: row._id }).catch((deleteErr) => {
+          logger.error('[reminderNotify] auto-retry claim release failed', deleteErr)
+        })
+      } else {
+        await markDeliveryFailed(row._id, err)
+      }
+    } else if (!isAutoKind(claim.templateKey)) {
       await recordNotificationDelivery(supplier, claim, 'failed', err instanceof Error ? err.message : String(err || 'Delivery failed'))
     }
     logger.error('[reminderNotify] delivery failed', err)

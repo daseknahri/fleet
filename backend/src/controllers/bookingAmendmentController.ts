@@ -519,6 +519,18 @@ export const amend = async (req: Request, res: Response) => {
         conflictingBooking: new mongoose.Types.ObjectId(overlapConflictingBookingId),
       }
       await booking.save()
+    } else {
+      // R2-C01 — the amend re-validated availability WITHOUT the
+      // stored exception (allowOverlapException above is the fresh
+      // gate reason only), so a pre-existing record is stale the
+      // moment this amend saves: either there was no conflict (the
+      // exception is unneeded) or a fresh one was just stamped above.
+      // Clear it — mirror update's :1928 branch — so a later confirm
+      // or restore cannot re-activate it for terms it was never
+      // granted for. Setting undefined also clears the empty
+      // Mongoose-hydrated subdocument.
+      booking.overlapException = undefined
+      await booking.save()
     }
 
     // N10: a Draft invoice follows the new snapshot in the same request.

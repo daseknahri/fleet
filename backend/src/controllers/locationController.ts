@@ -18,7 +18,7 @@ import * as logger from '../utils/logger'
 import { invalidCoordinateField } from '../utils/locationHelper'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { agencySupplierId, adminSelectorSupplierIds, logAdminResourceAccess } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminResourceAccess } from '../utils/agencyAuthorization'
 
 const canAccessAgencyLocation = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -349,6 +349,14 @@ export const update = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GH-07 — a platform admin reached this location without a selector;
+    // audit with the location's agency (the middleware deferred to this
+    // controller because the path carries the location id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetLocation = await Location.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetLocation?.supplier?.toString(), 'location:update-location')
+    }
+
     const location = await Location
       .findById(id)
       .populate<{ values: env.LocationValue[] }>('values')
@@ -364,9 +372,6 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
-      // GH-07 — a platform admin updated this location without a
-      // selector; audit with the location's agency.
-      await logAdminResourceAccess(req, location.supplier?.toString(), 'location:update-location')
 
       const {
         country,
@@ -518,6 +523,14 @@ export const deleteLocation = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GH-07 — a platform admin reached this location without a selector;
+    // audit with the location's agency (the middleware deferred to this
+    // controller because the path carries the location id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetLocation = await Location.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetLocation?.supplier?.toString(), 'location:delete-location')
+    }
+
     const location = await Location.findById(id).populate<{ parkingSpots: env.ParkingSpot[] }>('parkingSpots')
 
     if (!location) {
@@ -537,9 +550,6 @@ export const deleteLocation = async (req: Request, res: Response) => {
     }
     // end of security check
 
-    // GH-07 — a platform admin deleted this location without a
-    // selector; audit with the location's agency.
-    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:delete-location')
 
     await LocationValue.deleteMany({ _id: { $in: location.values } })
     await Location.deleteOne({ _id: id })
@@ -847,7 +857,7 @@ export const checkLocation = async (req: Request, res: Response) => {
 
     // GH-07 — a platform admin probed this location without a selector;
     // audit with the location's agency (platform-wide when it has none).
-    if (req.user?.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
       const location = await Location.findById(_id).select('supplier').lean()
       await logAdminResourceAccess(req, location?.supplier?.toString(), 'location:check-location')
     }
@@ -963,6 +973,14 @@ export const updateImage = async (req: Request, res: Response) => {
     const { file } = req
 
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    // GH-07 — a platform admin reached this location without a selector;
+    // audit with the location's agency (the middleware deferred to this
+    // controller because the path carries the location id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetLocation = await Location.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetLocation?.supplier?.toString(), 'location:update-image')
+    }
+
     const location = await Location.findById(id)
     // A missing location is a 204 (the not-found answer the other
     // image endpoints use), not a 403: the combined guard used to
@@ -978,9 +996,6 @@ export const updateImage = async (req: Request, res: Response) => {
       return
     }
 
-    // GH-07 — a platform admin changed this location's image without a
-    // selector; audit with the location's agency.
-    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:update-image')
 
     if (location) {
       if (location.image) {
@@ -1035,6 +1050,14 @@ export const deleteImage = async (req: Request, res: Response) => {
       throw new Error('Location Id not valid')
     }
     const sessionUser = req.user?._id ? await User.findById(req.user._id).select('_id type') : null
+    // GH-07 — a platform admin reached this location without a selector;
+    // audit with the location's agency (the middleware deferred to this
+    // controller because the path carries the location id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetLocation = await Location.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetLocation?.supplier?.toString(), 'location:delete-image')
+    }
+
     const location = await Location.findById(id)
     // As in updateImage above: a missing location is a 204, not a 403.
     if (!location) {
@@ -1047,9 +1070,6 @@ export const deleteImage = async (req: Request, res: Response) => {
       return
     }
 
-    // GH-07 — a platform admin deleted this location's image without a
-    // selector; audit with the location's agency.
-    await logAdminResourceAccess(req, location.supplier?.toString(), 'location:delete-image')
 
     if (location) {
       if (location.image) {

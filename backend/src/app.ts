@@ -31,6 +31,7 @@ import documentRoutes from './routes/documentRoutes'
 import agencyMembershipRoutes from './routes/agencyMembershipRoutes'
 import cashRoutes from './routes/cashRoutes'
 import invoiceRoutes from './routes/invoiceRoutes'
+import customerInvoiceRoutes from './routes/customerInvoiceRoutes'
 import quoteRoutes from './routes/quoteRoutes'
 import agentRoutes from './routes/agentRoutes'
 import reminderRoutes from './routes/reminderRoutes'
@@ -128,6 +129,7 @@ app.use('/', documentRoutes)
 app.use('/', agencyMembershipRoutes)
 app.use('/', cashRoutes)
 app.use('/', invoiceRoutes)
+app.use('/', customerInvoiceRoutes)
 app.use('/', quoteRoutes)
 app.use('/', agentRoutes)
 app.use('/', reminderRoutes)

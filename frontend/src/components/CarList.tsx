@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
+  Button,
   Card,
   CardContent,
   Typography
@@ -9,8 +10,10 @@ import Const from '@/config/const'
 import env from '@/config/env.config'
 import * as helper from '@/utils/helper'
 import { strings } from '@/lang/cars'
+import { strings as commonStrings } from '@/lang/common'
 import * as CarService from '@/services/CarService'
 import Pager from '@/components/Pager'
+import Error from '@/components/Error'
 import Car from '@/components/Car'
 import Progress from '@/components/Progress'
 
@@ -82,6 +85,8 @@ const CarList = ({
   const [fetch, setFetch] = useState(false)
   const [rows, setRows] = useState<bookcarsTypes.Car[]>([])
   const [rowCount, setRowCount] = useState(0)
+  const [listError, setListError] = useState(false)
+  const lastFetchArgs = useRef<[number, string[] | undefined, string | undefined, bookcarsTypes.CarSpecs | undefined, string[] | undefined, string[] | undefined, string[] | undefined, string[] | undefined, number | undefined, string[] | undefined, string[] | undefined, number | undefined, number | undefined] | null>(null)
   const [totalRecords, setTotalRecords] = useState(0)
   const [page, setPage] = useState(1)
 
@@ -119,6 +124,8 @@ const CarList = ({
     _seats?: number,
   ) => {
     try {
+      setListError(false)
+      lastFetchArgs.current = [_page, _suppliers, _pickupLocation, _carSpecs, __carType, _gearbox, _mileage, _fuelPolicy, _deposit, _ranges, _multimedia, _rating, _seats]
       setLoading(true)
 
       const payload: bookcarsTypes.GetCarsPayload = {
@@ -144,6 +151,9 @@ const CarList = ({
 
       const _data = data && data.length > 0 ? data[0] : { pageInfo: { totalRecord: 0 }, resultData: [] }
       if (!_data) {
+        // R2-A11 - same rule as the catch: no data means no stale rows.
+        setRows([])
+        setListError(true)
         helper.error()
         return
       }
@@ -169,6 +179,9 @@ const CarList = ({
         onLoad({ rows: _data.resultData, rowCount: _totalRecords })
       }
     } catch (err) {
+      // R2-A11 - same rule as Search: a failed fetch must not leave stale rows.
+      setRows([])
+      setListError(true)
       helper.error(err)
     } finally {
       setLoading(false)
@@ -216,6 +229,12 @@ const CarList = ({
   return (
     <>
       <section className={`${className ? `${className} ` : ''}car-list`}>
+        {listError && rows.length === 0 && (
+          <div className="car-list-error">
+            <Error message={strings.CARS_LOAD_ERROR} />
+            <Button variant="outlined" onClick={() => { if (lastFetchArgs.current) fetchData(...lastFetchArgs.current) }}>{commonStrings.RETRY}</Button>
+          </div>
+        )}
         {rows.length === 0
           ? !init
           && !loading

@@ -61,10 +61,10 @@ export const createOrder = (bookingId: string, name: string, description: string
  * @param {string} sessionId
  * @returns {Promise<number>}
  */
-export const checkOrder = (bookingId: string, orderId: string): Promise<number> =>
+export const checkOrder = (bookingId: string, orderId: string): Promise<{ status: number, message?: string }> =>
   axiosInstance
     .post(
       `/api/check-paypal-order/${bookingId}/${orderId}`,
       null
     )
-    .then((res) => res.status)
+    .then((res) => ({ status: res.status, message: typeof res.data === 'string' ? res.data : undefined }))

@@ -345,7 +345,7 @@ describe('F6 / W3 P-3 — one shared outstanding / receivable definition', () =>
   it('overdue endpoint uses the shared charges-included definition', async () => {
     const res = await get(ownerToken, '/api/rental-payments/overdue')
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.2')
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-25.1')
     // F7 — the pin tracks the dictionary version (bumped for the shared
     // receivable + cash-basis net). The outstanding figures below are
     // unchanged.

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   OutlinedInput,
@@ -21,8 +21,7 @@ import {
   Payment as LicenseIcon,
   AssignmentTurnedIn as ChecklistIcon,
 } from '@mui/icons-material'
-import { format } from 'date-fns'
-import { fr, enUS, es, arMA } from 'date-fns/locale'
+import { formatDateTimeCasablanca } from '@/utils/dateHelper'
 import {
   EmbeddedCheckoutProvider,
   EmbeddedCheckout,
@@ -101,6 +100,11 @@ const Checkout = () => {
   const adRequired = true
   const [adManuallyChecked, setAdManuallyChecked] = useState(false)
   const [paymentFailed, setPaymentFailed] = useState(false)
+  // R2-A05 - what the PayPal failure means for the customer's money:
+  // 'not-charged' / 'cancelled' / 'error' / 'order-failed' = nothing
+  // was kept (safe to retry); 'refunded' = taken then returned (safe
+  // to retry); 'support-review' = money state needs a human (no retry).
+  const [payPalFailure, setPayPalFailure] = useState<{ kind: 'not-charged' | 'refunded' | 'support-review' | 'cancelled' | 'error' | 'order-failed', backendMessage?: string } | null>(null)
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string>()
   const [sessionId, setSessionId] = useState<string>()
@@ -116,15 +120,11 @@ const Checkout = () => {
   const additionalDriverBirthDateRef = useRef<HTMLInputElement | null>(null)
   const additionalDriverEmailRef = useRef<HTMLInputElement | null>(null)
   const additionalDriverPhoneRef = useRef<HTMLInputElement | null>(null)
+  const lastPayloadRef = useRef<bookcarsTypes.CheckoutPayload | null>(null)
 
-  const _fr = language === 'fr'
-  const _es = language === 'es'
-  const _ar = language === 'ar'
-  const _locale = _fr ? fr : _es ? es : _ar ? arMA : enUS
-  const _format = _fr ? 'eee d LLL yyyy kk:mm' : 'eee, d LLL yyyy, p'
   const bookingDetailHeight = env.SUPPLIER_IMAGE_HEIGHT + 10
   const days = bookcarsHelper.days(from, to)
-  const daysLabel = from && to && `${helper.getDaysShort(days)} (${bookcarsHelper.capitalize(format(from, _format, { locale: _locale }))} - ${bookcarsHelper.capitalize(format(to, _format, { locale: _locale }))})`
+  const daysLabel = from && to && `${helper.getDaysShort(days)} (${formatDateTimeCasablanca(from)} (${commonStrings.TIMEZONE_MOROCCO}) - ${formatDateTimeCasablanca(to)} (${commonStrings.TIMEZONE_MOROCCO}))`
 
   const schema = createSchema(car, !authenticated)
 
@@ -137,6 +137,7 @@ const Checkout = () => {
     clearErrors,
     setFocus,
     trigger,
+    reset,
   } = useForm<FormFields>({
     resolver: zodResolver(schema),
     mode: 'onBlur',
@@ -151,6 +152,40 @@ const Checkout = () => {
   const additionalDriverPhone = useWatch({ control, name: 'additionalDriverPhone' })
 
   const additionalDriver = useWatch({ control, name: 'additionalDriver' })
+
+  const formValues = useWatch({ control })
+
+  // R2-A03 - keep a tab-scoped draft of the filled form so a refresh
+  // restores it. Driver PII (email/phone/birthDate) lives in
+  // sessionStorage only, never the URL or localStorage. Written
+  // debounced while the form is visible; the licence file is separate
+  // state and is never stored.
+  useEffect(() => {
+    if (!visible) {
+      return undefined
+    }
+    const timer = setTimeout(() => {
+      try {
+        const draft = {
+          ...formValues,
+          birthDate: formValues.birthDate ? new Date(formValues.birthDate).toISOString() : undefined,
+          additionalDriverBirthDate: formValues.additionalDriverBirthDate ? new Date(formValues.additionalDriverBirthDate).toISOString() : undefined,
+        }
+        sessionStorage.setItem('bc-checkout-form', JSON.stringify(draft))
+      } catch {
+        // Storage unavailable - the draft is best-effort.
+      }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [formValues, visible])
+
+  // R2-A03 - the checkout backup (params + form draft) is single-use:
+  // a finished or cancelled checkout must not restore into the next one.
+  const clearCheckoutStorage = () => {
+    sessionStorage.removeItem('bc-checkout-state')
+    sessionStorage.removeItem('bc-checkout-form')
+  }
+
   const payLater = useWatch({ control, name: 'payLater' })
   const payDeposit = useWatch({ control, name: 'payDeposit' })
   const payInFull = useWatch({ control, name: 'payInFull' })
@@ -159,7 +194,74 @@ const Checkout = () => {
     return isMobilePhone(phone)
   }
 
+  // R2-A04 - the checkout success branch, shared by the first submit
+  // and the retry path: a fresh temp booking + fresh clientSecret; the
+  // previous unpaid Void booking is left to the TTL sweeper (the same as
+  // cancelling and starting over today, minus the form loss).
+  const handleCheckoutResult = (result: Awaited<ReturnType<typeof BookingService.checkout>>, opts: { payLater?: boolean, payDeposit?: boolean, payInFull?: boolean }) => {
+    if (result.status === 200) {
+      if (result.financialSnapshot) {
+        setAmountDueNow(result.financialSnapshot.amountDueNowInPaymentCurrency)
+      }
+      if (opts.payLater) {
+        clearCheckoutStorage()
+        setVisible(false)
+        setSuccess(true)
+      }
+      setBookingId(result.bookingId)
+      setSessionId(result.sessionId)
+      if (!opts.payLater && env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.Stripe) {
+        setClientSecret(result.clientSecret || null)
+      } else if (!opts.payLater) {
+        setPayPalLoaded(true)
+      }
+    } else {
+      helper.error()
+    }
+  }
+
+  // R2-A04 - in-place retry after a payment failure: re-run the same
+  // checkout call with the saved payload and the same success branch.
+  // Resetting clientSecret re-enables the radios/switches and brings
+  // back the BOOK button. Only rendered when paymentFailed is true,
+  // i.e. no money was taken - never offered after a success.
+  const retryPayment = async () => {
+    if (!lastPayloadRef.current) {
+      return
+    }
+    setPaymentFailed(false)
+    setClientSecret(null)
+    setPayPalLoaded(false)
+    try {
+      const result = await BookingService.checkout(lastPayloadRef.current)
+      handleCheckoutResult(result, { payLater, payDeposit, payInFull })
+    } catch (err) {
+      const status = (err as { status?: number, response?: { status?: number, data?: unknown } })?.status
+        ?? (err as { response?: { status?: number } })?.response?.status
+      const body = (err as { response?: { data?: unknown } })?.response?.data
+      const message = typeof body === 'string' ? body : ''
+      // R2-A09 - the backend's plain-string body names the problem; map it.
+      // Never claim "email already registered" unless the body says so (it
+      // never does on this funnel - the guest branch reuses an existing user).
+      if (status === 503 && /currency conversion/i.test(message)) {
+        helper.error(err, strings.CHECKOUT_CURRENCY_UNAVAILABLE)
+      } else if (status === 400) {
+        if (/already registered/i.test(message)) helper.error(err, strings.INVALID_REQUEST)
+        else if (/invalid driver information/i.test(message)) helper.error(err, strings.CHECKOUT_INVALID_DRIVER)
+        else if (/minimum age/i.test(message)) helper.error(err, strings.CHECKOUT_MINIMUM_AGE)
+        else if (/deposit payment is not available/i.test(message)) helper.error(err, strings.CHECKOUT_DEPOSIT_UNAVAILABLE)
+        else if (/greater than zero/i.test(message)) helper.error(err, strings.CHECKOUT_AMOUNT_INVALID)
+        else if (/invalid rental dates/i.test(message)) helper.error(err, strings.CHECKOUT_INVALID_DATES)
+        else if (/pick-up and drop-off locations/i.test(message)) helper.error(err, strings.CHECKOUT_LOCATIONS_INVALID)
+        else helper.error(err, strings.CHECKOUT_VALIDATION_ERROR)
+      } else {
+        helper.error(err)
+      }
+    }
+  }
+
   const onSubmit = async (data: FormFields) => {
+    setPayPalFailure(null)
     try {
       if (!car || !pickupLocation || !dropOffLocation || !from || !to) {
         helper.error()
@@ -240,29 +342,28 @@ const Checkout = () => {
         paymentGateway: env.PAYMENT_GATEWAY,
       }
 
+      lastPayloadRef.current = payload
       const result = await BookingService.checkout(payload)
-
-      if (result.status === 200) {
-        if (result.financialSnapshot) {
-          setAmountDueNow(result.financialSnapshot.amountDueNowInPaymentCurrency)
-        }
-        if (payLater) {
-          setVisible(false)
-          setSuccess(true)
-        }
-        setBookingId(result.bookingId)
-        setSessionId(result.sessionId)
-        if (!payLater && env.PAYMENT_GATEWAY === bookcarsTypes.PaymentGateway.Stripe) {
-          setClientSecret(result.clientSecret || null)
-        } else if (!payLater) {
-          setPayPalLoaded(true)
-        }
-      } else {
-        helper.error()
-      }
+      handleCheckoutResult(result, { payLater, payDeposit, payInFull })
     } catch (err) {
-      if ((err as any)?.status === 400) {
-        helper.error(err, strings.INVALID_REQUEST)
+      const status = (err as { status?: number, response?: { status?: number, data?: unknown } })?.status
+        ?? (err as { response?: { status?: number } })?.response?.status
+      const body = (err as { response?: { data?: unknown } })?.response?.data
+      const message = typeof body === 'string' ? body : ''
+      // R2-A09 - the backend's plain-string body names the problem; map it.
+      // Never claim "email already registered" unless the body says so (it
+      // never does on this funnel - the guest branch reuses an existing user).
+      if (status === 503 && /currency conversion/i.test(message)) {
+        helper.error(err, strings.CHECKOUT_CURRENCY_UNAVAILABLE)
+      } else if (status === 400) {
+        if (/already registered/i.test(message)) helper.error(err, strings.INVALID_REQUEST)
+        else if (/invalid driver information/i.test(message)) helper.error(err, strings.CHECKOUT_INVALID_DRIVER)
+        else if (/minimum age/i.test(message)) helper.error(err, strings.CHECKOUT_MINIMUM_AGE)
+        else if (/deposit payment is not available/i.test(message)) helper.error(err, strings.CHECKOUT_DEPOSIT_UNAVAILABLE)
+        else if (/greater than zero/i.test(message)) helper.error(err, strings.CHECKOUT_AMOUNT_INVALID)
+        else if (/invalid rental dates/i.test(message)) helper.error(err, strings.CHECKOUT_INVALID_DATES)
+        else if (/pick-up and drop-off locations/i.test(message)) helper.error(err, strings.CHECKOUT_LOCATIONS_INVALID)
+        else helper.error(err, strings.CHECKOUT_VALIDATION_ERROR)
       } else {
         helper.error(err)
       }
@@ -292,22 +393,42 @@ const Checkout = () => {
     setAuthenticated(_user !== undefined)
     setLanguage(UserService.getLanguage())
 
-    const { state } = location
-    if (!state) {
+    // R2-A03 - resolve the checkout inputs: router state first, then
+    // the sessionStorage backup written by Car.tsx (refresh-proof).
+    const resolved = (() => {
+      const { state } = location
+      if (state?.carId && state?.pickupLocationId && state?.dropOffLocationId && state?.from && state?.to) {
+        return {
+          carId: state.carId,
+          pickupLocationId: state.pickupLocationId,
+          dropOffLocationId: state.dropOffLocationId,
+          from: state.from instanceof Date ? state.from : new Date(state.from),
+          to: state.to instanceof Date ? state.to : new Date(state.to),
+        }
+      }
+      try {
+        const stored = sessionStorage.getItem('bc-checkout-state')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (parsed?.carId && parsed?.pickupLocationId && parsed?.dropOffLocationId && parsed?.from && parsed?.to) {
+            const from = new Date(parsed.from)
+            const to = new Date(parsed.to)
+            if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+              return { carId: parsed.carId, pickupLocationId: parsed.pickupLocationId, dropOffLocationId: parsed.dropOffLocationId, from, to }
+            }
+          }
+        }
+      } catch {
+        // Corrupted storage counts as missing - the NoMatch branch below.
+      }
+      return null
+    })()
+    if (!resolved) {
       setNoMatch(true)
       return
     }
 
-    const { carId } = state
-    const { pickupLocationId } = state
-    const { dropOffLocationId } = state
-    const { from: _from } = state
-    const { to: _to } = state
-
-    if (!carId || !pickupLocationId || !dropOffLocationId || !_from || !_to) {
-      setNoMatch(true)
-      return
-    }
+    const { carId, pickupLocationId, dropOffLocationId, from: _from, to: _to } = resolved
 
     let _car
     let _pickupLocation
@@ -366,6 +487,23 @@ const Checkout = () => {
       setValue('collisionDamageWaiver', included(_car.collisionDamageWaiver))
       setValue('fullInsurance', included(_car.fullInsurance))
       setLicense(_user?.license || null)
+      // R2-A03 - restore the saved form draft, but only when it belongs
+      // to this same car: a draft from an earlier booking must not leak
+      // its option choices into a different car's form.
+      try {
+        const storedState = sessionStorage.getItem('bc-checkout-state')
+        const draftRaw = sessionStorage.getItem('bc-checkout-form')
+        if (storedState && draftRaw && JSON.parse(storedState).carId === carId) {
+          const draft = JSON.parse(draftRaw)
+          reset({
+            ...draft,
+            birthDate: draft.birthDate ? new Date(draft.birthDate) : undefined,
+            additionalDriverBirthDate: draft.additionalDriverBirthDate ? new Date(draft.additionalDriverBirthDate) : undefined,
+          })
+        }
+      } catch {
+        // Corrupted storage counts as no draft.
+      }
       setVisible(true)
     } catch (err) {
       helper.error(err)
@@ -767,6 +905,9 @@ const Checkout = () => {
                                     <span className="payment-button">
                                       <span>{strings.PAY_ONLINE}</span>
                                       <span className="payment-info">{strings.PAY_ONLINE_INFO}</span>
+                                      {depositPrice > 0 && (
+                                        <span className="payment-info">{strings.PAY_ONLINE_DEPOSIT_DUE.replace('{amount}', bookcarsHelper.formatPrice(depositPrice, commonStrings.CURRENCY, language))}</span>
+                                      )}
                                     </span>
                                   )}
                                 />
@@ -830,6 +971,15 @@ const Checkout = () => {
                             language,
                           )
                         }
+                    {depositPrice > 0 && !payDeposit && !payInFull && (
+                      <div className="payment-info">
+                        <div className="payment-info-title">{strings.DEPOSIT_DUE_AT_PICKUP}</div>
+                        <div className="payment-info-price">
+                          {bookcarsHelper.formatPrice(depositPrice, commonStrings.CURRENCY, language)}
+                        </div>
+                      </div>
+                    )}
+
                       </div>
                     </div>
 
@@ -863,6 +1013,7 @@ const Checkout = () => {
                                   return orderId || ''
                                 } catch (err) {
                                   setPaymentFailed(true)
+                                  setPayPalFailure({ kind: 'order-failed' })
                                   helper.error(err)
                                   return ''
                                 }
@@ -872,16 +1023,28 @@ const Checkout = () => {
                                   setPayPalProcessing(true)
                                   await actions.order?.capture()
                                   const { orderID } = data
-                                  const status = await PayPalService.checkOrder(bookingId!, orderID)
-
+                                  const { status } = await PayPalService.checkOrder(bookingId!, orderID)
                                   if (status === 200) {
+                                    clearCheckoutStorage()
                                     setVisible(false)
                                     setSuccess(true)
                                   } else {
                                     setPaymentFailed(true)
+                                    setPayPalFailure({ kind: 'not-charged' }) // non-200 via checkOrder resolve is unreachable in practice (axios rejects); kept for safety
                                   }
                                 } catch (err) {
-                                  helper.error(err)
+                                  const status = (err as any)?.response?.status as number | undefined
+                                  const message = (err as any)?.response?.data as string | undefined
+                                  setPaymentFailed(true)
+                                  // 204 / 400 -> nothing was kept by the backend (no capture, or the
+                                  // capture was refunded before answering): safe to retry (item 5).
+                                  // 409 with 'was refunded' -> money taken then returned: retry allowed.
+                                  // 409 'no verified capture' / 500 / 503 -> money state needs a human:
+                                  // no in-place retry, show the support-review message.
+                                  if (status === 204 || status === 400) setPayPalFailure({ kind: 'not-charged' })
+                                  else if (status === 409 && /was refunded/i.test(message || '')) setPayPalFailure({ kind: 'refunded' })
+                                  else setPayPalFailure({ kind: 'support-review', backendMessage: message })
+                                  helper.error(err) // keep the existing toast; the inline message below carries the meaning
                                 } finally {
                                   setPayPalProcessing(false)
                                 }
@@ -891,9 +1054,13 @@ const Checkout = () => {
                               }}
                               onCancel={() => {
                                 setPayPalProcessing(false)
+                                setPaymentFailed(true)
+                                setPayPalFailure({ kind: 'cancelled' })
                               }}
                               onError={() => {
                                 setPayPalProcessing(false)
+                                setPaymentFailed(true)
+                                setPayPalFailure({ kind: 'error' })
                               }}
                             />
                           </div>
@@ -937,6 +1104,7 @@ const Checkout = () => {
                           } catch (err) {
                             helper.error(err)
                           } finally {
+                            clearCheckoutStorage()
                             navigate('/')
                           }
                         }}
@@ -946,7 +1114,14 @@ const Checkout = () => {
                     </div>
                   </div>
                   <div className="form-error">
-                    {paymentFailed && <Error message={strings.PAYMENT_FAILED} />}
+                    {paymentFailed && !payPalFailure && <Error message={strings.PAYMENT_FAILED} />}
+                    {paymentFailed && payPalFailure?.kind === 'not-charged' && <Error message={strings.PAYPAL_NOT_CHARGED} />}
+                    {paymentFailed && payPalFailure?.kind === 'refunded' && <Error message={strings.PAYPAL_REFUNDED} />}
+                    {paymentFailed && payPalFailure?.kind === 'support-review' && <Error message={strings.PAYPAL_SUPPORT_REVIEW} />}
+                    {paymentFailed && payPalFailure?.kind === 'cancelled' && <Error message={strings.PAYPAL_CANCELLED} />}
+                    {paymentFailed && payPalFailure?.kind === 'error' && <Error message={strings.PAYPAL_ERROR} />}
+                    {paymentFailed && payPalFailure?.kind === 'order-failed' && <Error message={strings.PAYPAL_ORDER_FAILED} />}
+                    {paymentFailed && (!payPalFailure || payPalFailure.kind !== 'support-review') && <Button variant="outlined" onClick={retryPayment}>{strings.TRY_AGAIN}</Button>}
                     {recaptchaError && <Error message={commonStrings.RECAPTCHA_ERROR} />}
                     {licenseRequired && <Error message={strings.LICENSE_REQUIRED} />}
                   </div>
@@ -960,7 +1135,7 @@ const Checkout = () => {
 
         {user?.blacklisted && <Unauthorized />}
 
-        {noMatch && <NoMatch hideHeader />}
+        {noMatch && <NoMatch hideHeader variant="lost-search" />}
 
         {loadError && <Error message={commonStrings.GENERIC_ERROR} />}
 

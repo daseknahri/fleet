@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { Button } from '@mui/material'
 import { Tune as FiltersIcon } from '@mui/icons-material'
 import * as bookcarsTypes from ':bookcars-types'
@@ -37,6 +37,53 @@ import '@/assets/css/search.css'
 
 const Search = () => {
   const location = useLocation()
+  const [searchParams] = useSearchParams()
+
+  // R2-A03 - resolve the search inputs in order: URL query (shareable,
+  // refresh-proof) -> router state (normal navigation) -> sessionStorage
+  // (tab-scoped backup, carries the filter ranges). Dates are parsed
+  // back from ISO strings; invalid dates count as missing.
+  const resolveSearchParams = (): {
+    pickupLocationId: string, dropOffLocationId: string, from: Date, to: Date, ranges?: bookcarsTypes.CarRange[],
+  } | null => {
+    const qPickup = searchParams.get('pickupLocationId')
+    const qDropOff = searchParams.get('dropOffLocationId')
+    const qFrom = searchParams.get('from')
+    const qTo = searchParams.get('to')
+    if (qPickup && qDropOff && qFrom && qTo) {
+      const from = new Date(qFrom)
+      const to = new Date(qTo)
+      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+        return { pickupLocationId: qPickup, dropOffLocationId: qDropOff, from, to }
+      }
+    }
+    const { state } = location
+    if (state?.pickupLocationId && state?.dropOffLocationId && state?.from && state?.to) {
+      return {
+        pickupLocationId: state.pickupLocationId,
+        dropOffLocationId: state.dropOffLocationId,
+        from: state.from instanceof Date ? state.from : new Date(state.from),
+        to: state.to instanceof Date ? state.to : new Date(state.to),
+        ranges: state.ranges,
+      }
+    }
+    try {
+      const stored = sessionStorage.getItem('bc-search-state')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed?.pickupLocationId && parsed?.dropOffLocationId && parsed?.from && parsed?.to) {
+          const from = new Date(parsed.from)
+          const to = new Date(parsed.to)
+          if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+            return { pickupLocationId: parsed.pickupLocationId, dropOffLocationId: parsed.dropOffLocationId, from, to, ranges: parsed.ranges }
+          }
+        }
+      }
+    } catch {
+      // Corrupted storage counts as missing - the NoMatch branch below.
+    }
+    return null
+  }
 
   const [visible, setVisible] = useState(false)
   const [noMatch, setNoMatch] = useState(false)
@@ -50,6 +97,7 @@ const Search = () => {
   const [supplierIds, setSupplierIds] = useState<string[]>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [suppliersError, setSuppliersError] = useState(false)
   const [carSpecs, setCarSpecs] = useState<bookcarsTypes.CarSpecs>({})
   const [carType, setCarType] = useState(bookcarsHelper.getAllCarTypes())
   const [gearbox, setGearbox] = useState([bookcarsTypes.GearboxType.Automatic, bookcarsTypes.GearboxType.Manual])
@@ -79,33 +127,42 @@ const Search = () => {
     fetchSuppliers()
   }, [])
 
-  useEffect(() => {
-    const updateSuppliers = async () => {
-      if (pickupLocation) {
-        const payload: bookcarsTypes.GetCarsPayload = {
-          pickupLocation: pickupLocation._id,
-          carSpecs,
-          carType,
-          gearbox,
-          mileage,
-          fuelPolicy,
-          deposit,
-          ranges,
-          multimedia,
-          rating,
-          seats,
-          from,
-          to,
-        }
-        const _suppliers = await SupplierService.getFrontendSuppliers(payload)
-        setSuppliers(_suppliers)
+  const updateSuppliers = async () => {
+    if (!pickupLocation) return
+    try {
+      const payload: bookcarsTypes.GetCarsPayload = {
+        pickupLocation: pickupLocation._id,
+        carSpecs,
+        carType,
+        gearbox,
+        mileage,
+        fuelPolicy,
+        deposit,
+        ranges,
+        multimedia,
+        rating,
+        seats,
+        from,
+        to,
       }
+      const _suppliers = await SupplierService.getFrontendSuppliers(payload)
+      setSuppliers(_suppliers)
+      setSuppliersError(false)
+    } catch (err) {
+      // R2-A11 - never leave the previous suppliers on screen after a
+      // filter change failed: the list would show cars that don't match
+      // the filters. Clear + inline error + Retry.
+      setSuppliers([])
+      setSuppliersError(true)
+      helper.error(err, strings.FETCH_SUPPLIERS_ERROR)
     }
+  }
 
+  useEffect(() => {
     if (from && to) {
       updateSuppliers()
     }
-  }, [pickupLocation, carSpecs, carType, gearbox, mileage, fuelPolicy, deposit, ranges, multimedia, rating, seats, from, to])
+  }, [pickupLocation, carSpecs, carType, gearbox, mileage, fuelPolicy, deposit, ranges, multimedia, rating, seats, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCarFilterSubmit = async (filter: bookcarsTypes.CarFilter) => {
     if (suppliers.length < allSuppliers.length) {
@@ -164,22 +221,14 @@ const Search = () => {
   }
 
   const onLoad = async (user?: bookcarsTypes.User) => {
-    const { state } = location
-    if (!state) {
-      setNoMatch(true)
-      return
-    }
-
-    const { pickupLocationId } = state
-    const { dropOffLocationId } = state
-    const { from: _from } = state
-    const { to: _to } = state
-
-    if (!pickupLocationId || !dropOffLocationId || !_from || !_to) {
+    const resolved = resolveSearchParams()
+    if (!resolved) {
       setLoading(false)
       setNoMatch(true)
       return
     }
+
+    const { pickupLocationId, dropOffLocationId, from: _from, to: _to } = resolved
 
     let _pickupLocation
     let _dropOffLocation
@@ -229,9 +278,8 @@ const Search = () => {
       setSuppliers(_suppliers)
       setSupplierIds(_supplierIds)
 
-      const { ranges: _ranges } = state
-      if (_ranges) {
-        setRanges(_ranges)
+      if (resolved.ranges) {
+        setRanges(resolved.ranges)
       }
 
       // if (_pickupLocation.latitude && _pickupLocation.longitude) {
@@ -318,6 +366,12 @@ const Search = () => {
               )}
             </div>
             <div className="col-2">
+              {suppliersError && (
+                <div className="search-error">
+                  <Error message={strings.FETCH_SUPPLIERS_ERROR} />
+                  <Button variant="outlined" onClick={() => updateSuppliers()}>{commonStrings.RETRY}</Button>
+                </div>
+              )}
               <CarList
                 carSpecs={carSpecs}
                 suppliers={supplierIds}
@@ -352,7 +406,7 @@ const Search = () => {
           onClose={() => setOpenMapDialog(false)}
         />
 
-        {noMatch && <NoMatch hideHeader />}
+        {noMatch && <NoMatch hideHeader variant="lost-search" />}
 
         {error && <Error message={commonStrings.GENERIC_ERROR} />}
       </Layout>

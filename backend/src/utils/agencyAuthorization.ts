@@ -332,13 +332,15 @@ export const logAdminPlatformWideAccess = async (
 
 /**
  * GH-07 — audit helper for controllers. A platform admin reached a
- * single resource without an agency selector (the middleware deferred
- * to this controller because the path/body carries a resource id):
- * audit with the resource's agency. Skipped when the middleware
- * already logged the call (a selector was sent) and for non-admin
- * callers acting in their own agency (not cross-agency access). When
- * the resource itself has no agency (platform reference data), the
- * call is logged platform-wide instead of not at all.
+ * single resource (the middleware deferred to this controller because
+ * the path/body carries a resource id): audit with the resource's
+ * agency. R2-B15 — the middleware no longer logs resource-id calls
+ * at all, so a selector no longer suppresses this helper: the
+ * controller is the sole logger for the resource's agency. Skipped
+ * only for non-admin callers acting in their own agency (not
+ * cross-agency access). When the resource itself has no agency
+ * (platform reference data), the call is logged platform-wide
+ * instead of not at all.
  */
 export const logAdminResourceAccess = async (
   req: Request,
@@ -346,9 +348,6 @@ export const logAdminResourceAccess = async (
   action: string,
 ): Promise<void> => {
   if (req.user?.type !== bookcarsTypes.UserType.Admin) {
-    return
-  }
-  if (adminSelectorSupplierIds(req).length > 0) {
     return
   }
   if (supplierId) {
@@ -410,6 +409,11 @@ export const hasResourceIdParam = (req: Request): boolean => {
       return (value as { _id: string })._id
     }
     return undefined
+  }
+  // R2-B15 — a booking-scoped write submits the whole booking object
+  // (update), not a bare id: its _id is the resource id.
+  if (resourceId(body.booking)) {
+    return true
   }
   if (resourceId(body.car) || resourceId(body.location)) {
     return true
@@ -475,7 +479,12 @@ export const requireAnyAgencyPermission = (permissions: AgencyPermission[], opti
       supplierId: supplierIds[0] || '',
       role: bookcarsTypes.AgencyRole.Owner,
     }
-    await logAdminCrossAgencyAccess(req, supplierIds, `agency:${permissions.join('+')}`)
+    // R2-B15 - a resource-id call is attributed by the controller
+    // with the resource's agency; the middleware must not also log
+    // the selector agency for the same call.
+    if (!hasResourceIdParam(req)) {
+      await logAdminCrossAgencyAccess(req, supplierIds, `agency:${permissions.join('+')}`)
+    }
     next()
     return
   }
@@ -542,7 +551,12 @@ export const requireAgencyPermission = (permission: AgencyPermission, options?: 
       supplierId: supplierIds[0] || '',
       role: bookcarsTypes.AgencyRole.Owner,
     }
-    await logAdminCrossAgencyAccess(req, supplierIds, `agency:${permission}`)
+    // R2-B15 - a resource-id call is attributed by the controller
+    // with the resource's agency; the middleware must not also log
+    // the selector agency for the same call.
+    if (!hasResourceIdParam(req)) {
+      await logAdminCrossAgencyAccess(req, supplierIds, `agency:${permission}`)
+    }
     next()
     return
   }

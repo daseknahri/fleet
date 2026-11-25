@@ -15,6 +15,7 @@ import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
 import AgencyMembership from '../src/models/AgencyMembership'
+import Reminder from '../src/models/Reminder'
 import { renderNotificationTemplate } from '../src/utils/notificationTemplates'
 
 // GH-03 + GH-14 + GH-11 / Wave 3.2 — the five new auto-reminder
@@ -52,8 +53,12 @@ jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
 }))
 
 let runAutoReminderPass: (now?: Date, opts?: { force?: boolean }) => Promise<{
-  skipped: boolean, holdExpiring: number, paymentDue: number, missedPickup: number,
-  overdue: number, overdueEscalated: number, pendingRefunds: number,
+  skipped: boolean, pickups: number, returns: number, holdExpiring: number, paymentDue: number,
+  missedPickup: number, overdue: number, overdueEscalated: number, confirmedUnpaid: number,
+  expiries: number, recaps: number, staleWorkOrders: number, pendingRefunds: number,
+}>
+let notifyReminderFired: (reminder: any, occurrenceAt: Date, offsetHours: number) => Promise<{
+  inAppCount: number, emailCount: number, pushCount: number, recipientCount: number,
 }>
 
 const day = 86400000
@@ -134,6 +139,7 @@ const deliveries = (filter: Record<string, unknown>) =>
 
 beforeAll(async () => {
   ;({ runAutoReminderPass } = await import('../src/utils/autoReminders'))
+  ;({ notifyReminderFired } = await import('../src/utils/reminderNotify'))
   await databaseHelper.connect(env.DB_URI, false, false)
   const passwordHash = await authHelper.hashPassword('Un1tTest5')
   const admin = await User.create({
@@ -275,13 +281,15 @@ describe('GH-03 / GH-14 / GH-11 — Wave 3.2 reminder events', () => {
     await runAutoReminderPass(week1, { force: true })
     expect((await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key1, channel: 'inApp', status: 'sent' })).length)
       .toBe(rows1.length)
-    // Next week: it repeats, and the count is now #2.
+    // Next week: it repeats, and the count is now #5 - R2-B19 counts
+    // reminders SENT (one weekly pass sends 4 auto.overdue rows: 2
+    // recipients x in-app + email), not weeks overdue.
     const week2 = new Date(week1.getTime() + 7 * day)
     await runAutoReminderPass(week2, { force: true })
     const key2 = `overdue:${booking._id}:${isoWeekKey(week2)}`
     const rows2 = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key2, channel: 'inApp', status: 'sent' })
     expect(rows2.length).toBeGreaterThanOrEqual(1)
-    expect(rows2[0].body).toMatch(/reminder #2/)
+    expect(rows2[0].body).toMatch(/reminder #5/)
   })
 
   it('overdue at 30+ days escalates to the owner only', async () => {
@@ -378,12 +386,13 @@ describe('GH-22 — Casablanca wall days', () => {
     await runAutoReminderPass(new Date('2026-07-06T01:00:00.000Z'), { force: true })
     expect((await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key1, channel: 'inApp', status: 'sent' })).length)
       .toBe(rows1.length)
-    // Next Casablanca week: repeats, count #2.
+    // Next Casablanca week: repeats, count #5 - R2-B19 counts
+    // reminders SENT (4 per weekly pass), not weeks overdue.
     await runAutoReminderPass(new Date('2026-07-13T01:00:00.000Z'), { force: true })
     const key2 = `overdue:${booking._id}:2026-W29`
     const rows2 = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key2, channel: 'inApp', status: 'sent' })
     expect(rows2.length).toBeGreaterThanOrEqual(1)
-    expect(rows2[0].body).toMatch(/reminder #2/)
+    expect(rows2[0].body).toMatch(/reminder #5/)
   })
 })
 
@@ -462,5 +471,143 @@ describe('GH-35 — in-app rows carry their subject (deep links)', () => {
     expect(notes[0].subjectType).toBe('maintenance-schedule')
     expect(notes[0].booking).toBeFalsy()
     expect(notes[0].car).toBeFalsy()
+  })
+
+  // R2-B01 - a failed AUTO delivery releases its claim (re-claimable
+  // next pass); a failed MANUAL reminder keeps its failed row for the
+  // retry endpoint.
+  it('R2-B01 failed auto delivery is retried next pass; failed manual reminder keeps its failed row', async () => {
+    const booking = await makeBooking('b01-hold', { from: at(1), to: at(3), price: 300, deposit: 0, expireAt: at(0.5), mode: bookcarsTypes.CheckoutPaymentMode.PayLater })
+    mailSendMock.mockRejectedValue(new Error('smtp down'))
+    try {
+      await runAutoReminderPass(new Date(), { force: true })
+      // No failed auto rows: the claim is released, not recorded failed.
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'email', status: 'failed' })).length).toBe(0)
+      // In-app still delivered; email delivered nothing yet.
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'inApp', status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'email', status: 'sent' })).length).toBe(0)
+      // Mailer back: the next pass delivers the email legs.
+      mailSendMock.mockResolvedValue({ messageId: 'w32-test-message-id' })
+      await runAutoReminderPass(new Date(), { force: true })
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'email', status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'email', status: 'failed' })).length).toBe(0)
+    } finally {
+      mailSendMock.mockResolvedValue({ messageId: 'w32-test-message-id' })
+    }
+    // Manual reminder: mailer down again, the failed row STAYS.
+    mailSendMock.mockRejectedValue(new Error('smtp down'))
+    let reminder: any
+    try {
+      reminder = await Reminder.create({
+        supplier: supplier._id, title: 'R2-B01 manual', category: bookcarsTypes.ReminderCategory.Custom,
+        linkType: bookcarsTypes.ReminderLinkType.None, recurrence: { kind: bookcarsTypes.ReminderRecurrenceKind.Once },
+        firstDueAt: new Date(), channels: { inApp: true, email: true, push: false }, active: true,
+      })
+      await notifyReminderFired(reminder, new Date(), 0)
+      expect((await deliveries({ templateKey: 'reminder.manual', subjectId: String(reminder._id), channel: 'email', status: 'failed' })).length).toBeGreaterThanOrEqual(1)
+    } finally {
+      mailSendMock.mockResolvedValue({ messageId: 'w32-test-message-id' })
+      if (reminder) {
+        await Reminder.deleteOne({ _id: reminder._id })
+      }
+    }
+  })
+
+  // R2-B06 - the owner's master email toggle gates the customer leg too.
+  it('R2-B06 owner email toggle off suppresses customer + staff emails, in-app still fires', async () => {
+    const booking = await makeBooking('b06-hold', { from: at(1), to: at(3), price: 300, deposit: 0, expireAt: at(0.5), mode: bookcarsTypes.CheckoutPaymentMode.PayLater })
+    await User.updateOne({ _id: supplier._id }, { enableEmailNotifications: false })
+    try {
+      await runAutoReminderPass(new Date(), { force: true })
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'email' })).length).toBe(0)
+      expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking._id), channel: 'inApp', status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+    } finally {
+      await User.updateOne({ _id: supplier._id }, { enableEmailNotifications: true })
+    }
+    // Toggle back on: a fresh booking's hold email now sends.
+    const booking2 = await makeBooking('b06-hold-on', { from: at(1), to: at(3), price: 300, deposit: 0, expireAt: at(0.5), mode: bookcarsTypes.CheckoutPaymentMode.PayLater })
+    await runAutoReminderPass(new Date(), { force: true })
+    expect((await deliveries({ templateKey: 'auto.holdExpiring', subjectId: String(booking2._id), channel: 'email', status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+  })
+
+  // R2-B07 - payment-due covers today AND tomorrow, once per day.
+  it('R2-B07 payment-due fires for pickups today and tomorrow, not 3 days out, once per day', async () => {
+    const today = await makeBooking('b07-today', { from: at(0), to: at(2), price: 300, deposit: 0 })
+    const tomorrow = await makeBooking('b07-tomorrow', { from: at(1), to: at(3), price: 300, deposit: 0 })
+    const later = await makeBooking('b07-later', { from: at(3), to: at(5), price: 300, deposit: 0 })
+    await runAutoReminderPass(new Date(), { force: true })
+    expect((await deliveries({ templateKey: 'auto.paymentDue', subjectId: String(today._id), status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+    expect((await deliveries({ templateKey: 'auto.paymentDue', subjectId: String(tomorrow._id), status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+    expect((await deliveries({ templateKey: 'auto.paymentDue', subjectId: String(later._id) })).length).toBe(0)
+    const countBefore = (await deliveries({ templateKey: 'auto.paymentDue', subjectId: String(today._id), status: 'sent' })).length
+    await runAutoReminderPass(new Date(), { force: true })
+    expect((await deliveries({ templateKey: 'auto.paymentDue', subjectId: String(today._id), status: 'sent' })).length).toBe(countBefore)
+  })
+
+  // R2-B08 - missed-pickup chase stops after 7 days, and on no-show / handover.
+  it('R2-B08 missed-pickup chase is bounded at 7 days and ends on no-show or handover', async () => {
+    const recent = await makeBooking('b08-recent', { from: at(-3), to: at(-1), price: 300, deposit: 0 })
+    const edge = await makeBooking('b08-edge', { from: at(-7), to: at(-5), price: 300, deposit: 0 })
+    const old = await makeBooking('b08-old', { from: at(-8), to: at(-6), price: 300, deposit: 0 })
+    const noShow = await makeBooking('b08-noshow', { from: at(-3), to: at(-1), price: 300, deposit: 0 })
+    await Booking.updateOne({ _id: noShow._id }, { noShowAt: new Date() })
+    const handed = await makeBooking('b08-handed', { from: at(-3), to: at(-1), price: 300, deposit: 0, lifecycle: bookcarsTypes.ContractLifecycle.Active })
+    await runAutoReminderPass(new Date(), { force: true })
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(recent._id), status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(edge._id), status: 'sent' })).length).toBeGreaterThanOrEqual(1)
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(old._id) })).length).toBe(0)
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(noShow._id) })).length).toBe(0)
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(handed._id) })).length).toBe(0)
+  })
+
+  // R2-B14 - pass counts are deliveries, not attempts.
+  it('R2-B14 pass counts are deliveries, not attempts', async () => {
+    const booking = await makeBooking('b14-pickup', { from: at(0), to: at(2), price: 300, deposit: 0 })
+    const r1 = await runAutoReminderPass(new Date(), { force: true })
+    // 2 recipients (supplier + staff) x in-app + email = 4; push has no
+    // tokens, so it delivers 0 and counts 0.
+    expect(r1.pickups).toBe(4)
+    // Immediate second pass: every claim already taken, all counts 0.
+    const r2 = await runAutoReminderPass(new Date(), { force: true })
+    expect(r2.pickups).toBe(0)
+    expect(r2.paymentDue).toBe(0)
+    expect(r2.missedPickup).toBe(0)
+    // Mailer down: email legs deliver 0, in-app still counts.
+    mailSendMock.mockRejectedValue(new Error('smtp down'))
+    try {
+      const booking2 = await makeBooking('b14-mailer', { from: at(0), to: at(2), price: 300, deposit: 0 })
+      const r3 = await runAutoReminderPass(new Date(), { force: true })
+      expect(r3.pickups).toBe(2)
+    } finally {
+      mailSendMock.mockResolvedValue({ messageId: 'w32-test-message-id' })
+    }
+  })
+
+  // R2-B19 - the repeat count counts reminders SENT, not weeks overdue.
+  it('R2-B19 overdue repeat count counts reminders sent, not weeks overdue', async () => {
+    const booking = await makeBooking('b19-missed-week', { from: at(-25), to: at(-22), price: 200, deposit: 0 })
+    // One prior sent row, 22 days overdue (old formula would say #4).
+    await NotificationDelivery.create({
+      supplier: supplier._id, templateKey: 'auto.overdue', subjectType: 'booking',
+      subjectId: String(booking._id), dedupeKey: `overdue:${booking._id}:2026-W01`,
+      channel: 'inApp', recipient: supplier._id, subject: 'seed', body: 'reminder #1', status: 'sent',
+    })
+    const now = new Date()
+    await runAutoReminderPass(now, { force: true })
+    const key = `overdue:${booking._id}:${isoWeekKey(now)}`
+    const rows = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(rows[0].body).toMatch(/reminder #2/)
+    expect(rows[0].body).not.toMatch(/reminder #4/)
+  })
+
+  it('R2-B19 first overdue reminder is #1 with no prior rows', async () => {
+    const booking = await makeBooking('b19-first', { from: at(-10), to: at(-8), price: 200, deposit: 0 })
+    const now = new Date()
+    await runAutoReminderPass(now, { force: true })
+    const key = `overdue:${booking._id}:${isoWeekKey(now)}`
+    const rows = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(rows[0].body).toMatch(/reminder #1/)
   })
 })

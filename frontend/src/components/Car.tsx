@@ -24,6 +24,7 @@ import * as helper from '@/utils/helper'
 import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/cars'
 import Badge from '@/components/Badge'
+import Error from '@/components/Error'
 import * as UserService from '@/services/UserService'
 import * as PaymentService from '@/services/PaymentService'
 
@@ -76,6 +77,18 @@ const Car = ({
   const [fullInsurance, setFullInsurance] = useState('')
   const [additionalDriver, setAdditionalDriver] = useState('')
   const [loading, setLoading] = useState(true)
+  const [conversionFallback, setConversionFallback] = useState(false)
+  const [priceError, setPriceError] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+
+  const handleRetry = () => {
+    // R2-A14 - the option/price fetches live in effects; a retryKey bump
+    // re-runs init() + fetchPrice() + fetchDeposit().
+    setPriceError(false)
+    setConversionFallback(false)
+    setLoading(true)
+    setRetryKey((k) => k + 1)
+  }
 
   useEffect(() => {
     setLanguage(UserService.getLanguage())
@@ -84,44 +97,67 @@ const Car = ({
   useEffect(() => {
     const fetchPrice = async () => {
       if (from && to) {
-        const _totalPrice = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from as Date, to as Date, car.supplier.priceChangeRate || 0))
-        setTotalPrice(_totalPrice)
+        try {
+          const _totalPrice = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from as Date, to as Date, car.supplier.priceChangeRate || 0))
+          setTotalPrice(_totalPrice)
+        } catch {
+          // R2-A14 - FX down: show the base-currency price with a notice
+          // instead of a skeleton forever. The raw total is in BASE_CURRENCY.
+          setTotalPrice(bookcarsHelper.calculateTotalPrice(car, from as Date, to as Date, car.supplier.priceChangeRate || 0))
+          setConversionFallback(true)
+        }
         setDays(bookcarsHelper.days(from, to))
       }
     }
 
     fetchPrice()
-  }, [from, to]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, retryKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const fetchDeposit = async () => {
       if (car.deposit > 0) {
-        const _deposit = await PaymentService.convertPrice(car.deposit)
-        setDeposit(_deposit)
+        try {
+          const _deposit = await PaymentService.convertPrice(car.deposit)
+          // R2-A08 - same markup as checkout (Checkout.tsx onLoad): the card
+          // must quote the deposit the customer will actually owe at pickup.
+          setDeposit(_deposit + _deposit * ((car.supplier.priceChangeRate || 0) / 100))
+        } catch {
+          // R2-A14 - FX down: raw deposit + the R2-A08 markup, with a notice.
+          setDeposit(car.deposit + car.deposit * ((car.supplier.priceChangeRate || 0) / 100))
+          setConversionFallback(true)
+        }
       } else {
         setDeposit(0)
       }
     }
 
     fetchDeposit()
-  }, [car.deposit])
+  }, [car.deposit, retryKey])
 
   useEffect(() => {
     const init = async () => {
       const priceChangeRate = car.supplier.priceChangeRate || 0
-      const _cancellation = (car.cancellation > -1 && (await helper.getCancellation(car.cancellation, language, priceChangeRate))) || ''
-      const _amendments = (car.amendments > -1 && (await helper.getAmendments(car.amendments, language, priceChangeRate))) || ''
-      const _theftProtection = (car.theftProtection > -1 && (await helper.getTheftProtection(car.theftProtection, language, priceChangeRate))) || ''
-      const _collisionDamageWaiver = (car.collisionDamageWaiver > -1 && (await helper.getCollisionDamageWaiver(car.collisionDamageWaiver, language, priceChangeRate))) || ''
-      const _fullInsurance = (car.fullInsurance > -1 && (await helper.getFullInsurance(car.fullInsurance, language, priceChangeRate))) || ''
-      const _additionalDriver = (car.additionalDriver > -1 && (await helper.getAdditionalDriver(car.additionalDriver, language, priceChangeRate))) || ''
+      try {
+        const _cancellation = (car.cancellation > -1 && (await helper.getCancellation(car.cancellation, language, priceChangeRate))) || ''
+        const _amendments = (car.amendments > -1 && (await helper.getAmendments(car.amendments, language, priceChangeRate))) || ''
+        const _theftProtection = (car.theftProtection > -1 && (await helper.getTheftProtection(car.theftProtection, language, priceChangeRate))) || ''
+        const _collisionDamageWaiver = (car.collisionDamageWaiver > -1 && (await helper.getCollisionDamageWaiver(car.collisionDamageWaiver, language, priceChangeRate))) || ''
+        const _fullInsurance = (car.fullInsurance > -1 && (await helper.getFullInsurance(car.fullInsurance, language, priceChangeRate))) || ''
+        const _additionalDriver = (car.additionalDriver > -1 && (await helper.getAdditionalDriver(car.additionalDriver, language, priceChangeRate))) || ''
 
-      setCancellation(_cancellation)
-      setAmendments(_amendments)
-      setTheftProtection(_theftProtection)
-      setCollisionDamageWaiver(_collisionDamageWaiver)
-      setFullInsurance(_fullInsurance)
-      setAdditionalDriver(_additionalDriver)
+        setCancellation(_cancellation)
+        setAmendments(_amendments)
+        setTheftProtection(_theftProtection)
+        setCollisionDamageWaiver(_collisionDamageWaiver)
+        setFullInsurance(_fullInsurance)
+        setAdditionalDriver(_additionalDriver)
+      } catch {
+        // R2-A14 - the option strings cannot fall back (the helpers do the
+        // conversion internally): show error + Retry instead of a skeleton.
+        setPriceError(true)
+        setLoading(false)
+        return
+      }
       setLoading(false)
 
       if (!hidePrice) {
@@ -131,7 +167,7 @@ const Car = ({
     }
 
     init()
-  }, [hidePrice]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hidePrice, retryKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const getExtraIcon = (option: string, extra: number) => {
     let available = false
@@ -161,6 +197,20 @@ const Car = ({
       : extra === 0 || available
         ? <CheckIcon className="available" />
         : <InfoIcon className="extra-info" />
+  }
+
+  // R2-A14 - the option fetches failed: error + Retry, not a skeleton.
+  if (priceError) {
+    return (
+      <div className="car-container">
+        <article>
+          <div style={{ width: '100%' }}>
+            <Error message={strings.CARS_LOAD_ERROR} />
+            <Button variant="outlined" onClick={handleRetry}>{commonStrings.RETRY}</Button>
+          </div>
+        </article>
+      </div>
+    )
   }
 
   // B-F-30: same-height skeleton instead of a blank pop-in while the
@@ -257,6 +307,9 @@ const Car = ({
                     <span className="fully-booked">{strings.FULLY_BOOKED}</span>
                   ) : null
                 }
+                  {conversionFallback && (
+                    <div className="price-conversion-fallback">{strings.PRICES_IN_BASE_CURRENCY}</div>
+                  )}
               </div>
             )}
           </div>
@@ -416,6 +469,9 @@ const Car = ({
                     variant="contained"
                     className="btn-primary btn-book btn-margin-bottom"
                     onClick={() => {
+                      // R2-A03 - tab-scoped backup of the checkout inputs,
+                      // so a refresh on /checkout restores the same car/dates.
+                      sessionStorage.setItem('bc-checkout-state', JSON.stringify({ carId: car._id, pickupLocationId: pickupLocation, dropOffLocationId: dropOffLocation, from: from.toISOString(), to: to.toISOString() }))
                       navigate('/checkout', {
                         state: {
                           carId: car._id,

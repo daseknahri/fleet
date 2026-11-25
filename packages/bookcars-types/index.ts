@@ -917,6 +917,12 @@ export interface SigningSummary {
   rentalTotal: number
   depositAmount: number
   currency: string
+  /** R2-A12 - ledger-derived (getContractReceivable), never the checkout snapshot. */
+  paidAmount: number
+  /** R2-A12 - rent still owed + deposit still owed, due at pickup. */
+  balanceDue: number
+  /** R2-A12 - pickup location name, in the driver's language. */
+  pickupLocation?: string
 }
 
 /** GA-PAR-12 — payload of the public signing submit endpoint. */

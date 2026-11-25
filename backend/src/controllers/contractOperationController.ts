@@ -18,7 +18,7 @@ import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { adminSelectorSupplierIds, agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { getContractReceivable, syncBookingPaidInFull } from '../utils/contractReceivable'
 import { LedgerError, getRecordedPurposeTotal, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions } from '../utils/ledger'
 import * as helper from '../utils/helper'
@@ -66,10 +66,10 @@ const bookingScope = async (req: Request, session?: mongoose.ClientSession) => {
     query.session(session)
   }
   const booking = await query
-  // Wave 2.11 â€” audit an admin acting on a single resource with the
-  // booking's agency. Selector calls are already logged by the
-  // middleware, so only log when no selector was sent.
-  if (booking && isAdmin && adminSelectorSupplierIds(req).length === 0) {
+  // Wave 2.11 - audit an admin acting on a single resource with the
+  // booking's agency. R2-B15 - the middleware no longer logs
+  // resource-id calls, so the controller logs unconditionally.
+  if (booking && isAdmin) {
     await logAdminCrossAgencyAccess(req, [booking.supplier.toString()], 'contract-operations:booking')
   }
   return booking
@@ -1440,5 +1440,4 @@ export const complete = async (req: Request, res: Response) => {
 
 export const handover = (req: Request, res: Response) => createInspection(req, res, bookcarsTypes.InspectionType.Handover)
 export const returnInspection = (req: Request, res: Response) => createInspection(req, res, bookcarsTypes.InspectionType.Return)
-
 

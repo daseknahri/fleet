@@ -14,6 +14,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as suStrings } from '@/lang/sign-up'
 import { strings } from '@/lang/sign-in'
+import { strings as csStrings } from '@/lang/checkout-status'
 import * as UserService from '@/services/UserService'
 import { useUserContext, UserContextType } from '@/context/UserContext'
 import Error from '@/components/Error'
@@ -158,6 +159,9 @@ const SignIn = () => {
 
             <div className="forgot-password-wrapper">
               <Button variant="text" onClick={() => navigate('/forgot-password')} className="btn-lnk">{strings.RESET_PASSWORD}</Button>
+            </div>
+            <div className="forgot-password-wrapper">
+              <Button variant="text" onClick={() => navigate('/booking-lookup')} className="btn-lnk">{csStrings.FIND_BOOKING}</Button>
             </div>
 
             <SocialLogin />

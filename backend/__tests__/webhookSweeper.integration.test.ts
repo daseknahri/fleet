@@ -459,20 +459,22 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
   })
 
-  it('is safe to run twice: the second sweep re-issues the refund under the same idempotency key', async () => {
+  it('is safe to run twice: after a refund the booking drops out (expireAt cleared), so the second sweep issues no second refund', async () => {
     const fixture = await makeFixture('sweep-twice', bookcarsTypes.CheckoutPaymentMode.Full,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
       { expireAt: new Date(Date.now() - 3600000) })
     mockStripeSessionPaid(fixture.booking, 'pi_f2_sweep_twice', 'MAD', 99900)
     stripeRefundCreate.mockResolvedValue({ id: 're_f2_sweep_twice' })
-    await runCheckoutSweep()
-    await runCheckoutSweep()
-    expect(stripeRefundCreate).toHaveBeenCalledTimes(2)
-    for (const call of stripeRefundCreate.mock.calls) {
-      expect(call[1]).toEqual({ idempotencyKey: 'refund-pi_f2_sweep_twice-mismatch' })
-    }
+    const first = await runCheckoutSweep()
+    expect(first.refunded).toBe(1)
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(0)
+    expect(second.refunded).toBe(0)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    expect(stripeRefundCreate.mock.calls[0][1]).toEqual({ idempotencyKey: 'refund-pi_f2_sweep_twice-mismatch' })
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(booking?.expireAt).toBeNull()
   })
 
   it('finalises an expired Void PayPal booking whose order completed', async () => {
@@ -752,5 +754,94 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     // wait test slow and flaky; the mechanism assertion is the proof.
     expect(marginMs).toBeGreaterThan(env.BOOKING_EXPIRE_AT * 1000)
     expect(marginMs).toBeLessThanOrEqual(env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
+  })
+})
+
+describe('R4-01 - sweeper defuses + notifies refund-failed and provider errors', () => {
+  it('refund-failed: expireAt extended to the review window, agency notified once, booking still Void', async () => {
+    const fixture = await makeFixture('r401-refund-failed', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r401_rf', 'MAD', 99900)
+    stripeRefundCreate.mockRejectedValue(new Error('refund failed'))
+    mailSendMock.mockClear()
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.errors).toBe(1)
+    expect(summary.providerErrors).toBe(0)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    const nowMs = Date.now()
+    const newExpireAt = new Date(booking?.expireAt as unknown as Date).getTime()
+    expect(newExpireAt).toBeGreaterThan(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 - 5 * 60 * 1000)
+    expect(newExpireAt).toBeLessThanOrEqual(nowMs + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
+    const notes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(notes).toHaveLength(1)
+    expect(notes[0].booking?.toString()).toBe(fixture.booking._id.toString())
+    const mail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mail).toHaveLength(1)
+    expect(mail[0][0].subject).toMatch(/Refund failed/)
+    expect(mail[0][0].html).toMatch(/1250 MAD/)
+    expect(mail[0][0].html).toMatch(/Payment currency or amount mismatch/)
+  })
+
+  it('refund-failed: a second immediate sweep sees nothing (booking dropped out until the window lapses)', async () => {
+    const fixture = await makeFixture('r401-rf-second', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r401_rf2', 'MAD', 99900)
+    stripeRefundCreate.mockRejectedValue(new Error('refund failed'))
+    const first = await runCheckoutSweep()
+    expect(first.errors).toBe(1)
+    mailSendMock.mockClear()
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(0)
+    expect(second.errors).toBe(0)
+    const notes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(notes).toHaveLength(1)
+  })
+
+  it('refunded after a hold: the review-window extension is cleared so the car frees', async () => {
+    const fixture = await makeFixture('r401-refunded', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r401_ref', 'MAD', 99900)
+    stripeRefundCreate.mockRejectedValue(new Error('refund failed'))
+    const first = await runCheckoutSweep()
+    expect(first.errors).toBe(1)
+    const heldBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(new Date(heldBooking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+    stripeRefundCreate.mockResolvedValue({ id: 're_r401_ref' })
+    const second = await runCheckoutSweep(new Date(Date.now() + 8 * 86400000))
+    expect(second.refunded).toBe(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(booking?.expireAt).toBeNull()
+  })
+
+  it('provider error: expireAt extended, counted under providerErrors, notified once per window', async () => {
+    const fixture = await makeFixture('r401-provider', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    stripeSessionRetrieve.mockRejectedValue(new Error('socket hang up'))
+    mailSendMock.mockClear()
+    const first = await runCheckoutSweep()
+    expect(first.checked).toBe(1)
+    expect(first.providerErrors).toBe(1)
+    expect(first.errors).toBe(0)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(new Date(booking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+    const notes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(notes).toHaveLength(1)
+    expect(notes[0].booking?.toString()).toBe(fixture.booking._id.toString())
+    const mail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mail).toHaveLength(1)
+    expect(mail[0][0].subject).toMatch(/provider unreachable/)
+    expect(mail[0][0].html).toMatch(/socket hang up/)
+    expect(mail[0][0].html).toContain(new Date(Date.now() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000).toISOString().slice(0, 10))
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(0)
+    expect(second.providerErrors).toBe(0)
   })
 })

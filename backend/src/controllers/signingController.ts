@@ -7,6 +7,7 @@ import { inflateSync } from 'node:zlib'
 import { PDFDocument } from 'pdf-lib'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
+import Location from '../models/Location'
 import Car from '../models/Car'
 import User from '../models/User'
 import * as env from '../config/env.config'
@@ -16,6 +17,8 @@ import { agencySupplierId } from '../utils/agencyAuthorization'
 import { createSigningToken, newSigningNonce, parseSigningToken } from '../utils/bookingSigning'
 import { detectFileType } from '../utils/fileContent'
 import { notifyClientSignedOnline } from '../utils/reminderNotify'
+import { getContractReceivable } from '../utils/contractReceivable'
+import { resolveLocationTranslation } from '../utils/locationHelper'
 
 /**
  * GA-PAR-12 — online client signing.
@@ -390,8 +393,15 @@ export const getSigningSummary = async (req: Request, res: Response) => {
     const [supplier, car, driver] = await Promise.all([
       User.findById(booking.supplier).select('fullName').lean(),
       Car.findById(booking.car).select('name licensePlate').lean(),
-      User.findById(booking.driver).select('fullName').lean(),
+      User.findById(booking.driver).select('fullName language').lean(),
     ])
+    // R2-A12 - paid / due / pickup location come from the ledger, never
+    // the checkout snapshot (F6 W3 P-3: getContractReceivable is the one
+    // shared definition). paidAmount is all money in; balanceDue is rent
+    // still owed + deposit still owed (floored at 0), due at pickup.
+    const receivable = await getContractReceivable(booking)
+    const pickupLocation = await Location.findById(booking.pickupLocation).populate<{ values: env.LocationValue[] }>('values').lean()
+    const pickupLocationName = resolveLocationTranslation(pickupLocation?.values, driver?.language || 'en')
     const summary: bookcarsTypes.SigningSummary = {
       agencyName: supplier?.fullName || '',
       reference: booking.reference,
@@ -403,6 +413,9 @@ export const getSigningSummary = async (req: Request, res: Response) => {
       rentalTotal: booking.financialSnapshot?.rentalTotal ?? booking.price,
       depositAmount: booking.financialSnapshot?.depositAmount ?? 0,
       currency: booking.financialSnapshot?.baseCurrency || env.BASE_CURRENCY,
+      paidAmount: receivable.postedPayments + receivable.depositPayments,
+      balanceDue: receivable.outstandingBalance + Math.max(0, receivable.refundableDeposit - receivable.depositPayments),
+      pickupLocation: pickupLocationName,
     }
     res.json(summary)
   } catch (err) {

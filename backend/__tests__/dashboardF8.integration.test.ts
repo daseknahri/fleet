@@ -195,7 +195,7 @@ describe('F8 / W5 D2 — dashboard summary serves Admin and agency from the same
   it('agency A sees its own exact figures, charges included', async () => {
     const res = await get(tokenA, `/api/dashboard/summary?${window}`)
     expect(res.status).toBe(200)
-    expect(res.body.metricDictionaryVersion).toBe('2026-11-16.2')
+    expect(res.body.metricDictionaryVersion).toBe('2026-11-25.1')
     // A1: 500 + 100 charge, 200 collected → remaining 400. A2: 400, 0 → 400.
     expect(res.body.contractAmount).toBe(1000)
     expect(res.body.collected).toBe(200)

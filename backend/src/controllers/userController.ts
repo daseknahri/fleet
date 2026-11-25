@@ -28,7 +28,7 @@ import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { createLicenseCapabilityFilename, isValidLicenseCapabilityFilename } from '../utils/tempFileCapability'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { agencySupplierId, AgencyPermission, hasAgencyPermission, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
+import { agencySupplierId, AgencyPermission, hasAgencyPermission, hasUniqueActiveMembershipCount, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 import { normalizeFiscalFields, applyFiscalFields, FISCAL_STRING_KEYS } from '../utils/fiscal'
 import { normalizeClientIdentityFields, applyClientIdentityFields, consentAtForTransition, CLIENT_IDENTITY_KEYS } from '../utils/clientIdentity'
 import { getClientBalances } from '../utils/contractReceivable'
@@ -936,6 +936,23 @@ export const signin = async (req: Request, res: Response) => {
     }
 
     if (passwordMatch) {
+      // R2-C02 — fail fast: a Staff user with 0 or 2+ active agency
+      // memberships would get a token that verifyToken 403s on first
+      // use (RL-08). Count exactly as verifyToken does (same filter,
+      // same limit(2)) and refuse here instead. Staff only — Supplier
+      // (agency owner) and customer accounts have no membership check
+      // in verifyToken either.
+      if (user.type === bookcarsTypes.UserType.Staff) {
+        const memberships = await AgencyMembership.find({
+          user: user._id,
+          status: bookcarsTypes.AgencyMembershipStatus.Active,
+        }).select('_id').limit(2).lean()
+        if (!hasUniqueActiveMembershipCount(memberships.length)) {
+          res.sendStatus(204)
+          return
+        }
+      }
+
       //
       // On production, authentication cookies are httpOnly, signed, secure and strict sameSite.
       // These options prevent XSS, CSRF and MITM attacks.

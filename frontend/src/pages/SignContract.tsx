@@ -4,6 +4,7 @@ import { Button, Paper, TextField } from '@mui/material'
 import * as bookcarsTypes from ':bookcars-types'
 import * as SigningService from '@/services/SigningService'
 import { strings } from '@/lang/sign-contract'
+import { formatDateTimeCasablanca } from '@/utils/dateHelper'
 import * as langHelper from '@/utils/langHelper'
 
 import '@/assets/css/sign-contract.css'
@@ -186,7 +187,6 @@ const SignContract = () => {
     }
   }
 
-  const formatDate = (d?: Date | string) => (d ? new Date(d).toLocaleString(language) : '')
   const formatAmount = (n?: number) => (n === undefined ? '' : n.toLocaleString(language))
 
   return (
@@ -254,11 +254,11 @@ const SignContract = () => {
               )}
               <div>
                 <dt>{strings.FROM}</dt>
-                <dd>{formatDate(summary.from)}</dd>
+                <dd>{`${formatDateTimeCasablanca(summary.from)} (${strings.TIMEZONE_MOROCCO})`}</dd>
               </div>
               <div>
                 <dt>{strings.TO}</dt>
-                <dd>{formatDate(summary.to)}</dd>
+                <dd>{`${formatDateTimeCasablanca(summary.to)} (${strings.TIMEZONE_MOROCCO})`}</dd>
               </div>
               <div>
                 <dt>{strings.RENTAL_TOTAL}</dt>
@@ -268,6 +268,20 @@ const SignContract = () => {
                 <dt>{strings.DEPOSIT}</dt>
                 <dd>{`${formatAmount(summary.depositAmount)} ${summary.currency}`}</dd>
               </div>
+              <div>
+                <dt>{strings.PAID}</dt>
+                <dd>{`${formatAmount(summary.paidAmount)} ${summary.currency}`}</dd>
+              </div>
+              <div>
+                <dt>{strings.DUE_AT_PICKUP}</dt>
+                <dd>{`${formatAmount(summary.balanceDue)} ${summary.currency}`}</dd>
+              </div>
+              {summary.pickupLocation && (
+                <div>
+                  <dt>{strings.PICKUP_LOCATION}</dt>
+                  <dd>{summary.pickupLocation}</dd>
+                </div>
+              )}
             </dl>
 
             <span className="sign-contract-label">{strings.SIGN_HERE}</span>

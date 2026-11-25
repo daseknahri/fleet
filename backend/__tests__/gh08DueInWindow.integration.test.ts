@@ -17,6 +17,7 @@ import {
   findDueInWindowSchedule,
   OverdueMaintenanceError,
 } from '../src/utils/bookingReservationHelper'
+import { findBlockingScheduleForHandover } from '../src/utils/maintenanceSchedule'
 
 // GH-08 — a maintenance schedule due DURING the rental blocks checkout
 // and restore (gap-hunt 2026-11-24). Tested at the helper layer: the
@@ -26,6 +27,7 @@ import {
 // without running a full Stripe/PayPal checkout.
 
 const DAY = 86400000
+const sod = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 const rand = () => Math.random().toString(36).slice(2)
 
 const ids = {
@@ -213,4 +215,51 @@ describe('GH-08 — schedule due inside the rental window', () => {
     const conflict = await findBookingConflictForRestore(fixture.booking)
     expect(conflict).toEqual({})
   })
+
+  it('blocks checkout when the schedule is due on the pickup day at midnight (R2-B13)', async () => {
+    const fixture = await makeFixture('b13-pickup-day')
+    const pickupDay = sod(new Date(fixture.booking.from))
+    await makeSchedule(fixture, 'b13-pickup-day', { nextDueDate: pickupDay, intervalDays: 90 })
+    const found = await findDueInWindowSchedule(
+      fixture.supplier._id, fixture.car._id, new Date(fixture.booking.from), new Date(fixture.booking.to),
+    )
+    expect(found).not.toBeNull()
+    await expect(checkBookingAvailability(fixture.booking, [fixture.booking._id]))
+      .rejects.toThrow(DueInWindowMaintenanceError)
+  })
+
+  it('blocks checkout when the schedule is due on the return day at midnight (R2-B13)', async () => {
+    const fixture = await makeFixture('b13-return-day')
+    const returnDay = sod(new Date(fixture.booking.to))
+    await makeSchedule(fixture, 'b13-return-day', { nextDueDate: returnDay, intervalDays: 90 })
+    const found = await findDueInWindowSchedule(
+      fixture.supplier._id, fixture.car._id, new Date(fixture.booking.from), new Date(fixture.booking.to),
+    )
+    expect(found).not.toBeNull()
+    await expect(checkBookingAvailability(fixture.booking, [fixture.booking._id]))
+      .rejects.toThrow(DueInWindowMaintenanceError)
+  })
+
+  it('does not block when the schedule is due the day after return (R2-B13)', async () => {
+    const fixture = await makeFixture('b13-day-after')
+    const dayAfter = new Date(sod(new Date(fixture.booking.to)).getTime() + DAY)
+    await makeSchedule(fixture, 'b13-day-after', { nextDueDate: dayAfter, intervalDays: 90 })
+    const found = await findDueInWindowSchedule(
+      fixture.supplier._id, fixture.car._id, new Date(fixture.booking.from), new Date(fixture.booking.to),
+    )
+    expect(found).toBeNull()
+    await expect(checkBookingAvailability(fixture.booking, [fixture.booking._id])).resolves.toBeUndefined()
+  })
+
+  it('handover returns a schedule due on the pickup day at midnight (R2-B13)', async () => {
+    const fixture = await makeFixture('b13-handover')
+    const pickupDay = sod(new Date(fixture.booking.from))
+    await makeSchedule(fixture, 'b13-handover', { nextDueDate: pickupDay, intervalDays: 90 })
+    const blocking = await findBlockingScheduleForHandover(
+      fixture.supplier._id, fixture.car._id, new Date(fixture.booking.from), new Date(fixture.booking.to),
+    )
+    expect(blocking).not.toBeNull()
+    expect(blocking!.title).toBe('GH-08 b13-handover')
+  })
+
 })

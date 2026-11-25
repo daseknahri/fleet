@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Button } from '@mui/material'
 import { DirectionsCar as CarIcon } from '@mui/icons-material'
-import { format } from 'date-fns'
-import { fr, enUS, es, arMA } from 'date-fns/locale'
+import { formatDateTimeCasablanca } from '@/utils/dateHelper'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import * as helper from '@/utils/helper'
 import * as BookingService from '@/services/BookingService'
+import * as InvoiceService from '@/services/InvoiceService'
+import * as UserService from '@/services/UserService'
 import * as PaymentService from '@/services/PaymentService'
 import { strings } from '@/lang/checkout-status'
+import { strings as masterStrings } from '@/lang/master'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as checkoutStrings } from '@/lang/checkout'
 import Toast from '@/components/Toast'
@@ -37,10 +40,12 @@ const CheckoutStatus = (
   }: CheckoutStatusProps
 ) => {
   const [booking, setBooking] = useState<bookcarsTypes.Booking>()
+  const [invoice, setInvoice] = useState<InvoiceService.CustomerInvoiceSummary | null>()
   const [price, setPrice] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const { sessionId: sessionIdFromUrl } = useParams<{ sessionId: string }>()
+  const navigate = useNavigate()
   const [sessionIdMismatch, setSessionIdMismatch] = useState(false)
 
   useEffect(() => {
@@ -57,6 +62,12 @@ const CheckoutStatus = (
         const _booking = await BookingService.getBooking(bookingId, sessionId)
         setBooking(_booking)
         setPrice(await PaymentService.convertPrice(_booking.price!))
+        // R2-A06 - invoice summary, only for a signed-in customer (a guest
+        // has no session; the invoice becomes available after activation
+        // via the Booking page). 401/403/204 -> null, render nothing.
+        if (UserService.getCurrentUser()) {
+          InvoiceService.getByBooking(bookingId).then(setInvoice).catch(() => setInvoice(null))
+        }
       } catch (err) {
         helper.error(err)
         setError(true)
@@ -69,6 +80,26 @@ const CheckoutStatus = (
       init()
     }
   }, [bookingId, sessionId, sessionIdFromUrl])
+
+  // R2-A15 - resend the activation email for a guest booking, the
+  // exact pattern Layout.tsx already uses for the validate-email wall.
+  const handleResendActivation = async (e: React.MouseEvent<HTMLElement>) => {
+    e.preventDefault()
+    try {
+      const driverEmail = (booking as unknown as Record<string, unknown>)?.driverEmail as string | undefined
+      if (!driverEmail) {
+        return
+      }
+      const status = await UserService.resendLink({ email: driverEmail })
+      if (status === 200) {
+        helper.info(masterStrings.VALIDATION_EMAIL_SENT)
+      } else {
+        helper.error(null, masterStrings.VALIDATION_EMAIL_ERROR)
+      }
+    } catch (err) {
+      helper.error(err, masterStrings.VALIDATION_EMAIL_ERROR)
+    }
+  }
 
   if (loading) {
     return <Progress />
@@ -88,11 +119,6 @@ const CheckoutStatus = (
     )
   }
 
-  const _fr = language === 'fr'
-  const _es = language === 'es'
-  const _ar = language === 'ar'
-  const _locale = _fr ? fr : _es ? es : _ar ? arMA : enUS
-  const _format = _fr ? 'eee d LLL yyyy kk:mm' : 'eee, d LLL yyyy, p'
   const days = (booking && bookcarsHelper.days(new Date(booking.from), new Date(booking.to))) || 0
   const success = status === 'success'
 
@@ -129,9 +155,7 @@ const CheckoutStatus = (
               <div className="status-detail">
                 <span className="status-detail-title">{checkoutStrings.DAYS}</span>
                 <div className="status-detail-value">
-                  {`${helper.getDaysShort(days)} (${bookcarsHelper.capitalize(
-                    format(new Date(booking.from), _format, { locale: _locale }),
-                  )} - ${bookcarsHelper.capitalize(format(new Date(booking.to), _format, { locale: _locale }))})`}
+                  {`${helper.getDaysShort(days)} (${formatDateTimeCasablanca(booking.from)} (${commonStrings.TIMEZONE_MOROCCO}) - ${formatDateTimeCasablanca(booking.to)} (${commonStrings.TIMEZONE_MOROCCO}))`}
                 </div>
               </div>
               <div className="status-detail">
@@ -146,8 +170,39 @@ const CheckoutStatus = (
                 <span className="status-detail-title">{checkoutStrings.COST}</span>
                 <div className="status-detail-value status-price">{bookcarsHelper.formatPrice(price, commonStrings.CURRENCY, language)}</div>
               </div>
+              {payLater && booking.expireAt && (
+                <div className="status-detail">
+                  <span className="status-detail-title">{strings.HOLD_EXPIRES}</span>
+                  <div className="status-detail-value">
+                    {`${formatDateTimeCasablanca(booking.expireAt)} (${commonStrings.TIMEZONE_MOROCCO})`}
+                  </div>
+                </div>
+              )}
+              {invoice && invoice.status === 'Issued' && (
+                <div className="status-detail">
+                  <span className="status-detail-title">{strings.INVOICE_VIEW}</span>
+                  <div className="status-detail-value">
+                    <Button variant="text" onClick={() => InvoiceService.downloadPdf(invoice.id, `invoice-${invoice.number || invoice.id}.pdf`)}>{strings.INVOICE_VIEW}</Button>
+                  </div>
+                </div>
+              )}
+              {invoice && invoice.status === 'Draft' && (
+                <div className="status-detail">
+                  <div className="status-detail-value">{strings.INVOICE_PENDING}</div>
+                </div>
+              )}
             </div>
           </div>
+
+          {success && (booking as unknown as Record<string, unknown>).driverVerified === false && (
+            <div className="activation-notice">
+              <p>{strings.ACTIVATE_ACCOUNT_NOTICE}</p>
+              <p>
+                <Button variant="outlined" onClick={handleResendActivation}>{strings.RESEND_ACTIVATION}</Button>
+                <Button variant="text" onClick={() => navigate('/booking-lookup')}>{strings.FIND_BOOKING}</Button>
+              </p>
+            </div>
+          )}
 
           <div className="side-panel">
             <h1>{strings.STATUS_TITLE}</h1>

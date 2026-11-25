@@ -382,18 +382,17 @@ export const recordDelivery = async (req: Request, res: Response) => {
 }
 
 
-export const getInvoicePdf = async (req: Request, res: Response) => {
+// R2-A06 - shared PDF render + send, used by the agency route and the
+// customer-scoped route. The caller loads the invoice (agency scope /
+// driver ownership); this helper enforces the Issued-only 409.
+const sendInvoicePdf = async (res: Response, invoice: env.Invoice) => {
   try {
-    const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
-    if (!invoice) {
- res.sendStatus(404); return
-}
     // GA-PAR-03 coordinator decision: the PDF is an issued fiscal document.
     // Drafts have no number yet and voided invoices are cancelled, so both
     // are refused with 409 rather than rendered.
     if (invoice.status !== bookcarsTypes.InvoiceStatus.Issued) {
- res.status(409).send('Invoice PDF is available only for issued invoices'); return
-}
+      res.status(409).send('Invoice PDF is available only for issued invoices'); return
+    }
     const [supplier, booking] = await Promise.all([
       User.findById(invoice.supplier)
         .select('fullName email phone ice registreCommerce identifiantFiscal patente rib fiscalAddress city')
@@ -421,6 +420,48 @@ export const getInvoicePdf = async (req: Request, res: Response) => {
       .set('Content-Disposition', `attachment; filename="invoice-${invoice.number || invoice._id}.pdf"`)
       .send(buffer)
   } catch (err) {
- logger.error('[invoice.getInvoicePdf]', err); res.status(400).send(i18n.t('ERROR'))
+    logger.error('[invoice.sendInvoicePdf]', err); res.status(400).send(i18n.t('ERROR'))
+  }
 }
+
+export const getInvoicePdf = async (req: Request, res: Response) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, ...scope(req) })
+    if (!invoice) {
+      res.sendStatus(404); return
+    }
+    await sendInvoicePdf(res, invoice)
+  } catch (err) {
+    logger.error('[invoice.getInvoicePdf]', err); res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// R2-A06 - customer-scoped invoice read. The caller must be the booking's
+// driver (req.user._id === booking.driver); admin/agency use the existing
+// agency-gated list/pdf routes. Only Issued invoices get a PDF link -
+// Drafts have no number yet and sendInvoicePdf 409s them by design.
+export const getCustomerInvoiceByBooking = async (req: Request, res: Response) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId).select('driver').lean()
+    if (!booking) { res.sendStatus(204); return }
+    if (booking.driver?.toString() !== req.user?._id?.toString()) { res.status(403).send('Forbidden'); return }
+    const invoice = await Invoice.findOne({ booking: booking._id, status: { $ne: bookcarsTypes.InvoiceStatus.Voided } })
+      .sort({ createdAt: -1 }).select('_id number status total currency issuedAt').lean()
+    if (!invoice) { res.sendStatus(204); return }
+    res.json({ id: invoice._id, number: invoice.number, status: invoice.status, total: invoice.total, currency: invoice.currency, issuedAt: invoice.issuedAt })
+  } catch (err) {
+    logger.error('[invoice.getCustomerInvoiceByBooking]', err); res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+export const getCustomerInvoicePdf = async (req: Request, res: Response) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id).select('_id booking number status')
+    if (!invoice) { res.sendStatus(404); return }
+    const booking = await Booking.findById(invoice.booking).select('driver').lean()
+    if (!booking || booking.driver?.toString() !== req.user?._id?.toString()) { res.status(403).send('Forbidden'); return }
+    await sendInvoicePdf(res, invoice)
+  } catch (err) {
+    logger.error('[invoice.getCustomerInvoicePdf]', err); res.status(400).send(i18n.t('ERROR'))
+  }
 }

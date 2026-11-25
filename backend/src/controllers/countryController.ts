@@ -10,7 +10,7 @@ import User from '../models/User'
 import LocationValue from '../models/LocationValue'
 import Location from '../models/Location'
 import * as logger from '../utils/logger'
-import { agencySupplierId, adminSelectorSupplierIds, logAdminResourceAccess } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminResourceAccess } from '../utils/agencyAuthorization'
 
 const canAccessAgencyCountry = (req: Request, supplierId?: string | mongoose.Types.ObjectId) => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -146,6 +146,14 @@ export const update = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GH-07 — a platform admin reached this country without a selector;
+    // audit with the country's agency (the middleware deferred to this
+    // controller because the path carries the country id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetCountry = await Country.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCountry?.supplier?.toString(), 'country:update-country')
+    }
+
     const country = await Country.findById(id).populate<{ values: env.LocationValue[] }>('values')
 
     if (country) {
@@ -159,9 +167,6 @@ export const update = async (req: Request, res: Response) => {
       }
       // end of security check
 
-      // GH-07 — a platform admin updated this country without a
-      // selector; audit with the country's agency.
-      await logAdminResourceAccess(req, country.supplier?.toString(), 'country:update-country')
 
       const names: bookcarsTypes.CountryName[] = req.body
 
@@ -205,6 +210,14 @@ export const deleteCountry = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GH-07 — a platform admin reached this country without a selector;
+    // audit with the country's agency (the middleware deferred to this
+    // controller because the path carries the country id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetCountry = await Country.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCountry?.supplier?.toString(), 'country:delete-country')
+    }
+
     const country = await Country.findById(id)
     if (!country) {
       const msg = `[country.delete] Country ${id} not found`
@@ -222,9 +235,6 @@ export const deleteCountry = async (req: Request, res: Response) => {
     }
     // end of security check
 
-    // GH-07 — a platform admin deleted this country without a
-    // selector; audit with the country's agency.
-    await logAdminResourceAccess(req, country.supplier?.toString(), 'country:delete-country')
 
     await Country.deleteOne({ _id: id })
     await LocationValue.deleteMany({ _id: { $in: country.values } })
@@ -248,6 +258,14 @@ export const getCountry = async (req: Request, res: Response) => {
   const { id } = req.params
 
   try {
+    // GH-07 — a platform admin reached this country without a selector;
+    // audit with the country's agency (the middleware deferred to this
+    // controller because the path carries the country id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetCountry = await Country.findById(id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCountry?.supplier?.toString(), 'country:get-country')
+    }
+
     const country = await Country
       .findById(id)
       .populate<{ values: env.LocationValue[] }>('values')
@@ -255,12 +273,6 @@ export const getCountry = async (req: Request, res: Response) => {
       .lean()
 
     if (country) {
-      // GH-07 — a platform admin read this country without a selector;
-      // audit with the country's agency (null when it is platform
-      // reference data). The supplier is populated here, so its _id is
-      // read off the populated object, falling back to the raw value.
-      const supplierId = ((country.supplier as unknown as { _id?: unknown } | null)?._id ?? country.supplier) as { toString(): string } | null | undefined
-      await logAdminResourceAccess(req, supplierId?.toString(), 'country:get-country')
       const name = (country.values as env.LocationValue[]).filter((value) => value.language === req.params.language)[0].value
       if (country.supplier) {
         const { _id, fullName, avatar } = country.supplier
@@ -486,7 +498,7 @@ export const checkCountry = async (req: Request, res: Response) => {
 
     // GH-07 — a platform admin probed this country without a selector;
     // audit with the country's agency (platform-wide when it has none).
-    if (req.user?.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
       const country = await Country.findById(_id).select('supplier').lean()
       await logAdminResourceAccess(req, country?.supplier?.toString(), 'country:check-country')
     }

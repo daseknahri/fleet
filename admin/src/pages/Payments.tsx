@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   MenuItem, TextField, Typography,
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -119,6 +119,9 @@ const Payments = () => {
   const [paymentsTotal, setPaymentsTotal] = useState(0)
   // F6 / W3 P-8 — the Pending entry being edited (null = new entry).
   const [editingPayment, setEditingPayment] = useState<bookcarsTypes.RentalPayment | null>(null)
+  // R2-B12 - the booking a pending refund is being resolved for
+  // (null unless the payment dialog was opened from the refunds tab).
+  const [refundBooking, setRefundBooking] = useState<bookcarsTypes.Booking | null>(null)
   // F6 / W3 X-1 — posted totals for the booking selected in the dialog,
   // fetched on demand (the list is paginated now, so no full-list totals
   // exist on the page). Null until the fetch answers.
@@ -138,6 +141,17 @@ const Payments = () => {
   type ReceivablesFilter = 'all' | 'overdue-due-soon' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'paid-unconfirmed' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
   const [activeTab, setActiveTab] = useState<PaymentsTab>('receivables')
   const [receivablesFilter, setReceivablesFilter] = useState<ReceivablesFilter>('overdue-due-soon')
+  // R2-B03 - GH-04 links land here with ?clientId=<userId> (User list
+  // balance, client-detail balance + oldest-due). The id is read once
+  // on mount (same URLSearchParams convention as UpdateBooking's ?b=)
+  // and kept in state so the chip can clear it without a reload. An
+  // invalid id clears to undefined (show all) rather than breaking
+  // the page - the endpoint would 400 it otherwise.
+  const [clientIdFilter, setClientIdFilter] = useState<string | undefined>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('clientId')
+    return id && /^[0-9a-fA-F]{24}$/.test(id) ? id : undefined
+  })
   const [pendingRefunds, setPendingRefunds] = useState<RentalPaymentService.PendingRefundsResponse | null>(null)
   const [confirmingId, setConfirmingId] = useState('')
   const [noShowId, setNoShowId] = useState('')
@@ -151,6 +165,26 @@ const Payments = () => {
   // posting a second one. A fresh UUID per save attempt defeated the
   // server-side dedupe.
   const createKey = useRef<string>('')
+
+  // R2-B11 - the refunds tab fetch and the collections summary,
+  // extracted from reload() so the payment handlers can refresh
+  // them too (same degrade rule: a failure leaves the tab/card
+  // empty, never the page).
+  const refreshPendingRefunds = useCallback(async () => {
+    try {
+      setPendingRefunds(await RentalPaymentService.pendingRefunds())
+    } catch {
+      setPendingRefunds(null)
+    }
+  }, [])
+
+  const refreshCollections = useCallback(async () => {
+    try {
+      setCollections(await RentalPaymentService.collectionsSummary())
+    } catch {
+      setCollections(null)
+    }
+  }, [])
 
   const reload = useCallback(async (user?: bookcarsTypes.User) => {
     if (!user) {
@@ -181,20 +215,12 @@ const Payments = () => {
       setPage(1)
       // GA-PAR-17 — collections KPI (dictionary v2026-11-15.1). A failure
       // degrades this card only, never the page.
-      try {
-        setCollections(await RentalPaymentService.collectionsSummary())
-      } catch {
-        setCollections(null)
-      }
+      await refreshCollections()
       // GH-11 — pending wire/manual refunds. A failure leaves the
       // tab empty rather than breaking the page. (The receivables
       // table itself is fetched by the filter effect below, so the
       // default overdue + due-today view applies on mount.)
-      try {
-        setPendingRefunds(await RentalPaymentService.pendingRefunds())
-      } catch {
-        setPendingRefunds(null)
-      }
+      await refreshPendingRefunds()
     } catch (error) {
       setLoadError(true)
       helper.error(error)
@@ -210,11 +236,14 @@ const Payments = () => {
   // client-side, since it is the union of two server filters).
   const refreshReceivables = useCallback(async () => {
     try {
-      setServerOverdue(await RentalPaymentService.overdue(receivablesFilter === 'overdue-due-soon' ? { filter: 'all' } : { filter: receivablesFilter }))
+      setServerOverdue(await RentalPaymentService.overdue({
+        ...(receivablesFilter === 'overdue-due-soon' ? { filter: 'all' } : { filter: receivablesFilter }),
+        ...(clientIdFilter ? { clientId: clientIdFilter } : {}),
+      }))
     } catch {
       setServerOverdue(null)
     }
-  }, [receivablesFilter])
+  }, [receivablesFilter, clientIdFilter])
 
   useEffect(() => {
     void refreshReceivables()
@@ -283,6 +312,22 @@ const Payments = () => {
   const visibleReceivableRows = receivablesFilter === 'overdue-due-soon'
     ? receivableRows.filter((row) => row.overdue || (row.daysToPaymentDue !== null && row.daysToPaymentDue >= 0 && row.daysToPaymentDue <= 1))
     : receivablesFilter === 'paid-in-full' ? paidInFullRows : receivableRows
+  // R2-B03 - resolve the chip label from the loaded rows first (they
+  // already carry the populated driver); fall back to the raw id
+  // (shortened) when no row matches - a client with no outstanding
+  // rows still gets a chip, and the table correctly shows empty.
+  const clientNameFor = (id: string) => {
+    const row = receivableRows.find((r) => {
+      const driver = r.booking?.driver as unknown
+      return typeof driver === 'string' ? driver === id : (driver as { _id?: unknown })?._id?.toString() === id
+    })
+    const name = (row?.booking?.driver as unknown as { fullName?: string } | undefined)?.fullName
+    return name || `...${id.slice(-6)}`
+  }
+  const clearClientFilter = () => {
+    setClientIdFilter(undefined)
+    window.history.replaceState(null, '', '/payments')
+  }
 
   // The OVERDUE card sums only the rows whose due date has passed;
   // the table itself lists every outstanding receivable.
@@ -338,7 +383,7 @@ const Payments = () => {
 
   // F6 / W3 P-8 — in edit mode the edited booking is offered even when
   // it is no longer eligible for a new payment.
-  const dialogBookings = editingPayment && selectedBooking
+  const dialogBookings = (editingPayment || refundBooking) && selectedBooking
     ? [selectedBooking, ...eligibleBookings.filter((booking) => booking._id !== selectedBooking._id)]
     : eligibleBookings
 
@@ -346,6 +391,40 @@ const Payments = () => {
     setEditingPayment(null)
     createKey.current = globalThis.crypto.randomUUID()
     setForm({ ...emptyForm(), booking: bookingId || eligibleBookings[0]?._id || '' })
+    setFormError(false)
+    setDialogOpen(true)
+  }
+
+  // R2-B12 - resolve a pending refund: open the payment dialog
+  // prefilled as a debit for the refund amount, on the cancelled
+  // booking. The booking is offered even though it is Cancelled
+  // (dialogBookings rule above, same as edit mode). NOTE (5c verify):
+  // the refunds row does NOT disappear after recording yet - the
+  // endpoint reads the cancel-time snapshot (refundedRent /
+  // refundedDeposit) and no payment path stamps it, so the refetch
+  // returns the same row. Backend follow-up filed (recompute the row
+  // from posted debits, or stamp the record on refund); not worked
+  // around here.
+  const openRefund = (refund: RentalPaymentService.PendingRefundRow) => {
+    setEditingPayment(null)
+    setRefundBooking(refund.booking)
+    createKey.current = globalThis.crypto.randomUUID()
+    const rentRefundable = Math.max(0, refund.rentPaid - refund.refundedRent)
+    const depositRefundable = Math.max(0, refund.depositPaid - refund.refundedDeposit)
+    // The dialog records one purpose per entry: prefer the leg that
+    // covers the amount; a split refund needs two entries (see pack 5e).
+    const purpose = rentRefundable >= refund.amount
+      ? bookcarsTypes.RentalPaymentPurpose.Rent
+      : bookcarsTypes.RentalPaymentPurpose.Deposit
+    setForm({
+      ...emptyForm(),
+      booking: refund.booking._id || '',
+      amount: String(refund.amount),
+      method: refund.method ?? bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose,
+      direction: bookcarsTypes.RentalPaymentDirection.Debit,
+      reason: refund.reason || '',
+    })
     setFormError(false)
     setDialogOpen(true)
   }
@@ -396,6 +475,10 @@ const Payments = () => {
           note: form.note.trim(),
         })
         setPayments((rows) => rows.map((row) => (row._id === payment._id ? payment : row)))
+        await refreshReceivables()
+        await refreshPendingRefunds()
+        await refreshCollections()
+        setRefundBooking(null)
         setDialogOpen(false)
         setEditingPayment(null)
         setNotice('')
@@ -415,6 +498,10 @@ const Payments = () => {
       })
       setPayments((rows) => [payment, ...rows])
       setPaymentsTotal((total) => total + 1)
+      await refreshReceivables()
+      await refreshPendingRefunds()
+      await refreshCollections()
+      setRefundBooking(null)
       setDialogOpen(false)
       createKey.current = ''
       setNotice('')
@@ -474,6 +561,9 @@ const Payments = () => {
       await RentalPaymentService.remove(payment._id)
       setPayments((rows) => rows.filter((row) => row._id !== payment._id))
       setPaymentsTotal((total) => Math.max(0, total - 1))
+      await refreshReceivables()
+      await refreshPendingRefunds()
+      await refreshCollections()
       setNotice(strings.DELETED)
     } catch (error) {
       helper.error(error, helper.getErrorMessage(error, strings.SAVE_ERROR))
@@ -520,6 +610,9 @@ const Payments = () => {
       setPayments((rows) => [reversal, ...rows.map((row) => (
         row._id === payment._id ? { ...row, status: bookcarsTypes.RentalPaymentStatus.Reversed } : row
       ))])
+      await refreshReceivables()
+      await refreshPendingRefunds()
+      await refreshCollections()
       setNotice(strings.REVERSED)
     } catch (error) {
       helper.error(error, helper.getErrorMessage(error, strings.SAVE_ERROR))
@@ -644,6 +737,14 @@ const Payments = () => {
         {activeTab === 'receivables' && (
         <section className="agency-payments__panel agency-payments__receivables">
           <div className="agency-payments__panel-title">{strings.RECEIVABLES}<HelpIcon text={strings.HELP_RECEIVABLES} /></div>
+          {clientIdFilter && (
+            <div className="agency-payments__client-filter" title={strings.CLEAR_CLIENT_FILTER}>
+              <Chip
+                label={strings.CLIENT_FILTER.replace('{name}', clientNameFor(clientIdFilter))}
+                onDelete={clearClientFilter}
+              />
+            </div>
+          )}
           <div className="agency-payments__toolbar">
             <TextField select size="small" label={strings.FILTER_LABEL} value={receivablesFilter} onChange={(event) => setReceivablesFilter(event.target.value as typeof receivablesFilter)}>
               <MenuItem value="overdue-due-soon">{strings.FILTER_OVERDUE_DUE_SOON}</MenuItem>
@@ -699,18 +800,19 @@ const Payments = () => {
         {activeTab === 'refunds' && (
         <section className="agency-payments__panel agency-payments__receivables">
           <div className="agency-payments__panel-title">{strings.REFUNDS_TITLE}</div>
-          <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.AMOUNT}</span><span>{strings.REFUND_METHOD}</span><span>{strings.REFUND_REASON}</span><span>{strings.REFUND_SINCE}</span></div>
+          <div className="agency-payments__table-head agency-payments__receivables-head"><span>{strings.CONTRACT}</span><span>{strings.CUSTOMER}</span><span>{strings.VEHICLE}</span><span>{strings.AMOUNT}</span><span>{strings.REFUND_METHOD}</span><span>{strings.REFUND_REASON}</span><span>{strings.REFUND_SINCE}</span><span>{strings.ACTIONS}</span></div>
           {loading ? <div className="agency-payments__empty">…</div> : !pendingRefunds || pendingRefunds.rows.length === 0 ? (
             <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_REFUNDS}</p></div>
           ) : pendingRefunds.rows.map((refund) => (
             <div className="agency-payments__row agency-payments__receivables-row" key={refund.booking._id}>
-              <strong data-label={strings.CONTRACT}>{bookingLabel(refund.booking)}</strong>
+              <strong data-label={strings.CONTRACT}><Button size="small" variant="text" onClick={() => navigate(`/update-booking?b=${refund.booking._id}`)}>{bookingLabel(refund.booking)}</Button></strong>
               <span data-label={strings.CUSTOMER}>{customerName(refund.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(refund.booking)}</span>
               <strong data-label={strings.AMOUNT}>{formatAmount(refund.amount)}</strong>
               <span data-label={strings.REFUND_METHOD}>{refund.method ? methodLabel(refund.method) : '—'}{refund.wireRefundPending ? ` · ${strings.WIRE_PENDING}` : ''}</span>
               <span data-label={strings.REFUND_REASON}>{refund.reason || '—'}</span>
               <span data-label={strings.REFUND_SINCE}>{refund.since ? formatDate(new Date(refund.since)) : '—'}</span>
+              <span data-label={strings.ACTIONS}><Button size="small" variant="outlined" onClick={() => openRefund(refund)}>{strings.RECORD_REFUND}</Button></span>
             </div>
           ))}
         </section>
@@ -772,7 +874,7 @@ const Payments = () => {
         )}
       </div>
       )}
-      <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={() => { if (!saving) { setDialogOpen(false); setRefundBooking(null) } }} fullWidth maxWidth="sm">
         <DialogTitle>{editingPayment ? strings.EDIT_PAYMENT : strings.NEW}</DialogTitle>
         <DialogContent className="agency-payments__form">
           {formError && <Alert severity="error">{strings.SAVE_ERROR}</Alert>}

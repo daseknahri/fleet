@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Button,
   FormControl,
   FormControlLabel,
   Skeleton,
@@ -11,9 +12,11 @@ import {
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import { strings as csStrings } from '@/lang/cars'
+import { strings as commonStrings } from '@/lang/common'
 import { strings } from '@/lang/checkout'
 import * as helper from '@/utils/helper'
 import * as PaymentService from '@/services/PaymentService'
+import Error from '@/components/Error'
 
 import '@/assets/css/checkout-options.css'
 
@@ -70,9 +73,10 @@ const CheckoutOptions = ({
   const [fullInsuranceOption, setFullInsuranceOption] = useState('')
   const [additionalDriverOption, setAdditionalDriverOption] = useState('')
   const [loading, setLoading] = useState(true)
+  const [optionsError, setOptionsError] = useState(false)
 
-  useEffect(() => {
-    const fetchPrices = async () => {
+  const fetchPrices = async () => {
+    try {
       const priceChangeRate = car.supplier.priceChangeRate || 0
       setCancellationOption(await helper.getCancellationOption(car.cancellation, language, priceChangeRate))
       setAmendmentsOption(await helper.getAmendmentsOption(car.amendments, language, priceChangeRate))
@@ -80,9 +84,22 @@ const CheckoutOptions = ({
       setCollisionDamageWaiverOption(await helper.getCollisionDamageWaiverOption(car.collisionDamageWaiver, days, language, priceChangeRate))
       setFullInsuranceOption(await helper.getFullInsuranceOption(car.fullInsurance, days, language, priceChangeRate))
       setAdditionalDriverOption(await helper.getAdditionalDriverOption(car.additionalDriver, days, language, priceChangeRate))
+      setOptionsError(false)
+    } catch {
+      // R2-A14 - the option prices cannot fall back: show error + Retry.
+      setOptionsError(true)
+    } finally {
       setLoading(false)
     }
+  }
 
+  const handleRetryOptions = () => {
+    setOptionsError(false)
+    setLoading(true)
+    fetchPrices()
+  }
+
+  useEffect(() => {
     fetchPrices()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,9 +114,19 @@ const CheckoutOptions = ({
     }
   }, [car])
 
+  // R2-A14 - the option prices failed: error + Retry, not a skeleton.
+  if (optionsError) {
+    return (
+      <div className="checkout-options-container">
+        <Error message={strings.OPTIONS_LOAD_ERROR} />
+        <Button variant="outlined" onClick={handleRetryOptions}>{commonStrings.RETRY}</Button>
+      </div>
+    )
+  }
+
   // B-F-30: same-height skeleton instead of an invisible options block
   // while the six option prices resolve.
-  if (loading) {
+  if (loading && !optionsError) {
     return (
       <div className="checkout-options-container">
         <Skeleton variant="text" width={180} height={32} />
@@ -108,6 +135,15 @@ const CheckoutOptions = ({
         ))}
       </div>
     )
+  }
+
+  const convertTotal = async (options: bookcarsTypes.CarOptions): Promise<number | null> => {
+    try {
+      return await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+    } catch (err) {
+      helper.error(err, strings.OPTIONS_PRICE_ERROR)
+      return null
+    }
   }
 
   const handleCancellationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,7 +157,8 @@ const CheckoutOptions = ({
         fullInsurance,
         additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setCancellation(_cancellation)
       onCancellationChange(_cancellation)
@@ -140,7 +177,8 @@ const CheckoutOptions = ({
         fullInsurance,
         additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setAmendments(_amendments)
       onAmendmentsChange(_amendments)
@@ -159,7 +197,8 @@ const CheckoutOptions = ({
         fullInsurance,
         additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setTheftProtection(_theftProtection)
       onTheftProtectionChange(_theftProtection)
@@ -178,7 +217,8 @@ const CheckoutOptions = ({
         fullInsurance,
         additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setCollisionDamageWaiver(_collisionDamageWaiver)
       onCollisionDamageWaiverChange(_collisionDamageWaiver)
@@ -197,7 +237,8 @@ const CheckoutOptions = ({
         fullInsurance: _fullInsurance,
         additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setFullInsurance(_fullInsurance)
       onFullInsuranceChange(_fullInsurance)
@@ -216,7 +257,8 @@ const CheckoutOptions = ({
         fullInsurance,
         additionalDriver: _additionalDriver,
       }
-      const _price = await PaymentService.convertPrice(bookcarsHelper.calculateTotalPrice(car, from, to, car.supplier.priceChangeRate || 0, options))
+      const _price = await convertTotal(options)
+      if (_price === null) return
 
       setAdditionalDriver(_additionalDriver)
       onAdditionalDriverChange(_additionalDriver)

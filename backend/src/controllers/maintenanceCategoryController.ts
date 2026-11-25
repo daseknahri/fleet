@@ -98,14 +98,19 @@ export const update = async (req: Request, res: Response) => {
       return
     }
     const payload = normalize(req.body as bookcarsTypes.UpsertMaintenanceCategoryPayload)
+    // GH-07 — a platform admin reached this category without a selector;
+    // audit with the category's agency (the middleware deferred to this
+    // controller because the path carries the category id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetCategory = await MaintenanceCategory.findById(req.params.id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCategory?.supplier?.toString(), 'maintenance-category:update')
+    }
+
     const row = await MaintenanceCategory.findOne({ _id: req.params.id, ...getScope(req) })
     if (!row || !payload) {
       res.status(row ? 400 : 404).send(row ? 'Invalid maintenance category' : 'Not found')
       return
     }
-    // GH-07 — a platform admin updated this category without a
-    // selector; audit with the category's agency.
-    await logAdminResourceAccess(req, row.supplier?.toString(), 'maintenance-category:update')
     if (payload.name.toLowerCase() !== row.name.toLowerCase() && await duplicateName(row.supplier.toString(), payload.name, row._id.toString())) {
       res.status(409).send('A category with this name already exists')
       return
@@ -134,14 +139,19 @@ export const remove = async (req: Request, res: Response) => {
       res.status(400).send('A reason is required to delete a category')
       return
     }
+    // GH-07 — a platform admin reached this category without a selector;
+    // audit with the category's agency (the middleware deferred to this
+    // controller because the path carries the category id).
+    if (req.user?.type === bookcarsTypes.UserType.Admin) {
+      const targetCategory = await MaintenanceCategory.findById(req.params.id).select('supplier').lean()
+      await logAdminResourceAccess(req, targetCategory?.supplier?.toString(), 'maintenance-category:delete')
+    }
+
     const row = await MaintenanceCategory.findOne({ _id: req.params.id, ...getScope(req) })
     if (!row) {
       res.status(404).send('Not found')
       return
     }
-    // GH-07 — a platform admin deleted this category without a
-    // selector; audit with the category's agency.
-    await logAdminResourceAccess(req, row.supplier?.toString(), 'maintenance-category:delete')
     const [expenseCount, scheduleCount] = await Promise.all([
       MaintenanceExpense.countDocuments({ category: row._id }),
       MaintenanceSchedule.countDocuments({ category: row._id }),

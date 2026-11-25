@@ -22,8 +22,7 @@ import {
   Visibility as ViewIcon,
   Cancel as CancelIcon
 } from '@mui/icons-material'
-import { format } from 'date-fns'
-import { fr as dfnsFR, enUS as dfnsENUS, es as dfnsES, arMA as dfnsARMA } from 'date-fns/locale'
+import { formatDateCasablanca, formatDateTimeCasablanca } from '@/utils/dateHelper'
 import * as bookcarsTypes from ':bookcars-types'
 import * as bookcarsHelper from ':bookcars-helper'
 import SafeImage from '@/components/SafeImage'
@@ -203,14 +202,7 @@ const BookingList = ({
     }
   }, [pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const getDate = (date?: string) => {
-    if (date) {
-      const d = new Date(date)
-      return `${bookcarsHelper.formatDatePart(d.getDate())}-${bookcarsHelper.formatDatePart(d.getMonth() + 1)}-${d.getFullYear()}`
-    }
-
-    throw new Error('Invalid date')
-  }
+  const getDate = (date?: string) => formatDateCasablanca(date)
 
   const getColumns = (): GridColDef<bookcarsTypes.Booking>[] => {
     const _columns: GridColDef<bookcarsTypes.Booking>[] = [
@@ -227,6 +219,13 @@ const BookingList = ({
         flex: 1,
         minWidth: 110,
         valueGetter: (value: string) => getDate(value),
+      },
+      {
+        field: 'expireAt',
+        headerName: strings.HOLD_EXPIRES,
+        flex: 1,
+        minWidth: 150,
+        valueGetter: (value: string) => value ? `${formatDateTimeCasablanca(value)} (${commonStrings.TIMEZONE_MOROCCO})` : '—',
       },
       {
         field: 'price',
@@ -271,8 +270,7 @@ const BookingList = ({
                   <ViewIcon />
                 </IconButton>
               </Tooltip>
-              {row.cancellation
-                && !row.cancelRequest
+              {!row.cancelRequest
                 && row.status !== bookcarsTypes.BookingStatus.Cancelled
                 && new Date(row.from) >= today && (
                   <Tooltip title={strings.CANCEL}>
@@ -281,6 +279,9 @@ const BookingList = ({
                     </IconButton>
                   </Tooltip>
                 )}
+              {row.cancelRequest && (
+                <span title={row.cancelRequestAt ? `${strings.CANCEL_REQUESTED} — ${formatDateCasablanca(row.cancelRequestAt)}` : strings.CANCEL_REQUESTED}>{strings.CANCEL_REQUESTED}</span>
+              )}
             </>
           )
         },
@@ -369,6 +370,7 @@ const BookingList = ({
         const row = rows.find((r) => r._id === selectedId)
         if (row) {
           row.cancelRequest = true
+          row.cancelRequestAt = new Date()
 
           setCancelRequestSent(true)
           setRows(rows)
@@ -389,11 +391,6 @@ const BookingList = ({
     }
   }
 
-  const _fr = language === 'fr'
-  const _es = language === 'es'
-  const _ar = language === 'ar'
-  const _locale = _fr ? dfnsFR : _es ? dfnsES : _ar ? dfnsARMA : dfnsENUS
-  const _format = _fr ? 'eee d LLL yyyy kk:mm' : 'eee, d LLL yyyy, p'
   const bookingDetailHeight = env.SUPPLIER_IMAGE_HEIGHT + 10
 
   return (
@@ -426,11 +423,15 @@ const BookingList = ({
                   <div className="booking-detail" style={{ height: bookingDetailHeight }}>
                     <span className="booking-detail-title">{strings.DAYS}</span>
                     <div className="booking-detail-value">
-                      {`${helper.getDaysShort(bookcarsHelper.days(from, to))} (${bookcarsHelper.capitalize(
-                        format(from, _format, { locale: _locale }),
-                      )} - ${bookcarsHelper.capitalize(format(to, _format, { locale: _locale }))})`}
+                      {`${helper.getDaysShort(bookcarsHelper.days(from, to))} (${formatDateTimeCasablanca(from)} (${commonStrings.TIMEZONE_MOROCCO}) - ${formatDateTimeCasablanca(to)} (${commonStrings.TIMEZONE_MOROCCO}))`}
                     </div>
                   </div>
+                  {booking.expireAt && booking.status === bookcarsTypes.BookingStatus.Pending && (
+                    <div className="booking-detail" style={{ height: bookingDetailHeight }}>
+                      <span className="booking-detail-title">{strings.HOLD_EXPIRES}</span>
+                      <div className="booking-detail-value">{`${formatDateTimeCasablanca(booking.expireAt)} (${commonStrings.TIMEZONE_MOROCCO})`}</div>
+                    </div>
+                  )}
                   <div className="booking-detail" style={{ height: bookingDetailHeight }}>
                     <span className="booking-detail-title">{commonStrings.PICK_UP_LOCATION}</span>
                     <div className="booking-detail-value">{(booking.pickupLocation as bookcarsTypes.Location).name}</div>
@@ -464,6 +465,12 @@ const BookingList = ({
                     <span className="booking-detail-title">{strings.COST}</span>
                     <div className="booking-detail-value booking-price">{bookcarsHelper.formatPrice(booking.price as number, commonStrings.CURRENCY, language as string)}</div>
                   </div>
+                  {booking.cancelRequest && (
+                    <div className="booking-detail" style={{ height: bookingDetailHeight }}>
+                      <span className="booking-detail-title">{strings.CANCEL_REQUESTED}</span>
+                      <div className="booking-detail-value">{booking.cancelRequestAt ? formatDateCasablanca(booking.cancelRequestAt) : '—'}</div>
+                    </div>
+                  )}
 
                   <div className="bs-buttons">
                     <Button
@@ -473,8 +480,7 @@ const BookingList = ({
                     >
                       {strings.VIEW}
                     </Button>
-                    {booking.cancellation
-                      && !booking.cancelRequest
+                    {!booking.cancelRequest
                       && booking.status !== bookcarsTypes.BookingStatus.Cancelled
                       && new Date(booking.from) > new Date() && (
                         <Button
@@ -524,8 +530,10 @@ const BookingList = ({
             </Stack>
           ) : cancelRequestSent ? (
             strings.CANCEL_BOOKING_REQUEST_SENT
-          ) : (
+          ) : (rows.find((r) => r._id === selectedId)?.cancellation ?? false) ? (
             strings.CANCEL_BOOKING
+          ) : (
+            strings.CANCEL_NOT_INCLUDED
           )}
         </DialogContent>
         <DialogActions className="dialog-actions">
@@ -534,7 +542,7 @@ const BookingList = ({
               {commonStrings.CLOSE}
             </Button>
           )}
-          {!cancelRequestSent && !cancelRequestProcessing && (
+          {!cancelRequestSent && !cancelRequestProcessing && (rows.find((r) => r._id === selectedId)?.cancellation ?? false) && (
             <Button onClick={handleConfirmCancelBooking} variant="contained" className="btn-primary">
               {commonStrings.CONFIRM}
             </Button>

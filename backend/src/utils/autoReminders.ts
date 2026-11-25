@@ -5,6 +5,7 @@ import Booking from '../models/Booking'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import NotificationDelivery from '../models/NotificationDelivery'
 import User from '../models/User'
 import { getContractReceivable, isOverdue } from './contractReceivable'
 import * as logger from './logger'
@@ -46,6 +47,14 @@ import {
 // Throttle: at most one pass per hour (the tick calls every 60 s).
 let lastPassAt = 0
 const PASS_INTERVAL_MS = 60 * 60 * 1000
+
+// R2-B08 - missed-pickup chase window, in days after the pickup day.
+// A missed pickup alerts staff daily for this long, then stops: the
+// chase is bounded, and handover / cancel / mark-no-show still end it
+// earlier. 7 is the gap hunt's suggestion (section 9, Q21 family), not a user
+// decision - if the user answers Q21 with another cadence, change this
+// one constant (and the test seeds).
+const MISSED_PICKUP_CHASE_DAYS = 7
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
@@ -103,6 +112,10 @@ interface AutoEvent {
 }
 
 export interface AutoReminderPassResult {
+  // R2-B14 - these counts are DELIVERIES (one per recipient per channel
+  // that actually sent), not events attempted: a dedupe-suppressed or
+  // failed send counts 0. The weekly recap's overdueCount inherits this
+  // definition (it counts delivered overdue notices).
   skipped: boolean
   agencies: number
   pickups: number
@@ -132,12 +145,16 @@ const LIVE_BOOKING_FILTER = {
   deletedAt: null,
 }
 
+// R2-B14 - fanoutEvent returns the number of deliveries that actually
+// went out (one per recipient per channel that deliverNotification
+// reports true for). A dedupe-suppressed or failed send counts 0: the
+// pass-result counts below are deliveries, not attempts (see 6c).
 const fanoutEvent = async (
   supplierId: string,
   recipients: env.User[],
   owner: env.User | undefined,
   event: AutoEvent,
-): Promise<void> => {
+): Promise<number> => {
   const rendered = renderNotificationTemplate(event.templateKey, owner?.language, event.vars)
   const base = {
     templateKey: event.templateKey,
@@ -147,22 +164,25 @@ const fanoutEvent = async (
     subject: rendered.subject,
     body: rendered.body,
   }
+  let delivered = 0
   for (const recipient of recipients) {
-    await deliverNotification(supplierId, { ...base, channel: 'inApp', recipient: recipient._id }, async () => {
+    if (await deliverNotification(supplierId, { ...base, channel: 'inApp', recipient: recipient._id }, async () => {
       await createInAppNotification(recipient._id, rendered.body, {
         subjectType: event.subjectType,
         subjectId: event.subjectId,
         ...(event.subjectType === 'booking' ? { booking: event.subjectId } : {}),
         ...(event.subjectType === 'car' ? { car: event.subjectId } : {}),
       })
-    })
+    })) {
+      delivered += 1
+    }
   }
   if (autoReminderEmailAllowed(owner, event.kind)) {
     for (const recipient of recipients) {
       if (recipient.enableEmailNotifications === false || !recipient.email) {
         continue
       }
-      await deliverNotification(supplierId, { ...base, channel: 'email', recipient: recipient._id }, async () => {
+      if (await deliverNotification(supplierId, { ...base, channel: 'email', recipient: recipient._id }, async () => {
         const mailOptions: SendMailOptions = {
           from: env.SMTP_FROM,
           to: recipient.email,
@@ -171,16 +191,21 @@ const fanoutEvent = async (
         }
         const info = await mailHelper.sendMail(mailOptions)
         return info?.messageId as string | undefined
-      })
+      })) {
+        delivered += 1
+      }
     }
   }
   for (const recipient of recipients) {
-    await deliverNotification(supplierId, { ...base, channel: 'push', recipient: recipient._id }, async () => {
+    if (await deliverNotification(supplierId, { ...base, channel: 'push', recipient: recipient._id }, async () => {
       if (!(await sendPush(recipient, rendered.body, undefined))) {
         throw new Error('Push not delivered')
       }
-    })
+    })) {
+      delivered += 1
+    }
   }
+  return delivered
 }
 
 // GH-03 — the customer leg of a money reminder: one email to the
@@ -191,19 +216,27 @@ const fanoutEvent = async (
 // has no email or opted out of email notifications.
 const emailCustomer = async (
   supplierId: string,
+  owner: env.User | undefined,
   driver: unknown,
   event: AutoEvent,
   dedupeKey: string,
-): Promise<void> => {
+): Promise<boolean> => {
   try {
+    // R2-B06 - the customer leg gates on the owner's master email
+    // toggle, like the staff leg (fanoutEvent): if the owner turned
+    // email notifications off, the customer gets no money email either.
+    // In-app and push are unaffected (toggles gate email only).
+    if (!autoReminderEmailAllowed(owner, event.kind)) {
+      return false
+    }
     const d = (driver && typeof driver === 'object'
       ? driver as { _id?: unknown, email?: string, fullName?: string, language?: string, enableEmailNotifications?: boolean }
       : null)
     if (!d || !d._id || !d.email || d.enableEmailNotifications === false) {
-      return
+      return false
     }
     const rendered = renderNotificationTemplate(event.templateKey, d.language, event.vars)
-    await deliverNotification(supplierId, {
+    return await deliverNotification(supplierId, {
       templateKey: event.templateKey,
       subjectType: event.subjectType,
       subjectId: event.subjectId,
@@ -224,6 +257,7 @@ const emailCustomer = async (
     })
   } catch (err) {
     logger.error('[autoReminders] customer reminder email failed', err)
+    return false
   }
 }
 
@@ -248,7 +282,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   for (const booking of pickups) {
     const from = new Date(booking.from)
     const when = from.getTime() < startOfDay(addDays(now, 1)).getTime() ? 'today' : 'tomorrow'
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.pickups += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.pickup',
       kind: 'pickup',
       subjectType: 'booking',
@@ -264,7 +298,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
       },
     })
-    counts.pickups += 1
   }
 
   // -- Returns: live bookings ending today or tomorrow. ----------------
@@ -276,7 +309,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   for (const booking of returns) {
     const to = new Date(booking.to)
     const when = to.getTime() < startOfDay(addDays(now, 1)).getTime() ? 'today' : 'tomorrow'
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.returns += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.return',
       kind: 'return',
       subjectType: 'booking',
@@ -292,7 +325,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         driver: driverName(booking as { driver?: { fullName?: string } | string | null }),
       },
     })
-    counts.returns += 1
   }
 
   // -- Overdue: live bookings whose rental ended, with an outstanding
@@ -316,9 +348,24 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     }
     const dueAt = receivable.dueAt ? new Date(receivable.dueAt) : new Date(booking.to)
     const daysOverdue = Math.max(0, Math.floor((startOfDay(now).getTime() - startOfDay(dueAt).getTime()) / 86400000))
-    const repeatCount = Math.floor(daysOverdue / 7) + 1
+    // R2-B19 - the repeat count is reminders SENT, not weeks overdue:
+    // count prior `sent` auto.overdue rows for this booking in the
+    // delivery log (same pattern as lastRemindedAt/reminderCount in
+    // rentalPaymentController.ts:418-433) and add 1 for this week's
+    // send. A missed week (backend down, pass skipped) no longer skips
+    // a number: the message says #2 when two were sent, even if three
+    // weeks have passed. Failed rows never count (R2-B01 deletes failed
+    // auto rows on failure, so only sent rows exist to count).
+    const priorOverdueSends = await NotificationDelivery.countDocuments({
+      supplier: supplierId,
+      subjectType: 'booking',
+      subjectId: String(booking._id),
+      templateKey: 'auto.overdue',
+      status: 'sent',
+    })
+    const repeatCount = priorOverdueSends + 1
     overdueAmount += receivable.outstandingBalance
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.overdue += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.overdue',
       kind: 'overdue',
       subjectType: 'booking',
@@ -334,12 +381,11 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         days: daysOverdue,
       },
     })
-    counts.overdue += 1
     // GH-03 — 30+ days overdue escalates to the OWNER ONLY (staff get
     // the weekly repeat above; the owner gets this on top of it, once
     // per week, until resolved).
     if (daysOverdue >= 30 && owner) {
-      await fanoutEvent(supplierId, [owner], owner, {
+      counts.overdueEscalated += await fanoutEvent(supplierId, [owner], owner, {
         templateKey: 'auto.overdueEscalate' as bookcarsTypes.NotificationTemplateKey,
         kind: 'overdueEscalate',
         subjectType: 'booking',
@@ -354,7 +400,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
           currency: receivable.currency,
         },
       })
-      counts.overdueEscalated += 1
     }
   }
 
@@ -376,7 +421,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     }
     const confirmedAt = booking.confirmedAt ? new Date(booking.confirmedAt) : now
     const days = Math.max(0, Math.floor((now.getTime() - confirmedAt.getTime()) / 86400000))
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.confirmedUnpaid += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.confirmedUnpaid',
       kind: 'confirmedUnpaid',
       subjectType: 'booking',
@@ -391,7 +436,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         date: dateKey(booking.from),
       },
     })
-    counts.confirmedUnpaid += 1
   }
 
   // -- Hold-expiring (GH-03 / Wave 3.2): pay-later holds whose
@@ -426,22 +470,23 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         currency: receivable.currency,
       },
     }
-    await fanoutEvent(supplierId, recipients, owner, event)
-    await emailCustomer(supplierId, booking.driver, event, `hold-expiring-customer:${booking._id}:${dateKey(booking.expireAt as Date)}`)
-    counts.holdExpiring += 1
+    counts.holdExpiring += await fanoutEvent(supplierId, recipients, owner, event) + (await emailCustomer(supplierId, owner, booking.driver, event, `hold-expiring-customer:${booking._id}:${dateKey(booking.expireAt as Date)}`) ? 1 : 0)
   }
 
-  // -- Payment-due-before-pickup (GH-03 / Wave 3.2): pickup
-  // tomorrow, balance > 0. Staff fan-out + one email to the customer
-  // with the amount and the pickup date. One notice per pickup date.
+  // -- Payment-due-before-pickup (GH-03 / Wave 3.2; R2-B07): pickup
+  // TODAY or tomorrow, balance > 0. Staff fan-out + one email to the
+  // customer with the amount and the pickup date. One notice per pickup
+  // date (the dedupe key carries the pickup date, so the wider window
+  // cannot double-fire: a booking is claimed once for its pickup date
+  // whichever pass day claims it first).
   const tomorrowStart = startOfDay(addDays(now, 1))
   const dayAfterStart = startOfDay(addDays(now, 2))
-  const dueTomorrow = await Booking.find({
+  const dueTodayOrTomorrow = await Booking.find({
     ...LIVE_BOOKING_FILTER,
     supplier: supplierId,
-    from: { $gte: tomorrowStart, $lt: dayAfterStart },
+    from: { $gte: todayStart, $lt: dayAfterStart },
   }).populate('car', 'name licensePlate').populate('driver', 'fullName email language enableEmailNotifications').lean()
-  for (const booking of dueTomorrow) {
+  for (const booking of dueTodayOrTomorrow) {
     const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
     if (receivable.outstandingBalance <= 0) {
       continue
@@ -460,27 +505,29 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         currency: receivable.currency,
       },
     }
-    await fanoutEvent(supplierId, recipients, owner, event)
-    await emailCustomer(supplierId, booking.driver, event, `payment-due-customer:${booking._id}:${dateKey(booking.from)}`)
-    counts.paymentDue += 1
+    counts.paymentDue += await fanoutEvent(supplierId, recipients, owner, event) + (await emailCustomer(supplierId, owner, booking.driver, event, `payment-due-customer:${booking._id}:${dateKey(booking.from)}`) ? 1 : 0)
   }
 
   // -- Missed pickup (GH-03 / GH-14 / Wave 3.2): the pickup day
   // passed with no handover (lifecycle still Draft/Confirmed) and no
-  // no-show marked. Staff only, DAILY key — re-fires every day until
-  // resolved (handover, cancel, or mark-no-show).
+  // no-show marked. Staff only, DAILY key - re-fires every day for
+  // MISSED_PICKUP_CHASE_DAYS days after the pickup day, then stops,
+  // until resolved earlier (handover, cancel, or mark-no-show).
   const missedPickups = await Booking.find({
     ...LIVE_BOOKING_FILTER,
     supplier: supplierId,
     lifecycle: { $in: [bookcarsTypes.ContractLifecycle.Draft, bookcarsTypes.ContractLifecycle.Confirmed] },
-    from: { $lt: todayStart },
+    // R2-B08 - bounded chase: pickup day within the last
+    // MISSED_PICKUP_CHASE_DAYS days. Older than that, the alert stops
+    // (mark-no-show is the staff escape hatch for the stragglers).
+    from: { $gte: startOfDay(addDays(now, -MISSED_PICKUP_CHASE_DAYS)), $lt: todayStart },
   }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
   for (const booking of missedPickups) {
     if ((booking as unknown as { noShowAt?: Date | null }).noShowAt) {
       continue
     }
     const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.missedPickup += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.missedPickup' as bookcarsTypes.NotificationTemplateKey,
       kind: 'missedPickup',
       subjectType: 'booking',
@@ -494,7 +541,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         currency: receivable.currency,
       },
     })
-    counts.missedPickup += 1
   }
 
   // -- Expiry: car document dates within 30 days + open maintenance
@@ -511,7 +557,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       if (!value) continue
       const date = new Date(value)
       if (date.getTime() > horizon30.getTime()) continue
-      await fanoutEvent(supplierId, recipients, owner, {
+      counts.expiries += await fanoutEvent(supplierId, recipients, owner, {
         templateKey: 'auto.expiry',
         kind: 'expiry',
         subjectType: 'car',
@@ -519,14 +565,13 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         dedupeKey: `expiry:${car._id}:${label}:${dateKey(date)}`,
         vars: { doc: label, date: dateKey(date), car: carLabel(car) },
       })
-      counts.expiries += 1
     }
     for (const doc of car.documents || []) {
       if (!doc?.expiryDate) continue
       const date = new Date(doc.expiryDate)
       if (date.getTime() > horizon30.getTime()) continue
       const label = doc.kind ? `${doc.kind} document` : 'Document'
-      await fanoutEvent(supplierId, recipients, owner, {
+      counts.expiries += await fanoutEvent(supplierId, recipients, owner, {
         templateKey: 'auto.expiry',
         kind: 'expiry',
         subjectType: 'car',
@@ -534,7 +579,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         dedupeKey: `expiry:${car._id}:${label}:${dateKey(date)}`,
         vars: { doc: label, date: dateKey(date), car: carLabel(car) },
       })
-      counts.expiries += 1
     }
   }
   // GH-19 - schedules of trashed cars must not notify: restrict to the
@@ -574,7 +618,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     const triggerLabel = due.dueByMileage
       ? `${due.effectiveNextDueMileage} km`
       : schedule.nextDueDate ? dateKey(schedule.nextDueDate) : ''
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.expiries += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.expiry',
       kind: 'expiry',
       subjectType: 'maintenance-schedule',
@@ -582,7 +626,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       dedupeKey: `expiry-schedule:${schedule._id}:${due.status}:${triggerKey}`,
       vars: { doc: `Maintenance: ${schedule.title}`, date: triggerLabel, car: carName },
     })
-    counts.expiries += 1
   }
 
   // -- Stale work orders (GH-21): still Scheduled N days after the
@@ -602,7 +645,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   }).populate('car', 'name licensePlate').lean()
   for (const workOrder of staleWorkOrders) {
     const days = workOrderStaleDays(workOrder.scheduledStart, now)
-    await fanoutEvent(supplierId, recipients, owner, {
+    counts.staleWorkOrders += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.staleWorkOrder' as bookcarsTypes.NotificationTemplateKey,
       kind: 'staleWorkOrder',
       subjectType: 'maintenance-work-order',
@@ -615,7 +658,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         date: dateKey(workOrder.scheduledStart),
       },
     })
-    counts.staleWorkOrders += 1
   }
 
   // -- Weekly recap: once per ISO week, on Mondays. The dedupe claim
@@ -694,7 +736,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     if (amount <= 0) {
       continue
     }
-    await fanoutEvent(supplierId, [owner], owner, {
+    counts.pendingRefunds += await fanoutEvent(supplierId, [owner], owner, {
       templateKey: 'auto.pendingRefund' as bookcarsTypes.NotificationTemplateKey,
       kind: 'pendingRefund',
       subjectType: 'booking',
@@ -709,7 +751,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
         currency: env.BASE_CURRENCY.toUpperCase(),
       },
     })
-    counts.pendingRefunds += 1
   }
 
   return counts

@@ -26,6 +26,7 @@ routes.route(routeNames.trashWarning).get(authJwt.verifyToken, agencyAuth.requir
 routes.route(routeNames.deleteTempBooking).delete(bookingController.deleteTempBooking)
 routes.route(routeNames.getBooking).get(authJwt.verifyTokenOptional, bookingController.getBooking)
 routes.route(routeNames.getBookingId).get(bookingController.getBookingId)
+routes.route(routeNames.guestBookingLookup).post(checkoutRateLimiter, bookingController.lookupGuestBooking)
 routes.route(routeNames.getBookings).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), bookingController.getBookings)
 routes.route(routeNames.hasBookings).get(authJwt.verifyToken, bookingController.hasBookings)
 routes.route(routeNames.cancelBooking).post(authJwt.verifyToken, bookingController.cancelBooking)
@@ -39,6 +40,7 @@ routes.route(routeNames.decideCancelRequest).post(authJwt.verifyToken, agencyAut
 // the controller) + the confirmed-unpaid watchlist (ReadBookings).
 routes.route(routeNames.getRefundPlan).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.getRefundPlan)
 routes.route(routeNames.confirmReservation).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.confirmReservation)
+routes.route(routeNames.resendConfirmation).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingController.resendConfirmation)
 routes.route(routeNames.refreshPaymentStatus).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.RecordPayments), bookingController.refreshPaymentStatus)
 routes.route(routeNames.getConfirmedUnpaid).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadBookings), bookingController.getConfirmedUnpaid)
 routes.route(routeNames.amend).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageBookings), bookingAmendmentController.amend)

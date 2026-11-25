@@ -16,7 +16,7 @@ import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { METRIC_DICTIONARY_VERSION } from './reportController'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
-import { adminSelectorSupplierIds, agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
+import { agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
 
 const getScope = (req: Request): Record<string, unknown> => {
   if (req.user?.type === bookcarsTypes.UserType.Admin) {
@@ -199,7 +199,7 @@ export const create = async (req: Request, res: Response) => {
     // Wave 2.11 â€” a platform admin posts against a single resource
     // (the booking): audit with the payment's agency. Only when no
     // selector was sent â€” the middleware already logged selector calls.
-    if (user.type === bookcarsTypes.UserType.Admin && adminSelectorSupplierIds(req).length === 0) {
+    if (user.type === bookcarsTypes.UserType.Admin) {
       await logAdminCrossAgencyAccess(req, [payment.supplier.toString()], 'payment:create')
     }
     res.status(201).json(statusRefresh ? { ...payment.toJSON(), statusRefresh } : payment)
@@ -572,9 +572,21 @@ export const overdue = async (req: Request, res: Response) => {
       metricDictionaryVersion: METRIC_DICTIONARY_VERSION,
       rows: filteredRows,
       paidInFullRows: filteredPaidInFullRows,
-      outstandingTotal: round2(filteredRows.reduce((sum, row) => sum + row.outstandingBalance, 0)),
-      overdueTotal: round2(filteredRows.filter((row) => row.overdue).reduce((sum, row) => sum + row.outstandingBalance, 0)),
-      paidInFullCount: filteredPaidInFullRows.length,
+      // R2-B04 - the summary totals are filter-independent: they are
+      // the agency's outstanding / overdue money, not the current
+      // view's. A filtered view (paid-in-full, due-soon, an age
+      // bucket) must never zero the OVERDUE card. The rows stay
+      // filtered; only the totals read the unfiltered collections.
+      // (Still scoped by ?clientId=: the driver check runs before the
+      // rows are built, so a client-filtered view totals that client.)
+      outstandingTotal: round2(rows.reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      overdueTotal: round2(rows.filter((row) => row.overdue).reduce((sum, row) => sum + row.outstandingBalance, 0)),
+      // R2-B16 - the count is the paid-in-full FLAG, not the list
+      // length: a rent-paid / deposit-due row is listed (so it does
+      // not vanish) but it still owes a deposit. rentPaidCount is the
+      // list length, kept so the tab's row count still has a name.
+      paidInFullCount: filteredPaidInFullRows.filter((row) => row.paidInFull).length,
+      rentPaidCount: filteredPaidInFullRows.length,
     })
   } catch (err) {
     logger.error(`[rentalPayment.overdue] ${i18n.t('ERROR')}`, err)
@@ -913,6 +925,11 @@ export const collectionsSummary = async (req: Request, res: Response) => {
     const bookings = await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+      // R2-B18 (option a) — dictionary v2026-11-11.1/11.2: unexpired
+      // checkout placeholders (expireAt set) are excluded from the
+      // dashboard/collections universe. A confirmed booking has
+      // expireAt cleared (confirmReservation), so it stays included.
+      expireAt: null,
       // GA-PAR-22: trashed bookings leave contractAmount (§2.5);
       // their posted payments still count as collected, so `remaining`
       // can understate — accepted semantics.

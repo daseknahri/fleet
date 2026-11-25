@@ -214,11 +214,12 @@ describe('GH-21 stale work order reminder', () => {
 
   it('R3-02: a trashed car\'s stale job never notifies', async () => {
     const result = await runAutoReminderPass(new Date(), { force: true })
-    // No delivery row at all for the trashed job — not even a deduped
-    // one — and the pass count covers only the live car's stale job
-    // (wo8, counted once per pass even when its weekly dedupe is
-    // already claimed by the earlier test in this file).
-    expect((await deliveries({ templateKey: 'auto.staleWorkOrder', subjectType: 'maintenance-work-order', subjectId: String(woTrashed._id) }))).toHaveLength(0)
-    expect(result.staleWorkOrders).toBe(1)
+    // No delivery row at all for the trashed job - not even a deduped
+    // one. R2-B14: pass counts are DELIVERIES, not jobs. wo8
+    // re-delivers in this pass (the file afterEach wipes the sent
+    // rows, so the weekly dedupe from the earlier test is gone):
+    // 2 recipients x inApp + email = 4; push fails. The trashed job
+    // contributes 0.
+    expect(result.staleWorkOrders).toBe(4)
   })
 })

@@ -160,6 +160,14 @@ export const validateAccessToken = (): Promise<number> =>
     )
     .then((res) => res.status)
 
+/** R2-A10 - only 401/403 mean "signed out". Anything else (no response,
+ *  timeout, 5xx) is a connection problem: the session is kept. */
+export const isAuthError = (err: unknown): boolean => {
+  const status = (err as { status?: number, response?: { status?: number } })?.status
+    ?? (err as { response?: { status?: number } })?.response?.status
+  return status === 401 || status === 403
+}
+
 /**
  * Confirm email.
  *
