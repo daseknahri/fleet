@@ -4,11 +4,13 @@ import * as env from '../config/env.config'
 import Booking from '../models/Booking'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import User from '../models/User'
 import { getContractReceivable, isOverdue } from './contractReceivable'
 import * as logger from './logger'
 import * as mailHelper from './mailHelper'
 import { resolveScheduleDue } from './maintenanceSchedule'
+import { staleWorkOrderCutoff, workOrderStaleDays } from './workOrderStale'
 import { renderNotificationTemplate } from './notificationTemplates'
 import {
   autoReminderEmailAllowed,
@@ -52,11 +54,25 @@ const addDays = (date: Date, days: number) => {
   d.setDate(d.getDate() + days)
   return d
 }
-const dateKey = (date: Date | string) => new Date(date).toISOString().slice(0, 10)
+// GH-22 - the one date key. Africa/Casablanca WALL day, explicit (not the
+// process-local clock: the container runs on UTC, so `getFullYear()` /
+// `toISOString()` both answer the UTC day). Mirrors the wall-parts
+// approach in `utils/reminderSchedule.ts`. Same `YYYY-MM-DD` format as
+// before, so existing dedupe keys keep their shape.
+const CASABLANCA_TZ = 'Africa/Casablanca'
+const dateKey = (date: Date | string): string => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: CASABLANCA_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(date))
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
 
-// ISO week key (YYYY-Www) for the weekly-recap dedupe.
+// GH-22 - ISO week key on the Casablanca WALL calendar (was UTC: the
+// week flipped an hour before the Casablanca week did, so the overdue
+// weekly repeat and the Monday recap could claim the next week's key
+// while the windows still ran the old week).
 const isoWeekKey = (date: Date): string => {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const wall = new Date(dateKey(date)) // Casablanca YYYY-MM-DD as a UTC-midnight instant; calendar maths only
+  const d = new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate()))
   const day = (d.getUTCDay() + 6) % 7
   d.setUTCDate(d.getUTCDate() - day + 3)
   const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4))
@@ -79,7 +95,7 @@ const driverName = (booking: { driver?: { fullName?: string } | string | null })
 
 interface AutoEvent {
   templateKey: bookcarsTypes.NotificationTemplateKey
-  kind: 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid' | 'holdExpiring' | 'paymentDue' | 'missedPickup' | 'overdueEscalate' | 'pendingRefund'
+  kind: 'pickup' | 'return' | 'overdue' | 'expiry' | 'confirmedUnpaid' | 'holdExpiring' | 'paymentDue' | 'missedPickup' | 'overdueEscalate' | 'pendingRefund' | 'staleWorkOrder'
   subjectType: string
   subjectId: string
   dedupeKey: string
@@ -103,6 +119,8 @@ export interface AutoReminderPassResult {
   missedPickup: number
   overdueEscalated: number
   pendingRefunds: number
+  // GH-21 - stale work orders (weekly repeat).
+  staleWorkOrders: number
 }
 
 const LIVE_BOOKING_FILTER = {
@@ -131,7 +149,12 @@ const fanoutEvent = async (
   }
   for (const recipient of recipients) {
     await deliverNotification(supplierId, { ...base, channel: 'inApp', recipient: recipient._id }, async () => {
-      await createInAppNotification(recipient._id, rendered.body)
+      await createInAppNotification(recipient._id, rendered.body, {
+        subjectType: event.subjectType,
+        subjectId: event.subjectId,
+        ...(event.subjectType === 'booking' ? { booking: event.subjectId } : {}),
+        ...(event.subjectType === 'car' ? { car: event.subjectId } : {}),
+      })
     })
   }
   if (autoReminderEmailAllowed(owner, event.kind)) {
@@ -205,7 +228,7 @@ const emailCustomer = async (
 }
 
 const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<AutoReminderPassResult, 'skipped' | 'agencies'>> => {
-  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0, holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0 }
+  const counts = { pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0, holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0, staleWorkOrders: 0 }
   const recipients = await resolveReminderRecipients(supplierId)
   if (recipients.length === 0) {
     return counts
@@ -514,7 +537,11 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       counts.expiries += 1
     }
   }
-  const schedules = await MaintenanceSchedule.find({ supplier: supplierId })
+  // GH-19 - schedules of trashed cars must not notify: restrict to the
+  // live cars already fetched above (the car loop filters deletedAt;
+  // the schedule loop did not, so a trashed car's Due/Overdue
+  // schedules kept notifying every pass).
+  const schedules = await MaintenanceSchedule.find({ supplier: supplierId, car: { $in: cars.map((car) => car._id) } })
     .populate('car', 'name licensePlate odometerKm').lean()
   for (const schedule of schedules) {
     if (schedule.status === bookcarsTypes.MaintenanceScheduleStatus.Completed) continue
@@ -558,11 +585,44 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     counts.expiries += 1
   }
 
+  // -- Stale work orders (GH-21): still Scheduled N days after the
+  // planned start. Weekly repeat (same isoWeekKey dedupe as the
+  // overdue repeat) until the job leaves Scheduled. Staff fan-out +
+  // owner, like the expiry events. The stale predicate lives in
+  // utils/workOrderStale.ts - the same function the list endpoint
+  // uses, so the reminder and the aging view can never disagree.
+  const staleWorkOrders = await MaintenanceWorkOrder.find({
+    supplier: supplierId,
+    status: bookcarsTypes.WorkOrderStatus.Scheduled,
+    scheduledStart: { $lt: staleWorkOrderCutoff(now) },
+  }).populate('car', 'name licensePlate').lean()
+  for (const workOrder of staleWorkOrders) {
+    const days = workOrderStaleDays(workOrder.scheduledStart, now)
+    await fanoutEvent(supplierId, recipients, owner, {
+      templateKey: 'auto.staleWorkOrder' as bookcarsTypes.NotificationTemplateKey,
+      kind: 'staleWorkOrder',
+      subjectType: 'maintenance-work-order',
+      subjectId: String(workOrder._id),
+      dedupeKey: `stale-work-order:${workOrder._id}:${isoWeekKey(now)}`,
+      vars: {
+        title: workOrder.title,
+        car: carLabel(workOrder.car as { name?: string, licensePlate?: string } | string | undefined),
+        days,
+        date: dateKey(workOrder.scheduledStart),
+      },
+    })
+    counts.staleWorkOrders += 1
+  }
+
   // -- Weekly recap: once per ISO week, on Mondays. The dedupe claim
   // (one row per recipient per channel for the week key) makes it
   // exactly-once even if the pass runs several times that Monday.
   // Email goes to the owner only; the in-app copy goes to everyone.
-  if (now.getDay() === 1) {
+  // GH-22 - Monday on the Casablanca WALL calendar (was process-local
+  // getDay(): in the container that is UTC, so on Sunday 23:00-23:59 UTC
+  // - already Monday in Casablanca - the recap did not fire, and it
+  // fired an hour into the Casablanca Monday instead).
+  if (new Date(`${dateKey(now)}T12:00:00Z`).getUTCDay() === 1) {
     const weekKey = isoWeekKey(now)
     const weekStart = startOfDay(addDays(now, -((now.getDay() + 6) % 7)))
     const weekEnd = endOfDay(addDays(weekStart, 6))
@@ -663,7 +723,7 @@ export const runAutoReminderPass = async (
 ): Promise<AutoReminderPassResult> => {
   const result: AutoReminderPassResult = {
     skipped: false, agencies: 0, pickups: 0, returns: 0, overdue: 0, expiries: 0, recaps: 0, confirmedUnpaid: 0,
-    holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0,
+    holdExpiring: 0, paymentDue: 0, missedPickup: 0, overdueEscalated: 0, pendingRefunds: 0, staleWorkOrders: 0,
   }
   if (!opts?.force && now.getTime() - lastPassAt < PASS_INTERVAL_MS) {
     result.skipped = true
@@ -687,6 +747,7 @@ export const runAutoReminderPass = async (
         result.missedPickup += counts.missedPickup
         result.overdueEscalated += counts.overdueEscalated
         result.pendingRefunds += counts.pendingRefunds
+        result.staleWorkOrders += counts.staleWorkOrders
       } catch (err) {
         logger.error(`[autoReminders] pass failed for supplier ${supplier._id}`, err)
       }

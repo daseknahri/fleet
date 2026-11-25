@@ -2735,6 +2735,11 @@ export const getFrontendCars = async (req: Request, res: Response) => {
       throw new Error('to date is required')
     }
 
+    if (new Date(from) >= new Date(to)) {
+      res.status(400).send('Invalid rental dates')
+      return
+    }
+
     // Include pickupLocation and child locations in search results
     const locIds = await Location.find({
       $or: [
@@ -2826,7 +2831,7 @@ export const getFrontendCars = async (req: Request, res: Response) => {
     }
 
     let $supplierMatch: mongoose.QueryFilter<any> = {}
-    const days = helper.days(from, to)
+    const days = helper.daysOrZero(from, to)
     if (days) {
       $supplierMatch = { $or: [{ 'supplier.minimumRentalDays': { $lte: days } }, { 'supplier.minimumRentalDays': null }] }
     }

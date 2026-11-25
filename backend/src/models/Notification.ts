@@ -21,6 +21,14 @@ const notificationSchema = new Schema<env.Notification>(
       type: Schema.Types.ObjectId,
       ref: 'Car',
     },
+    subjectType: {
+      type: String,
+      trim: true,
+    },
+    subjectId: {
+      type: String,
+      trim: true,
+    },
     isRead: {
       type: Boolean,
       default: false,

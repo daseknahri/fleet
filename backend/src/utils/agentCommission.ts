@@ -117,7 +117,7 @@ export const resolveBookingAgentSnapshot = async (
       agent: agent._id,
       mode,
       value,
-      amount: computeCommissionAmount(mode, value, rentalTotal, days),
+      amount: computeCommissionAmount(mode, value, rentalTotal, Math.max(0, days)),
     },
   }
 }

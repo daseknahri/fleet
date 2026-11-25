@@ -109,7 +109,7 @@ export const retry = async (req: Request, res: Response) => {
         const info = await mailHelper.sendMail(mailOptions)
         await markDeliverySent(row._id, info?.messageId as string | undefined)
       } else if (row.channel === 'inApp') {
-        await createInAppNotification(recipient._id, row.body)
+        await createInAppNotification(recipient._id, row.body, { subjectType: row.subjectType, subjectId: row.subjectId, ...(row.subjectType === 'booking' ? { booking: row.subjectId } : {}), ...(row.subjectType === 'car' ? { car: row.subjectId } : {}) })
         await markDeliverySent(row._id)
       } else if (row.channel === 'push') {
         if (!(await sendPush(recipient, row.body, undefined))) {

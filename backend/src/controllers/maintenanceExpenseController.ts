@@ -11,6 +11,7 @@ import MaintenanceCategory from '../models/MaintenanceCategory'
 import MaintenanceExpenseAudit from '../models/MaintenanceExpenseAudit'
 import MaintenanceExpensePayment from '../models/MaintenanceExpensePayment'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
+import CashMovement from '../models/CashMovement'
 import CashSession from '../models/CashSession'
 import { linkExpensePaymentToBank, linkExpensePaymentToCash, recomputeExpensePaid } from '../utils/expensePayment'
 import * as logger from '../utils/logger'
@@ -596,6 +597,7 @@ export const recordPayment = async (req: Request, res: Response) => {
           .populate('car', 'name licensePlate')
           .populate('supplier', 'fullName')
           .populate('workOrder', 'title status')
+          .populate('category', 'name color')
         res.status(200).json({ payment: existing, expense: replayExpense ? withPaymentState(replayExpense) : null })
         return
       }
@@ -616,7 +618,7 @@ export const recordPayment = async (req: Request, res: Response) => {
     // one the money never enters the drawer, so the payment is refused
     // instead of posted silently unlinked (P1-4). A wire payment posts
     // unlinked when no Bank session is open (it can be linked later via
-    // linkBankSession) — the F7 "records a bank payment unlinked"
+    // linkExpenseBankSession, GH-24) — the F7 "records a bank payment unlinked"
     // behaviour, kept deliberately; a wire 409 here would break it.
     if (method === bookcarsTypes.RentalPaymentMethod.Cash) {
       const session = await CashSession.findOne({ supplier: expense.supplier, account: bookcarsTypes.CashAccountType.Cash, status: bookcarsTypes.CashSessionStatus.Open }).select('_id').lean()
@@ -648,9 +650,129 @@ export const recordPayment = async (req: Request, res: Response) => {
       .populate('car', 'name licensePlate')
       .populate('supplier', 'fullName')
       .populate('workOrder', 'title status')
+      .populate('category', 'name color')
     res.status(201).json({ payment, expense: updated ? withPaymentState(updated) : null })
   } catch (err) {
     logger.error(`[maintenanceExpense.recordPayment] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// GH-24 — the repair path for expense payments posted unlinked (wire with
+// no Bank session open, or pre-linkage rows). Mirror of rentalPayment
+// linkBankSession/linkCashSession: single link, never duplicated; the
+// util already refuses a second movement (expensePayment.ts), the
+// endpoint 409s first so the refusal is explicit. The named session is
+// passed to the util as targetSessionId, so the link lands in the
+// session that was validated — never the latest open one.
+export const linkExpenseBankSession = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const sessionId = typeof req.body?.bankSessionId === 'string' ? req.body.bankSessionId : ''
+    if (!user || !mongoose.isValidObjectId(req.params.paymentId) || !mongoose.isValidObjectId(sessionId)) {
+      res.status(400).send('Invalid bank session link')
+      return
+    }
+    const payment = await MaintenanceExpensePayment.findOne({ _id: req.params.paymentId, ...getScope(req) })
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer) {
+      res.status(409).send('Only a bank-transfer expense payment can be linked to a bank session')
+      return
+    }
+    const existing = await CashMovement.findOne({ expensePayment: payment._id }).select('_id session')
+    if (existing) {
+      res.status(409).send('This payment is already linked to a bank session')
+      return
+    }
+    const session = await CashSession.findOne({ _id: sessionId, supplier: payment.supplier, account: bookcarsTypes.CashAccountType.Bank, status: bookcarsTypes.CashSessionStatus.Open })
+    if (!session) {
+      res.status(404).send('Open bank session not found')
+      return
+    }
+    if (session.currency !== payment.currency) {
+      res.status(409).send('Bank session currency does not match the payment currency')
+      return
+    }
+    const movement = await linkExpensePaymentToBank(payment, undefined, session._id)
+    if (!movement) {
+      res.status(409).send('Bank payment could not be linked to the bank session')
+      return
+    }
+    res.json({ payment, movement })
+  } catch (err) {
+    logger.error(`[maintenanceExpense.linkExpenseBankSession] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+export const linkExpenseCashSession = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    const sessionId = typeof req.body?.cashSessionId === 'string' ? req.body.cashSessionId : ''
+    if (!user || !mongoose.isValidObjectId(req.params.paymentId) || !mongoose.isValidObjectId(sessionId)) {
+      res.status(400).send('Invalid cash session link')
+      return
+    }
+    const payment = await MaintenanceExpensePayment.findOne({ _id: req.params.paymentId, ...getScope(req) })
+    if (!payment) {
+      res.sendStatus(404)
+      return
+    }
+    if (payment.method !== bookcarsTypes.RentalPaymentMethod.Cash) {
+      res.status(409).send('Only a cash expense payment can be linked to a cash session')
+      return
+    }
+    const existing = await CashMovement.findOne({ expensePayment: payment._id }).select('_id session')
+    if (existing) {
+      res.status(409).send('This payment is already linked to a cash session')
+      return
+    }
+    const session = await CashSession.findOne({ _id: sessionId, supplier: payment.supplier, account: bookcarsTypes.CashAccountType.Cash, status: bookcarsTypes.CashSessionStatus.Open })
+    if (!session) {
+      res.status(404).send('Open cash session not found')
+      return
+    }
+    if (session.currency !== payment.currency) {
+      res.status(409).send('Cash session currency does not match the payment currency')
+      return
+    }
+    const movement = await linkExpensePaymentToCash(payment, undefined, session._id)
+    if (!movement) {
+      res.status(409).send('Cash payment could not be linked to the cash session')
+      return
+    }
+    res.json({ payment, movement })
+  } catch (err) {
+    logger.error(`[maintenanceExpense.linkExpenseCashSession] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// GH-24 — expense payments with no drawer movement, for the repair path.
+// Cash rows can only be legacy: recordPayment 409s a cash payment with no
+// open Cash session, so a live unlinked cash expense payment means it
+// predates that guard.
+export const listUnlinkedPayments = async (req: Request, res: Response) => {
+  try {
+    const filter: Record<string, unknown> = {
+      ...getScope(req),
+      $or: [
+        { method: bookcarsTypes.RentalPaymentMethod.BankTransfer, bankMovement: { $exists: false } },
+        { method: bookcarsTypes.RentalPaymentMethod.BankTransfer, bankMovement: null },
+        { method: bookcarsTypes.RentalPaymentMethod.Cash, cashMovement: { $exists: false } },
+        { method: bookcarsTypes.RentalPaymentMethod.Cash, cashMovement: null },
+      ],
+    }
+    const rows = await MaintenanceExpensePayment.find(filter)
+      .sort({ date: -1 }).limit(100)
+      .populate('expense', 'vendor amount date')
+      .lean()
+    res.json(rows)
+  } catch (err) {
+    logger.error(`[maintenanceExpense.listUnlinkedPayments] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

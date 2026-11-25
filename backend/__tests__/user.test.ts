@@ -1103,14 +1103,15 @@ describe('POST /api/create-push-token/:userId/:token', () => {
     let pushNotifiation = await PushToken.findOne({ user: USER1_ID, token: pushToken })
     expect(pushNotifiation).not.toBeNull()
 
-    // test failure (pushTken already exists)
+    // GH-23 - re-registration upserts: the second token replaces the first.
     pushToken = nanoid()
     res = await request(app)
       .post(`/api/create-push-token/${USER1_ID}/${pushToken}`)
       .set(env.X_ACCESS_TOKEN, token)
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(200)
     pushNotifiation = await PushToken.findOne({ user: USER1_ID, token: pushToken })
-    expect(pushNotifiation).toBeNull()
+    expect(pushNotifiation).not.toBeNull()
+    expect(pushNotifiation?.consecutiveFailures || 0).toBe(0)
 
     // test failure (wrong user id)
     res = await request(app)

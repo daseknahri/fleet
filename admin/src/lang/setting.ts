@@ -15,6 +15,7 @@ const strings = new LocalizedStrings({
     WASH_FEE: 'Frais de lavage',
     DEFAULT_DEPOSIT: 'Caution par défaut',
     RETURN_SETTINGS_SAVED: 'Tarifs de retour enregistrés.',
+    RETURN_RATES_NOT_SET: 'Les tarifs de retour ne sont pas encore définis — l’aperçu de règlement ne peut pas chiffrer les kilomètres supplémentaires, le carburant ou le lavage. Définissez-les ci-dessous.',
   },
   en: {
     SETTINGS: 'Rental Settings',
@@ -29,6 +30,7 @@ const strings = new LocalizedStrings({
     WASH_FEE: 'Wash fee',
     DEFAULT_DEPOSIT: 'Default deposit',
     RETURN_SETTINGS_SAVED: 'Return rates saved.',
+    RETURN_RATES_NOT_SET: 'Return rates are not set yet — the settlement preview cannot price extra kilometres, fuel or washing. Set them below.',
   },
   ar: {
     SETTINGS: 'إعدادات التأجير',
@@ -43,6 +45,7 @@ const strings = new LocalizedStrings({
     WASH_FEE: 'رسوم الغسيل',
     DEFAULT_DEPOSIT: 'الضمان الافتراضي',
     RETURN_SETTINGS_SAVED: 'تم حفظ أسعار الإرجاع.',
+    RETURN_RATES_NOT_SET: 'لم يتم تعيين أسعار الإرجاع بعد — لا يمكن لمعاينة التسوية تسعير الكيلومترات الإضافية أو الوقود أو الغسيل. عيّنها أدناه.',
   },
   es: {
     SETTINGS: 'Configuración del alquiler',
@@ -57,6 +60,7 @@ const strings = new LocalizedStrings({
     WASH_FEE: 'Cargo por lavado',
     DEFAULT_DEPOSIT: 'Depósito predeterminado',
     RETURN_SETTINGS_SAVED: 'Tarifas de devolución guardadas.',
+    RETURN_RATES_NOT_SET: 'Las tarifas de devolución aún no están definidas — la vista previa de liquidación no puede tarifar los kilómetros extra, el combustible ni el lavado. Defínalas abajo.',
   },
 })
 

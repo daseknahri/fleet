@@ -321,8 +321,8 @@ export const amend = async (req: Request, res: Response) => {
     const basisTotal = hasRealSnapshot ? Number(snapshot.rentalTotal) : Number(booking.price || 0)
     const currency = String((hasRealSnapshot ? snapshot.baseCurrency : undefined) || env.BASE_CURRENCY).toUpperCase()
     const exponent = currencyExponent(currency)
-    const originalDays = helper.days(booking.from, booking.to)
-    const newDays = helper.days(newFrom, newTo)
+    const originalDays = helper.daysOrZero(booking.from, booking.to)
+    const newDays = helper.daysOrZero(newFrom, newTo)
     if (originalDays < 1 || newDays < 1 || !Number.isFinite(basisTotal) || basisTotal < 0) {
       res.status(400).send('AMENDMENT_PRICING: The booking has no price basis to amend from.')
       return

@@ -202,6 +202,32 @@ export const getContractReceivable = async (
   }
 }
 
+/** GH-17 — the stored isPayedInFull flag is derived from the ledger, never
+ *  from the checkout payment mode. outstandingBalance <= 0 means the rent
+ *  (+ approved charges, VAT-inclusive when VAT is on) is fully covered.
+ *  The deposit is excluded by design: deposits are held, never netted.
+ *  Callers invoke this only AFTER the posting transaction has committed:
+ *  getContractReceivable reads outside any session, so calling it inside
+ *  a transaction would see the pre-transaction ledger. */
+export const syncBookingPaidInFull = async (
+  bookingId: mongoose.Types.ObjectId | string,
+  dbSession?: mongoose.ClientSession,
+): Promise<boolean> => {
+  const bookingQuery = Booking.findById(bookingId).select('_id price financialSnapshot to lifecycle supplier isPayedInFull')
+  if (dbSession) {
+    bookingQuery.session(dbSession)
+  }
+  const booking = await bookingQuery
+  if (!booking) return false
+  const receivable = await getContractReceivable(booking as Parameters<typeof getContractReceivable>[0])
+  const paidInFull = receivable.outstandingBalance <= 0
+  if (booking.isPayedInFull !== paidInFull) {
+    booking.isPayedInFull = paidInFull
+    await booking.save(dbSession ? { session: dbSession } : undefined)
+  }
+  return paidInFull
+}
+
 /**
  * GA-PAR-04: per-client balances for a set of drivers, computed with
  * EXACTLY the per-booking semantics of getContractReceivable above:

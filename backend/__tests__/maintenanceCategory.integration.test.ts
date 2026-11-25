@@ -117,11 +117,13 @@ describe('Next pass - maintenance categories', () => {
     expect(used.status).toBe(201); ids.categories.push(used.body._id)
     const expense = await request(app).post('/api/maintenance-expenses').set(env.X_ACCESS_TOKEN, tokenA).send({ car: carA._id.toString(), date: new Date().toISOString(), type: bookcarsTypes.MaintenanceExpenseType.Repair, amount: 50, category: used.body._id })
     expect(expense.status).toBe(201); ids.expenses.push(expense.body._id)
-    const blocked = await request(app).delete(`/api/maintenance-categories/${used.body._id}`).set(env.X_ACCESS_TOKEN, tokenA)
+    // GH-36 fix-forward: category delete requires a reason (>= 3 chars);
+    // a bare DELETE is refused 400 before the in-use 409 is reached.
+    const blocked = await request(app).delete(`/api/maintenance-categories/${used.body._id}`).set(env.X_ACCESS_TOKEN, tokenA).send({ reason: 'category in use by an expense' })
     expect(blocked.status).toBe(409)
     const free = await request(app).post('/api/maintenance-categories').set(env.X_ACCESS_TOKEN, tokenA).send({ name: 'Libre' })
     expect(free.status).toBe(201); ids.categories.push(free.body._id)
-    const removed = await request(app).delete(`/api/maintenance-categories/${free.body._id}`).set(env.X_ACCESS_TOKEN, tokenA)
+    const removed = await request(app).delete(`/api/maintenance-categories/${free.body._id}`).set(env.X_ACCESS_TOKEN, tokenA).send({ reason: 'unused category cleanup' })
     expect(removed.status).toBe(200)
     const list = await request(app).get('/api/maintenance-categories').set(env.X_ACCESS_TOKEN, tokenA)
     expect(list.body.some((row: any) => row._id === free.body._id)).toBe(false)

@@ -10,5 +10,6 @@ routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermiss
 routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceCategoryController.create)
 routes.put(routeNames.update, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceCategoryController.update)
 routes.delete(routeNames.delete, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceCategoryController.remove)
+routes.get(routeNames.listAudit, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses), maintenanceCategoryController.listAudit)
 
 export default routes

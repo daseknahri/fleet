@@ -19,7 +19,7 @@ import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { adminSelectorSupplierIds, agencySupplierId, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
-import { getContractReceivable } from '../utils/contractReceivable'
+import { getContractReceivable, syncBookingPaidInFull } from '../utils/contractReceivable'
 import { LedgerError, getRecordedPurposeTotal, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment, supportsTransactions } from '../utils/ledger'
 import * as helper from '../utils/helper'
 import { inspectionTransition, validateInspectionFields } from '../utils/contractLifecycle'
@@ -108,7 +108,7 @@ const applyEarlyReturnAdjustment = (
   actor?: mongoose.Types.ObjectId,
 ): void => {
   const scheduledTo = new Date(booking.to)
-  if (Number.isNaN(scheduledTo.getTime()) || occurredAt.getTime() >= scheduledTo.getTime()) {
+  if (Number.isNaN(scheduledTo.getTime()) || occurredAt.getTime() >= scheduledTo.getTime() || occurredAt.getTime() < new Date(booking.from).getTime()) {
     return
   }
   const snapshot = booking.financialSnapshot
@@ -116,8 +116,8 @@ const applyEarlyReturnAdjustment = (
   const basisTotal = hasRealSnapshot ? Number(snapshot.rentalTotal) : Number(booking.price || 0)
   const currency = String((hasRealSnapshot ? snapshot.baseCurrency : undefined) || env.BASE_CURRENCY).toUpperCase()
   const exponent = currencyExponent(currency)
-  const scheduledDays = helper.days(booking.from, booking.to)
-  const actualDays = Math.max(1, helper.days(booking.from, occurredAt))
+  const scheduledDays = helper.daysOrZero(booking.from, booking.to)
+  const actualDays = Math.max(1, helper.daysOrZero(booking.from, occurredAt))
   if (scheduledDays < 1 || actualDays < 1 || actualDays >= scheduledDays || !Number.isFinite(basisTotal) || basisTotal < 0) {
     return
   }
@@ -890,7 +890,7 @@ export const settlementPreview = async (req: Request, res: Response) => {
     const earlyReturnDays = booking!.earlyReturn?.actualDays
     const rentalDays = typeof earlyReturnDays === 'number' && Number.isFinite(earlyReturnDays)
       ? Math.max(1, earlyReturnDays)
-      : Math.max(1, helper.days(booking!.from, booking!.to))
+      : Math.max(1, helper.daysOrZero(booking!.from, booking!.to))
     const [handover, returnInsp, settings, car] = await Promise.all([
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Handover }).sort({ occurredAt: -1, createdAt: -1 }),
       ContractInspection.findOne({ booking: booking!._id, supplier: booking!.supplier, type: bookcarsTypes.InspectionType.Return }).sort({ occurredAt: -1, createdAt: -1 }),
@@ -1409,6 +1409,14 @@ export const complete = async (req: Request, res: Response) => {
       }
     } else {
       await booking!.save()
+    }
+    // GH-17 — the settlement above posts Charge credits inside its own
+    // transaction, so the stored isPayedInFull flag is synced only now
+    // that the postings have committed. Best-effort: completion succeeded.
+    try {
+      await syncBookingPaidInFull(booking!._id)
+    } catch (syncErr) {
+      logger.error('[contractOperations.complete] isPayedInFull could not be synced after completion', syncErr)
     }
     const receivable = await getContractReceivable(booking!, completedAt)
     res.json({ booking, receivable })

@@ -7,10 +7,12 @@ import Stripe from 'stripe'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../src/config/env.config'
 import * as databaseHelper from '../src/utils/databaseHelper'
+import * as authHelper from '../src/utils/authHelper'
 import Booking from '../src/models/Booking'
 import RentalPayment from '../src/models/RentalPayment'
 import Invoice from '../src/models/Invoice'
 import Notification from '../src/models/Notification'
+import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 import User from '../src/models/User'
 import Car from '../src/models/Car'
 import Location from '../src/models/Location'
@@ -67,6 +69,7 @@ jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
 
 let app: any
 let runCheckoutSweep: (now?: Date) => Promise<any>
+let ledger: any
 
 const oid = () => new mongoose.Types.ObjectId()
 const rand = () => Math.random().toString(36).slice(2)
@@ -76,6 +79,7 @@ const fixtureCarIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
+const fixtureScheduleIds: mongoose.Types.ObjectId[] = []
 
 type SnapshotAmounts = { rentalTotal: number, depositAmount: number, amountDueNow: number }
 
@@ -202,6 +206,7 @@ beforeAll(async () => {
   process.env.BC_STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET
   app = (await import('../src/app')).default
   runCheckoutSweep = (await import('../src/utils/checkoutSweeper')).runCheckoutSweep
+  ledger = await import('../src/utils/ledger')
   await databaseHelper.connect(env.DB_URI, false, false)
 })
 afterAll(async () => {
@@ -211,12 +216,14 @@ afterEach(async () => {
   await RentalPayment.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Invoice.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Notification.deleteMany({ booking: { $in: fixtureBookingIds } })
+  await MaintenanceSchedule.deleteMany({ _id: { $in: fixtureScheduleIds } })
   await Booking.deleteMany({ _id: { $in: fixtureBookingIds } })
   await Car.deleteMany({ _id: { $in: fixtureCarIds } })
   await Location.deleteMany({ _id: { $in: fixtureLocationIds } })
   await LocationValue.deleteMany({ _id: { $in: fixtureLocationValueIds } })
   await User.deleteMany({ _id: { $in: fixtureUserIds } })
   fixtureBookingIds.length = 0
+  fixtureScheduleIds.length = 0
   fixtureCarIds.length = 0
   fixtureLocationIds.length = 0
   fixtureLocationValueIds.length = 0
@@ -568,5 +575,116 @@ describe('W2 remainder — 2.1 sweeper must not void a manager-confirmed hold (d
     expect(summary.expiredHolds).toBe(1)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+  })
+})
+
+// GH-32 — the sweeper must not throw away a paid booking whose
+// confirmation is blocked: Path A holds the expired pay-later hold
+// instead of voiding it, Path B holds a provider-paid Void booking
+// instead of refunding it, and the held bookings surface on the
+// confirmed-unpaid watchlist as paid-but-unconfirmed.
+describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
+  const blockCar = async (supplierId: mongoose.Types.ObjectId, carId: mongoose.Types.ObjectId) => {
+    const schedule = await MaintenanceSchedule.create({
+      supplier: supplierId, car: carId,
+      type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+      title: 'GH-32 overdue oil change',
+      status: bookcarsTypes.MaintenanceScheduleStatus.Upcoming,
+      nextDueDate: new Date(Date.now() - 86400000),
+    } as any)
+    fixtureScheduleIds.push(schedule._id)
+    return schedule
+  }
+
+  it('Path A: a fully-paid expired hold is held, not voided; an unpaid one still voids; the held row is on the watchlist', async () => {
+    // Held booking: pay-later hold, expired, fully paid, car blocked.
+    const held = await makeFixture('gh32-held', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: held.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    await blockCar(held.supplier._id, held.car._id)
+    await ledger.postRentalPayment({
+      bookingId: held.booking._id, date: new Date(), amount: 1000,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    })
+    // The refresh conflict is real: the overdue schedule refuses the flip.
+    const refresh = await ledger.refreshBookingPaymentStatus(held.booking._id)
+    expect(refresh.conflict).toBe(true)
+    expect(refresh.outstandingBalance).toBe(0)
+    expect(refresh.status).toBe(bookcarsTypes.BookingStatus.Pending)
+
+    // Control: an unpaid expired hold on a different car.
+    const unpaid = await makeFixture('gh32-unpaid', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: unpaid.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(0)
+    expect(summary.held).toBe(1)
+    expect(summary.expiredHolds).toBe(1)
+    const heldBooking = await Booking.findById(held.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(heldBooking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
+    expect(heldBooking?.expireAt).toBeDefined()
+    const unpaidBooking = await Booking.findById(unpaid.booking._id).lean()
+    expect(unpaidBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+
+    // The held row surfaces on the watchlist, flagged paid-but-unconfirmed.
+    const passwordHash = await authHelper.hashPassword('Un1tTest5')
+    const admin = await User.create({
+      fullName: 'gh32-admin', email: `gh32-admin-${rand()}@test.bookcars.ma`, language: 'en',
+      password: passwordHash, type: bookcarsTypes.UserType.Admin, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(admin._id)
+    const adminToken = await authHelper.encryptJWT({ id: admin._id.toString() })
+    const watchlist = await request(app)
+      .post('/api/confirmed-unpaid-bookings/1/10/en')
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ suppliers: [held.supplier._id.toString()] })
+    expect(watchlist.status).toBe(200)
+    const rows = watchlist.body[0].resultData as Array<{ booking: { _id: string }, outstandingBalance: number, paidButUnconfirmed?: boolean }>
+    const row = rows.find((r) => r.booking._id === held.booking._id.toString())
+    expect(row).toBeDefined()
+    expect(row?.outstandingBalance).toBe(0)
+    expect(row?.paidButUnconfirmed).toBe(true)
+    expect(rows.some((r) => r.booking._id === unpaid.booking._id.toString())).toBe(false)
+  })
+
+  it('Path B: a provider-paid Void booking whose finalisation conflicts is held, not refunded; the next tick finalises it once the blocker clears', async () => {
+    const fixture = await makeFixture('gh32-pathb', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `gh32-random-${rand()}`, paymentIntentId: 'pi_gh32_held', expireAt: new Date(Date.now() - 3600000) })
+    const schedule = await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_gh32_held', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_gh32_held' })
+
+    const first = await runCheckoutSweep()
+    expect(first.checked).toBe(1)
+    expect(first.held).toBe(1)
+    expect(first.refunded).toBe(0)
+    expect(first.finalized).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const heldBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+
+    // The blocker clears; the next tick finalises instead of refunding.
+    await MaintenanceSchedule.deleteOne({ _id: schedule._id })
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(1)
+    expect(second.finalized).toBe(1)
+    expect(second.held).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const finalBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(finalBooking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    const payments = await paymentsOf(fixture.booking._id)
+    expect(payments).toHaveLength(1)
+    expect(payments[0].amount).toBe(1000)
   })
 })

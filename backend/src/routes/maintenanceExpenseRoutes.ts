@@ -12,10 +12,13 @@ routes.get(routeNames.report, authJwt.verifyToken, agencyAuth.requireAgencyPermi
 routes.post(routeNames.uploadReceipt, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses, { allowPlatformAdminAll: true }), upload.single('file'), maintenanceExpenseController.uploadReceipt)
 routes.post(routeNames.deleteTempReceipt, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses, { allowPlatformAdminAll: true }), maintenanceExpenseController.deleteTempReceipt)
 routes.get(routeNames.list, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses, { allowPlatformAdminAll: true }), maintenanceExpenseController.list)
+routes.get(routeNames.listUnlinkedPayments, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses, { allowPlatformAdminAll: true }), maintenanceExpenseController.listUnlinkedPayments)
 routes.post(routeNames.create, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.create)
 routes.put(routeNames.update, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.update)
 routes.delete(routeNames.delete, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.remove)
 routes.post(routeNames.recordPayment, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.recordPayment)
+routes.post(routeNames.linkBankSession, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.linkExpenseBankSession)
+routes.post(routeNames.linkCashSession, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageExpenses), maintenanceExpenseController.linkExpenseCashSession)
 routes.get(routeNames.listPayments, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses), maintenanceExpenseController.listPayments)
 routes.get(routeNames.listAudit, authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadExpenses), maintenanceExpenseController.listAudit)
 

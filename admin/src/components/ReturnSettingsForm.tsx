@@ -85,6 +85,9 @@ const ReturnSettingsForm = ({ supplierId }: Props) => {
         {field(strings.DEFAULT_DEPOSIT, 'defaultDeposit')}
       </div>
       <Button sx={{ mt: 1 }} variant="contained" size="small" disabled={busy} onClick={save}>{commonStrings.SAVE}</Button>
+      {form.includedKmPerDay === '' && form.extraKmPrice === '' && form.fuelPricePerLitre === '' && form.washFee === '' && form.defaultDeposit === '' && (
+        <Typography variant="body2" sx={{ mt: 1 }}>{strings.RETURN_RATES_NOT_SET}</Typography>
+      )}
     </Paper>
   )
 }

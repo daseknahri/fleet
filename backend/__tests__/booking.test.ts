@@ -193,8 +193,12 @@ describe('POST /api/create-booking', () => {
         driver: DRIVER1_ID,
         pickupLocation: LOCATION_ID,
         dropOffLocation: LOCATION_ID,
-        from: new Date(2024, 2, 1),
-        to: new Date(2024, 2, 4),
+        // GH-16 fix-forward: admin create refuses a past pickup, so the
+        // legacy 2024 fixture dates can no longer create the booking that
+        // sets BOOKING_ID (every downstream test in this file cascades from
+        // it). +365d is clear of this file's +60/+90/+120-day fixtures.
+        from: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        to: new Date(Date.now() + 368 * 24 * 60 * 60 * 1000),
         status: bookcarsTypes.BookingStatus.Pending,
         cancellation: true,
         amendments: true,
@@ -951,8 +955,12 @@ describe('POST /api/update-booking', () => {
         driver: DRIVER1_ID,
         pickupLocation: LOCATION_ID,
         dropOffLocation: LOCATION_ID,
-        from: new Date(2024, 2, 1),
-        to: new Date(2024, 2, 4),
+        // GH-16 fix-forward: same as the create above - the stored
+        // booking now starts +365d out, so the update payload must not
+        // move `from` back to 2024 (UPDATE_PAST_FROM would refuse it and
+        // the Cancelled update later in this test would never run).
+        from: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        to: new Date(Date.now() + 368 * 24 * 60 * 60 * 1000),
         status: bookcarsTypes.BookingStatus.Pending,
         cancellation: true,
         amendments: true,

@@ -85,5 +85,10 @@ export const pendingRefunds = (): Promise<PendingRefundsResponse> =>
 export const linkCashSession = (paymentId: string, cashSessionId: string): Promise<{ payment: bookcarsTypes.RentalPayment, movement: bookcarsTypes.CashMovement }> =>
   axiosInstance.post(`/api/rental-payments/${encodeURIComponent(paymentId)}/link-cash-session`, { cashSessionId }, { withCredentials: true }).then((res) => res.data)
 
+// GH-33 - the bank mirror of linkCashSession (backend endpoint already
+// exists; it had no admin caller).
+export const linkBankSession = (paymentId: string, bankSessionId: string): Promise<{ payment: bookcarsTypes.RentalPayment, movement: bookcarsTypes.CashMovement }> =>
+  axiosInstance.post(`/api/rental-payments/${encodeURIComponent(paymentId)}/link-bank-session`, { bankSessionId }, { withCredentials: true }).then((res) => res.data)
+
 export const exportCsv = () =>
   axiosInstance.get('/api/rental-payments/export.csv', { responseType: 'blob', withCredentials: true }).then((res) => res.data as Blob)

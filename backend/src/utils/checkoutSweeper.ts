@@ -10,6 +10,7 @@ import NotificationCounter from '../models/NotificationCounter'
 import User from '../models/User'
 import * as logger from './logger'
 import * as mailHelper from './mailHelper'
+import { getContractReceivable } from './contractReceivable'
 import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } from './checkoutReconciliation'
 
 /**
@@ -59,6 +60,8 @@ export interface CheckoutSweepSummary {
   errors: number
   /** GAP-C1/M1 — expired pay-later holds voided (and notified) this pass. */
   expiredHolds: number
+  /** GH-32 — expired holds NOT voided because they are fully paid but unconfirmed (refresh failed); needs manual review. */
+  held: number
 }
 
 export const runCheckoutSweep = async (now: Date = new Date()): Promise<CheckoutSweepSummary> => {
@@ -71,6 +74,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     skipped: 0,
     errors: 0,
     expiredHolds: 0,
+    held: 0,
   }
   try {
     const bookings = await Booking.find({
@@ -114,6 +118,9 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
           summary.alreadyFinalized += 1
         } else if (outcome === 'refunded') {
           summary.refunded += 1
+        } else if (outcome === 'held') {
+          summary.held += 1
+          logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
         } else if (outcome === 'not-paid' || outcome === 'no-booking') {
           summary.notPaid += 1
         } else if (outcome === 'refund-failed') {
@@ -164,9 +171,20 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
       // can expire.
       lifecycle: bookcarsTypes.ContractLifecycle.Draft,
       expireAt: { $ne: null, $lte: now },
-    }).select('_id driver supplier reference').lean()
+    }).select('_id driver supplier reference price financialSnapshot to lifecycle').lean()
     for (const hold of expiredHolds) {
       try {
+        // GH-32 — a hold whose payment refresh failed stays Pending/Draft
+        // with its expireAt intact AND fully paid (a refresh conflict is
+        // only returned when outstandingBalance is 0 — ledger.ts). Voiding
+        // it would throw away a paid booking; hold it for manual review
+        // instead (retry via /api/bookings/:id/refresh-payment-status).
+        const receivable = await getContractReceivable(hold as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+        if (receivable.outstandingBalance <= 0) {
+          summary.held += 1
+          logger.error(`[checkoutSweeper] Booking ${hold._id} is fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          continue
+        }
         const voided = await Booking.updateOne(
           { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending },
           { $set: { status: bookcarsTypes.BookingStatus.Void } },

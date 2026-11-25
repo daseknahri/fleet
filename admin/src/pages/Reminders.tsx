@@ -111,6 +111,11 @@ const Reminders = () => {
   const [deliveriesLoading, setDeliveriesLoading] = useState(false)
   const [deliveryStatus, setDeliveryStatus] = useState('')
   const [deliveryError, setDeliveryError] = useState(false)
+  // GH-23 - push health (failed-push count + last failure, from the
+  // existing delivery-log list endpoint with a channel filter; no new
+  // endpoint).
+  const [pushFailedCount, setPushFailedCount] = useState(0)
+  const [pushLastFailedAt, setPushLastFailedAt] = useState('')
 
   const deliveryStatusLabel = (status: bookcarsTypes.NotificationDeliveryStatus) => (
     status === 'sent' ? strings.DELIVERY_SENT
@@ -128,6 +133,12 @@ const Reminders = () => {
         supplierScope,
         status ? { status } : undefined,
       ))
+      const failedPush = await NotificationDeliveryService.list(
+        supplierScope,
+        { channel: 'push', status: 'failed' },
+      )
+      setPushFailedCount(failedPush.length)
+      setPushLastFailedAt(failedPush.length > 0 ? String(failedPush[0]?.createdAt || '') : '')
     } catch {
       setDeliveryError(true)
     } finally {
@@ -324,6 +335,9 @@ const Reminders = () => {
             <div>
               <Typography variant="h5" className="agency-reminders__title">{strings.DELIVERY_LOG}</Typography>
               <Typography className="agency-reminders__subtitle">{strings.DELIVERY_SUBTITLE}</Typography>
+              <Typography className="agency-reminders__subtitle">
+                {pushFailedCount === 0 ? strings.PUSH_HEALTH_OK : strings.PUSH_HEALTH_FAILED.replace('{count}', String(pushFailedCount)).replace('{date}', pushLastFailedAt ? formatDate(pushLastFailedAt) : '—')}
+              </Typography>
             </div>
             <FormControl size="small" sx={{ minWidth: 160 }}>
               <InputLabel>{strings.DELIVERY_STATUS}</InputLabel>

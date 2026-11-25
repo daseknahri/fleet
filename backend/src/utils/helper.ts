@@ -258,6 +258,17 @@ export const days = (from?: Date, to?: Date) =>
   (from && to && Math.ceil(((new Date(to)).getTime() - (new Date(from)).getTime()) / (1000 * 3600 * 24))) || 0
 
 /**
+ * Days between two dates, floored at zero: an inverted range (to before
+ * from) is 0 days, never negative. Use wherever a day count feeds money
+ * or a filter (commission, settlement preview, availability projection);
+ * entry points that take a range from outside must ALSO refuse it with
+ * 400 'Invalid rental dates' (see GH-39 items 1b/1c) — a floored 0 must
+ * never reach a `if (days)` filter, where it would silently drop the
+ * filter instead of refusing the request.
+ */
+export const daysOrZero = (from?: Date, to?: Date) => Math.max(0, days(from, to))
+
+/**
  * Validate language code (ISO 639-1).
  *
  * @param {string} lang 

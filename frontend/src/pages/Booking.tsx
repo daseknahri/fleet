@@ -11,6 +11,7 @@ import * as bookcarsHelper from ':bookcars-helper'
 import { strings as commonStrings } from '@/lang/common'
 import { strings as blStrings } from '@/lang/booking-list'
 import { strings as bfStrings } from '@/lang/booking-filter'
+import { strings as bookingStrings } from '@/lang/booking'
 import { strings as csStrings } from '@/lang/cars'
 import { strings as headerStrings } from '@/lang/header'
 import env from '@/config/env.config'
@@ -512,6 +513,13 @@ const Booking = () => {
                 <span className="price-main">{bookcarsHelper.formatPrice(price as number, commonStrings.CURRENCY, language)}</span>
                 <span className="price-day">{`${csStrings.PRICE_PER_DAY} ${bookcarsHelper.formatPrice((price as number) / days, commonStrings.CURRENCY, language)}`}</span>
               </div>
+              {typeof booking.outstandingBalance === 'number' && (
+                <div className="booking-balance">
+                  {booking.outstandingBalance > 0
+                    ? bookingStrings.BALANCE_DUE_AT_PICKUP.replace('{amount}', bookcarsHelper.formatPrice(booking.outstandingBalance, commonStrings.CURRENCY, language))
+                    : bookingStrings.BALANCE_NOTHING_DUE}
+                </div>
+              )}
             </div>
             <CarList
               className="car"

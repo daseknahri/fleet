@@ -11,6 +11,7 @@ import NotificationDelivery from '../src/models/NotificationDelivery'
 import Notification from '../src/models/Notification'
 import User from '../src/models/User'
 import Car from '../src/models/Car'
+import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
 import AgencyMembership from '../src/models/AgencyMembership'
@@ -60,10 +61,22 @@ const oid = () => new mongoose.Types.ObjectId()
 const rand = () => Math.random().toString(36).slice(2)
 const at = (days: number) => new Date(Date.now() + days * day)
 
+// GH-22 — Casablanca wall-day key, mirroring the private `dateKey` in
+// autoReminders.ts (Africa/Casablanca, not UTC). July 2026 is UTC+1;
+// after the 2026-09-20 permanent return to GMT the zone equals UTC in
+// November, so November dates cannot discriminate the two keys.
 // ISO week key (YYYY-Www), mirroring the private `isoWeekKey` in
-// autoReminders.ts (copied from dashboardF8's N2 tests).
+// autoReminders.ts (copied from dashboardF8's N2 tests) — wall-based
+// since GH-22: the week is computed from the Casablanca wall date.
+const CASABLANCA_TZ = 'Africa/Casablanca'
+const dateKey = (date: Date | string): string => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: CASABLANCA_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(date))
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
 const isoWeekKey = (date: Date): string => {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const wall = new Date(dateKey(date)) // Casablanca YYYY-MM-DD as a UTC-midnight instant; calendar maths only
+  const d = new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate()))
   const dow = (d.getUTCDay() + 6) % 7
   d.setUTCDate(d.getUTCDate() - dow + 3)
   const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4))
@@ -78,6 +91,7 @@ const fixtureCarIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
+const fixtureScheduleIds: mongoose.Types.ObjectId[] = []
 const fixtureMembershipIds: mongoose.Types.ObjectId[] = []
 
 let supplier: any
@@ -170,6 +184,8 @@ beforeAll(async () => {
 afterEach(async () => {
   await NotificationDelivery.deleteMany({ supplier: supplier._id })
   await Notification.deleteMany({ user: { $in: [supplier._id, staff._id, driver._id] } })
+  await MaintenanceSchedule.deleteMany({ _id: { $in: fixtureScheduleIds } })
+  fixtureScheduleIds.length = 0
   await RentalPayment.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Booking.deleteMany({ _id: { $in: fixtureBookingIds } })
   fixtureBookingIds.length = 0
@@ -228,7 +244,7 @@ describe('GH-03 / GH-14 / GH-11 — Wave 3.2 reminder events', () => {
     const day1 = new Date()
     const result1 = await runAutoReminderPass(day1, { force: true })
     expect(result1.missedPickup).toBeGreaterThanOrEqual(1)
-    const key1 = `missed-pickup:${booking._id}:${day1.toISOString().slice(0, 10)}`
+    const key1 = `missed-pickup:${booking._id}:${dateKey(day1)}`
     expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(booking._id), dedupeKey: key1, channel: 'inApp', status: 'sent' })).length)
       .toBeGreaterThanOrEqual(1)
     // Same day, second pass: no re-send.
@@ -240,7 +256,7 @@ describe('GH-03 / GH-14 / GH-11 — Wave 3.2 reminder events', () => {
     const day2 = new Date(day1.getTime() + day)
     const result2 = await runAutoReminderPass(day2, { force: true })
     expect(result2.missedPickup).toBeGreaterThanOrEqual(1)
-    const key2 = `missed-pickup:${booking._id}:${day2.toISOString().slice(0, 10)}`
+    const key2 = `missed-pickup:${booking._id}:${dateKey(day2)}`
     expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(booking._id), dedupeKey: key2, channel: 'inApp', status: 'sent' })).length)
       .toBeGreaterThanOrEqual(1)
     expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(booking._id), channel: 'inApp', status: 'sent' })).length)
@@ -318,5 +334,133 @@ describe('GH-03 / GH-14 / GH-11 — Wave 3.2 reminder events', () => {
       date: '2026-11-20', car: 'Clio (AA-123-AA)', driver: 'Jane Doe', amount: 200, currency: 'MAD', repeatCount: 3, days: 17,
     })
     expect(overdue.body).toMatch(/n°3/)
+  })
+})
+
+describe('GH-22 — Casablanca wall days', () => {
+  // July 2026: Casablanca is UTC+1 (before the 2026-09-20 permanent
+  // return to GMT). In November 2026 the zone equals UTC, so November
+  // dates cannot discriminate the UTC key from the wall key — these
+  // cases use July dates on purpose.
+  it('pickup at 00:30 Casablanca fires once on the Casablanca day, with the Casablanca date', async () => {
+    const pickup = new Date('2026-07-05T23:30:00.000Z') // Mon 2026-07-06 00:30 Casablanca, Sun 23:30 UTC
+    const booking = await makeBooking('gh22-pickup', {
+      from: pickup, to: new Date('2026-07-07T23:30:00.000Z'), price: 300, deposit: 0,
+    })
+    const now1 = new Date('2026-07-05T23:00:00.000Z') // Sun 23:00 UTC = Mon 00:00 Casablanca
+    await runAutoReminderPass(now1, { force: true })
+    const key = `pickup:${booking._id}:2026-07-06`
+    const rows = await deliveries({ templateKey: 'auto.pickup', subjectId: String(booking._id), dedupeKey: key, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(rows[0].body).toContain('2026-07-06')
+    expect(rows[0].body).not.toContain('2026-07-05')
+    // Second pass the same Casablanca day (Mon 00:45 Casablanca): the
+    // claim is taken, no re-send.
+    await runAutoReminderPass(new Date('2026-07-05T23:45:00.000Z'), { force: true })
+    expect((await deliveries({ templateKey: 'auto.pickup', subjectId: String(booking._id), dedupeKey: key, channel: 'inApp', status: 'sent' })).length)
+      .toBe(rows.length)
+  })
+
+  it('overdue weekly repeat keys on the Casablanca week, not the UTC week', async () => {
+    const booking = await makeBooking('gh22-overdue', {
+      from: new Date('2026-06-30T10:00:00.000Z'), to: new Date('2026-07-03T10:00:00.000Z'), price: 200, deposit: 0,
+    })
+    // Sun 2026-07-05 23:30 UTC = Mon 2026-07-06 00:30 Casablanca:
+    // UTC week 27, Casablanca week 28.
+    await runAutoReminderPass(new Date('2026-07-05T23:30:00.000Z'), { force: true })
+    const key1 = `overdue:${booking._id}:2026-W28`
+    const rows1 = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key1, channel: 'inApp', status: 'sent' })
+    expect(rows1.length).toBeGreaterThanOrEqual(1)
+    expect(rows1[0].body).toMatch(/reminder #1/)
+    // The UTC-week key must NOT exist: the old code would have claimed W27.
+    expect((await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: `overdue:${booking._id}:2026-W27`, channel: 'inApp', status: 'sent' }))).toHaveLength(0)
+    // Same Casablanca week (Mon 01:00 UTC = 02:00 Casablanca): no re-send.
+    await runAutoReminderPass(new Date('2026-07-06T01:00:00.000Z'), { force: true })
+    expect((await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key1, channel: 'inApp', status: 'sent' })).length)
+      .toBe(rows1.length)
+    // Next Casablanca week: repeats, count #2.
+    await runAutoReminderPass(new Date('2026-07-13T01:00:00.000Z'), { force: true })
+    const key2 = `overdue:${booking._id}:2026-W29`
+    const rows2 = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: key2, channel: 'inApp', status: 'sent' })
+    expect(rows2.length).toBeGreaterThanOrEqual(1)
+    expect(rows2[0].body).toMatch(/reminder #2/)
+  })
+})
+
+describe('GH-19 — schedules of trashed cars do not notify', () => {
+  it('notifies for a live car schedule, never for a trashed car schedule or its documents', async () => {
+    const yesterday = at(-1)
+    // Trashed car T: its insurance also expired yesterday, so the car
+    // loop would fire for it as well if it did not filter deletedAt.
+    const trashedCar = await Car.create({
+      name: 'GH-19 trashed car', supplier: supplier._id, minimumAge: 21,
+      locations: [location._id], dailyPrice: 100, deposit: 250, available: true,
+      type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+      aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+      mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+      collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+      range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+      insuranceExpiryDate: yesterday, deletedAt: new Date(),
+    } as any)
+    fixtureCarIds.push(trashedCar._id)
+    const makeSchedule = async (carId: mongoose.Types.ObjectId, label: string) => {
+      const schedule = await MaintenanceSchedule.create({
+        supplier: supplier._id, car: carId,
+        type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+        title: `GH-19 ${label}`,
+        status: bookcarsTypes.MaintenanceScheduleStatus.Upcoming,
+        nextDueDate: yesterday,
+      } as any)
+      fixtureScheduleIds.push(schedule._id)
+      return schedule
+    }
+    const liveSchedule = await makeSchedule(car._id, 'live')
+    const trashedSchedule = await makeSchedule(trashedCar._id, 'trashed')
+
+    await runAutoReminderPass(new Date(), { force: true })
+
+    const liveRows = await deliveries({ templateKey: 'auto.expiry', subjectType: 'maintenance-schedule', subjectId: String(liveSchedule._id) })
+    expect(liveRows.length).toBeGreaterThanOrEqual(1)
+    const trashedRows = await deliveries({ templateKey: 'auto.expiry', subjectType: 'maintenance-schedule', subjectId: String(trashedSchedule._id) })
+    expect(trashedRows).toHaveLength(0)
+    // Car-document expiry rows for the trashed car are absent too
+    // (already true — the car loop filters deletedAt — this locks the
+    // asymmetry closed on both loops).
+    const trashedCarRows = await deliveries({ templateKey: 'auto.expiry', subjectType: 'car', subjectId: String(trashedCar._id) })
+    expect(trashedCarRows).toHaveLength(0)
+  })
+})
+
+describe('GH-35 — in-app rows carry their subject (deep links)', () => {
+  it("a pickup event's in-app row carries booking + subjectType/subjectId = booking/id", async () => {
+    const booking = await makeBooking('gh35-pickup', {
+      from: new Date(Date.now() + 2 * 60 * 60 * 1000), to: at(3), price: 300, deposit: 0,
+    })
+    await runAutoReminderPass(new Date(), { force: true })
+    const rows = await deliveries({ templateKey: 'auto.pickup', subjectId: String(booking._id), channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    const notes = await Notification.find({ user: supplier._id, subjectId: String(booking._id) }).lean()
+    expect(notes.length).toBeGreaterThanOrEqual(1)
+    expect(notes[0].subjectType).toBe('booking')
+    expect(String(notes[0].booking)).toBe(String(booking._id))
+  })
+
+  it("a schedule-due event's in-app row carries subjectType = maintenance-schedule (no booking/car field)", async () => {
+    const schedule = await MaintenanceSchedule.create({
+      supplier: supplier._id, car: car._id,
+      type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+      title: 'GH-35 oil change',
+      status: bookcarsTypes.MaintenanceScheduleStatus.Upcoming,
+      nextDueDate: at(-1),
+    } as any)
+    fixtureScheduleIds.push(schedule._id)
+    await runAutoReminderPass(new Date(), { force: true })
+    const rows = await deliveries({ templateKey: 'auto.expiry', subjectType: 'maintenance-schedule', subjectId: String(schedule._id) })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    const notes = await Notification.find({ user: supplier._id, subjectId: String(schedule._id) }).lean()
+    expect(notes.length).toBeGreaterThanOrEqual(1)
+    expect(notes[0].subjectType).toBe('maintenance-schedule')
+    expect(notes[0].booking).toBeFalsy()
+    expect(notes[0].car).toBeFalsy()
   })
 })

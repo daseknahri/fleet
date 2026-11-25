@@ -11,11 +11,14 @@ import BookingFilter from '@/components/BookingFilter'
 import { strings as headerStrings } from '@/lang/header'
 import Progress from '@/components/Progress'
 import * as SupplierService from '@/services/SupplierService'
+import * as UserService from '@/services/UserService'
+import { strings } from '@/lang/bookings'
 
 import '@/assets/css/bookings.css'
 
 const Bookings = () => {
   const [user, setUser] = useState<bookcarsTypes.User>()
+  const [balance, setBalance] = useState<{ currency: string, outstanding: number, overdue: number, depositHeld: number, bookings: number }>()
   const [allSuppliers, setAllSuppliers] = useState<bookcarsTypes.User[]>([])
   const [suppliers, setSuppliers] = useState<string[]>()
   const [statuses, setStatuses] = useState(helper.getBookingStatuses().map((status) => status.value))
@@ -37,6 +40,13 @@ const Bookings = () => {
 
   const onLoad = async (_user?: bookcarsTypes.User) => {
     setUser(_user)
+    if (_user?._id) {
+      try {
+        setBalance(await UserService.getClientBalance(_user._id))
+      } catch {
+        // Balance banner is best-effort; the list must load regardless.
+      }
+    }
     setLoadingSuppliers(true)
 
     const _allSuppliers = await SupplierService.getAllSuppliers()
@@ -52,6 +62,12 @@ const Bookings = () => {
         {user && (
           <div className="bookings">
             <h1 className="sr-only">{headerStrings.BOOKINGS}</h1>
+            {balance && balance.outstanding > 0 && (
+              <div className="bookings__balance">
+                {strings.BALANCE_OUTSTANDING.replace('{count}', String(balance.bookings)).replace('{amount}', String(balance.outstanding)).replace('{currency}', balance.currency)}
+                {balance.overdue > 0 && ` ${strings.BALANCE_OVERDUE.replace('{amount}', String(balance.overdue)).replace('{currency}', balance.currency)}`}
+              </div>
+            )}
             <div className="col-1">
               <div>
                 <SupplierFilter suppliers={allSuppliers} onChange={handleSupplierFilterChange} className="cl-supplier-filter" />

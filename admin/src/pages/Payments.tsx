@@ -135,7 +135,7 @@ const Payments = () => {
   // ('receivables', the morning view), the ledger ('payments') and
   // the pending refunds ('refunds').
   type PaymentsTab = 'payments' | 'receivables' | 'refunds'
-  type ReceivablesFilter = 'all' | 'overdue-due-soon' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
+  type ReceivablesFilter = 'all' | 'overdue-due-soon' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'paid-unconfirmed' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
   const [activeTab, setActiveTab] = useState<PaymentsTab>('receivables')
   const [receivablesFilter, setReceivablesFilter] = useState<ReceivablesFilter>('overdue-due-soon')
   const [pendingRefunds, setPendingRefunds] = useState<RentalPaymentService.PendingRefundsResponse | null>(null)
@@ -435,24 +435,34 @@ const Payments = () => {
   // once the blocking condition is cleared. The endpoint re-runs the
   // refresh and returns its outcome; a confirmed booking clears the
   // warning, a still-blocked one refreshes the reason.
-  const handleRetryConfirmation = async () => {
-    if (!refreshConflict || refreshing) {
+  // GH-32 — the F-02 retry, callable with an explicit conflict (the
+  // banner passes the stored one, a paid-unconfirmed row passes its own).
+  const runRetryConfirmation = async (conflict: { bookingId?: string, reason: string }) => {
+    if (refreshing || !conflict.bookingId) {
       return
     }
     setRefreshing(true)
     try {
-      const result = await RentalPaymentService.refreshPaymentStatus(refreshConflict.bookingId)
+      const result = await RentalPaymentService.refreshPaymentStatus(conflict.bookingId)
       if (result.conflict) {
-        setRefreshConflict({ bookingId: refreshConflict.bookingId, reason: result.conflictReason || refreshConflict.reason })
+        setRefreshConflict({ bookingId: conflict.bookingId, reason: result.conflictReason || conflict.reason })
       } else {
         setRefreshConflict(null)
         setNotice(strings.REFRESH_CONFIRMED)
+        await refreshReceivables()
       }
     } catch (error) {
       helper.error(error)
     } finally {
       setRefreshing(false)
     }
+  }
+
+  const handleRetryConfirmation = async () => {
+    if (!refreshConflict) {
+      return
+    }
+    await runRetryConfirmation(refreshConflict)
   }
 
   // F6 / W3 P-8 — delete a stuck Pending entry (never-posted money).
@@ -641,6 +651,7 @@ const Payments = () => {
               <MenuItem value="overdue">{strings.FILTER_OVERDUE}</MenuItem>
               <MenuItem value="due-soon">{strings.FILTER_DUE_SOON}</MenuItem>
               <MenuItem value="confirmed-unpaid">{strings.FILTER_CONFIRMED_UNPAID}</MenuItem>
+              <MenuItem value="paid-unconfirmed">{strings.FILTER_PAID_UNCONFIRMED}</MenuItem>
               <MenuItem value="holds-expiring">{strings.FILTER_HOLDS_EXPIRING}</MenuItem>
               <MenuItem value="paid-in-full">{strings.FILTER_PAID_IN_FULL}</MenuItem>
               <MenuItem value="age-current">{strings.FILTER_AGE_CURRENT}</MenuItem>
@@ -670,6 +681,9 @@ const Payments = () => {
                 )}
                 {row.actions.canConfirm && (
                   <Button size="small" variant="outlined" disabled={confirmingId === row.booking._id} onClick={() => handleConfirmReservation(row.booking._id)}>{strings.CONFIRM_RESERVATION}</Button>
+                )}
+                {row.outstandingBalance === 0 && row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending && (
+                  <Button size="small" variant="outlined" disabled={refreshing} onClick={() => void runRetryConfirmation({ bookingId: row.booking._id, reason: strings.PAID_UNCONFIRMED_REASON })}>{strings.RETRY_CONFIRMATION}</Button>
                 )}
                 {row.actions.canCancel && (
                   <Button size="small" variant="outlined" onClick={() => navigate(`/update-booking?b=${row.booking._id}`)}>{strings.OPEN_BOOKING}</Button>

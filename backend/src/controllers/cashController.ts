@@ -814,12 +814,44 @@ const buildJournal = async (req: Request) => {
     amount: Number(payment.amount || 0),
     currency: payment.currency || session.currency,
   }))
+  // GH-33 - the bank mirror of the C-7 reconciliation list: posted
+  // bank-transfer payments of this agency with no bank session
+  // (bankSession unset). Same cap, same shape as the cash list.
+  const unlinkedBankFilter: Record<string, unknown> = {
+    supplier: session.supplier,
+    method: bookcarsTypes.RentalPaymentMethod.BankTransfer,
+    status: bookcarsTypes.RentalPaymentStatus.Posted,
+    $or: [{ bankSession: { $exists: false } }, { bankSession: null }],
+  }
+  if (from || to) {
+    unlinkedBankFilter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
+  }
+  const [unlinkedBankRows, unlinkedBankTotalRows] = await Promise.all([
+    RentalPayment.find(unlinkedBankFilter).sort({ date: -1 }).limit(JOURNAL_UNLINKED_CAP)
+      .populate({ path: 'booking', select: 'reference' }).lean(),
+    RentalPayment.aggregate([
+      { $match: unlinkedBankFilter },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+  ])
+  const unlinkedBankPayments: bookcarsTypes.UnlinkedCashPaymentRow[] = unlinkedBankRows.map((payment) => ({
+    id: payment._id.toString(),
+    date: payment.date,
+    bookingReference: (payment.booking && typeof payment.booking === 'object' ? (payment.booking as { reference?: string }).reference : undefined) || '',
+    purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
+    direction: payment.direction || bookcarsTypes.RentalPaymentDirection.Credit,
+    status: payment.status || bookcarsTypes.RentalPaymentStatus.Posted,
+    amount: Number(payment.amount || 0),
+    currency: payment.currency || session.currency,
+  }))
   return {
     session,
     movements: filtered,
     totals,
     unlinkedCashPayments,
     unlinkedCashTotal: normalizeLedgerAmount(Number(unlinkedTotalRows[0]?.total || 0), session.currency),
+    unlinkedBankPayments,
+    unlinkedBankTotal: normalizeLedgerAmount(Number(unlinkedBankTotalRows[0]?.total || 0), session.currency),
   }
 }
 
@@ -857,6 +889,8 @@ export const journal = async (req: Request, res: Response) => {
         totals: built.totals,
         unlinkedCashPayments: built.unlinkedCashPayments,
         unlinkedCashTotal: built.unlinkedCashTotal,
+        unlinkedBankPayments: built.unlinkedBankPayments,
+        unlinkedBankTotal: built.unlinkedBankTotal,
         total: rows.length,
         page: 1,
         size: rows.length,
@@ -871,6 +905,8 @@ export const journal = async (req: Request, res: Response) => {
       totals: built.totals,
       unlinkedCashPayments: built.unlinkedCashPayments,
       unlinkedCashTotal: built.unlinkedCashTotal,
+      unlinkedBankPayments: built.unlinkedBankPayments,
+      unlinkedBankTotal: built.unlinkedBankTotal,
       total: page.total,
       page: page.page,
       size: page.size,

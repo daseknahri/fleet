@@ -57,6 +57,21 @@ const schema = new Schema<env.Invoice>({
   voidedAt: Date,
   voidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   voidReason: { type: String, maxlength: 1000, trim: true },
+  // GH-25 - fiscal-identity snapshot taken at issue time. An issued invoice
+  // is a fiscal document: its identity must not change when the supplier
+  // later edits their profile. Values copied byte-identical from the
+  // supplier record (User.ice / registreCommerce / identifiantFiscal /
+  // patente / rib / fiscalAddress / city); absent values stay absent -
+  // the PDF already renders only set values (invoicePdf.ts:136-141).
+  fiscalIdentity: {
+    ice: { type: String, trim: true, maxlength: 50 },
+    registreCommerce: { type: String, trim: true, maxlength: 100 },
+    identifiantFiscal: { type: String, trim: true, maxlength: 50 },
+    patente: { type: String, trim: true, maxlength: 50 },
+    rib: { type: String, trim: true, maxlength: 34 },
+    fiscalAddress: { type: String, trim: true, maxlength: 500 },
+    city: { type: String, trim: true, maxlength: 100 },
+  },
 }, { timestamps: true, strict: true, collection: 'Invoice' })
 
 // GA-PAR-05 step 0: the previous unique SPARSE index indexed every draft

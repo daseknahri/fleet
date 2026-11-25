@@ -1238,7 +1238,11 @@ export const createPushToken = async (req: Request, res: Response) => {
       return
     }
 
-    const exist = await PushToken.exists({ user: userId })
+    // GH-23 - re-registration heals: a user who reinstalls the app gets
+    // a new Expo token; the old endpoint 400d because a row already
+    // existed, so the stale token could never be replaced. Upsert
+    // instead and reset the failure counter.
+    const exist = await PushToken.findOne({ user: userId })
 
     if (!exist) {
       const pushToken = new PushToken({
@@ -1250,7 +1254,8 @@ export const createPushToken = async (req: Request, res: Response) => {
       return
     }
 
-    res.status(400).send('Push Token already exists.')
+    await PushToken.updateOne({ _id: exist._id }, { $set: { token, consecutiveFailures: 0, lastFailureAt: undefined, lastFailureReason: undefined } })
+    res.sendStatus(200)
   } catch (err) {
     logger.error(`[user.createPushToken] ${i18n.t('ERROR')} ${userId}`, err)
     res.status(400).send(i18n.t('ERROR'))

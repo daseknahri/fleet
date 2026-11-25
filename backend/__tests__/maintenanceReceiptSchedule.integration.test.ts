@@ -78,7 +78,11 @@ describe('Mongo-backed maintenance receipts, schedules and category reports', ()
     ids.schedules.push(created.body._id)
   })
   it('creates due schedules and keeps schedule/report reads agency isolated', async () => {
-    const schedule = await request(app).post('/api/maintenance-schedules').set(env.X_ACCESS_TOKEN, tokenA).send({ car: carA._id.toString(), type: bookcarsTypes.MaintenanceExpenseType.Maintenance, title: 'Oil service', nextDueDate: new Date(Date.now() - 86400000).toISOString(), intervalDays: 90 })
+    // GH-20 fix-forward: the admin-created schedule above (same car, type
+    // Maintenance, no category) is still active, so a second Maintenance
+    // schedule 409s. The due schedule is an oil service — type Oil dodges
+    // the duplicate key with no intent change.
+    const schedule = await request(app).post('/api/maintenance-schedules').set(env.X_ACCESS_TOKEN, tokenA).send({ car: carA._id.toString(), type: bookcarsTypes.MaintenanceExpenseType.Oil, title: 'Oil service', nextDueDate: new Date(Date.now() - 86400000).toISOString(), intervalDays: 90 })
     expect(schedule.status).toBe(201); expect(schedule.body.status).toBe(bookcarsTypes.MaintenanceScheduleStatus.Overdue); ids.schedules.push(schedule.body._id)
     const listA = await request(app).get('/api/maintenance-schedules').set(env.X_ACCESS_TOKEN, tokenA)
     expect(listA.status).toBe(200); expect(listA.body.some((row: any) => row._id === schedule.body._id)).toBe(true)

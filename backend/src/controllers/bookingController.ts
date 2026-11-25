@@ -211,6 +211,15 @@ export const create = async (req: Request, res: Response) => {
       res.status(400).send('Invalid rental dates')
       return
     }
+    // GH-16 — same past-pickup rule as checkout/amend. A staff-created
+    // booking starts Pending/Draft; back-dating is refused unless the
+    // carve-out decision (see Decisions) creates a role-gated exception.
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    if (fromDate < todayStart) {
+      res.status(400).send('CREATE_PAST_FROM: The pickup date cannot be in the past.')
+      return
+    }
 
     // GA-PAR-07: resolve the apporteur snapshot BEFORE persisting. The
     // agent must belong to this agency (a foreign agent id is refused
@@ -224,7 +233,7 @@ export const create = async (req: Request, res: Response) => {
         supplierId,
         bookingInput.agent as { agent?: unknown, mode?: unknown, value?: unknown },
         Number(bookingInput.price),
-        helper.days(fromDate, toDate),
+        helper.daysOrZero(fromDate, toDate),
       )
       if (!resolvedAgent.ok) {
         res.status(400).send(resolvedAgent.error)
@@ -240,11 +249,8 @@ export const create = async (req: Request, res: Response) => {
       additionalDriverId = additionalDriver._id.toString()
     }
 
-    const reference = await nextBookingReference(supplierId)
-
     const booking = new Booking({
       ...bookingInput,
-      reference,
       supplier: supplierId,
       car: carId,
       driver: driver._id,
@@ -287,6 +293,10 @@ export const create = async (req: Request, res: Response) => {
         onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
       })
     }
+    // GH-15 — allocate the reference only after every pre-save validation
+    // has passed (overlap gate, agent snapshot, vehicle/location checks
+    // above); the save below is the last failure that can 409 the create.
+    booking.reference = await nextBookingReference(supplierId)
     await saveBookingWithAvailability(booking, {
       allowOverlapException: !!overlapGate.reason,
       onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
@@ -411,6 +421,13 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
   }
   const dropOffLocationName = resolveLocationTranslation(dropOffLocation.values, language)
 
+  // GH-38b: amounts come from getContractReceivable, never recomputed
+  // from booking.price (deposits are never netted against rent).
+  const receivable = await getContractReceivable(booking)
+  const holdDeadline = payLater && booking.expireAt
+    ? booking.expireAt.toLocaleString(locale, options)
+    : null
+
   let contractFile: string | null = null
   if (supplier.contracts && supplier.contracts.length > 0) {
     contractFile = supplier.contracts.find((c) => c.language === user.language)?.file || null
@@ -431,6 +448,14 @@ export const confirm = async (user: env.User, supplier: env.User, booking: env.B
         ${i18n.t('BOOKING_CONFIRMED_PART3')}${car.supplier.fullName}${i18n.t('BOOKING_CONFIRMED_PART4')}${pickupLocationName}${i18n.t('BOOKING_CONFIRMED_PART5')}`
       + `${from} ${i18n.t('BOOKING_CONFIRMED_PART6')}`
       + `${car.name}${i18n.t('BOOKING_CONFIRMED_PART7')}`
+      + `<br><br>${i18n.t('BOOKING_AMOUNT_RENT_TOTAL')}${receivable.rentalTotalInclVat} ${receivable.currency}<br>`
+      + `${i18n.t('BOOKING_AMOUNT_DEPOSIT')}${receivable.refundableDeposit} ${receivable.currency}<br>`
+      + `${i18n.t('BOOKING_AMOUNT_ALREADY_PAID')}${receivable.postedPayments + receivable.depositPayments} ${receivable.currency}<br>`
+      + (receivable.outstandingBalance > 0
+        ? `${i18n.t('BOOKING_AMOUNT_DUE_AT_PICKUP')}${receivable.outstandingBalance} ${receivable.currency}<br>`
+        : `${i18n.t('BOOKING_AMOUNT_NOTHING_DUE')}<br>`)
+      + (holdDeadline ? `${i18n.t('BOOKING_AMOUNT_HOLD_EXPIRES')}${holdDeadline}.<br>` : '')
+      + (payLater ? `${i18n.t('BOOKING_AMOUNT_PAY_CASH_OR_WIRE')}<br>` : '')
       + `<br><br>${i18n.t('BOOKING_CONFIRMED_PART8')}<br><br>`
       + `${i18n.t('BOOKING_CONFIRMED_PART9')}${car.supplier.fullName}${i18n.t('BOOKING_CONFIRMED_PART10')}${dropOffLocationName}${i18n.t('BOOKING_CONFIRMED_PART11')}`
       + `${to} ${i18n.t('BOOKING_CONFIRMED_PART12')}`
@@ -989,6 +1014,16 @@ export const checkout = async (req: Request, res: Response) => {
       res.status(400).send('Invalid rental dates')
       return
     }
+    // GH-16 — a pickup date in the past is refused at checkout, same rule
+    // as the amend path (AMENDMENT_PAST_FROM): "today" is the server-local
+    // start of day, so a pickup later today is allowed. A checkout is a
+    // new Draft booking, so no lifecycle / fromChanged condition applies.
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    if (fromDate < todayStart) {
+      res.status(400).send('CHECKOUT_PAST_FROM: The pickup date cannot be in the past.')
+      return
+    }
     const carLocationIds = (carObj.locations || []).map((locationId: mongoose.Types.ObjectId | string) => locationId.toString())
     if (!carLocationIds.includes(body.booking.pickupLocation.toString())
       || !carLocationIds.includes(body.booking.dropOffLocation.toString())) {
@@ -1011,6 +1046,23 @@ export const checkout = async (req: Request, res: Response) => {
       const existingUser = await User.findOne({ email: driver.email?.toLowerCase() })
 
       if (existingUser) {
+        // GH-37 — an exact email match attaches the booking to that
+        // account with no confirm step. A typo'd email that belongs to
+        // another customer must not silently attach: the submitted name
+        // and phone must also match the stored account. Returning
+        // customers pass (same name + phone); a mismatch is a 409
+        // telling them to sign in or correct the email.
+        const submittedName = typeof driver.fullName === 'string' ? driver.fullName.trim().toLowerCase() : ''
+        const storedName = typeof existingUser.fullName === 'string' ? existingUser.fullName.trim().toLowerCase() : ''
+        const digits = (value?: string | null) => (value || '').replace(/\D/g, '')
+        const submittedPhone = digits(driver.phone)
+        const storedPhone = digits(existingUser.phone)
+        const nameMatches = !!submittedName && submittedName === storedName
+        const phoneMatches = !storedPhone || (!!submittedPhone && submittedPhone === storedPhone)
+        if (!nameMatches || !phoneMatches) {
+          res.status(409).send('CHECKOUT_ACCOUNT_MISMATCH: This email belongs to an existing account, but the name or phone number does not match it. Sign in to that account, or correct the email address.')
+          return
+        }
         user = existingUser
       } else {
         // New guest account: the driver details become the account, so they
@@ -1203,14 +1255,12 @@ export const checkout = async (req: Request, res: Response) => {
     // `expireAt` later deletes the abandoned record, exactly as for an
     // expired Void checkout placeholder.
     const expireAt = new Date(Date.now() + (isPayLater ? env.PAY_LATER_HOLD_EXPIRE_AT : env.BOOKING_EXPIRE_AT) * 1000)
-    const reference = await nextBookingReference(supplier._id)
 
     // GA-PAR-10: the public checkout funnel ignores any overlapException
     // payload unconditionally — the booking below is built field-by-field
     // and never copies it, so normal conflict rules apply and no
     // exception record can be persisted from checkout.
     const booking = new Booking({
-      reference,
       supplier: supplier._id,
       car: carObj._id,
       driver: user._id,
@@ -1244,6 +1294,12 @@ export const checkout = async (req: Request, res: Response) => {
     // re-acquiring the lock it already holds.
     await withCarLock([carObj._id.toString()], async () => {
       await checkBookingAvailability(booking, [booking._id])
+      // GH-15 — the reference is allocated only after validation passes:
+      // the availability re-check above is the last failure that can 409
+      // the checkout, so the counter advances only for a booking that is
+      // actually saved. (Was: allocated above, before the check, so every
+      // conflict burned a number.)
+      booking.reference = await nextBookingReference(supplier._id)
       await saveBookingWithAvailability(booking, { skipCarLock: true })
     })
 
@@ -1383,8 +1439,9 @@ export const checkout = async (req: Request, res: Response) => {
       // additional-driver row created for it. Remove exactly what this
       // request created, best-effort and logged: the booking itself was
       // never saved (the save threw), so there is no booking row to
-      // delete, and the reference counter advancing is harmless. A
-      // pre-existing account matched by email is untouched.
+      // delete, and the reference was not allocated yet (GH-15: it is
+      // allocated only after the availability check passes), so no number
+      // is burned. A pre-existing account matched by email is untouched.
       if (guestUserCreatedInRequest && guestUserId) {
         try {
           if (guestUserLicenseFile) {
@@ -1592,6 +1649,19 @@ export const update = async (req: Request, res: Response) => {
       if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
         res.status(400).send('Invalid rental dates')
         return
+      }
+      // GH-16 — same past-pickup rule as amend: only when `from` actually
+      // moves, and only on a contract that has not started (Draft/Confirmed).
+      if (fromDate.getTime() !== new Date(booking.from).getTime()) {
+        const updateLifecycle = booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft
+        if (updateLifecycle === bookcarsTypes.ContractLifecycle.Draft || updateLifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
+          const todayStart = new Date()
+          todayStart.setHours(0, 0, 0, 0)
+          if (fromDate < todayStart) {
+            res.status(400).send('UPDATE_PAST_FROM: The pickup date cannot be in the past.')
+            return
+          }
+        }
       }
 
       // GA-PAR-22: reassigning the booking to a trashed client refuses
@@ -1895,7 +1965,7 @@ export const update = async (req: Request, res: Response) => {
                   value: payloadAgent.value ?? (sameAgent ? storedAgent?.value : undefined),
                 },
                 booking.price,
-                helper.days(booking.from, booking.to),
+                helper.daysOrZero(booking.from, booking.to),
               )
               if (!resolvedAgent.ok) {
                 res.status(400).send(resolvedAgent.error)
@@ -2336,6 +2406,21 @@ export const getBooking = async (req: Request, res: Response) => {
         res.sendStatus(404)
         return
       }
+
+      // GH-17 — the flag on the wire is always ledger-derived, even if a
+      // past write path missed its sync (B1/B4 legacy rows read paid while
+      // stored false). Placed here, before the supplier shaping below,
+      // because getContractReceivable resolves the supplier VAT rate from
+      // the populated supplier. The stored value is not changed — the
+      // ledger write paths sync it (see syncBookingPaidInFull).
+      const receivable = await getContractReceivable(booking as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
+      booking.isPayedInFull = receivable.outstandingBalance <= 0
+      // GH-38c(ii) - ledger-derived balance, attached only after the
+      // ownership check above (no balance leak to other callers).
+      booking.outstandingBalance = receivable.outstandingBalance
+      booking.depositHeld = receivable.refundableDeposit
+      booking.balanceDueAt = receivable.dueAt
+      booking.balanceOverdue = receivable.overdue
 
       const { language } = req.params
 
@@ -3647,6 +3732,7 @@ export const getConfirmedUnpaid = async (req: Request, res: Response) => {
       $or: [
         { lifecycle: bookcarsTypes.ContractLifecycle.Confirmed, status: bookcarsTypes.BookingStatus.Pending },
         { status: bookcarsTypes.BookingStatus.Reserved },
+        { lifecycle: bookcarsTypes.ContractLifecycle.Draft, status: bookcarsTypes.BookingStatus.Pending },
       ],
       deletedAt: null,
     }
@@ -3661,7 +3747,14 @@ export const getConfirmedUnpaid = async (req: Request, res: Response) => {
     for (const row of rows) {
       const receivable = await getContractReceivable(row as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
       const legacyReserved = row.status === bookcarsTypes.BookingStatus.Reserved
-      if (!legacyReserved && receivable.outstandingBalance <= 0) {
+      // GH-32 — a Draft hold that is fully paid but unconfirmed (its
+      // payment refresh failed) stays on the watchlist, flagged; an
+      // unpaid Draft hold is not a confirmed-unpaid row at all.
+      const paidButUnconfirmed = row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending
+      if (paidButUnconfirmed && receivable.outstandingBalance > 0) {
+        continue
+      }
+      if (!legacyReserved && !paidButUnconfirmed && receivable.outstandingBalance <= 0) {
         continue
       }
       const confirmedAt = row.confirmedAt ? new Date(row.confirmedAt) : undefined
@@ -3680,6 +3773,7 @@ export const getConfirmedUnpaid = async (req: Request, res: Response) => {
         confirmedAt,
         daysSinceConfirmation,
         legacyReserved,
+        paidButUnconfirmed,
         confirmBy,
       })
     }

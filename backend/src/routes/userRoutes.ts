@@ -54,7 +54,7 @@ routes.route(routeNames.deleteClientDocument).post(authJwt.verifyToken, agencyAu
 // F5b (W2-06): verify/reject is a document-management mutation — same
 // ManageClients gate as upload/delete (see verifyClientDocument).
 routes.route(routeNames.verifyClientDocument).post(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ManageClients), userController.verifyClientDocument)
-routes.route(routeNames.getClientBalance).get(authJwt.verifyToken, agencyAuth.requireAgencyPermission(agencyAuth.AgencyPermission.ReadClients), userController.getClientBalance)
+routes.route(routeNames.getClientBalance).get(authJwt.verifyToken, userController.getClientBalance)
 routes.route(routeNames.createLicense).post([multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.createLicense)
 routes.route(routeNames.updateLicense).post([authJwt.verifyToken, multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file')], userController.updateLicense)
 routes.route(routeNames.deleteLicense).post(authJwt.verifyToken, userController.deleteLicense)

@@ -17,7 +17,24 @@ import { createInvoiceForBooking, InvoiceCreationError } from '../utils/invoiceC
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 
 const scope = (req: Request) => req.user?.type === bookcarsTypes.UserType.Admin ? {} : { supplier: agencySupplierId(req) || '000000000000000000000000' }
-const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName' }]
+// GH-29 - posted rent that exists for the contract but is NOT linked to
+// this invoice (above-threshold: the auto-link guard refused it and the
+// manual link is still pending). Computed, never stored: the link state
+// is the source of truth and this figure follows it.
+const heldRentFor = async (invoice: env.Invoice): Promise<number> => {
+  const linkedIds = new Set((invoice.payments || []).map((item) => item.toString()))
+  const held = await RentalPayment.find({
+    booking: invoice.booking,
+    purpose: { $in: [bookcarsTypes.RentalPaymentPurpose.Rent, null] },
+    status: bookcarsTypes.RentalPaymentStatus.Posted,
+    direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
+  }).select('amount').lean()
+  return held
+    .filter((payment) => !linkedIds.has(payment._id.toString()))
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+}
+
+const populate = [{ path: 'booking', populate: [{ path: 'driver', select: 'fullName email phone' }, { path: 'car', select: 'name licensePlate' }] }, { path: 'supplier', select: 'fullName ice registreCommerce identifiantFiscal patente rib fiscalAddress city' }]
 
 export const list = async (req: Request, res: Response) => {
   try {
@@ -37,12 +54,14 @@ export const list = async (req: Request, res: Response) => {
       filter.status = req.query.status
     }
     if (!parsed.pagination) {
-      res.json(await Invoice.find(filter).sort({ createdAt: -1 }).populate(populate))
+      const found = await Invoice.find(filter).sort({ createdAt: -1 }).populate(populate)
+      res.json(await Promise.all(found.map(async (item) => ({ ...item.toJSON(), heldRentAmount: await heldRentFor(item) }))))
       return
     }
     const total = await Invoice.countDocuments(filter)
     const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).skip(paginationSkip(parsed.pagination)).limit(parsed.pagination.size).populate(populate)
-    res.json(pagedResponse(invoices, total, parsed.pagination))
+    const rows = await Promise.all(invoices.map(async (item) => ({ ...item.toJSON(), heldRentAmount: await heldRentFor(item) })))
+    res.json(pagedResponse(rows, total, parsed.pagination))
 } catch (err) {
  logger.error('[invoice.list]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -91,7 +110,7 @@ export const create = async (req: Request, res: Response) => {
       throw creationErr
     }
     await invoice.populate(populate)
-    res.status(201).json(invoice)
+    res.status(201).json({ ...invoice.toJSON(), heldRentAmount: await heldRentFor(invoice) })
   } catch (err) {
  logger.error('[invoice.create]', err); res.status(400).send(i18n.t('ERROR'))
 }
@@ -144,6 +163,22 @@ export const issue = async (req: Request, res: Response) => {
     invoice.status = bookcarsTypes.InvoiceStatus.Issued
     invoice.issuedAt = new Date()
     invoice.issuedBy = req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined
+    // GH-25 - snapshot the agency's fiscal identity at issue time, from the
+    // supplier record. Later profile edits must not rewrite an issued
+    // invoice's fiscal identity.
+    const fiscalSupplier = await User.findById(invoice.supplier)
+      .select('ice registreCommerce identifiantFiscal patente rib fiscalAddress city').lean()
+    if (fiscalSupplier) {
+      invoice.fiscalIdentity = {
+        ice: fiscalSupplier.ice || undefined,
+        registreCommerce: fiscalSupplier.registreCommerce || undefined,
+        identifiantFiscal: fiscalSupplier.identifiantFiscal || undefined,
+        patente: fiscalSupplier.patente || undefined,
+        rib: fiscalSupplier.rib || undefined,
+        fiscalAddress: fiscalSupplier.fiscalAddress || undefined,
+        city: fiscalSupplier.city || undefined,
+      }
+    }
     await invoice.save()
     // GA5 - rent posted while the invoice was still Draft never had a
     // link target; at issue time the posted rent joins the invoice, so
@@ -157,8 +192,17 @@ export const issue = async (req: Request, res: Response) => {
     } catch (linkErr) {
       logger.error('[invoice.issue] Issued invoice could not link pre-issue rent payments', linkErr)
     }
-    await invoice.populate(populate)
-    res.json(invoice)
+    // GH-28 — the link loop above saves a different in-memory copy of the
+    // invoice (invoicePayment.ts loads it via findActiveInvoice), so this
+    // object still carries the pre-link paidAmount. Re-read before responding;
+    // the manager must see the linked figure in the issue response itself.
+    const fresh = await Invoice.findById(invoice._id)
+    if (!fresh) {
+      res.status(404).send('Invoice not found')
+      return
+    }
+    await fresh.populate(populate)
+    res.json({ ...fresh.toJSON(), heldRentAmount: await heldRentFor(fresh) })
   } catch (err) {
  logger.error('[invoice.issue]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -256,7 +300,7 @@ export const recordPayment = async (req: Request, res: Response) => {
  res.status(404).send('Invoice not found'); return 
 }
     await updated.populate(populate)
-    res.json(updated)
+    res.json({ ...updated.toJSON(), heldRentAmount: await heldRentFor(updated) })
   } catch (err) {
     logger.error('[invoice.recordPayment]', err)
     res.status(400).send(i18n.t('ERROR'))
@@ -361,9 +405,15 @@ export const getInvoicePdf = async (req: Request, res: Response) => {
         ])
         .lean(),
     ])
+    // GH-25 - the snapshot is the fiscal identity of record for an issued
+    // invoice; the live supplier record is only the fallback for invoices
+    // issued before the snapshot existed. The snapshot must come from the
+    // plain-object copy: spreading the Mongoose subdocument does not
+    // enumerate its paths, so the merge would silently drop the snapshot.
+    const invoiceObj = invoice.toObject()
     const buffer = await renderInvoicePdf({
-      invoice: invoice.toObject(),
-      supplier: supplier as never,
+      invoice: invoiceObj,
+      supplier: { ...(supplier as object | null || {}), ...(invoiceObj.fiscalIdentity || {}) } as never,
       booking: booking as never,
     })
     res.type('application/pdf')

@@ -3,6 +3,7 @@ import { Request, Response } from 'express'
 import * as bookcarsTypes from ':bookcars-types'
 import i18n from '../lang/i18n'
 import MaintenanceCategory from '../models/MaintenanceCategory'
+import MaintenanceCategoryAudit from '../models/MaintenanceCategoryAudit'
 import MaintenanceExpense from '../models/MaintenanceExpense'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import * as env from '../config/env.config'
@@ -124,6 +125,15 @@ export const remove = async (req: Request, res: Response) => {
       res.status(400).send('Invalid maintenance category')
       return
     }
+    // GH-36 - mirror the expense remove() pattern (F7 / W3 M-7): a
+    // hard delete requires a recorded reason (at least 3 characters)
+    // and the audit row is written BEFORE the delete, so the trail
+    // survives it (the category id is kept on the row).
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (reason.length < 3) {
+      res.status(400).send('A reason is required to delete a category')
+      return
+    }
     const row = await MaintenanceCategory.findOne({ _id: req.params.id, ...getScope(req) })
     if (!row) {
       res.status(404).send('Not found')
@@ -140,10 +150,38 @@ export const remove = async (req: Request, res: Response) => {
       res.status(409).send(`Category is in use by ${expenseCount} expense(s) and ${scheduleCount} schedule(s). Deactivate it instead.`)
       return
     }
+    await MaintenanceCategoryAudit.create({
+      supplier: row.supplier,
+      category: row._id,
+      action: bookcarsTypes.MaintenanceExpenseAuditAction.Deleted,
+      actor: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : undefined,
+      reason,
+    })
     await MaintenanceCategory.deleteOne({ _id: row._id })
     res.sendStatus(200)
   } catch (err) {
     logger.error('[maintenanceCategory.remove]', err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+/**
+ * GH-36 - the audit trail for one category. The category itself is
+ * NOT required to exist: the trail survives a hard delete, and this
+ * endpoint is how it is read afterwards. Scoped by supplier.
+ */
+export const listAudit = async (req: Request, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      res.status(400).send('Invalid maintenance category')
+      return
+    }
+    const rows = await MaintenanceCategoryAudit.find({ category: req.params.id, ...getScope(req) })
+      .sort({ createdAt: -1 })
+      .populate('actor', 'fullName')
+    res.json(rows)
+  } catch (err) {
+    logger.error('[maintenanceCategory.listAudit]', err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }

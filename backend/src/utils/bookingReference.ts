@@ -21,11 +21,12 @@ import Counter from '../models/Counter'
  * honoured. The sequence is padded to 4 digits; beyond 9999 bookings in a
  * day it simply grows (padStart never truncates).
  *
- * A number allocated to a booking whose save afterwards fails (e.g. an
- * availability conflict) is burned, leaving a gap — the same property the
- * invoice numbering has. Gaps are acceptable; duplicates are not: the
- * unique partial index on { supplier, reference } in the Booking model is
- * the backstop and makes a duplicate insert fail loudly.
+ * A number is allocated only after the caller's validation has passed
+ * (GH-15): the booking is built first and the reference is assigned
+ * immediately before the availability save, so a refused checkout or
+ * create does not burn a number. Duplicates are still impossible: the
+ * unique partial index on { supplier, reference } in the Booking model
+ * is the backstop and makes a duplicate insert fail loudly.
  */
 export const BOOKING_REFERENCE_TIMEZONE = 'Africa/Casablanca'
 

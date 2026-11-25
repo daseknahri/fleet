@@ -12,7 +12,7 @@ export const create = (payload: bookcarsTypes.UpsertMaintenanceCategoryPayload):
 export const update = (id: string, payload: bookcarsTypes.UpsertMaintenanceCategoryPayload): Promise<bookcarsTypes.MaintenanceCategory> =>
   axiosInstance.put(`${route}/${id}`, payload, { withCredentials: true }).then((res) => res.data)
 
-export const remove = (id: string): Promise<number> => axiosInstance.delete(`${route}/${id}`, { withCredentials: true }).then((res) => res.status)
+export const remove = (id: string, reason?: string): Promise<number> => axiosInstance.delete(`${route}/${id}`, { data: { reason }, withCredentials: true }).then((res) => res.status)
 
 export const getErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && err.response?.data && typeof err.response.data === 'string') {

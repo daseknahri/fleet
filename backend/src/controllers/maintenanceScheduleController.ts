@@ -101,13 +101,17 @@ const present = (row: env.MaintenanceSchedule) => {
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const query: Record<string, unknown> = { ...scope(req) }
+    // GH-18 - filter the PRESENTED (live-merged) status, not the stored
+    // one: the stored status is date-only and can be stale, so a
+    // schedule the list shows as Due was invisible to ?status=due.
+    // No writes on a GET: the merged status is never persisted here.
     const requestedStatus = String(req.query.status || '').trim()
-    if (Object.values(bookcarsTypes.MaintenanceScheduleStatus).includes(requestedStatus as bookcarsTypes.MaintenanceScheduleStatus)) {
-query.status = requestedStatus
-}
-    const rows = await MaintenanceSchedule.find(query).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate odometerKm').populate('supplier', 'fullName').populate('category', 'name color')
-    res.json(rows.map(present))
+    const validStatus = Object.values(bookcarsTypes.MaintenanceScheduleStatus).includes(requestedStatus as bookcarsTypes.MaintenanceScheduleStatus)
+      ? requestedStatus as bookcarsTypes.MaintenanceScheduleStatus
+      : undefined
+    const rows = await MaintenanceSchedule.find(scope(req)).sort({ nextDueDate: 1, createdAt: -1 }).populate('car', 'name licensePlate odometerKm').populate('supplier', 'fullName').populate('category', 'name color')
+    const presented = rows.map(present)
+    res.json(validStatus ? presented.filter((row) => row.status === validStatus) : presented)
   } catch (err) {
  logger.error('[maintenanceSchedule.list]', err); res.status(400).send(i18n.t('ERROR')) 
 }
@@ -138,6 +142,20 @@ export const create = async (req: Request, res: Response) => {
         return
       }
     }
+    // GH-20 - one active schedule per car + type + category: a second
+    // live plan for the same service would double-notify and double-block.
+    // Completed schedules are finished plans and do not count.
+    const duplicate = await MaintenanceSchedule.findOne({
+      supplier: car.supplier,
+      car: car._id,
+      type: payload.type,
+      ...(payload.category ? { category: new mongoose.Types.ObjectId(payload.category) } : { category: { $in: [null, undefined] as unknown as mongoose.Types.ObjectId[] } }),
+      status: { $ne: bookcarsTypes.MaintenanceScheduleStatus.Completed },
+    }).select('_id').lean()
+    if (duplicate) {
+      res.status(409).send('An active schedule already exists for this vehicle with the same type and category')
+      return
+    }
     const row = await MaintenanceSchedule.create({ ...payload, supplier: car.supplier })
     await row.populate([{ path: 'car', select: 'name licensePlate odometerKm' }, { path: 'supplier', select: 'fullName' }, { path: 'category', select: 'name color' }])
     res.status(201).json(present(row))
@@ -167,6 +185,24 @@ export const update = async (req: Request, res: Response) => {
         res.status(400).send('Category not found for this schedule')
         return
       }
+    }
+    // GH-20 - same guard as create(): the merged car/type/category
+    // (payload wins, row keeps what the payload omits) must not match
+    // another active schedule. The row itself is excluded.
+    const nextCar = car._id
+    const nextType = payload.type
+    const nextCategory = payload.category !== undefined ? payload.category : (row.category ? row.category.toString() : null)
+    const duplicate = await MaintenanceSchedule.findOne({
+      _id: { $ne: row._id },
+      supplier: row.supplier,
+      car: nextCar,
+      type: nextType,
+      ...(nextCategory ? { category: new mongoose.Types.ObjectId(nextCategory) } : { category: { $in: [null, undefined] as unknown as mongoose.Types.ObjectId[] } }),
+      status: { $ne: bookcarsTypes.MaintenanceScheduleStatus.Completed },
+    }).select('_id').lean()
+    if (duplicate) {
+      res.status(409).send('An active schedule already exists for this vehicle with the same type and category')
+      return
     }
     Object.assign(row, payload, { car: car._id })
     await row.save()

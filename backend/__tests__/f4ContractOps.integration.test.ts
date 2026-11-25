@@ -435,11 +435,15 @@ describe('F4 / W1 #7 — overdue list and no-show', () => {
     expect(again.status).toBe(409)
     expect(again.text).toContain('ALREADY_CANCELLED')
     // The car is freed for the same dates.
+    // GH-16 fix-forward: the rebook cannot reuse the no-show booking's
+    // dates — its pickup was yesterday and admin create refuses a past
+    // pickup by design (no back-dating carve-out, D-2). Rebook +30d instead;
+    // the rebook succeeding on the same car still proves it was freed.
     const rebook = await request(app).post('/api/create-booking').set(env.X_ACCESS_TOKEN, adminToken).send({
       booking: {
         supplier: fixture.supplier._id.toString(), car: fixture.car._id.toString(), driver: fixture.driver._id.toString(),
         pickupLocation: fixture.locationA._id.toString(), dropOffLocation: fixture.locationA._id.toString(),
-        from: fixture.booking.from, to: fixture.booking.to,
+        from: new Date(Date.now() + 30 * DAY), to: new Date(Date.now() + 33 * DAY),
         status: bookcarsTypes.BookingStatus.Pending, price: 200,
         cancellation: false, amendments: false, theftProtection: false,
         collisionDamageWaiver: false, fullInsurance: false, additionalDriver: false,

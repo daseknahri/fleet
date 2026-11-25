@@ -8,6 +8,7 @@ import MaintenanceWorkOrderAudit from '../models/MaintenanceWorkOrderAudit'
 import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId } from '../utils/agencyAuthorization'
+import { isWorkOrderStale, staleWorkOrderCutoff, workOrderStaleDays } from '../utils/workOrderStale'
 
 const scope = (req: Request): Record<string, unknown> => req.user?.type === bookcarsTypes.UserType.Admin
   ? {}
@@ -38,7 +39,20 @@ const carInScope = async (carId: string, supplierId?: string, admin = false) => 
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const rows = await MaintenanceWorkOrder.find(scope(req)).sort({ scheduledStart: 1, createdAt: -1 }).populate('car', 'name licensePlate').populate('supplier', 'fullName')
+    // GH-21 - ?status= filters the stored status; ?stale=true lists
+    // only work orders still Scheduled N days after their planned
+    // start. Stale implies Scheduled, so it overrides an explicit
+    // ?status= rather than AND-ing into an empty set.
+    const query: Record<string, unknown> = { ...scope(req) }
+    const requestedStatus = String(req.query.status || '').trim()
+    if (Object.values(bookcarsTypes.WorkOrderStatus).includes(requestedStatus as bookcarsTypes.WorkOrderStatus)) {
+      query.status = requestedStatus
+    }
+    if (req.query.stale === 'true') {
+      query.status = bookcarsTypes.WorkOrderStatus.Scheduled
+      query.scheduledStart = { $lt: staleWorkOrderCutoff() }
+    }
+    const rows = await MaintenanceWorkOrder.find(query).sort({ scheduledStart: 1, createdAt: -1 }).populate('car', 'name licensePlate').populate('supplier', 'fullName')
     // F7 / W3 M-5 — each work order carries the total amount and count
     // of the expenses linked to it, so the UI can show the cost of a
     // job without a second round-trip.
@@ -50,7 +64,8 @@ export const list = async (req: Request, res: Response) => {
     res.json(rows.map((row) => {
       const obj = row.toObject() as unknown as Record<string, unknown>
       const total = byId.get(row._id.toString())
-      return { ...obj, expenseTotal: total ? Number(total.total.toFixed(2)) : 0, expenseCount: total ? total.count : 0 }
+      const stale = isWorkOrderStale(row.status, row.scheduledStart)
+      return { ...obj, expenseTotal: total ? Number(total.total.toFixed(2)) : 0, expenseCount: total ? total.count : 0, stale, daysStale: stale ? workOrderStaleDays(row.scheduledStart) : 0 }
     }))
   } catch (err) {
  logger.error(`[workOrder.list] ${i18n.t('ERROR')}`, err); res.status(400).send(i18n.t('ERROR')) 

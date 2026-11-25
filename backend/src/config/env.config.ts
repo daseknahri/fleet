@@ -417,11 +417,11 @@ export const FRONTEND_HOST = __env__('BC_FRONTEND_HOST', true)
 export const API_HOST = __env__('BC_API_HOST', false, '')
 
 /**
- * Default language. Default is en. Available options: en, fr, es.
+ * Default language. Default is fr. Available options: en, fr, es, ar.
  *
  * @type {string}
  */
-export const DEFAULT_LANGUAGE = __env__('BC_DEFAULT_LANGUAGE', false, 'en')
+export const DEFAULT_LANGUAGE = __env__('BC_DEFAULT_LANGUAGE', false, 'fr')
 
 /**
  * Default Minimum age for rental. Default is 21 years.
@@ -560,11 +560,11 @@ export const RECAPTCHA_MIN_SCORE = Number.parseFloat(__env__('BC_RECAPTCHA_MIN_S
 /**
  * Timezone for cenverting dates from UTC to local time.
  * Must be a valid TZ idenfidier: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
- * Default is UTC.
+ * Default is Africa/Casablanca.
  *
  * @type {string}
  */
-export const TIMEZONE = __env__('BC_TIMEZONE', false, 'UTC')
+export const TIMEZONE = __env__('BC_TIMEZONE', false, 'Africa/Casablanca')
 
 /**
  * ipinfo.io API key.
@@ -938,6 +938,11 @@ export interface Booking extends Document {
   expireAt?: Date | null
   isDeposit: boolean
   isPayedInFull?: boolean
+  /** GH-38c(ii) - ledger-derived balance, attached by getBooking after the ownership check. */
+  outstandingBalance?: number
+  depositHeld?: number
+  balanceDueAt?: Date
+  balanceOverdue?: boolean
   ledgerVersion?: number
   paypalOrderId?: string
   financialSnapshot?: bookcarsTypes.BookingFinancialSnapshot
@@ -1230,6 +1235,16 @@ export interface Invoice extends Document {
   voidedAt?: Date
   voidedBy?: Types.ObjectId
   voidReason?: string
+  // GH-25 - fiscal-identity snapshot taken at issue time (see Invoice model).
+  fiscalIdentity?: {
+    ice?: string
+    registreCommerce?: string
+    identifiantFiscal?: string
+    patente?: string
+    rib?: string
+    fiscalAddress?: string
+    city?: string
+  }
 }
 
 /** Quote document (GA-PAR-05, Option B — separate model). */
@@ -1785,6 +1800,8 @@ export interface Notification extends Document {
   message: string
   booking: Types.ObjectId
   car: Types.ObjectId
+  subjectType?: string
+  subjectId?: string
   isRead?: boolean
 }
 
@@ -1812,6 +1829,10 @@ export interface NotificationCounter extends Document {
 export interface PushToken extends Document {
   user: Types.ObjectId
   token: string
+  // GH-23 - consecutive-failure counting for dead-token pruning.
+  consecutiveFailures?: number
+  lastFailureAt?: Date
+  lastFailureReason?: string
 }
 
 /**

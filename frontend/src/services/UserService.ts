@@ -288,6 +288,20 @@ export const getUser = (id?: string): Promise<bookcarsTypes.User | null> => {
  * @param {bookcarsTypes.UpdateUserPayload} data
  * @returns {Promise<number>}
  */
+/**
+ * Get a client balance (per-client outstanding / overdue / deposit held).
+ *
+ * @param {string} id
+ * @returns {Promise<{ currency: string, outstanding: number, overdue: number, depositHeld: number, bookings: number }>}
+ */
+export const getClientBalance = (id: string): Promise<{ currency: string, outstanding: number, overdue: number, depositHeld: number, bookings: number }> =>
+  axiosInstance
+    .get(
+      `/api/users/${encodeURIComponent(id)}/balance`,
+      { withCredentials: true }
+    )
+    .then((res) => res.data)
+
 export const updateUser = (data: bookcarsTypes.UpdateUserPayload): Promise<number> =>
   axiosInstance
     .post(

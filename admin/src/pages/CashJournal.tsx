@@ -6,6 +6,7 @@ import Layout from '@/components/Layout'
 import { useAgencyPermissions, AgencyPermission } from '@/context/AgencyPermissionContext'
 import AccessDenied from '@/components/AccessDenied'
 import * as CashService from '@/services/CashService'
+import * as RentalPaymentService from '@/services/RentalPaymentService'
 import * as UserService from '@/services/UserService'
 import * as SupplierService from '@/services/SupplierService'
 import * as helper from '@/utils/helper'
@@ -54,6 +55,9 @@ const CashJournal = () => {
   const [journalTotals, setJournalTotals] = useState<bookcarsTypes.CashJournalTotals | null>(null)
   const [unlinkedCashPayments, setUnlinkedCashPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
   const [unlinkedCashTotal, setUnlinkedCashTotal] = useState(0)
+  const [unlinkedBankPayments, setUnlinkedBankPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
+  const [unlinkedBankTotal, setUnlinkedBankTotal] = useState(0)
+  const [linkingId, setLinkingId] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -155,6 +159,8 @@ const CashJournal = () => {
       setJournalTotals(journal?.totals || null)
       setUnlinkedCashPayments(journal?.unlinkedCashPayments || [])
       setUnlinkedCashTotal(journal?.unlinkedCashTotal || 0)
+      setUnlinkedBankPayments(journal?.unlinkedBankPayments || [])
+      setUnlinkedBankTotal(journal?.unlinkedBankTotal || 0)
       const movementRows: JournalRow[] = (journal?.rows || []).map((row) => ({
         id: row.id,
         date: new Date(row.date),
@@ -193,6 +199,27 @@ const CashJournal = () => {
       void onLoad(user)
     }
   }, [accountFocus, onLoad, user]) // reload when the operator switches the focused cash/bank account
+
+  // GH-33 - link an unlinked payment into the VIEWED session (the journal
+  // is per-session: linking into a different session than the one being
+  // viewed would be a surprise, so the button is disabled unless the
+  // viewed session is open and of the matching account).
+  const handleLinkUnlinked = async (paymentId: string, kind: 'cash' | 'bank') => {
+    if (!session?._id || linkingId) return
+    setLinkingId(paymentId)
+    try {
+      if (kind === 'cash') {
+        await RentalPaymentService.linkCashSession(paymentId, session._id)
+      } else {
+        await RentalPaymentService.linkBankSession(paymentId, session._id)
+      }
+      await onLoad(UserService.getCurrentUser() || undefined)
+    } catch (error) {
+      helper.error(error)
+    } finally {
+      setLinkingId('')
+    }
+  }
 
   const filtered = useMemo(() => {
     const query = keyword.trim().toLocaleLowerCase()
@@ -470,6 +497,35 @@ const CashJournal = () => {
         </div>
         {!loading && (pendingIn > 0 || pendingOut > 0) && <Typography variant="caption" className="agency-cash__pending">{strings.PENDING}: +{formatAmount(pendingIn)} / −{formatAmount(pendingOut)}</Typography>}
         {!loading && unlinkedCashTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashPayments.length})</Alert>}
+        {!loading && unlinkedBankTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_BANK}: {formatAmount(unlinkedBankTotal)} ({unlinkedBankPayments.length})</Alert>}
+        {!loading && unlinkedCashPayments.length > 0 && (
+          <section className="agency-cash__panel">
+            <Typography variant="subtitle2">{strings.UNLINKED_CASH}</Typography>
+            {unlinkedCashPayments.map((row) => (
+              <div className="agency-cash__row" key={row.id}>
+                <span>{formatDate(row.date)}</span>
+                <span>{row.bookingReference || '—'}</span>
+                <span>{row.purpose}</span>
+                <strong>{formatAmount(row.amount)}</strong>
+                <Button size="small" variant="outlined" disabled={linkingId === row.id || session?.account !== bookcarsTypes.CashAccountType.Cash || session?.status !== bookcarsTypes.CashSessionStatus.Open} onClick={() => handleLinkUnlinked(row.id, 'cash')}>{strings.LINK}</Button>
+              </div>
+            ))}
+          </section>
+        )}
+        {!loading && unlinkedBankPayments.length > 0 && (
+          <section className="agency-cash__panel">
+            <Typography variant="subtitle2">{strings.UNLINKED_BANK}</Typography>
+            {unlinkedBankPayments.map((row) => (
+              <div className="agency-cash__row" key={row.id}>
+                <span>{formatDate(row.date)}</span>
+                <span>{row.bookingReference || '—'}</span>
+                <span>{row.purpose}</span>
+                <strong>{formatAmount(row.amount)}</strong>
+                <Button size="small" variant="outlined" disabled={linkingId === row.id || session?.account !== bookcarsTypes.CashAccountType.Bank || session?.status !== bookcarsTypes.CashSessionStatus.Open} onClick={() => handleLinkUnlinked(row.id, 'bank')}>{strings.LINK}</Button>
+              </div>
+            ))}
+          </section>
+        )}
         <section className="agency-cash__panel">
           <div className="agency-cash__toolbar">
             <TextField size="small" placeholder={strings.SEARCH} slotProps={{ htmlInput: { 'aria-label': strings.SEARCH } }} value={keyword} onChange={(event) => setKeyword(event.target.value)} />

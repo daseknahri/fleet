@@ -361,6 +361,9 @@ const Settings = () => {
                   <p>{`${strings.RETURN_FUEL_PRICE}: ${returnSettings.fuelPricePerLitre ?? '—'}`}</p>
                   <p>{`${strings.RETURN_WASH_FEE}: ${returnSettings.washFee ?? '—'}`}</p>
                   <p>{`${strings.RETURN_DEFAULT_DEPOSIT}: ${returnSettings.defaultDeposit ?? '—'}`}</p>
+                  {returnSettings.includedKmPerDay == null && returnSettings.extraKmPrice == null && returnSettings.fuelPricePerLitre == null && returnSettings.washFee == null && returnSettings.defaultDeposit == null && (
+                    <p>{strings.RETURN_RATES_NOT_SET}</p>
+                  )}
                 </div>
               )}
               <div className="buttons">

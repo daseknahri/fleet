@@ -54,6 +54,8 @@ import * as SupplierService from '@/services/SupplierService'
 
 import * as MaintenanceExpenseService from '@/services/MaintenanceExpenseService'
 
+import * as CashService from '@/services/CashService'
+
 import * as MaintenanceScheduleService from '@/services/MaintenanceScheduleService'
 
 import * as MaintenanceWorkOrderService from '@/services/MaintenanceWorkOrderService'
@@ -494,6 +496,21 @@ const Maintenance = () => {
 
   const [paymentErrorMessage, setPaymentErrorMessage] = useState('')
 
+  // GH-24 — expense payments posted unlinked, and the open session each
+  // row could link into (keyed supplier:account). The Link button posts
+  // to that session; when none is open it is disabled with the reason.
+  const [unlinkedPayments, setUnlinkedPayments] = useState<bookcarsTypes.MaintenanceExpensePayment[]>([])
+
+  const [openSessions, setOpenSessions] = useState<Record<string, bookcarsTypes.CashSession | null>>({})
+
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
+
+  const [linkingId, setLinkingId] = useState('')
+
+  const [linkError, setLinkError] = useState('')
+
+  const [linkSuccess, setLinkSuccess] = useState(false)
+
   // F7 / W3 M-7 — audit history dialog + delete reason.
   const [historyTarget, setHistoryTarget] = useState<bookcarsTypes.MaintenanceExpense | null>(null)
 
@@ -513,6 +530,31 @@ const Maintenance = () => {
 
   const [form, setForm] = useState<ExpenseForm>(emptyForm)
 
+
+  // GH-24 — unlinked expense payments + the open session of each
+  // supplier/account they could link into. A failure here never blanks
+  // the page (F-03 pattern): it only leaves the section empty.
+  const loadUnlinkedPayments = useCallback(async () => {
+    try {
+      const rows = await MaintenanceExpenseService.listUnlinkedPayments()
+      setUnlinkedPayments(rows || [])
+      const supplierIds = [...new Set((rows || []).map((row) => (typeof row.supplier === 'string' ? row.supplier : row.supplier?._id)).filter(Boolean))] as string[]
+      const entries = await Promise.allSettled(supplierIds.flatMap((supplierId) => [
+        CashService.current(bookcarsTypes.CashAccountType.Cash, supplierId).then((session) => [`${supplierId}:${bookcarsTypes.CashAccountType.Cash}`, session] as const),
+        CashService.current(bookcarsTypes.CashAccountType.Bank, supplierId).then((session) => [`${supplierId}:${bookcarsTypes.CashAccountType.Bank}`, session] as const),
+      ]))
+      const map: Record<string, bookcarsTypes.CashSession | null> = {}
+      for (const entry of entries) {
+        if (entry.status === 'fulfilled') {
+          map[entry.value[0]] = entry.value[1]
+        }
+      }
+      setOpenSessions(map)
+      setSessionsLoaded(true)
+    } catch (error) {
+      helper.error(error)
+    }
+  }, [])
 
   const onLoad = useCallback(async (user?: bookcarsTypes.User) => {
     if (!user) {
@@ -592,6 +634,8 @@ const Maintenance = () => {
       if ([carResult, expenseRows, scheduleRows, workOrderRows, reportData, categoryRows].some((result) => result.status === 'rejected')) {
         setLoadError(true)
       }
+
+      await loadUnlinkedPayments()
     } catch (error) {
       setLoadError(true)
 
@@ -1019,13 +1063,24 @@ receipt = (await MaintenanceExpenseService.uploadReceipt(receiptFile)).filename
 
     }
 
+    // GH-36 - a hard delete requires a recorded reason (same as expenses).
+    if (deleteReason.trim().length < 3) {
+      setDeleteError(true)
+
+      return
+    }
+
     try {
 
-      await MaintenanceCategoryService.remove(categoryDeleteTarget._id)
+      await MaintenanceCategoryService.remove(categoryDeleteTarget._id, deleteReason.trim())
 
       setCategories((rows) => rows.filter((row) => row._id !== categoryDeleteTarget._id))
 
       setCategoryDeleteTarget(null)
+
+      setDeleteReason('')
+
+      setDeleteError(false)
 
     } catch (error) {
 
@@ -1393,6 +1448,42 @@ return
   }
 
 
+  // GH-24 — link one unlinked expense payment into its open session
+  // (cash → current open cash session, bank → current open bank
+  // session). Never auto-picks a session: the button is disabled when
+  // none is open. After a successful link the list is reloaded.
+  const handleLinkPayment = async (payment: bookcarsTypes.MaintenanceExpensePayment) => {
+    const expenseId = typeof payment.expense === 'string' ? payment.expense : payment.expense?._id || ''
+    if (!payment._id || !expenseId) {
+      return
+    }
+    const supplierId = typeof payment.supplier === 'string' ? payment.supplier : payment.supplier?._id || ''
+    const isBank = payment.method === bookcarsTypes.RentalPaymentMethod.BankTransfer
+    const account = isBank ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
+    const session = openSessions[`${supplierId}:${account}`]
+    if (!session?._id) {
+      setLinkError(strings.NO_SESSION_OPEN)
+      return
+    }
+    setLinkingId(payment._id)
+    setLinkError('')
+    setLinkSuccess(false)
+    try {
+      if (isBank) {
+        await MaintenanceExpenseService.linkExpenseBankSession(expenseId, payment._id, session._id)
+      } else {
+        await MaintenanceExpenseService.linkExpenseCashSession(expenseId, payment._id, session._id)
+      }
+      setLinkSuccess(true)
+      await loadUnlinkedPayments()
+    } catch (error) {
+      setLinkError(strings.EXPENSE_PAYMENT_LINK_ERROR)
+      helper.error(error)
+    } finally {
+      setLinkingId('')
+    }
+  }
+
   const handlePaymentSave = async () => {
     if (!paymentTarget?._id) {
 return
@@ -1600,6 +1691,30 @@ return
 
         </section>
 
+        <section className="agency-maintenance__panel" aria-label={strings.UNLINKED_PAYMENTS}>
+          <div className="agency-maintenance__section-heading">
+            <Typography component="h2">{strings.UNLINKED_PAYMENTS}</Typography>
+          </div>
+          {linkError && <Alert severity="error" className="agency-maintenance__alert">{linkError}</Alert>}
+          {linkSuccess && <Alert severity="success" className="agency-maintenance__alert">{strings.EXPENSE_PAYMENT_LINKED}</Alert>}
+          {unlinkedPayments.length === 0 ? <div className="agency-maintenance__empty">{strings.UNLINKED_PAYMENTS_NONE}</div> : unlinkedPayments.map((payment) => {
+            const supplierId = typeof payment.supplier === 'string' ? payment.supplier : payment.supplier?._id || ''
+            const isBank = payment.method === bookcarsTypes.RentalPaymentMethod.BankTransfer
+            const account = isBank ? bookcarsTypes.CashAccountType.Bank : bookcarsTypes.CashAccountType.Cash
+            const session = openSessions[`${supplierId}:${account}`]
+            const noSession = sessionsLoaded && !session
+            const vendor = typeof payment.expense === 'string' ? '' : payment.expense?.vendor || ''
+            return (
+              <div className="agency-maintenance__schedule-row" key={payment._id}>
+                <div><strong>{formatAmount(payment.amount)}</strong><span>{formatDate(payment.date)}{vendor ? ` — ${vendor}` : ''}</span></div>
+                <span>{isBank ? strings.BANK_TRANSFER : strings.CASH}</span>
+                <span>{noSession ? strings.NO_SESSION_OPEN : ''}</span>
+                {canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" disabled={!sessionsLoaded || !session || linkingId === payment._id} onClick={() => handleLinkPayment(payment)}>{strings.LINK_SESSION}</Button></span>}
+              </div>
+            )
+          })}
+        </section>
+
         <section className="agency-maintenance__panel" aria-label={strings.SCHEDULES}>
 
           <div className="agency-maintenance__section-heading">
@@ -1624,7 +1739,7 @@ return
 
           </div>
 
-          {workOrders.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_WORK_ORDERS}</div> : workOrders.map((workOrder) => <div className="agency-maintenance__schedule-row" key={workOrder._id}><div><strong>{workOrder.title}</strong><span>{workOrderCarName(workOrder)}</span></div><span>{formatDate(workOrder.scheduledStart)} → {formatDate(workOrder.scheduledEnd)}</span><span className={`agency-maintenance__status agency-maintenance__status--${workOrder.status}`}>{workOrderStatusLabel(workOrder.status)}</span><span>{strings.LINKED_EXPENSES}: {workOrder.expenseCount || 0} · {formatAmount(workOrder.expenseTotal || 0)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openWorkOrderEdit(workOrder)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setWorkOrderDeleteTarget(workOrder); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+          {workOrders.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_WORK_ORDERS}</div> : workOrders.map((workOrder) => <div className="agency-maintenance__schedule-row" key={workOrder._id}><div><strong>{workOrder.title}</strong><span>{workOrderCarName(workOrder)}</span></div><span>{formatDate(workOrder.scheduledStart)} → {formatDate(workOrder.scheduledEnd)}</span><span className={`agency-maintenance__status agency-maintenance__status--${workOrder.status}`}>{workOrderStatusLabel(workOrder.status)}</span>{workOrder.stale && (<span className="agency-maintenance__status agency-maintenance__status--overdue">{strings.STALE}</span>)}<span>{strings.LINKED_EXPENSES}: {workOrder.expenseCount || 0} · {formatAmount(workOrder.expenseTotal || 0)}</span>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openWorkOrderEdit(workOrder)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setWorkOrderDeleteTarget(workOrder); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
@@ -1638,7 +1753,7 @@ return
 
           </div>
 
-          {categories.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_CATEGORIES}</div> : categories.map((category) => <div className="agency-maintenance__schedule-row" key={category._id} style={{ opacity: category.active ? 1 : 0.5 }}><div><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', background: category.color || '#9e9e9e', marginRight: 8 }} /><strong>{category.name}</strong></div>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openCategoryEdit(category)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => setCategoryDeleteTarget(category)}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
+          {categories.length === 0 ? <div className="agency-maintenance__empty">{strings.NO_CATEGORIES}</div> : categories.map((category) => <div className="agency-maintenance__schedule-row" key={category._id} style={{ opacity: category.active ? 1 : 0.5 }}><div><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', background: category.color || '#9e9e9e', marginRight: 8 }} /><strong>{category.name}</strong></div>{canManageExpenses && <span className="agency-maintenance__actions"><Button size="small" aria-label={strings.EDIT} onClick={() => openCategoryEdit(category)}><EditRoundedIcon /></Button><Button size="small" color="error" aria-label={strings.DELETE} onClick={() => { setCategoryDeleteTarget(category); setDeleteReason(''); setDeleteError(false) }}><DeleteOutlineRoundedIcon /></Button></span>}</div>)}
 
         </section>
 
@@ -1766,7 +1881,7 @@ return
 
         <DialogTitle>{strings.DELETE}</DialogTitle>
 
-        <DialogContent>{strings.DELETE_CATEGORY_CONFIRM}</DialogContent>
+        <DialogContent>{strings.DELETE_CATEGORY_CONFIRM}<TextField fullWidth required label={strings.DELETE_REASON} value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} error={deleteError} helperText={deleteError ? strings.DELETE_REASON_REQUIRED : ''} inputProps={{ maxLength: 1000 }} sx={{ mt: 2 }} /></DialogContent>
 
         <DialogActions>
 

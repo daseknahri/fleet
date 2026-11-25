@@ -11,7 +11,7 @@ import Invoice from '../models/Invoice'
 import ContractCharge from '../models/ContractCharge'
 import { linkPostedRentPaymentToInvoice, recomputeInvoicePayment } from './invoicePayment'
 import { BookingConflictError, saveBookingWithAvailability } from './bookingReservationHelper'
-import { getContractReceivable, getSupplierVatRatePercent } from './contractReceivable'
+import { getContractReceivable, getSupplierVatRatePercent, syncBookingPaidInFull } from './contractReceivable'
 import { vatAmountMinor } from './fiscal'
 import * as logger from './logger'
 
@@ -428,6 +428,13 @@ const linkReversalCashMovement = async (
     targetQuery.session(dbSession)
   }
   const target = openSession || await targetQuery
+  // GH-33 - the fallback is a heuristic, not a true link: the reversal's
+  // compensating movement lands in the latest open session, which may not
+  // be the session that took the money. Log it loudly so the attribution
+  // is visible; the true fix is the relink pass, not this log.
+  if (!openSession && target) {
+    logger.warn(`[ledger.linkReversalCashMovement] Original cash payment ${original._id.toString()} has no linked movement; reversal ${reversal._id.toString()} compensating in latest open session ${target._id.toString()} (opened ${target.openedAt?.toISOString()})`)
+  }
   if (!target) {
     logger.error(`[ledger.linkReversalCashMovement] No open cash session for supplier ${original.supplier.toString()}; cash reversal ${reversal._id.toString()} recorded without a drawer movement`)
     return null
@@ -500,6 +507,13 @@ const linkReversalBankMovement = async (
     targetQuery.session(dbSession)
   }
   const target = openSession || await targetQuery
+  // GH-33 - the fallback is a heuristic, not a true link: the reversal's
+  // compensating movement lands in the latest open session, which may not
+  // be the session that took the money. Log it loudly so the attribution
+  // is visible; the true fix is the relink pass, not this log.
+  if (!openSession && target) {
+    logger.warn(`[ledger.linkReversalBankMovement] Original bank payment ${original._id.toString()} has no linked movement; reversal ${reversal._id.toString()} compensating in latest open session ${target._id.toString()} (opened ${target.openedAt?.toISOString()})`)
+  }
   if (!target) {
     logger.error(`[ledger.linkReversalBankMovement] No open bank session for supplier ${original.supplier.toString()}; bank reversal ${reversal._id.toString()} recorded without a bank movement`)
     return null
@@ -687,7 +701,7 @@ existingQuery.session(session)
 
 export const postRentalPayment = async (input: PostRentalPaymentInput) => {
   const bookingId = input.bookingId.toString()
-  return withBookingLock(bookingId, async () => {
+  const payment = await withBookingLock(bookingId, async () => {
     if (input.session) {
 return postWithinSession(input, input.session)
 }
@@ -696,6 +710,19 @@ return mongoose.connection.transaction((session) => postWithinSession(input, ses
 }
     return postWithinSession(input)
   })
+  // GH-17 — the stored isPayedInFull flag follows the ledger. Only when
+  // this call owned the transaction: a caller-supplied session means the
+  // posting is still inside the caller's transaction (checkout
+  // finalisation, deposit settlement), and the sync must run after it
+  // commits. Best-effort: the posting already succeeded.
+  if (!input.session) {
+    try {
+      await syncBookingPaidInFull(bookingId)
+    } catch (err) {
+      logger.error(`[ledger.postRentalPayment] Payment ${payment._id.toString()} posted but isPayedInFull could not be synced`, err)
+    }
+  }
+  return payment
 }
 
 /**
@@ -885,6 +912,14 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   const moneyPosted = receivable.postedPayments + receivable.depositPayments > 0
   const totalDue = receivable.rentalTotal + receivable.approvedCharges
   if (!target || (!downgrade && (receivable.outstandingBalance > 0 || (!moneyPosted && totalDue > 0)))) {
+    // GH-17 — the stored flag follows the ledger even when the status
+    // does not move: a booking that gains an outstanding balance must
+    // read unpaid, and a fully-paid one must read paid.
+    const paidInFull = receivable.outstandingBalance <= 0
+    if (booking.isPayedInFull !== paidInFull) {
+      booking.isPayedInFull = paidInFull
+      await booking.save()
+    }
     return { status: booking.status, updated: false, ...base, conflict: false }
   }
   // F4 / W1 #5 — the pay-later half of the lifecycle middle: a
@@ -895,6 +930,11 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   const previousStatus = booking.status
   const previousLifecycle = booking.lifecycle
   const previousExpireAt = booking.expireAt
+  // GH-17 — the ledger-derived flag rides on the same document, so the
+  // saveBookingWithAvailability below persists status + flag together.
+  // A conflict there throws before saving, so a refused flip leaves the
+  // stored flag untouched (the ledger did not change either).
+  booking.isPayedInFull = receivable.outstandingBalance <= 0
   booking.status = target
   // GAP-C1/M1 — confirming a hold clears its hold window: a Paid /
   // PaidInFull booking must never carry `expireAt` (the TTL would
@@ -978,7 +1018,7 @@ export const reverseRentalPayment = async (input: {
   if (!initial) {
 throw new LedgerError('INVALID_REVERSAL', 'Payment not found')
 }
-  return withBookingLock(initial.booking.toString(), async () => {
+  const posted = await withBookingLock(initial.booking.toString(), async () => {
     const existingQuery = RentalPayment.findOne({ idempotencyKey: input.idempotencyKey })
     if (input.session) {
       existingQuery.session(input.session)
@@ -1085,4 +1125,16 @@ await recomputeInvoicePayment(invoice._id, input.session)
     }
     return reversal
   })
+  // GH-17 — the stored isPayedInFull flag follows the ledger (a reversal
+  // can reopen an outstanding balance). Same own-transaction rule as
+  // postRentalPayment above: a caller-supplied session means the caller
+  // owns the commit. Best-effort: the reversal already posted.
+  if (!input.session) {
+    try {
+      await syncBookingPaidInFull(initial.booking.toString())
+    } catch (err) {
+      logger.error(`[ledger.reverseRentalPayment] Reversal ${posted._id.toString()} posted but isPayedInFull could not be synced`, err)
+    }
+  }
+  return posted
 }

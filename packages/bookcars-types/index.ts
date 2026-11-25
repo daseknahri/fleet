@@ -692,6 +692,11 @@ export interface Booking {
   expireAt?: Date
   isDeposit?: boolean
   isPayedInFull?: boolean
+  /** GH-38c(ii) - ledger-derived balance, attached by getBooking after the ownership check. */
+  outstandingBalance?: number
+  depositHeld?: number
+  balanceDueAt?: Date
+  balanceOverdue?: boolean
   ledgerVersion?: number
   paypalOrderId?: string
   financialSnapshot?: BookingFinancialSnapshot
@@ -835,6 +840,8 @@ export interface ConfirmedUnpaidRow {
   daysSinceConfirmation: number
   /** True for a legacy Reserved row that still needs confirming. */
   legacyReserved: boolean
+  /** GH-32 — true for a Draft hold that is fully paid but unconfirmed (payment refresh failed); needs manual review, not a refund. */
+  paidButUnconfirmed?: boolean
   /** Confirm-or-cancel deadline for a legacy Reserved row. */
   confirmBy?: Date
 }
@@ -1739,6 +1746,10 @@ export interface Invoice {
   total: number
   paidAmount?: number
   paymentStatus?: 'unpaid' | 'partial' | 'paid'
+  /** GH-29 - posted rent for the contract that is not linked to this invoice
+   *  (above-threshold: awaiting approval / manual link). Computed on read,
+   *  never stored. */
+  heldRentAmount?: number
   payments?: string[]
   // F7 / W3 B-2 — what the invoice looked like when it was voided.
   // Voiding clears paidAmount / paymentStatus / payments (see
@@ -1758,6 +1769,18 @@ export interface Invoice {
   voidedAt?: Date
   voidedBy?: string | User
   voidReason?: string
+  /** GH-25 - fiscal-identity snapshot taken at issue time (see Invoice model).
+   *  Values copied byte-identical from the supplier record; absent values
+   *  stay absent. */
+  fiscalIdentity?: {
+    ice?: string
+    registreCommerce?: string
+    identifiantFiscal?: string
+    patente?: string
+    rib?: string
+    fiscalAddress?: string
+    city?: string
+  }
   createdAt?: Date
   updatedAt?: Date
 }
@@ -2335,6 +2358,11 @@ export interface MaintenanceWorkOrder {
   // the total amount and count of expenses linked to this work order.
   expenseTotal?: number
   expenseCount?: number
+  // GH-21 - server-computed staleness (list only): true when the work
+  // order is still Scheduled N days after its planned start, with the
+  // whole days since that start.
+  stale?: boolean
+  daysStale?: number
   createdAt?: Date
   updatedAt?: Date
 }
@@ -2713,6 +2741,8 @@ export interface CashJournalResponse {
   totals: CashJournalTotals
   unlinkedCashPayments: UnlinkedCashPaymentRow[]
   unlinkedCashTotal: number
+  unlinkedBankPayments: UnlinkedCashPaymentRow[]
+  unlinkedBankTotal: number
   total: number
   page: number
   size: number

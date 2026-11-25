@@ -44,6 +44,23 @@ export const listPayments = (id: string): Promise<bookcarsTypes.MaintenanceExpen
     .get(`/api/maintenance-expenses/${encodeURIComponent(id)}/payments`, { withCredentials: true })
     .then((res) => res.data)
 
+// GH-24 — repair path for expense payments posted unlinked: link one into
+// a chosen open session, and the unlinked list the repair works from.
+export const listUnlinkedPayments = (): Promise<bookcarsTypes.MaintenanceExpensePayment[]> =>
+  axiosInstance
+    .get('/api/maintenance-expenses/unlinked-payments', { withCredentials: true })
+    .then((res) => res.data)
+
+export const linkExpenseBankSession = (expenseId: string, paymentId: string, bankSessionId: string): Promise<{ payment: bookcarsTypes.MaintenanceExpensePayment, movement: bookcarsTypes.CashMovement }> =>
+  axiosInstance
+    .post(`/api/maintenance-expenses/${encodeURIComponent(expenseId)}/payments/${encodeURIComponent(paymentId)}/link-bank-session`, { bankSessionId }, { withCredentials: true })
+    .then((res) => res.data)
+
+export const linkExpenseCashSession = (expenseId: string, paymentId: string, cashSessionId: string): Promise<{ payment: bookcarsTypes.MaintenanceExpensePayment, movement: bookcarsTypes.CashMovement }> =>
+  axiosInstance
+    .post(`/api/maintenance-expenses/${encodeURIComponent(expenseId)}/payments/${encodeURIComponent(paymentId)}/link-cash-session`, { cashSessionId }, { withCredentials: true })
+    .then((res) => res.data)
+
 // F7 / W3 M-7 — append-only audit trail (survives a hard delete).
 export const listAudit = (id: string): Promise<bookcarsTypes.MaintenanceExpenseAudit[]> =>
   axiosInstance

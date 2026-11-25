@@ -87,6 +87,8 @@ export type AutoReminderKind = 'pickup' | 'return' | 'overdue' | 'expiry' | 'con
 // GH-03 / GH-14 / GH-11 (Wave 3.2) — the new kinds gate on the master
 // boolean only, like pickup / overdue (no per-category toggle).
   | 'holdExpiring' | 'paymentDue' | 'missedPickup' | 'overdueEscalate' | 'pendingRefund'
+// GH-21 (P2) - stale work orders gate on the master boolean only.
+  | 'staleWorkOrder'
 // Wave 2.1 — 'confirmedUnpaid' gates on the master boolean only, like
 // pickup / overdue (no per-category toggle).
 
@@ -241,8 +243,8 @@ export const resolveReminderRecipients = async (supplierId: string): Promise<env
   return recipients
 }
 
-export const createInAppNotification = async (userId: Types.ObjectId, message: string) => {
-  const notification = new Notification({ user: userId, message })
+export const createInAppNotification = async (userId: Types.ObjectId, message: string, subject?: { subjectType?: string, subjectId?: string, booking?: Types.ObjectId | string, car?: Types.ObjectId | string }) => {
+  const notification = new Notification({ user: userId, message, ...(subject || {}) })
   await notification.save()
   let counter = await NotificationCounter.findOne({ user: userId })
   if (counter && typeof counter.count !== 'undefined') {
@@ -254,6 +256,41 @@ export const createInAppNotification = async (userId: Types.ObjectId, message: s
   }
 }
 
+// GH-23 - dead-token pruning. N = 3 consecutive failures (same count as
+// the Wave 3.5 auto-retry cap); `DeviceNotRegistered` prunes at once -
+// Expo guarantees that token will never deliver again. A pruned token is
+// re-creatable: the next app open re-registers via createPushToken (3d).
+const PUSH_PRUNE_AFTER_FAILURES = 3
+
+const recordPushFailure = async (userId: Types.ObjectId, reason: string, immediate: boolean): Promise<void> => {
+  try {
+    const row = await PushToken.findOne({ user: userId })
+    if (!row) return
+    if (immediate) {
+      await PushToken.deleteOne({ _id: row._id })
+      logger.info(`[reminderNotify] Pruned dead push token for user ${userId} (DeviceNotRegistered).`)
+      return
+    }
+    const failures = (row.consecutiveFailures || 0) + 1
+    if (failures >= PUSH_PRUNE_AFTER_FAILURES) {
+      await PushToken.deleteOne({ _id: row._id })
+      logger.info(`[reminderNotify] Pruned push token for user ${userId} after ${failures} consecutive failures (last: ${reason}).`)
+      return
+    }
+    await PushToken.updateOne({ _id: row._id }, { $set: { consecutiveFailures: failures, lastFailureAt: new Date(), lastFailureReason: reason.slice(0, 1000) } })
+  } catch (err) {
+    logger.error('[reminderNotify] recordPushFailure failed', err)
+  }
+}
+
+const recordPushSuccess = async (userId: Types.ObjectId): Promise<void> => {
+  try {
+    await PushToken.updateOne({ user: userId }, { $set: { consecutiveFailures: 0, lastFailureAt: undefined, lastFailureReason: undefined } })
+  } catch (err) {
+    logger.error('[reminderNotify] recordPushSuccess failed', err)
+  }
+}
+
 export const sendPush = async (user: env.User, message: string, reminderId: Types.ObjectId | undefined): Promise<boolean> => {
   const pushToken = await PushToken.findOne({ user: user._id })
   if (!pushToken) {
@@ -262,7 +299,7 @@ export const sendPush = async (user: env.User, message: string, reminderId: Type
   const { token } = pushToken
   const expo = new Expo({ accessToken: env.EXPO_ACCESS_TOKEN })
   if (!Expo.isExpoPushToken(token)) {
-    logger.info(`[reminderNotify] Push token for user ${user._id} is not a valid Expo push token.`)
+    await recordPushFailure(user._id, 'Not a valid Expo push token.', false)
     return false
   }
   const messages: ExpoPushMessage[] = [{
@@ -280,12 +317,19 @@ export const sendPush = async (user: env.User, message: string, reminderId: Type
           logger.info(`[reminderNotify] Push notification sent: ${ticket.id}`)
           sent = true
         } else {
-          logger.error(`[reminderNotify] Push ticket error: ${ticket.message}`)
+          const details = (ticket as { details?: { error?: string } }).details
+          const reason = details?.error ? `${ticket.message} (${details.error})` : (ticket.message || 'Push ticket error')
+          logger.error(`[reminderNotify] Push ticket error: ${reason}`)
+          await recordPushFailure(user._id, reason, details?.error === 'DeviceNotRegistered')
         }
       }
     } catch (err) {
+      await recordPushFailure(user._id, err instanceof Error ? err.message : 'Push send threw', false)
       logger.error('[reminderNotify] Error while sending push notification', err)
     }
+  }
+  if (sent) {
+    await recordPushSuccess(user._id)
   }
   return sent
 }
@@ -387,7 +431,7 @@ export const notifyReminderFired = async (
           recipient: recipient._id,
           subject: rendered.subject,
           body: rendered.body,
-        }, async () => { await createInAppNotification(recipient._id, rendered.body) })
+        }, async () => { await createInAppNotification(recipient._id, rendered.body, { subjectType: 'reminder', subjectId: String(reminder._id) }) })
         if (delivered) result.inAppCount += 1
       }
       if (emailAllowed && recipient.enableEmailNotifications !== false && recipient.email) {

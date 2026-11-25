@@ -356,9 +356,9 @@ const MONEY_REMINDER_TEMPLATE_KEYS = [
   'auto.overdueEscalate',
 ] as bookcarsTypes.NotificationTemplateKey[]
 
-export type ReceivablesFilter = 'all' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
+export type ReceivablesFilter = 'all' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'paid-unconfirmed' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
 
-const RECEIVABLES_FILTERS: ReceivablesFilter[] = ['all', 'overdue', 'due-soon', 'confirmed-unpaid', 'holds-expiring', 'paid-in-full', 'age-current', 'age-1-7', 'age-8-30', 'age-30-plus']
+const RECEIVABLES_FILTERS: ReceivablesFilter[] = ['all', 'overdue', 'due-soon', 'confirmed-unpaid', 'paid-unconfirmed', 'holds-expiring', 'paid-in-full', 'age-current', 'age-1-7', 'age-8-30', 'age-30-plus']
 
 export type ReceivableAgeBucket = 'current' | '1-7' | '8-30' | '30+'
 
@@ -527,6 +527,13 @@ export const overdue = async (req: Request, res: Response) => {
         break
       case 'confirmed-unpaid':
         filteredRows = rows.filter((row) => row.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed && row.outstandingBalance > 0)
+        filteredPaidInFullRows = []
+        break
+      case 'paid-unconfirmed':
+        // GH-32 — fully-paid Draft holds (refresh failed) live in the
+        // paid-in-full rows, not the outstanding rows: serve them here
+        // so the receivables tab can show + retry them.
+        filteredRows = paidInFullRows.filter((row) => row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending)
         filteredPaidInFullRows = []
         break
       case 'holds-expiring':

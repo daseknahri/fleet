@@ -55,9 +55,13 @@ export const recomputeExpensePaid = async (
 // in the open Bank session, linked back to the payment. No open Bank
 // session, or a session in another currency, means the payment still
 // records — unlinked, with an error log — exactly like the cash path.
+// GH-24 — targetSessionId links into the NAMED session (the repair
+// endpoint validates it first); without it the latest open session is
+// used, as before. Same shape as ledger linkLedgerCashPayment.
 export const linkExpensePaymentToBank = async (
   payment: env.MaintenanceExpensePayment,
   dbSession?: mongoose.ClientSession,
+  targetSessionId?: mongoose.Types.ObjectId | string,
 ): Promise<env.CashMovement | null> => {
   if (payment.method !== bookcarsTypes.RentalPaymentMethod.BankTransfer) {
     return null
@@ -74,11 +78,18 @@ export const linkExpensePaymentToBank = async (
     }
     return existing
   }
-  const sessionQuery = CashSession.findOne({
-    supplier: payment.supplier,
-    account: bookcarsTypes.CashAccountType.Bank,
-    status: bookcarsTypes.CashSessionStatus.Open,
-  }).sort({ openedAt: -1 })
+  const sessionQuery = targetSessionId
+    ? CashSession.findOne({
+      _id: new mongoose.Types.ObjectId(targetSessionId),
+      supplier: payment.supplier,
+      account: bookcarsTypes.CashAccountType.Bank,
+      status: bookcarsTypes.CashSessionStatus.Open,
+    })
+    : CashSession.findOne({
+      supplier: payment.supplier,
+      account: bookcarsTypes.CashAccountType.Bank,
+      status: bookcarsTypes.CashSessionStatus.Open,
+    }).sort({ openedAt: -1 })
   if (dbSession) {
     sessionQuery.session(dbSession)
   }
@@ -116,6 +127,7 @@ export const linkExpensePaymentToBank = async (
 export const linkExpensePaymentToCash = async (
   payment: env.MaintenanceExpensePayment,
   dbSession?: mongoose.ClientSession,
+  targetSessionId?: mongoose.Types.ObjectId | string,
 ): Promise<env.CashMovement | null> => {
   if (payment.method !== bookcarsTypes.RentalPaymentMethod.Cash) {
     return null
@@ -132,11 +144,18 @@ export const linkExpensePaymentToCash = async (
     }
     return existing
   }
-  const sessionQuery = CashSession.findOne({
-    supplier: payment.supplier,
-    account: bookcarsTypes.CashAccountType.Cash,
-    status: bookcarsTypes.CashSessionStatus.Open,
-  }).sort({ openedAt: -1 })
+  const sessionQuery = targetSessionId
+    ? CashSession.findOne({
+      _id: new mongoose.Types.ObjectId(targetSessionId),
+      supplier: payment.supplier,
+      account: bookcarsTypes.CashAccountType.Cash,
+      status: bookcarsTypes.CashSessionStatus.Open,
+    })
+    : CashSession.findOne({
+      supplier: payment.supplier,
+      account: bookcarsTypes.CashAccountType.Cash,
+      status: bookcarsTypes.CashSessionStatus.Open,
+    }).sort({ openedAt: -1 })
   if (dbSession) {
     sessionQuery.session(dbSession)
   }

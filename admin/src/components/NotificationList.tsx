@@ -39,6 +39,29 @@ interface NotificationListProps {
   user?: bookcarsTypes.User
 }
 
+// GH-35 / Wave 3.5b — destination per subjectType. Booking/car keep the
+// existing View button above (they navigate after mark-as-read); this
+// covers the subjects the legacy rows never carried until 5a. Page-level
+// landing for schedule/reminder/approval: Maintenance/Approbations/
+// Reminders read no query param, so there is no item to land on yet.
+const notificationDestination = (row: bookcarsTypes.Notification): string | null => {
+  const subjectType = (row as { subjectType?: string }).subjectType
+  switch (subjectType) {
+    case 'booking':
+      return `/update-booking?b=${(row as { subjectId?: string }).subjectId}`
+    case 'car':
+      return `/update-car?cr=${(row as { subjectId?: string }).subjectId}`
+    case 'maintenance-schedule':
+      return '/maintenance'
+    case 'reminder':
+      return '/reminders'
+    case 'approval':
+      return '/approbations'
+    default:
+      return null
+  }
+}
+
 const NotificationList = ({ user }: NotificationListProps) => {
   const navigate = useNavigate()
   const { setNotificationCount } = useNotificationContext() as NotificationContextType
@@ -244,6 +267,44 @@ const NotificationList = ({ user }: NotificationListProps) => {
                                   const __navigate__ = () => {
                                     const url = row.booking ? `/update-booking?b=${row.booking}` : `/update-car?cr=${row.car}`
                                     navigate(url)
+                                  }
+
+                                  if (!row.isRead) {
+                                    const status = await NotificationService.markAsRead(user._id, [row._id])
+
+                                    if (status === 200) {
+                                      const _rows = bookcarsHelper.cloneArray(rows) as bookcarsTypes.Notification[]
+                                      _rows[index].isRead = true
+                                      setRows(_rows)
+                                      setNotificationCount((prev) => prev - 1)
+                                      __navigate__()
+                                    } else {
+                                      helper.error()
+                                    }
+                                  } else {
+                                    __navigate__()
+                                  }
+                                } catch (err) {
+                                  helper.error(err)
+                                }
+                              }}
+                            >
+                              <ViewIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {!row.booking && !row.car && notificationDestination(row) && (
+                          <Tooltip title={strings.VIEW}>
+                            <IconButton
+                              onClick={async () => {
+                                try {
+                                  if (!user || !user._id) {
+                                    helper.error()
+                                    return
+                                  }
+
+                                  const __navigate__ = () => {
+                                    navigate(notificationDestination(row)!)
                                   }
 
                                   if (!row.isRead) {

@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import * as bookcarsTypes from ':bookcars-types'
 import Booking from '../models/Booking'
 import * as bookingController from '../controllers/bookingController'
+import { BookingConflictError } from './bookingReservationHelper'
 import * as logger from './logger'
 import { currencyExponent, formatProviderAmount, toMinorUnits } from './paymentAmount'
 
@@ -54,6 +55,7 @@ export type CheckoutReconcileOutcome =
   | 'finalized'
   | 'already-finalized'
   | 'refunded'
+  | 'held'
   | 'not-paid'
   | 'no-booking'
   | 'refund-failed'
@@ -185,6 +187,15 @@ const finalizeOrRefund = async (
     // Finalisation can throw after the provider payment succeeded (e.g. a
     // ledger OVERPAYMENT on an inconsistent snapshot). Never keep the
     // money: fall through to the refund below.
+    // GH-32 — a confirm conflict (car no longer available / maintenance
+    // blocks the flip) is NOT a payment problem: refunding would throw
+    // away a paid booking the manager can still confirm via the F-02
+    // retry endpoint once the blocker clears. Hold it for manual review;
+    // the next tick retries finalisation, it does not refund.
+    if (err instanceof BookingConflictError) {
+      logger.error(`[checkoutReconciliation] Finalisation blocked by availability conflict for booking ${bookingId}; holding for manual review, NOT refunding`, err)
+      return { outcome: 'held', bookingId, detail: 'Booking could not be finalised: the car is no longer available for the dates. Resolve the conflict and retry the payment confirmation.' }
+    }
     logger.error(`[checkoutReconciliation] Finalisation failed for booking ${bookingId}`, err)
   }
   if (finalized) {

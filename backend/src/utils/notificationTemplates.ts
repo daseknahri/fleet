@@ -128,6 +128,12 @@ const extraTemplates: Record<string, Record<TemplateLocale, TemplateFn>> = {
     ar: (v) => ({ subject: `استرداد معلق: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `لا يزال استرداد ${v.amount} ${v.currency} لـ ${v.car} (${v.driver}) معلقًا منذ ${v.date} (${v.reason}). أرسله أو قم بتسويته.` }),
     es: (v) => ({ subject: `Reembolso pendiente: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `El reembolso de ${v.amount} ${v.currency} de ${v.car} (${v.driver}) sigue pendiente desde el ${v.date} (${v.reason}). Envíelo o resuélvalo.` }),
   },
+  'auto.staleWorkOrder': {
+    en: (v) => ({ subject: `Stale work order: ${v.title} — ${v.car}`, body: `Work order "${v.title}" for ${v.car} was scheduled for ${v.date} (${v.days} days ago) and is still Scheduled. Start it, reschedule it, or cancel it.` }),
+    fr: (v) => ({ subject: `Ordre de travail en retard : ${v.title} — ${v.car}`, body: `L'ordre de travail « ${v.title} » pour ${v.car} était planifié le ${v.date} (il y a ${v.days} jours) et est toujours planifié. Démarrez-le, replanifiez-le ou annulez-le.` }),
+    ar: (v) => ({ subject: `أمر عمل متأخر: ${v.title} — ${v.car}`, body: `كان أمر العمل "${v.title}" للسيارة ${v.car} مجدولًا ليوم ${v.date} (منذ ${v.days} أيام) وما زال في حالة "مجدول". ابدأه أو أعد جدولته أو ألغه.` }),
+    es: (v) => ({ subject: `Orden de trabajo atrasada: ${v.title} — ${v.car}`, body: `La orden de trabajo «${v.title}» para ${v.car} estaba programada para el ${v.date} (hace ${v.days} días) y sigue programada. Iníciela, reprográmela o cancélela.` }),
+  },
 }
 
 export const renderNotificationTemplate = (
