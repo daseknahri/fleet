@@ -4,6 +4,7 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../src/config/env.config'
 import * as databaseHelper from '../src/utils/databaseHelper'
+import { casablancaTodayStart } from '../src/utils/casablancaDate'
 import * as authHelper from '../src/utils/authHelper'
 import app from '../src/app'
 import Booking from '../src/models/Booking'
@@ -13,9 +14,10 @@ import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
 
 // GH-16 — checkout / admin create / update refuse a past pickup date,
-// same rule as amend (AMENDMENT_PAST_FROM): server-local start of today.
-// A pickup later today is allowed; an update that only extends `to` on a
-// booking whose pickup already passed must not trip.
+// same rule as amend (AMENDMENT_PAST_FROM): start of the current
+// Africa/Casablanca wall day (R3-07). A pickup later today is allowed;
+// an update that only extends `to` on a booking whose pickup already
+// passed must not trip.
 
 const DAY = 86400000
 const HOUR = 3600000
@@ -273,5 +275,56 @@ describe('GH-16 past pickup', () => {
         },
       })
     expect(res.status).toBe(200)
+  })
+
+  test('amend moving from to yesterday on a Draft booking returns 400 AMENDMENT_PAST_FROM', async () => {
+    const res = await request(app)
+      .post(`/api/bookings/${bookingId}/amend`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({
+        from: new Date(Date.now() - 1 * DAY),
+        to: new Date(Date.now() + 3 * DAY),
+        reason: 'R3-07 test: move pickup to yesterday',
+      })
+    expect(res.status).toBe(400)
+    expect(res.text).toContain('AMENDMENT_PAST_FROM')
+  })
+
+  test('amend moving from to tomorrow passes the past-pickup gate', async () => {
+    const res = await request(app)
+      .post(`/api/bookings/${bookingId}/amend`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({
+        from: new Date(Date.now() + 1 * DAY),
+        to: new Date(Date.now() + 3 * DAY),
+        reason: 'R3-07 test: move pickup to tomorrow',
+      })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('R3-07 casablancaTodayStart', () => {
+  test('July 2026, 00:30 Casablanca: wall day is Monday 07-06, not Sunday 07-05 (UTC)', () => {
+    // 2026-07-05T23:30:00Z is Monday 00:30 in Casablanca (UTC+1) but
+    // still Sunday 23:30 UTC — the old process-local start of day
+    // would return 2026-07-05.
+    expect(casablancaTodayStart(new Date('2026-07-05T23:30:00Z')).toISOString()).toBe('2026-07-06T00:00:00.000Z')
+  })
+
+  test('July 2026, 01:30 Casablanca: same wall day as 00:30', () => {
+    expect(casablancaTodayStart(new Date('2026-07-06T00:30:00Z')).toISOString()).toBe('2026-07-06T00:00:00.000Z')
+  })
+
+  test('November 2026 (Casablanca == UTC): wall day is the UTC day', () => {
+    expect(casablancaTodayStart(new Date('2026-11-26T10:00:00Z')).toISOString()).toBe('2026-11-26T00:00:00.000Z')
+  })
+
+  test('default (no argument) returns a UTC-midnight instant for the current wall day', () => {
+    const start = casablancaTodayStart()
+    expect(start.getUTCHours()).toBe(0)
+    expect(start.getUTCMinutes()).toBe(0)
+    expect(start.getUTCSeconds()).toBe(0)
+    expect(start.getTime()).toBeLessThanOrEqual(Date.now())
+    expect(Date.now() - start.getTime()).toBeLessThan(2 * DAY)
   })
 })

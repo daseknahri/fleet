@@ -288,7 +288,10 @@ export const linkLedgerCashPayment = async (
     amount: payment.amount,
     source: bookcarsTypes.CashMovementSource.RentalPayment,
     status: 'confirmed',
-    idempotencyKey: payment.idempotencyKey ? `cash-${payment.idempotencyKey}` : undefined,
+    // R3-12 — deterministic fallback key for key-less payments: the
+    // sparse unique index ignores undefined keys, so without this a
+    // concurrent double-link could create two movements.
+    idempotencyKey: payment.idempotencyKey ? `cash-${payment.idempotencyKey}` : `cash-rental-${payment._id.toString()}`,
     rentalPayment: payment._id,
     purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
     reference: payment.reference,
@@ -378,7 +381,8 @@ export const linkLedgerBankPayment = async (
     amount: payment.amount,
     source: bookcarsTypes.CashMovementSource.RentalPayment,
     status: 'confirmed',
-    idempotencyKey: payment.idempotencyKey ? `bank-${payment.idempotencyKey}` : undefined,
+    // R3-12 — deterministic fallback key for key-less payments (see cash above).
+    idempotencyKey: payment.idempotencyKey ? `bank-${payment.idempotencyKey}` : `bank-rental-${payment._id.toString()}`,
     rentalPayment: payment._id,
     purpose: payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent,
     reference: payment.reference,
@@ -888,6 +892,52 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
     currency: receivable.currency,
     postedRent: receivable.postedPayments,
     depositPaid: receivable.depositPayments,
+  }
+  // R4-02 / R3-01 follow-on — a Void hold is provider-paid but
+  // unconfirmed: the ledger has no legs (finalisation posts them only
+  // after the availability save succeeds), so the upgrade leg below
+  // can never confirm it — it returns updated:false, which the admin
+  // UI reports as a successful retry. Re-run the single-booking
+  // reconcile instead (same verify -> finalise -> refund sequence the
+  // sweeper runs): the provider state is re-verified, so a booking
+  // whose payment was refunded meanwhile is never finalised on stale
+  // proof. A Void booking without a provider reference or snapshot
+  // (e.g. a voided pay-later hold) is not a provider hold: it falls
+  // through to the existing logic, which returns updated:false.
+  // Dynamic import: checkoutSweeper reaches bookingController (via
+  // checkoutReconciliation), so a static import would cycle.
+  if (booking.status === bookcarsTypes.BookingStatus.Void
+    && booking.financialSnapshot
+    && (booking.sessionId?.startsWith('cs_') || booking.paymentIntentId || booking.paypalOrderId)) {
+    const { reconcileOneVoidBooking } = await import('./checkoutSweeper.js')
+    const { outcome, detail } = await reconcileOneVoidBooking(booking, new Date())
+    if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
+      // The hold resolved: finalised (legs posted, status moved) or
+      // refunded (money returned, hold extension cleared). Re-read
+      // the booking and the ledger so the returned figures are
+      // post-reconcile; the row leaves the paid-unconfirmed queue.
+      const fresh = await Booking.findById(bookingId)
+      const freshReceivable = fresh ? await getContractReceivable(fresh) : receivable
+      return {
+        status: fresh?.status ?? booking.status,
+        updated: true,
+        outstandingBalance: freshReceivable.outstandingBalance,
+        currency: freshReceivable.currency,
+        postedRent: freshReceivable.postedPayments,
+        depositPaid: freshReceivable.depositPayments,
+        conflict: false,
+      }
+    }
+    const conflictReason = outcome === 'held'
+      ? (detail || 'Paid but unfinalisable: the confirmation conflicts (e.g. the car is blocked or its dates are taken)')
+      : outcome === 'refund-failed'
+        ? (detail || 'Provider refund failed; needs manual review')
+        : outcome === 'provider-error'
+          ? (detail || 'Provider unreachable; the hold was preserved for review')
+          : outcome === 'skipped'
+            ? 'No provider reference to verify'
+            : 'Provider reports no payment for this booking'
+    return { status: booking.status, updated: false, ...base, conflict: true, conflictReason }
   }
   // Upgrade leg (unchanged): Pending/Reserved with nothing outstanding
   // becomes Paid; Deposit with nothing outstanding becomes PaidInFull.

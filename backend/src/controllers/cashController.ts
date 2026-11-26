@@ -801,13 +801,19 @@ const buildJournal = async (req: Request) => {
   if (from || to) {
     unlinkedFilter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
   }
-  const [unlinkedRows, unlinkedTotalRows] = await Promise.all([
+  // R3-08 — the total nets credits minus debits (signed $sum): an
+  // unlinked debit (e.g. a reversal whose compensating movement could
+  // not be created) must net against the total, not inflate it. The
+  // $ne-Debit form treats a legacy row without a stored direction as
+  // credit, matching the row mapping's default below.
+  const [unlinkedRows, unlinkedTotalRows, unlinkedCashCount] = await Promise.all([
     RentalPayment.find(unlinkedFilter).sort({ date: -1 }).limit(JOURNAL_UNLINKED_CAP)
       .populate({ path: 'booking', select: 'reference' }).lean(),
     RentalPayment.aggregate([
       { $match: unlinkedFilter },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: { $cond: [{ $ne: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] }, '$amount', { $multiply: ['$amount', -1] }] } } } },
     ]),
+    RentalPayment.countDocuments(unlinkedFilter),
   ])
   const unlinkedCashPayments: bookcarsTypes.UnlinkedCashPaymentRow[] = unlinkedRows.map((payment) => ({
     id: payment._id.toString(),
@@ -831,13 +837,15 @@ const buildJournal = async (req: Request) => {
   if (from || to) {
     unlinkedBankFilter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
   }
-  const [unlinkedBankRows, unlinkedBankTotalRows] = await Promise.all([
+  // R3-08 — same netting + true count as the cash side above.
+  const [unlinkedBankRows, unlinkedBankTotalRows, unlinkedBankCount] = await Promise.all([
     RentalPayment.find(unlinkedBankFilter).sort({ date: -1 }).limit(JOURNAL_UNLINKED_CAP)
       .populate({ path: 'booking', select: 'reference' }).lean(),
     RentalPayment.aggregate([
       { $match: unlinkedBankFilter },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: { $cond: [{ $ne: ['$direction', bookcarsTypes.RentalPaymentDirection.Debit] }, '$amount', { $multiply: ['$amount', -1] }] } } } },
     ]),
+    RentalPayment.countDocuments(unlinkedBankFilter),
   ])
   const unlinkedBankPayments: bookcarsTypes.UnlinkedCashPaymentRow[] = unlinkedBankRows.map((payment) => ({
     id: payment._id.toString(),
@@ -855,8 +863,10 @@ const buildJournal = async (req: Request) => {
     totals,
     unlinkedCashPayments,
     unlinkedCashTotal: normalizeLedgerAmount(Number(unlinkedTotalRows[0]?.total || 0), session.currency),
+    unlinkedCashCount,
     unlinkedBankPayments,
     unlinkedBankTotal: normalizeLedgerAmount(Number(unlinkedBankTotalRows[0]?.total || 0), session.currency),
+    unlinkedBankCount,
   }
 }
 
@@ -894,8 +904,10 @@ export const journal = async (req: Request, res: Response) => {
         totals: built.totals,
         unlinkedCashPayments: built.unlinkedCashPayments,
         unlinkedCashTotal: built.unlinkedCashTotal,
+        unlinkedCashCount: built.unlinkedCashCount,
         unlinkedBankPayments: built.unlinkedBankPayments,
         unlinkedBankTotal: built.unlinkedBankTotal,
+        unlinkedBankCount: built.unlinkedBankCount,
         total: rows.length,
         page: 1,
         size: rows.length,
@@ -910,8 +922,10 @@ export const journal = async (req: Request, res: Response) => {
       totals: built.totals,
       unlinkedCashPayments: built.unlinkedCashPayments,
       unlinkedCashTotal: built.unlinkedCashTotal,
+      unlinkedCashCount: built.unlinkedCashCount,
       unlinkedBankPayments: built.unlinkedBankPayments,
       unlinkedBankTotal: built.unlinkedBankTotal,
+      unlinkedBankCount: built.unlinkedBankCount,
       total: page.total,
       page: page.page,
       size: page.size,

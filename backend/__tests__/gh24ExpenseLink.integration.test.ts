@@ -229,4 +229,48 @@ describe('GH-24 expense payment link', () => {
     expect(replay.body.expense.category.color).toBe('#123456')
   })
 
+  // R3-12 — concurrent double-link: both requests must 200 with the
+  // SAME movement, and exactly one movement exists. The payments are
+  // created by direct model insert: recordPayment auto-links once a
+  // session is open, so it cannot produce an unlinked payment here.
+  const seedUnlinkedExpensePayment = async (method: bookcarsTypes.RentalPaymentMethod, amount: number) => {
+    const payment = await MaintenanceExpensePayment.create({
+      supplier: new mongoose.Types.ObjectId(supplierId), expense: new mongoose.Types.ObjectId(expenseId),
+      date: new Date(), amount, currency: 'MAD', method,
+    } as any)
+    fixturePaymentIds.push(payment._id)
+    return payment._id.toString()
+  }
+
+  test('R3-12 concurrent double-link (bank) both 200, same movement, one movement', async () => {
+    const paymentId = await seedUnlinkedExpensePayment(bookcarsTypes.RentalPaymentMethod.BankTransfer, 250)
+    const bankSessionId = await openSession(bookcarsTypes.CashAccountType.Bank)
+    const link = () => request(app)
+      .post(`/api/maintenance-expenses/${expenseId}/payments/${paymentId}/link-bank-session`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ bankSessionId })
+    const [first, second] = await Promise.all([link(), link()])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.body.movement).toBeDefined()
+    expect(second.body.movement).toBeDefined()
+    expect(second.body.movement._id).toBe(first.body.movement._id)
+    expect(await CashMovement.countDocuments({ expensePayment: new mongoose.Types.ObjectId(paymentId) })).toBe(1)
+  })
+
+  test('R3-12 concurrent double-link (cash) both 200, same movement, one movement', async () => {
+    const paymentId = await seedUnlinkedExpensePayment(bookcarsTypes.RentalPaymentMethod.Cash, 175)
+    const cashSessionId = await openSession(bookcarsTypes.CashAccountType.Cash)
+    const link = () => request(app)
+      .post(`/api/maintenance-expenses/${expenseId}/payments/${paymentId}/link-cash-session`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ cashSessionId })
+    const [first, second] = await Promise.all([link(), link()])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.body.movement).toBeDefined()
+    expect(second.body.movement).toBeDefined()
+    expect(second.body.movement._id).toBe(first.body.movement._id)
+    expect(await CashMovement.countDocuments({ expensePayment: new mongoose.Types.ObjectId(paymentId) })).toBe(1)
+  })
 })

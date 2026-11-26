@@ -27,6 +27,7 @@ import { deliverNotification } from '../utils/reminderNotify'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
+import { casablancaTodayStart } from '../utils/casablancaDate'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
@@ -43,7 +44,6 @@ import { getContractReceivable } from '../utils/contractReceivable'
 import stripeAPI from '../payment/stripe'
 import { toMinorUnits } from '../utils/paymentAmount'
 import { agencySupplierId, getAgencyContext, logAdminCrossAgencyAccess } from '../utils/agencyAuthorization'
-import { nextBookingReference } from '../utils/bookingReference'
 import { newSigningNonce, publicOnlineSignature } from '../utils/bookingSigning'
 import { ensureDraftInvoice } from '../utils/invoiceCreation'
 import { resolveLocationTranslation } from '../utils/locationHelper'
@@ -215,8 +215,7 @@ export const create = async (req: Request, res: Response) => {
     // GH-16 — same past-pickup rule as checkout/amend. A staff-created
     // booking starts Pending/Draft; back-dating is refused unless the
     // carve-out decision (see Decisions) creates a role-gated exception.
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
+    const todayStart = casablancaTodayStart()
     if (fromDate < todayStart) {
       res.status(400).send('CREATE_PAST_FROM: The pickup date cannot be in the past.')
       return
@@ -294,10 +293,9 @@ export const create = async (req: Request, res: Response) => {
         onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
       })
     }
-    // GH-15 — allocate the reference only after every pre-save validation
-    // has passed (overlap gate, agent snapshot, vehicle/location checks
-    // above); the save below is the last failure that can 409 the create.
-    booking.reference = await nextBookingReference(supplierId)
+    // GH-15 / R3-04 — the reference is allocated inside
+    // saveBookingWithAvailability, after its internal re-check, so a
+    // refused create burns no number (a save-time failure still can).
     await saveBookingWithAvailability(booking, {
       allowOverlapException: !!overlapGate.reason,
       onBookingConflict: (conflictingBookingId) => { overlapConflictingBookingId = conflictingBookingId },
@@ -1034,11 +1032,10 @@ export const checkout = async (req: Request, res: Response) => {
       return
     }
     // GH-16 — a pickup date in the past is refused at checkout, same rule
-    // as the amend path (AMENDMENT_PAST_FROM): "today" is the server-local
-    // start of day, so a pickup later today is allowed. A checkout is a
+    // as the amend path (AMENDMENT_PAST_FROM): "today" is the start of the
+    // current Africa/Casablanca wall day (R3-07), so a pickup later today is allowed. A checkout is a
     // new Draft booking, so no lifecycle / fromChanged condition applies.
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
+    const todayStart = casablancaTodayStart()
     if (fromDate < todayStart) {
       res.status(400).send('CHECKOUT_PAST_FROM: The pickup date cannot be in the past.')
       return
@@ -1071,8 +1068,12 @@ export const checkout = async (req: Request, res: Response) => {
         // and phone must also match the stored account. Returning
         // customers pass (same name + phone); a mismatch is a 409
         // telling them to sign in or correct the email.
-        const submittedName = typeof driver.fullName === 'string' ? driver.fullName.trim().toLowerCase() : ''
-        const storedName = typeof existingUser.fullName === 'string' ? existingUser.fullName.trim().toLowerCase() : ''
+        // R3-05 — collapse internal whitespace before comparing: a
+        // double space (or tab) in the stored name vs a single space
+        // typed at checkout is the same person, not a mismatch.
+        const normalizeName = (value?: string | null) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+        const submittedName = normalizeName(driver.fullName)
+        const storedName = normalizeName(existingUser.fullName)
         const digits = (value?: string | null) => (value || '').replace(/\D/g, '')
         const submittedPhone = digits(driver.phone)
         const storedPhone = digits(existingUser.phone)
@@ -1313,12 +1314,9 @@ export const checkout = async (req: Request, res: Response) => {
     // re-acquiring the lock it already holds.
     await withCarLock([carObj._id.toString()], async () => {
       await checkBookingAvailability(booking, [booking._id])
-      // GH-15 — the reference is allocated only after validation passes:
-      // the availability re-check above is the last failure that can 409
-      // the checkout, so the counter advances only for a booking that is
-      // actually saved. (Was: allocated above, before the check, so every
-      // conflict burned a number.)
-      booking.reference = await nextBookingReference(supplier._id)
+      // GH-15 / R3-04 — the reference is allocated inside
+      // saveBookingWithAvailability, after its internal re-check, so a
+      // refused checkout burns no number (a save-time failure still can).
       await saveBookingWithAvailability(booking, { skipCarLock: true })
     })
 
@@ -1677,8 +1675,7 @@ export const update = async (req: Request, res: Response) => {
       if (fromDate.getTime() !== new Date(booking.from).getTime()) {
         const updateLifecycle = booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft
         if (updateLifecycle === bookcarsTypes.ContractLifecycle.Draft || updateLifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
-          const todayStart = new Date()
-          todayStart.setHours(0, 0, 0, 0)
+          const todayStart = casablancaTodayStart()
           if (fromDate < todayStart) {
             res.status(400).send('UPDATE_PAST_FROM: The pickup date cannot be in the past.')
             return

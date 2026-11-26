@@ -660,6 +660,20 @@ export const recordPayment = async (req: Request, res: Response) => {
 
 // GH-24 — the repair path for expense payments posted unlinked (wire with
 // no Bank session open, or pre-linkage rows). Mirror of rentalPayment
+// R3-12 — true when err is a duplicate-key error from the idempotencyKey
+// unique index (a concurrent double-link whose save collided after the
+// winner's movement landed). Mirrors carController's isDuplicatePlateError.
+const isDuplicateKeyError = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null || !('code' in err)) {
+    return false
+  }
+  const { code, keyPattern } = err as { code?: number, keyPattern?: Record<string, unknown> }
+  if (code !== 11000) {
+    return false
+  }
+  return !keyPattern || 'idempotencyKey' in keyPattern
+}
+
 // linkBankSession/linkCashSession: single link, never duplicated; the
 // util already refuses a second movement (expensePayment.ts), the
 // endpoint 409s first so the refusal is explicit. The named session is
@@ -703,6 +717,19 @@ export const linkExpenseBankSession = async (req: Request, res: Response) => {
     }
     res.json({ payment, movement })
   } catch (err) {
+    // R3-12 — a concurrent double-link: the loser's save hit the unique
+    // idempotencyKey index after the winner's movement landed. The link
+    // exists — re-read it and return it (200), not a spurious 400.
+    // `payment` is scoped inside the try, so re-fetch it here.
+    if (isDuplicateKeyError(err)) {
+      const racedPayment = await MaintenanceExpensePayment.findOne({ _id: req.params.paymentId, ...getScope(req) })
+      const movement = racedPayment ? await CashMovement.findOne({ expensePayment: racedPayment._id }) : null
+      if (movement) {
+        logger.info('[maintenanceExpense.linkExpenseBankSession] duplicate link raced; returning existing movement')
+        res.json({ payment: racedPayment, movement })
+        return
+      }
+    }
     logger.error(`[maintenanceExpense.linkExpenseBankSession] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
@@ -746,6 +773,19 @@ export const linkExpenseCashSession = async (req: Request, res: Response) => {
     }
     res.json({ payment, movement })
   } catch (err) {
+    // R3-12 — a concurrent double-link: the loser's save hit the unique
+    // idempotencyKey index after the winner's movement landed. The link
+    // exists — re-read it and return it (200), not a spurious 400.
+    // `payment` is scoped inside the try, so re-fetch it here.
+    if (isDuplicateKeyError(err)) {
+      const racedPayment = await MaintenanceExpensePayment.findOne({ _id: req.params.paymentId, ...getScope(req) })
+      const movement = racedPayment ? await CashMovement.findOne({ expensePayment: racedPayment._id }) : null
+      if (movement) {
+        logger.info('[maintenanceExpense.linkExpenseCashSession] duplicate link raced; returning existing movement')
+        res.json({ payment: racedPayment, movement })
+        return
+      }
+    }
     logger.error(`[maintenanceExpense.linkExpenseCashSession] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }

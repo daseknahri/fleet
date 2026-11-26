@@ -14,6 +14,7 @@ import Car from '../src/models/Car'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
 import { postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../src/utils/ledger'
+import { syncBookingPaidInFull } from '../src/utils/contractReceivable'
 
 // GH-17 — isPayedInFull is derived from the ledger, never from the
 // checkout payment mode. Modelled on receivablesWave31: mocked
@@ -218,5 +219,25 @@ describe('GH-17 isPayedInFull from the ledger', () => {
     expect(res.body.isPayedInFull).toBe(true)
     // The read-time derive does not rewrite the stored value.
     expect(await storedFlag(booking._id)).toBe(false)
+  })
+
+  test('R4-04 a transient sync failure retries instead of leaving the stored flag stale', async () => {
+    const booking = await makeBooking({ from: at(1), to: at(3), price: 300, deposit: 100 })
+    await postPayment(booking._id, 300, bookcarsTypes.RentalPaymentPurpose.Rent)
+    expect(await storedFlag(booking._id)).toBe(true)
+    // Force the stale lie, then make the first sync read fail
+    // transiently: the retry must still land the flag true.
+    await Booking.updateOne({ _id: booking._id }, { $set: { isPayedInFull: false } })
+    expect(await storedFlag(booking._id)).toBe(false)
+    const findByIdSpy = jest.spyOn(Booking, 'findById')
+    try {
+      findByIdSpy.mockImplementationOnce(() => { throw new Error('R4-04 transient read failure') })
+      const paidInFull = await syncBookingPaidInFull(booking._id)
+      expect(paidInFull).toBe(true)
+      expect(await storedFlag(booking._id)).toBe(true)
+      expect(findByIdSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      findByIdSpy.mockRestore()
+    }
   })
 })

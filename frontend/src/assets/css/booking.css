@@ -81,3 +81,13 @@ div.booking div.col-2 div.col-2-header span.price-day {
     justify-content: flex-end;
   }
 }
+
+/* R3-11 — outstanding-balance banner on the booking detail page. */
+div.booking-balance {
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: #fefefe;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  font-weight: 600;
+}

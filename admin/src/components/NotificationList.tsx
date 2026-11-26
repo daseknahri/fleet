@@ -53,6 +53,8 @@ const notificationDestination = (row: bookcarsTypes.Notification): string | null
       return `/update-car?cr=${(row as { subjectId?: string }).subjectId}`
     case 'maintenance-schedule':
       return '/maintenance'
+    case 'maintenance-work-order':
+      return '/maintenance'
     case 'reminder':
       return '/reminders'
     case 'approval':

@@ -2747,8 +2747,10 @@ export interface CashJournalResponse {
   totals: CashJournalTotals
   unlinkedCashPayments: UnlinkedCashPaymentRow[]
   unlinkedCashTotal: number
+  unlinkedCashCount: number
   unlinkedBankPayments: UnlinkedCashPaymentRow[]
   unlinkedBankTotal: number
+  unlinkedBankCount: number
   total: number
   page: number
   size: number

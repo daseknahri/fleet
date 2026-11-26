@@ -13,6 +13,7 @@ import * as mailHelper from './mailHelper'
 import { createInAppNotification, resolveReminderRecipients } from './reminderNotify'
 import { getContractReceivable } from './contractReceivable'
 import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } from './checkoutReconciliation'
+import type { CheckoutReconcileOutcome } from './checkoutReconciliation'
 
 /**
  * F2 / W4 GAP-04 — periodic checkout sweeper. The browser return paths
@@ -51,6 +52,17 @@ import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } f
 
 export const CHECKOUT_SWEEPER_TICK_MS = 15 * 60 * 1000
 
+// R3-13 — de-noise the held-for-review error log. A held booking is
+// re-held (and re-extended) once per review window, so a single stuck
+// booking emitted one `logger.error` every 15 minutes indefinitely.
+// First sight of a hold per process logs error; repeats log warn.
+// The set is pruned at the end of each sweep to the holds seen in
+// that pass, so a stale entry cannot survive a restart or a booking
+// that stops being held, and a re-held booking after a gap logs
+// error again only if the prune dropped it (i.e. it was not held on
+// the previous pass — exactly the re-hold signal that matters).
+const heldAlreadyLogged = new Set<string>()
+
 export interface CheckoutSweepSummary {
   checked: number
   finalized: number
@@ -67,7 +79,170 @@ export interface CheckoutSweepSummary {
   providerErrors: number
 }
 
+/**
+ * R4-02 / R3-01 follow-on — reconcile ONE expired Void booking
+ * against its provider: the per-booking unit of runCheckoutSweep,
+ * shared with the manual retry (POST /api/bookings/:id/refresh-
+ * payment-status). Fetches the provider object, reconciles it, and
+ * performs the outcome side effects (TTL defuse + notify on held /
+ * refund-failed / provider-error; clear the hold extension on
+ * refunded). Returns the outcome + detail; the caller counts it
+ * (sweep summary) or maps it (refresh result). `heldThisPass` is the
+ * sweep's de-noise set (R3-13); a manual retry passes a fresh set —
+ * the module-level set keeps the key, so a still-held booking stays
+ * at warn. A provider lookup failure is NOT 'still inside its TTL
+ * window' (R4-03): the booking is preserved (defused + notified)
+ * and reported as 'provider-error', unless the defuse could not
+ * apply (booking finalised concurrently) — then 'skipped'.
+ */
+export type VoidReconcileOutcome = CheckoutReconcileOutcome | 'skipped' | 'provider-error'
+
+export const reconcileOneVoidBooking = async (
+  booking: {
+    _id: mongoose.Types.ObjectId
+    sessionId?: string | null
+    paymentIntentId?: string | null
+    paypalOrderId?: string | null
+    supplier?: mongoose.Types.ObjectId | string
+    reference?: string
+    financialSnapshot?: { amountDueNowInPaymentCurrency?: number, paymentCurrency?: string }
+  },
+  now: Date = new Date(),
+  heldThisPass: Set<string> = new Set<string>(),
+): Promise<{ outcome: VoidReconcileOutcome, detail?: string }> => {
+  try {
+    let outcome: CheckoutReconcileOutcome
+    let outcomeDetail: string | undefined
+    if (booking.paypalOrderId) {
+      // PayPal bookings carry a random (non-Stripe) sessionId, so the
+      // order id is the only provider reference that can be checked.
+      const paypal = await import('../payment/paypal.js')
+      const order = await paypal.getOrder(booking.paypalOrderId)
+      const reconciled = await reconcilePayPalOrder(order)
+      outcome = reconciled.outcome
+      outcomeDetail = reconciled.detail
+    } else if (booking.paymentIntentId) {
+      // PaymentSheet bookings: the intent id is the reference; the
+      // sessionId is a random UUID, not a Stripe session.
+      const stripeAPI = (await import('../payment/stripe.js')).default
+      const intent: Stripe.PaymentIntent = await stripeAPI.paymentIntents.retrieve(booking.paymentIntentId)
+      const reconciled = await reconcileStripeIntent(intent)
+      outcome = reconciled.outcome
+      outcomeDetail = reconciled.detail
+    } else if (booking.sessionId?.startsWith('cs_')) {
+      // Embedded-checkout bookings: the session id is the reference.
+      const stripeAPI = (await import('../payment/stripe.js')).default
+      const session: Stripe.Checkout.Session = await stripeAPI.checkout.sessions.retrieve(booking.sessionId)
+      const reconciled = await reconcileStripeSession(session)
+      outcome = reconciled.outcome
+      outcomeDetail = reconciled.detail
+    } else {
+      logger.info(`[checkoutSweeper] Booking ${booking._id} has no retrievable provider reference; skipping`)
+      return { outcome: 'skipped' }
+    }
+    if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
+      if (outcome === 'refunded') {
+        // R4-01 companion - a refunded booking must not keep reserving
+        // the car for the remainder of a review window it no longer
+        // needs: clear the hold extension so the booking stops
+        // reserving the car. No time filter on the update: the sweep
+        // only selects bookings whose expireAt already passed, so a
+        // $gt: now filter could never match and the clear would never
+        // fire. The status guard is the concurrency protection (a
+        // booking finalised concurrently is not touched).
+        await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+          { $set: { expireAt: null } },
+        )
+      }
+      logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
+    } else if (outcome === 'held') {
+      // R3-13 — first sight per process is an error; repeats are
+      // a warn (the hold re-fires once per review window).
+      const holdKey = `reconcile:${booking._id.toString()}`
+      heldThisPass.add(holdKey)
+      if (heldAlreadyLogged.has(holdKey)) {
+        logger.warn(`[checkoutSweeper] Booking ${booking._id} still held for manual review: paid but unfinalisable (confirm conflict)`)
+      } else {
+        heldAlreadyLogged.add(holdKey)
+        logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
+      }
+      // R3-01 — defuse the TTL on the same pass: a held Void booking
+      // keeps its past `expireAt`, so the TTL index would delete it
+      // ~70 min after expiry (BOOKING_EXPIRE_AT) and orphan the
+      // provider payment. Extending drops the booking out of both
+      // sweep queries until the new deadline, so the 15-minute
+      // finalisation retry becomes a per-review-window retry; a
+      // still-blocked booking is re-held (and re-extended) then.
+      // A successful retry clears `expireAt` (refresh path), so the
+      // extension never blocks confirmation. The status guard means
+      // a booking finalised concurrently does not get its `expireAt`
+      // moved. A Void hold is served in the paid-unconfirmed queue
+      // with a retry button (R4-02 / R3-01 follow-on); the hold
+      // notification below is the alert that it is there.
+      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+      const extended = await Booking.updateOne(
+        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+        { $set: { expireAt: reviewUntil } },
+      )
+      if (extended.modifiedCount > 0) {
+        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
+        await notifyHeldForReview(booking, reviewUntil)
+      }
+    } else if (outcome === 'refund-failed') {
+      // R4-01 - same TTL defuse as held: a Void booking with a failed
+      // refund keeps its past `expireAt`, so the TTL index would delete it
+      // ~70 min after expiry and orphan the provider payment with no record
+      // and no refund trigger. Extend to the review window and notify, so a
+      // still-failed refund is re-held (and re-notified) each window like held.
+      logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
+      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+      const extended = await Booking.updateOne(
+        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+        { $set: { expireAt: reviewUntil } },
+      )
+      if (extended.modifiedCount > 0) {
+        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
+        await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
+      }
+    }
+    // 'not-paid' / 'no-booking': no side effect; the TTL owns cleanup.
+    return { outcome, detail: outcomeDetail }
+  } catch (err) {
+    // R4-03 - a provider lookup failure is NOT "still inside its TTL
+    // window": the booking entered this loop because its expireAt
+    // already passed, so the TTL deletes it ~70 min after expiry
+    // whether or not the provider ever answers. A sustained outage
+    // would delete bookings whose payment state was never established.
+    // Defuse like held (status-guarded), count separately, and notify
+    // once per defuse: the extension drops the booking out of the
+    // sweep query until the new deadline, so a down provider notifies
+    // at most once per review window per booking.
+    const providerError = err as { code?: string, statusCode?: number }
+    const detail = err instanceof Error ? err.message : 'Provider lookup failed'
+    if (providerError?.code === 'resource_missing' || providerError?.statusCode === 404) {
+      logger.info(`[checkoutSweeper] Provider reference for booking ${booking._id} no longer exists; preserving for manual review`)
+    } else {
+      logger.error(`[checkoutSweeper] Sweep failed for booking ${booking._id}`, err)
+    }
+    const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+    const preserved = await Booking.updateOne(
+      { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+      { $set: { expireAt: reviewUntil } },
+    )
+    if (preserved.modifiedCount > 0) {
+      logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
+      await notifyProviderUnreachable(booking, reviewUntil, detail)
+      return { outcome: 'provider-error', detail }
+    }
+    return { outcome: 'skipped', detail }
+  }
+}
+
 export const runCheckoutSweep = async (now: Date = new Date()): Promise<CheckoutSweepSummary> => {
+  // R3-13 — the holds seen on THIS pass; the module-level set is
+  // pruned to it at the end of the sweep.
+  const heldThisPass = new Set<string>()
   const summary: CheckoutSweepSummary = {
     checked: 0,
     finalized: 0,
@@ -92,132 +267,23 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     }).select('_id sessionId paymentIntentId paypalOrderId supplier reference financialSnapshot')
     for (const booking of bookings) {
       summary.checked += 1
-      try {
-        let outcome: string
-        let outcomeDetail: string | undefined
-        if (booking.paypalOrderId) {
-          // PayPal bookings carry a random (non-Stripe) sessionId, so the
-          // order id is the only provider reference that can be checked.
-          const paypal = await import('../payment/paypal.js')
-          const order = await paypal.getOrder(booking.paypalOrderId)
-          const reconciled = await reconcilePayPalOrder(order)
-          outcome = reconciled.outcome
-          outcomeDetail = reconciled.detail
-        } else if (booking.paymentIntentId) {
-          // PaymentSheet bookings: the intent id is the reference; the
-          // sessionId is a random UUID, not a Stripe session.
-          const stripeAPI = (await import('../payment/stripe.js')).default
-          const intent: Stripe.PaymentIntent = await stripeAPI.paymentIntents.retrieve(booking.paymentIntentId)
-          const reconciled = await reconcileStripeIntent(intent)
-          outcome = reconciled.outcome
-          outcomeDetail = reconciled.detail
-        } else if (booking.sessionId?.startsWith('cs_')) {
-          // Embedded-checkout bookings: the session id is the reference.
-          const stripeAPI = (await import('../payment/stripe.js')).default
-          const session: Stripe.Checkout.Session = await stripeAPI.checkout.sessions.retrieve(booking.sessionId)
-          const reconciled = await reconcileStripeSession(session)
-          outcome = reconciled.outcome
-          outcomeDetail = reconciled.detail
-        } else {
-          logger.info(`[checkoutSweeper] Booking ${booking._id} has no retrievable provider reference; skipping`)
-          summary.skipped += 1
-          continue
-        }
-        if (outcome === 'finalized') {
-          summary.finalized += 1
-        } else if (outcome === 'already-finalized') {
-          summary.alreadyFinalized += 1
-        } else if (outcome === 'refunded') {
-          summary.refunded += 1
-          // R4-01 companion - a refunded booking must not keep reserving
-          // the car for the remainder of a review window it no longer
-          // needs: clear the hold extension so the booking stops
-          // reserving the car. No time filter on the update: the sweep
-          // only selects bookings whose expireAt already passed, so a
-          // $gt: now filter could never match and the clear would never
-          // fire. The status guard is the concurrency protection (a
-          // booking finalised concurrently is not touched).
-          await Booking.updateOne(
-            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-            { $set: { expireAt: null } },
-          )
-        } else if (outcome === 'held') {
-          summary.held += 1
-          logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
-          // R3-01 — defuse the TTL on the same pass: a held Void booking
-          // keeps its past `expireAt`, so the TTL index would delete it
-          // ~70 min after expiry (BOOKING_EXPIRE_AT) and orphan the
-          // provider payment. Extending drops the booking out of both
-          // sweep queries until the new deadline, so the 15-minute
-          // finalisation retry becomes a per-review-window retry; a
-          // still-blocked booking is re-held (and re-extended) then.
-          // A successful retry clears `expireAt` (refresh path), so the
-          // extension never blocks confirmation. The status guard means
-          // a booking finalised concurrently does not get its `expireAt`
-          // moved. A Void hold has no retry button and is not in the
-          // paid-unconfirmed queue — the hold notification below is its
-          // only review signal.
-          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-          const extended = await Booking.updateOne(
-            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-            { $set: { expireAt: reviewUntil } },
-          )
-          if (extended.modifiedCount > 0) {
-            logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
-            await notifyHeldForReview(booking, reviewUntil)
-          }
-        } else if (outcome === 'not-paid' || outcome === 'no-booking') {
-          summary.notPaid += 1
-        } else if (outcome === 'refund-failed') {
-          // R4-01 - same TTL defuse as held: a Void booking with a failed
-          // refund keeps its past `expireAt`, so the TTL index would delete it
-          // ~70 min after expiry and orphan the provider payment with no record
-          // and no refund trigger. Extend to the review window and notify, so a
-          // still-failed refund is re-held (and re-notified) each window like held.
-          summary.errors += 1
-          logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
-          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-          const extended = await Booking.updateOne(
-            { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-            { $set: { expireAt: reviewUntil } },
-          )
-          if (extended.modifiedCount > 0) {
-            logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
-            await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
-          }
-        }
-        if (outcome === 'finalized' || outcome === 'refunded' || outcome === 'already-finalized') {
-          logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
-        }
-      } catch (err) {
-        // R4-03 - a provider lookup failure is NOT "still inside its TTL
-        // window": the booking entered this loop because its expireAt
-        // already passed, so the TTL deletes it ~70 min after expiry
-        // whether or not the provider ever answers. A sustained outage
-        // would delete bookings whose payment state was never established.
-        // Defuse like held (status-guarded), count separately, and notify
-        // once per defuse: the extension drops the booking out of the
-        // sweep query until the new deadline, so a down provider notifies
-        // at most once per review window per booking.
-        const providerError = err as { code?: string, statusCode?: number }
-        const detail = err instanceof Error ? err.message : 'Provider lookup failed'
-        if (providerError?.code === 'resource_missing' || providerError?.statusCode === 404) {
-          logger.info(`[checkoutSweeper] Provider reference for booking ${booking._id} no longer exists; preserving for manual review`)
-        } else {
-          logger.error(`[checkoutSweeper] Sweep failed for booking ${booking._id}`, err)
-        }
-        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-        const preserved = await Booking.updateOne(
-          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          { $set: { expireAt: reviewUntil } },
-        )
-        if (preserved.modifiedCount > 0) {
-          summary.providerErrors += 1
-          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
-          await notifyProviderUnreachable(booking, reviewUntil, detail)
-        } else {
-          summary.skipped += 1
-        }
+      const { outcome } = await reconcileOneVoidBooking(booking, now, heldThisPass)
+      if (outcome === 'finalized') {
+        summary.finalized += 1
+      } else if (outcome === 'already-finalized') {
+        summary.alreadyFinalized += 1
+      } else if (outcome === 'refunded') {
+        summary.refunded += 1
+      } else if (outcome === 'held') {
+        summary.held += 1
+      } else if (outcome === 'not-paid' || outcome === 'no-booking') {
+        summary.notPaid += 1
+      } else if (outcome === 'refund-failed') {
+        summary.errors += 1
+      } else if (outcome === 'skipped') {
+        summary.skipped += 1
+      } else if (outcome === 'provider-error') {
+        summary.providerErrors += 1
       }
     }
   } catch (err) {
@@ -254,7 +320,16 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         const receivable = await getContractReceivable(hold as Pick<env.Booking, '_id' | 'price' | 'financialSnapshot' | 'to' | 'lifecycle'>)
         if (receivable.outstandingBalance <= 0) {
           summary.held += 1
-          logger.error(`[checkoutSweeper] Booking ${hold._id} is fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          // R3-13 — first sight per process is an error; repeats are
+          // a warn (the hold re-fires once per review window).
+          const holdKey = `expired:${hold._id.toString()}`
+          heldThisPass.add(holdKey)
+          if (heldAlreadyLogged.has(holdKey)) {
+            logger.warn(`[checkoutSweeper] Booking ${hold._id} still fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          } else {
+            heldAlreadyLogged.add(holdKey)
+            logger.error(`[checkoutSweeper] Booking ${hold._id} is fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          }
           // R3-01 — defuse the TTL on the same pass (same reason as the
           // reconcile-loop hold above): the hold keeps its past
           // `expireAt`, so the TTL would delete the paid booking ~70 min
@@ -294,6 +369,15 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     logger.error('[checkoutSweeper] expired-hold sweep failed', err)
     summary.errors += 1
   }
+  // R3-13 — prune the de-noise set to this pass's holds, so a booking
+  // that stops being held drops out and a later re-hold logs error
+  // again (fresh signal), while a continuously-held booking stays
+  // at warn.
+  for (const key of [...heldAlreadyLogged]) {
+    if (!heldThisPass.has(key)) {
+      heldAlreadyLogged.delete(key)
+    }
+  }
   if (summary.checked > 0 || summary.expiredHolds > 0 || summary.errors > 0) {
     logger.info(`[checkoutSweeper] sweep finished: ${JSON.stringify(summary)}`)
   }
@@ -307,9 +391,9 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
  * In-app notification to the owner + active staff (with a View button
  * to the booking via subjectType 'booking'), email to the owner only
  * (weekly-recap pattern). The hold notification is the alert that the
- * booking is in the paid-unconfirmed review queue — for a Void hold it
- * is the only review signal, because the queue serves Draft+Pending
- * rows only. Fires once per hold cycle: the TTL-defusing extension
+ * booking is in the paid-unconfirmed review queue (R4-02 / R3-01
+ * follow-on: Void holds are served there with a retry button).
+ * Fires once per hold cycle: the TTL-defusing extension
  * drops the booking out of the sweep queries until the new deadline.
  */
 const notifyHeldForReview = async (

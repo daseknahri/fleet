@@ -390,6 +390,25 @@ const receivableAgeBucket = (daysOverdue: number): ReceivableAgeBucket => (
   daysOverdue <= 0 ? 'current' : daysOverdue <= 7 ? '1-7' : daysOverdue <= 30 ? '8-30' : '30+'
 )
 
+// R4-02 — split a checkout snapshot into the rent/deposit legs the
+// provider took. Same three branches as bookingController's
+// splitProviderCheckoutAmounts, but clamped instead of throwing: a
+// bad snapshot must not 500 the receivables page; it only makes the
+// Void-hold row fall back to the ledger figures.
+const splitCheckoutLegs = (snapshot?: bookcarsTypes.BookingFinancialSnapshot | null): { rent: number, deposit: number } => {
+  if (!snapshot) return { rent: 0, deposit: 0 }
+  const amountDueNow = Number(snapshot.amountDueNow || 0)
+  const rentalTotal = Number(snapshot.rentalTotal || 0)
+  const depositAmount = Number(snapshot.depositAmount || 0)
+  if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit) {
+    return { rent: 0, deposit: Math.max(0, Math.min(amountDueNow, depositAmount)) }
+  }
+  if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full) {
+    return { rent: rentalTotal, deposit: Math.max(0, Math.min(amountDueNow - rentalTotal, depositAmount)) }
+  }
+  return { rent: amountDueNow, deposit: 0 }
+}
+
 export const overdue = async (req: Request, res: Response) => {
   try {
     const now = new Date()
@@ -434,13 +453,14 @@ export const overdue = async (req: Request, res: Response) => {
     }
     const rows: ReceivableRow[] = []
     const paidInFullRows: ReceivableRow[] = []
-    for (const booking of bookings) {
-      // ?clientId= filters by the booking's driver.
-      const driver = booking.driver as unknown as { _id?: unknown } | string | null | undefined
-      const driverId = typeof driver === 'object' && driver !== null ? String(driver._id || '') : String(driver || '')
-      if (clientId && driverId !== clientId) {
-        continue
-      }
+    // One row builder shared by the live bookings and the Void holds
+    // below, so the two lists cannot drift apart. The builder reports
+    // the LEDGER figures; Void-hold rows override them afterwards
+    // (provider legs added — see below).
+    const buildReceivableRow = async (
+      booking: (typeof bookings)[number],
+      reminders: { lastRemindedAt?: Date, reminderCount: number },
+    ): Promise<ReceivableRow> => {
       const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
       const depositDue = Math.max(0, round2(receivable.refundableDeposit - receivable.depositPayments))
       const depositHeld = round2(receivable.depositPayments)
@@ -465,7 +485,6 @@ export const overdue = async (req: Request, res: Response) => {
       const lifecycle = (booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft) as bookcarsTypes.ContractLifecycle
       const status = booking.status as bookcarsTypes.BookingStatus
       const noShowAt = (booking as unknown as { noShowAt?: Date | string | null }).noShowAt
-      const reminders = remindersByBooking.get(String(booking._id)) || { lastRemindedAt: undefined, reminderCount: 0 }
       const row: ReceivableRow = {
         booking: booking as unknown as bookcarsTypes.Booking,
         outstandingBalance: receivable.outstandingBalance,
@@ -503,13 +522,83 @@ export const overdue = async (req: Request, res: Response) => {
             && status === bookcarsTypes.BookingStatus.Pending && !!from && from.getTime() <= now.getTime() && !noShowAt,
         },
       }
-      if (receivable.outstandingBalance > 0) {
+      return row
+    }
+    for (const booking of bookings) {
+      // ?clientId= filters by the booking's driver.
+      const driver = booking.driver as unknown as { _id?: unknown } | string | null | undefined
+      const driverId = typeof driver === 'object' && driver !== null ? String(driver._id || '') : String(driver || '')
+      if (clientId && driverId !== clientId) {
+        continue
+      }
+      const reminders = remindersByBooking.get(String(booking._id)) || { lastRemindedAt: undefined, reminderCount: 0 }
+      const row = await buildReceivableRow(booking, reminders)
+      if (row.outstandingBalance > 0) {
         rows.push(row)
-      } else if (lifecycle !== bookcarsTypes.ContractLifecycle.Completed) {
+      } else if (row.lifecycle !== bookcarsTypes.ContractLifecycle.Completed) {
         // Completed contracts are history, not receivables: a paid
         // Completed booking belongs to reports, not to this chase.
         paidInFullRows.push(row)
       }
+    }
+    // R4-02 / R3-01 follow-on — Void holds are the review queue's
+    // other half: a checkout placeholder the provider took money for
+    // but whose finalisation conflicted (or whose refund failed, or
+    // whose provider was unreachable — R4-01/R4-03 defuse the same
+    // way). The main query excludes Void, so they need their own
+    // narrow query — and their own list, so no other filter ever
+    // sees them: only the paid-unconfirmed case merges them in.
+    // The gate is 'deadline extended beyond the normal checkout
+    // fuse': a live checkout's expireAt is at most BOOKING_EXPIRE_AT
+    // (~70 min) out and a never-swept placeholder's is already past,
+    // while a sweeper-held booking's is ~7 days out
+    // (HELD_BOOKING_REVIEW_EXPIRE_AT). Two known approximations,
+    // both resolved by the retry (which re-verifies at the provider):
+    // (1) the last ~70 min of a hold window read as 'not held' until
+    // the sweeper re-holds it; (2) a provider-error hold's figures
+    // assume the provider payment (unverified until the retry).
+    // The figures preview the post-finalise ledger: the ledger has
+    // no legs (finalisation posts them only after the availability
+    // save succeeds), so the provider legs are added to the posted
+    // figures and the outstanding is reduced by the provider rent
+    // leg. Deposit mode: the provider took the deposit only, so the
+    // rent stays outstanding and collectible (canTakePayment).
+    const voidHoldRows: ReceivableRow[] = []
+    const voidHoldBookings = await Booking.find({
+      ...getScope(req),
+      status: bookcarsTypes.BookingStatus.Void,
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      expireAt: { $gt: new Date(now.getTime() + env.BOOKING_EXPIRE_AT * 1000) },
+      financialSnapshot: { $exists: true },
+      $or: [
+        { sessionId: { $regex: '^cs_' } },
+        { paymentIntentId: { $nin: [null, ''] } },
+        { paypalOrderId: { $nin: [null, ''] } },
+      ],
+      deletedAt: null,
+    })
+      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier')
+      .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
+      .sort({ to: 1 })
+      .lean()
+    for (const booking of voidHoldBookings) {
+      // ?clientId= filters by the booking's driver.
+      const driver = booking.driver as unknown as { _id?: unknown } | string | null | undefined
+      const driverId = typeof driver === 'object' && driver !== null ? String(driver._id || '') : String(driver || '')
+      if (clientId && driverId !== clientId) {
+        continue
+      }
+      const row = await buildReceivableRow(booking, { lastRemindedAt: undefined, reminderCount: 0 })
+      const snapshot = booking.financialSnapshot as unknown as bookcarsTypes.BookingFinancialSnapshot | undefined
+      const legs = splitCheckoutLegs(snapshot)
+      row.paidRent = round2(row.paidRent + legs.rent)
+      row.depositHeld = round2(row.depositHeld + legs.deposit)
+      row.depositDue = Math.max(0, round2(Number(snapshot?.depositAmount || 0) - row.depositHeld))
+      row.outstandingBalance = Math.max(0, round2(row.outstandingBalance - legs.rent))
+      row.paidInFull = row.outstandingBalance <= 0 && row.depositDue <= 0
+      row.actions.canTakePayment = row.outstandingBalance > 0
+      row.actions.canConfirm = false
+      voidHoldRows.push(row)
     }
     // Filters apply to the outstanding rows; a filtered view shows
     // only matching outstanding rows (paid-in-full rows are returned
@@ -533,7 +622,15 @@ export const overdue = async (req: Request, res: Response) => {
         // GH-32 — fully-paid Draft holds (refresh failed) live in the
         // paid-in-full rows, not the outstanding rows: serve them here
         // so the receivables tab can show + retry them.
-        filteredRows = paidInFullRows.filter((row) => row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending)
+        // R4-02 / R3-01 follow-on — Void holds (provider-paid,
+        // finalisation conflicted) join them: the queue is the review
+        // surface for held bookings, and the retry button on each row
+        // re-runs the provider reconcile. Void holds live in their own
+        // list so no other filter ever sees them.
+        filteredRows = [
+          ...paidInFullRows.filter((row) => row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending),
+          ...voidHoldRows,
+        ]
         filteredPaidInFullRows = []
         break
       case 'holds-expiring':
@@ -708,6 +805,20 @@ export const pendingRefunds = async (req: Request, res: Response) => {
   }
 }
 
+// R3-12 — true when err is a duplicate-key error from the idempotencyKey
+// unique index (a concurrent double-link whose save collided after the
+// winner's movement landed). Mirrors carController's isDuplicatePlateError.
+const isDuplicateKeyError = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null || !('code' in err)) {
+    return false
+  }
+  const { code, keyPattern } = err as { code?: number, keyPattern?: Record<string, unknown> }
+  if (code !== 11000) {
+    return false
+  }
+  return !keyPattern || 'idempotencyKey' in keyPattern
+}
+
 // F6 / W3 C-7 — manually link a posted cash payment into a chosen open
 // cash session: the repair path for payments posted while no session
 // was open, or before the linkage existed. A payment that already has
@@ -752,6 +863,20 @@ export const linkCashSession = async (req: Request, res: Response) => {
     await payment.populate(populatedPaths)
     res.json({ payment, movement })
   } catch (err) {
+    // R3-12 — a concurrent double-link: the loser's save hit the unique
+    // idempotencyKey index after the winner's movement landed. The link
+    // exists — re-read it and return it (200), not a spurious 400.
+    // `payment` is scoped inside the try, so re-fetch it here.
+    if (isDuplicateKeyError(err)) {
+      const racedPayment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) })
+      const movement = racedPayment ? await CashMovement.findOne({ rentalPayment: racedPayment._id }) : null
+      if (movement && racedPayment) {
+        logger.info('[rentalPayment.linkCashSession] duplicate link raced; returning existing movement')
+        await racedPayment.populate(populatedPaths)
+        res.json({ payment: racedPayment, movement })
+        return
+      }
+    }
     logger.error(`[rentalPayment.linkCashSession] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
@@ -802,6 +927,20 @@ export const linkBankSession = async (req: Request, res: Response) => {
     await payment.populate(populatedPaths)
     res.json({ payment, movement })
   } catch (err) {
+    // R3-12 — a concurrent double-link: the loser's save hit the unique
+    // idempotencyKey index after the winner's movement landed. The link
+    // exists — re-read it and return it (200), not a spurious 400.
+    // `payment` is scoped inside the try, so re-fetch it here.
+    if (isDuplicateKeyError(err)) {
+      const racedPayment = await RentalPayment.findOne({ _id: req.params.id, ...getScope(req) })
+      const movement = racedPayment ? await CashMovement.findOne({ rentalPayment: racedPayment._id }) : null
+      if (movement && racedPayment) {
+        logger.info('[rentalPayment.linkBankSession] duplicate link raced; returning existing movement')
+        await racedPayment.populate(populatedPaths)
+        res.json({ payment: racedPayment, movement })
+        return
+      }
+    }
     logger.error(`[rentalPayment.linkBankSession] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }

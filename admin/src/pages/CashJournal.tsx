@@ -55,8 +55,10 @@ const CashJournal = () => {
   const [journalTotals, setJournalTotals] = useState<bookcarsTypes.CashJournalTotals | null>(null)
   const [unlinkedCashPayments, setUnlinkedCashPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
   const [unlinkedCashTotal, setUnlinkedCashTotal] = useState(0)
+  const [unlinkedCashCount, setUnlinkedCashCount] = useState<number | undefined>(undefined)
   const [unlinkedBankPayments, setUnlinkedBankPayments] = useState<bookcarsTypes.UnlinkedCashPaymentRow[]>([])
   const [unlinkedBankTotal, setUnlinkedBankTotal] = useState(0)
+  const [unlinkedBankCount, setUnlinkedBankCount] = useState<number | undefined>(undefined)
   const [linkingId, setLinkingId] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -159,8 +161,10 @@ const CashJournal = () => {
       setJournalTotals(journal?.totals || null)
       setUnlinkedCashPayments(journal?.unlinkedCashPayments || [])
       setUnlinkedCashTotal(journal?.unlinkedCashTotal || 0)
+      setUnlinkedCashCount(journal?.unlinkedCashCount)
       setUnlinkedBankPayments(journal?.unlinkedBankPayments || [])
       setUnlinkedBankTotal(journal?.unlinkedBankTotal || 0)
+      setUnlinkedBankCount(journal?.unlinkedBankCount)
       const movementRows: JournalRow[] = (journal?.rows || []).map((row) => ({
         id: row.id,
         date: new Date(row.date),
@@ -496,8 +500,8 @@ const CashJournal = () => {
           <Card><CardContent><span className="agency-cash__summary-icon agency-cash__summary-icon--out">−</span><small>{strings.DEPOSIT_REFUNDS}</small><strong>{loading ? '—' : formatAmount(depositRefunds)}</strong></CardContent></Card>
         </div>
         {!loading && (pendingIn > 0 || pendingOut > 0) && <Typography variant="caption" className="agency-cash__pending">{strings.PENDING}: +{formatAmount(pendingIn)} / −{formatAmount(pendingOut)}</Typography>}
-        {!loading && unlinkedCashTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashPayments.length})</Alert>}
-        {!loading && unlinkedBankTotal > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_BANK}: {formatAmount(unlinkedBankTotal)} ({unlinkedBankPayments.length})</Alert>}
+        {!loading && unlinkedCashPayments.length > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_CASH}: {formatAmount(unlinkedCashTotal)} ({unlinkedCashCount ?? unlinkedCashPayments.length})</Alert>}
+        {!loading && unlinkedBankPayments.length > 0 && <Alert severity="warning" className="agency-cash__alert">{strings.UNLINKED_BANK}: {formatAmount(unlinkedBankTotal)} ({unlinkedBankCount ?? unlinkedBankPayments.length})</Alert>}
         {!loading && unlinkedCashPayments.length > 0 && (
           <section className="agency-cash__panel">
             <Typography variant="subtitle2">{strings.UNLINKED_CASH}</Typography>
@@ -506,7 +510,7 @@ const CashJournal = () => {
                 <span>{formatDate(row.date)}</span>
                 <span>{row.bookingReference || '—'}</span>
                 <span>{row.purpose}</span>
-                <strong>{formatAmount(row.amount)}</strong>
+                <strong className={row.direction === bookcarsTypes.RentalPaymentDirection.Debit ? 'agency-cash__amount--out' : ''}>{row.direction === bookcarsTypes.RentalPaymentDirection.Debit ? '−' : '+'}{formatAmount(row.amount)}</strong>
                 <Button size="small" variant="outlined" disabled={linkingId === row.id || session?.account !== bookcarsTypes.CashAccountType.Cash || session?.status !== bookcarsTypes.CashSessionStatus.Open} onClick={() => handleLinkUnlinked(row.id, 'cash')}>{strings.LINK}</Button>
               </div>
             ))}
@@ -520,7 +524,7 @@ const CashJournal = () => {
                 <span>{formatDate(row.date)}</span>
                 <span>{row.bookingReference || '—'}</span>
                 <span>{row.purpose}</span>
-                <strong>{formatAmount(row.amount)}</strong>
+                <strong className={row.direction === bookcarsTypes.RentalPaymentDirection.Debit ? 'agency-cash__amount--out' : ''}>{row.direction === bookcarsTypes.RentalPaymentDirection.Debit ? '−' : '+'}{formatAmount(row.amount)}</strong>
                 <Button size="small" variant="outlined" disabled={linkingId === row.id || session?.account !== bookcarsTypes.CashAccountType.Bank || session?.status !== bookcarsTypes.CashSessionStatus.Open} onClick={() => handleLinkUnlinked(row.id, 'bank')}>{strings.LINK}</Button>
               </div>
             ))}

@@ -1277,11 +1277,11 @@ export const complete = async (req: Request, res: Response) => {
     if (returnInsp?.odometer === undefined || returnInsp?.odometer === null) {
       res.status(409).send('The return inspection is missing the odometer reading'); return
     }
-    if (returnSettings?.extraKmPrice !== null && returnSettings?.extraKmPrice !== undefined
-      && returnSettings?.includedKmPerDay !== null && returnSettings?.includedKmPerDay !== undefined
-      && (returnInsp?.odometer === undefined || returnInsp?.odometer === null)) {
- res.status(409).send('The return inspection is missing the odometer reading required to price extra kilometres'); return 
-}
+    // R4-05 — the extra-km-specific odometer gate that stood here was
+    // dead: the unconditional odometer check above returns 409 whenever
+    // the reading is missing, so this branch could never fire. Deleted;
+    // the extra-km pricing itself still uses the (now guaranteed)
+    // reading below.
     if (returnSettings?.fuelPricePerLitre !== null && returnSettings?.fuelPricePerLitre !== undefined
       && typeof carForComplete?.tankCapacityLitres === 'number'
       && (returnInsp?.fuelLevel === undefined || returnInsp?.fuelLevel === null)) {

@@ -67,6 +67,22 @@ jest.unstable_mockModule('../src/utils/mailHelper.js', () => ({
   sendMail: mailSendMock,
 }))
 
+// R3-13 — mock logger (gh33 pattern) so the error-vs-warn de-noise
+// is observable synchronously and deterministically.
+const loggerWarnMock: any = jest.fn()
+const loggerErrorMock: any = jest.fn()
+const loggerInfoMock: any = jest.fn()
+
+jest.unstable_mockModule('../src/utils/logger.js', () => ({
+  info: loggerInfoMock,
+  warn: loggerWarnMock,
+  error: loggerErrorMock,
+  enableLogging: jest.fn(),
+  disableLogging: jest.fn(),
+  enableErrorLogging: jest.fn(),
+  disableErrorLogging: jest.fn(),
+}))
+
 let app: any
 let runCheckoutSweep: (now?: Date) => Promise<any>
 let ledger: any
@@ -754,6 +770,210 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     // wait test slow and flaky; the mechanism assertion is the proof.
     expect(marginMs).toBeGreaterThan(env.BOOKING_EXPIRE_AT * 1000)
     expect(marginMs).toBeLessThanOrEqual(env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000 + 5 * 60 * 1000)
+  })
+
+  it('R3-10 an overpaid Draft+Pending hold is served by paid-unconfirmed (outstandingBalance 0, paidRent over contractTotal)', async () => {
+    // Same shape as Path A, then overpaid: 1000 rent via the ledger
+    // (fully paid) + a duplicate 500 rent by direct insert (the
+    // ledger refuses overpayment, so the duplicate cannot go through
+    // postRentalPayment). The receivable clamps outstandingBalance at
+    // 0 and reports the excess as overpaidAmount; the row therefore
+    // carries outstandingBalance 0 with paidRent 1500 > contractTotal 1000.
+    const held = await makeFixture('r310-overpaid', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: held.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    await blockCar(held.supplier._id, held.car._id)
+    await ledger.postRentalPayment({
+      bookingId: held.booking._id, date: new Date(), amount: 1000,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    })
+    await RentalPayment.create({
+      supplier: held.supplier._id, booking: held.booking._id, date: new Date(), amount: 500,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction: bookcarsTypes.RentalPaymentDirection.Credit, source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+    } as any)
+    const refresh = await ledger.refreshBookingPaymentStatus(held.booking._id)
+    expect(refresh.conflict).toBe(true)
+    expect(refresh.outstandingBalance).toBe(0)
+
+    const passwordHash = await authHelper.hashPassword('Un1tTest5')
+    const admin = await User.create({
+      fullName: 'r310-admin', email: `r310-admin-${rand()}@test.bookcars.ma`, language: 'en',
+      password: passwordHash, type: bookcarsTypes.UserType.Admin, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(admin._id)
+    const adminToken = await authHelper.encryptJWT({ id: admin._id.toString() })
+    const res = await request(app)
+      .get('/api/rental-payments/overdue')
+      .query({ filter: 'paid-unconfirmed' })
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(res.status).toBe(200)
+    const rows = res.body.rows as Array<{ booking: { _id: string } | string, outstandingBalance: number, paidRent: number, contractTotal: number, lifecycle: string, status: string }>
+    const row = rows.find((r) => String((r.booking as any)?._id || r.booking) === held.booking._id.toString())
+    expect(row).toBeDefined()
+    expect(row?.outstandingBalance).toBe(0)
+    expect(row?.paidRent).toBe(1500)
+    expect(row?.contractTotal).toBe(1000)
+    expect(row?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
+    expect(row?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+  })
+
+  it('R3-13 a re-held booking logs error once, then warn (expired-holds loop)', async () => {
+    // Same shape as Path A: pay-later hold, expired, fully paid, car blocked.
+    const held = await makeFixture('gh32-r313', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: held.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    await blockCar(held.supplier._id, held.car._id)
+    await ledger.postRentalPayment({
+      bookingId: held.booking._id, date: new Date(), amount: 1000,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    })
+    const refresh = await ledger.refreshBookingPaymentStatus(held.booking._id)
+    expect(refresh.conflict).toBe(true)
+
+    // First sight: this booking is held, and it logs error (not warn).
+    // Assertions are per-booking-id: earlier tests leave other holds
+    // that the same sweeps also hold, so the summary counts are not exact.
+    const idStr = held.booking._id.toString()
+    const callsFor = (mock: any) => mock.mock.calls.filter((c: any) => String(c[0]).includes(idStr))
+    loggerErrorMock.mockClear()
+    loggerWarnMock.mockClear()
+    const first = await runCheckoutSweep()
+    expect(first.held).toBeGreaterThanOrEqual(1)
+    const heldBooking = await Booking.findById(held.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(new Date(heldBooking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+    const firstErrors = callsFor(loggerErrorMock)
+    expect(firstErrors).toHaveLength(1)
+    // The expired-holds message says 'fully paid but unconfirmed ...
+    // needs manual review' — it never contains 'held for manual review'.
+    expect(firstErrors[0][0]).toMatch(/fully paid but unconfirmed/)
+    expect(callsFor(loggerWarnMock)).toHaveLength(0)
+
+    // The extension drops the booking out of the sweep queries until
+    // the review window lapses, so the re-hold needs now + 8 days
+    // (past the 7-day window). This time it logs warn, not error.
+    loggerErrorMock.mockClear()
+    loggerWarnMock.mockClear()
+    const second = await runCheckoutSweep(new Date(Date.now() + 8 * 86400000))
+    expect(second.held).toBeGreaterThanOrEqual(1)
+    const stillHeld = await Booking.findById(held.booking._id).lean()
+    expect(stillHeld?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(callsFor(loggerErrorMock)).toHaveLength(0)
+    const secondWarns = callsFor(loggerWarnMock)
+    expect(secondWarns).toHaveLength(1)
+    expect(secondWarns[0][0]).toMatch(/still fully paid but unconfirmed/)
+  })
+
+  it('R4-02 a held Void booking is served by paid-unconfirmed (and by no other filter)', async () => {
+    const fixture = await makeFixture('r402-filter', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r402-random-${rand()}`, paymentIntentId: 'pi_r402_filter', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r402_filter', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r402_filter' })
+
+    const sweep = await runCheckoutSweep()
+    expect(sweep.held).toBeGreaterThanOrEqual(1)
+    const heldBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(new Date(heldBooking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+
+    const passwordHash = await authHelper.hashPassword('Un1tTest5')
+    const admin = await User.create({
+      fullName: 'r402-admin', email: `r402-admin-${rand()}@test.bookcars.ma`, language: 'en',
+      password: passwordHash, type: bookcarsTypes.UserType.Admin, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(admin._id)
+    const adminToken = await authHelper.encryptJWT({ id: admin._id.toString() })
+    const res = await request(app)
+      .get('/api/rental-payments/overdue')
+      .query({ filter: 'paid-unconfirmed' })
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(res.status).toBe(200)
+    const rows = res.body.rows as Array<{ booking: { _id: string } | string, outstandingBalance: number, paidRent: number, status: string, lifecycle: string }>
+    const row = rows.find((r) => String((r.booking as any)?._id || r.booking) === fixture.booking._id.toString())
+    expect(row).toBeDefined()
+    expect(row?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(row?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
+    // Provider-paid: the row previews the post-finalise ledger.
+    expect(row?.outstandingBalance).toBe(0)
+    expect(row?.paidRent).toBe(1000)
+
+    // No other filter serves it: Void holds live in their own list.
+    const paidInFull = await request(app)
+      .get('/api/rental-payments/overdue')
+      .query({ filter: 'paid-in-full' })
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(paidInFull.status).toBe(200)
+    const otherRows = [...(paidInFull.body.rows as any[]), ...(paidInFull.body.paidInFullRows as any[])]
+    expect(otherRows.some((r) => String((r.booking as any)?._id || r.booking) === fixture.booking._id.toString())).toBe(false)
+  })
+
+  it('R4-02 retrying a held Void booking conflicts while blocked, then finalises once the blocker clears', async () => {
+    const fixture = await makeFixture('r402-retry', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r402-random-${rand()}`, paymentIntentId: 'pi_r402_retry', expireAt: new Date(Date.now() - 3600000) })
+    const schedule = await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r402_retry', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r402_retry' })
+
+    const sweep = await runCheckoutSweep()
+    expect(sweep.held).toBeGreaterThanOrEqual(1)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+
+    const passwordHash = await authHelper.hashPassword('Un1tTest5')
+    const admin = await User.create({
+      fullName: 'r402-retry-admin', email: `r402-retry-admin-${rand()}@test.bookcars.ma`, language: 'en',
+      password: passwordHash, type: bookcarsTypes.UserType.Admin, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(admin._id)
+    const adminToken = await authHelper.encryptJWT({ id: admin._id.toString() })
+
+    // Still blocked: the retry re-reconciles, re-holds, and reports the conflict.
+    const blocked = await request(app)
+      .post(`/api/bookings/${fixture.booking._id.toString()}/refresh-payment-status`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(blocked.status).toBe(200)
+    expect(blocked.body.conflict).toBe(true)
+    expect(blocked.body.updated).toBe(false)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+
+    // The blocker clears; the retry finalises instead of refunding.
+    await MaintenanceSchedule.deleteOne({ _id: schedule._id })
+    const retried = await request(app)
+      .post(`/api/bookings/${fixture.booking._id.toString()}/refresh-payment-status`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(retried.status).toBe(200)
+    expect(retried.body.conflict).toBe(false)
+    expect(retried.body.updated).toBe(true)
+    expect(retried.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    const finalBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(finalBooking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(finalBooking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Confirmed)
+    expect(finalBooking?.expireAt).toBeFalsy()
+    const payments = await paymentsOf(fixture.booking._id)
+    expect(payments).toHaveLength(1)
+    expect(payments[0].amount).toBe(1000)
+
+    // The row leaves the paid-unconfirmed queue.
+    const res = await request(app)
+      .get('/api/rental-payments/overdue')
+      .query({ filter: 'paid-unconfirmed' })
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(res.status).toBe(200)
+    const rows = res.body.rows as Array<{ booking: { _id: string } | string }>
+    expect(rows.some((r) => String((r.booking as any)?._id || r.booking) === fixture.booking._id.toString())).toBe(false)
   })
 })
 

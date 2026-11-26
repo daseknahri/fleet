@@ -6,6 +6,7 @@ import RentalPayment from '../models/RentalPayment'
 import ContractCharge from '../models/ContractCharge'
 import User from '../models/User'
 import { currencyExponent, toMinorUnits } from './paymentAmount'
+import * as logger from './logger'
 import { resolveVatRatePercent, vatAmountMinor } from './fiscal'
 
 export interface ContractReceivable {
@@ -213,19 +214,39 @@ export const syncBookingPaidInFull = async (
   bookingId: mongoose.Types.ObjectId | string,
   dbSession?: mongoose.ClientSession,
 ): Promise<boolean> => {
-  const bookingQuery = Booking.findById(bookingId).select('_id price financialSnapshot to lifecycle supplier isPayedInFull')
-  if (dbSession) {
-    bookingQuery.session(dbSession)
+  // R4-04 — retry a transient sync failure instead of leaving the
+  // stored flag stale on a completed contract. The receivable is
+  // computed live from the ledger, so no money figure is wrong — but
+  // list filters, badges and queries driven by the stored flag would
+  // misread the contract until the next refresh/sync. Three attempts
+  // with a 250 ms pause cover a transient read/write error (primary
+  // stepdown, brief network loss); a sustained failure still throws
+  // and the call sites log it as before. With a caller-supplied
+  // session the sync runs once, as before: retrying inside a
+  // caller-owned transaction could re-read after an abort.
+  const attempts = dbSession ? 1 : 3
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const bookingQuery = Booking.findById(bookingId).select('_id price financialSnapshot to lifecycle supplier isPayedInFull')
+      if (dbSession) {
+        bookingQuery.session(dbSession)
+      }
+      const booking = await bookingQuery
+      if (!booking) return false
+      const receivable = await getContractReceivable(booking as Parameters<typeof getContractReceivable>[0])
+      const paidInFull = receivable.outstandingBalance <= 0
+      if (booking.isPayedInFull !== paidInFull) {
+        booking.isPayedInFull = paidInFull
+        await booking.save(dbSession ? { session: dbSession } : undefined)
+      }
+      return paidInFull
+    } catch (err) {
+      if (attempt === attempts) throw err
+      logger.warn(`[contractReceivable.syncBookingPaidInFull] Booking ${bookingId.toString()} sync attempt ${attempt} failed, retrying`)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
   }
-  const booking = await bookingQuery
-  if (!booking) return false
-  const receivable = await getContractReceivable(booking as Parameters<typeof getContractReceivable>[0])
-  const paidInFull = receivable.outstandingBalance <= 0
-  if (booking.isPayedInFull !== paidInFull) {
-    booking.isPayedInFull = paidInFull
-    await booking.save(dbSession ? { session: dbSession } : undefined)
-  }
-  return paidInFull
+  return false
 }
 
 /**

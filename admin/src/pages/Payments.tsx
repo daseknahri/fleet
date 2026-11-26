@@ -783,7 +783,12 @@ const Payments = () => {
                 {row.actions.canConfirm && (
                   <Button size="small" variant="outlined" disabled={confirmingId === row.booking._id} onClick={() => handleConfirmReservation(row.booking._id)}>{strings.CONFIRM_RESERVATION}</Button>
                 )}
-                {row.outstandingBalance === 0 && row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending && (
+                {/* R4-02 / R3-01 follow-on — the retry button also shows on Void holds (Draft + Void).
+                    A Void hold's outstandingBalance is NOT gated on <= 0: Deposit-mode holds still owe
+                    the rent, but the retry (provider reconcile) is exactly what posts the deposit leg
+                    and confirms them. */}
+                {((row.outstandingBalance <= 0 && row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Pending)
+                  || (row.lifecycle === bookcarsTypes.ContractLifecycle.Draft && row.status === bookcarsTypes.BookingStatus.Void)) && (
                   <Button size="small" variant="outlined" disabled={refreshing} onClick={() => void runRetryConfirmation({ bookingId: row.booking._id, reason: strings.PAID_UNCONFIRMED_REASON })}>{strings.RETRY_CONFIRMATION}</Button>
                 )}
                 {row.actions.canCancel && (

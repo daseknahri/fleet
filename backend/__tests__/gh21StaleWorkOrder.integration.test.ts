@@ -11,6 +11,7 @@ import Car from '../src/models/Car'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
 import MaintenanceWorkOrder from '../src/models/MaintenanceWorkOrder'
+import { workOrderStaleDays } from '../src/utils/workOrderStale'
 
 // GH-21 - stale "Scheduled" work orders: list half. The reminder half
 // lives in gh21StaleWorkOrderReminder.integration.test.ts (split from
@@ -167,5 +168,23 @@ describe('GH-21 stale work order list', () => {
     const res = await list('?status=bogus')
     expect(res.status).toBe(200)
     expect((res.body as any[]).length).toBe(5)
+  })
+})
+
+describe('R3-06 workOrderStaleDays — Casablanca wall days', () => {
+  it('counts whole wall days: 2026-07-01 12:00 to 2026-07-08 23:30 is 8 days, not 7', () => {
+    // 2026-07-08T23:30:00Z is 2026-07-09 00:30 in Casablanca (UTC+1):
+    // the old process-local midnight difference was 7 whole days.
+    expect(workOrderStaleDays('2026-07-01T12:00:00Z', '2026-07-08T23:30:00Z')).toBe(8)
+  })
+
+  it('same wall day is 0 days even across midnight UTC', () => {
+    // 2026-07-05T23:30:00Z and 2026-07-06T00:30:00Z are both Monday
+    // 2026-07-06 in Casablanca (00:30 and 01:30).
+    expect(workOrderStaleDays('2026-07-05T23:30:00Z', '2026-07-06T00:30:00Z')).toBe(0)
+  })
+
+  it('a future start is 0 days', () => {
+    expect(workOrderStaleDays('2026-07-10T09:00:00Z', '2026-07-08T23:30:00Z')).toBe(0)
   })
 })

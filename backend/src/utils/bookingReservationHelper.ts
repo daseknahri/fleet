@@ -7,6 +7,7 @@ import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import MaintenanceWorkOrder from '../models/MaintenanceWorkOrder'
 import AgencyReturnSettings from '../models/AgencyReturnSettings'
 import { effectiveNextDueMileage, findOverdueSchedule } from './maintenanceSchedule'
+import { nextBookingReference } from './bookingReference'
 import * as helper from '../utils/helper'
 
 // R2-B13 - calendar-day comparison (same server-local convention
@@ -267,6 +268,14 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
   const reservingBookings = bookings.filter((booking) => reservesCar(booking, now))
 
   if (reservingBookings.length === 0) {
+    // R3-04 — same guarded allocation as the reserving branch: the
+    // bare save below is the only failure left, so the burn is narrowed
+    // to save-time failures, not eliminated.
+    for (const booking of bookings) {
+      if (!booking.reference) {
+        booking.reference = await nextBookingReference(booking.supplier)
+      }
+    }
     for (const booking of bookings) {
       await booking.save()
     }
@@ -341,6 +350,17 @@ export const saveBookingsWithAvailability = async (bookings: env.Booking[], opti
       }
     }
 
+    // R3-04 — allocate the reference here, after the internal re-check
+    // has passed and immediately before the save: no failure after this
+    // point can 409/throw except the save's own write, so a refused
+    // checkout or create no longer burns a number. Only bookings with
+    // no reference allocate — update/amend/status-change callers pass
+    // bookings that already carry one.
+    for (const booking of bookings) {
+      if (!booking.reference) {
+        booking.reference = await nextBookingReference(booking.supplier)
+      }
+    }
     for (const booking of bookings) {
       await booking.save(sessionOpt)
     }

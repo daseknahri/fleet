@@ -13,6 +13,7 @@ import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import { BookingConflictError, saveBookingWithAvailability } from '../utils/bookingReservationHelper'
+import { casablancaTodayStart } from '../utils/casablancaDate'
 import { refreshBookingPaymentStatus } from '../utils/ledger'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { findActiveInvoice, refreshDraftInvoiceAfterAmendment } from '../utils/invoiceCreation'
@@ -217,13 +218,12 @@ export const amend = async (req: Request, res: Response) => {
     // booking whose pickup already passed keeps its (past) `from`
     // untouched. An Active/ReturnReview contract's `from` is history by
     // definition, so the guard does not apply there. "Today" is the
-    // server-local start of day.
+    // start of the current Africa/Casablanca wall day (R3-07).
     const fromChanged = newFrom.getTime() !== new Date(booking.from).getTime()
     if (fromChanged) {
       const amendLifecycle = booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft
       if (amendLifecycle === bookcarsTypes.ContractLifecycle.Draft || amendLifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
-        const todayStart = new Date()
-        todayStart.setHours(0, 0, 0, 0)
+        const todayStart = casablancaTodayStart()
         if (newFrom < todayStart) {
           res.status(400).send('AMENDMENT_PAST_FROM: The new pickup date cannot be in the past.')
           return

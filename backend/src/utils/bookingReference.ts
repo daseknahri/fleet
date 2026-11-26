@@ -22,11 +22,12 @@ import Counter from '../models/Counter'
  * day it simply grows (padStart never truncates).
  *
  * A number is allocated only after the caller's validation has passed
- * (GH-15): the booking is built first and the reference is assigned
- * immediately before the availability save, so a refused checkout or
- * create does not burn a number. Duplicates are still impossible: the
- * unique partial index on { supplier, reference } in the Booking model
- * is the backstop and makes a duplicate insert fail loudly.
+ * (GH-15) and inside the availability save, after its internal re-check
+ * (R3-04): a refused checkout or create does not burn a number, except
+ * for a failure of the save's own write. Duplicates are still
+ * impossible: the unique partial index on { supplier, reference } in
+ * the Booking model is the backstop and makes a duplicate insert fail
+ * loudly.
  */
 export const BOOKING_REFERENCE_TIMEZONE = 'Africa/Casablanca'
 

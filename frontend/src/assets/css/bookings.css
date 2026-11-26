@@ -107,3 +107,13 @@ div.bookings div.col-2 {
     right: 336px;
   }
 }
+
+/* R3-11 — outstanding-balance banner on the bookings list page. */
+div.bookings__balance {
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: #fefefe;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  font-weight: 600;
+}

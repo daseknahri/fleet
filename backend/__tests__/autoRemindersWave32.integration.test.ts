@@ -394,6 +394,44 @@ describe('GH-22 — Casablanca wall days', () => {
     expect(rows2.length).toBeGreaterThanOrEqual(1)
     expect(rows2[0].body).toMatch(/reminder #5/)
   })
+
+  it('R3-06 weekly recap counts the Casablanca week, not the previous UTC week', async () => {
+    // W30 (Mon 2026-07-20 .. Sun 2026-07-26): no earlier test runs a
+    // pass in this week, so its recap is unclaimed (W28's recap is
+    // already claimed by the overdue test's pass at the same instant
+    // the pack suggested, 2026-07-05T23:30Z). Two pickups inside the
+    // week, one in the previous week — the old process-local window
+    // (Mon 07-13 .. Sun 07-19) would count 1, the Casablanca window
+    // (Mon 07-20 .. Sun 07-26) counts 2.
+    await makeBooking('gh22-recap-in-1', {
+      from: new Date('2026-07-20T09:00:00.000Z'), to: new Date('2026-07-22T09:00:00.000Z'), price: 300, deposit: 0,
+    })
+    await makeBooking('gh22-recap-in-2', {
+      from: new Date('2026-07-21T09:00:00.000Z'), to: new Date('2026-07-23T09:00:00.000Z'), price: 300, deposit: 0,
+    })
+    await makeBooking('gh22-recap-prev', {
+      from: new Date('2026-07-13T09:00:00.000Z'), to: new Date('2026-07-15T09:00:00.000Z'), price: 300, deposit: 0,
+    })
+    // Independent expectation: live bookings whose pickup falls in the
+    // hardcoded Casablanca week Mon 2026-07-20 .. Sun 2026-07-26.
+    const expected = await Booking.countDocuments({
+      supplier: supplier._id,
+      status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
+      lifecycle: { $ne: bookcarsTypes.ContractLifecycle.Completed },
+      deletedAt: null,
+      from: { $gte: new Date('2026-07-20T00:00:00.000Z'), $lte: new Date('2026-07-26T23:59:59.999Z') },
+    })
+    expect(expected).toBe(2)
+    // Sun 2026-07-19 23:30 UTC = Mon 2026-07-20 00:30 Casablanca:
+    // the recap fires for the new Casablanca week (W30).
+    const result = await runAutoReminderPass(new Date('2026-07-19T23:30:00.000Z'), { force: true })
+    expect(result.recaps).toBeGreaterThanOrEqual(1)
+    const rows = await deliveries({ templateKey: 'weekly.recap', subjectId: String(supplier._id), dedupeKey: 'weekly:2026-W30', channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    const m = rows[0].body.match(/This week: (\d+) pickups/)
+    expect(m).not.toBeNull()
+    expect(Number(m![1])).toBe(expected)
+  })
 })
 
 describe('GH-19 — schedules of trashed cars do not notify', () => {

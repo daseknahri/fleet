@@ -11,6 +11,7 @@ import User from '../src/models/User'
 import Car from '../src/models/Car'
 import Location from '../src/models/Location'
 import LocationValue from '../src/models/LocationValue'
+import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 
 // GH-15 — the booking reference is allocated only after validation
 // passes: a refused checkout or create burns no number, so successive
@@ -28,6 +29,7 @@ const fixtureCarIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationIds: mongoose.Types.ObjectId[] = []
 const fixtureLocationValueIds: mongoose.Types.ObjectId[] = []
 const fixtureBookingIds: mongoose.Types.ObjectId[] = []
+const fixtureScheduleIds: mongoose.Types.ObjectId[] = []
 
 let adminToken: string
 let adminId: string
@@ -35,6 +37,7 @@ let supplierId: string
 let driverId: string
 let locationId: string
 let carId: string
+let car2Id: string
 
 const suffix = (reference: string) => {
   const parts = reference.split('-')
@@ -81,9 +84,21 @@ beforeAll(async () => {
   } as any)
   fixtureCarIds.push(car._id)
   carId = car._id.toString()
+  const car2 = await Car.create({
+    name: 'GH-15 car 2', supplier: supplier._id, minimumAge: 21,
+    locations: [location._id], dailyPrice: 100, deposit: 250, available: true,
+    type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+    aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+    mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+    collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+    range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+  } as any)
+  fixtureCarIds.push(car2._id)
+  car2Id = car2._id.toString()
 })
 
 afterAll(async () => {
+  await MaintenanceSchedule.deleteMany({ _id: { $in: fixtureScheduleIds } })
   await Booking.deleteMany({ _id: { $in: fixtureBookingIds } })
   await Car.deleteMany({ _id: { $in: fixtureCarIds } })
   await Location.deleteMany({ _id: { $in: fixtureLocationIds } })
@@ -174,5 +189,92 @@ describe('GH-15 reference after validation', () => {
     fixtureBookingIds.push(new mongoose.Types.ObjectId(res.body.bookingId))
     const booking = await Booking.findById(res.body.bookingId).lean()
     expect(booking?.reference).toMatch(/^GA-\d{6}-\d{4}$/)
+  })
+  test('R3-04 a maintenance refusal burns no number: overdue schedule, then a clean checkout differs by exactly 1', async () => {
+    const now = Date.now()
+    const resA = await adminCreate(new Date(now + 30 * DAY), new Date(now + 32 * DAY))
+    expect(resA.status).toBe(200)
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(resA.body._id))
+    const suffixA = suffix(resA.body.reference as string)
+
+    // Overdue schedule on car 1 (GH-32 blockCar shape): any checkout
+    // for it is refused — OverdueMaintenanceError maps to 400 in the
+    // checkout catch (only BookingConflictError maps to 409).
+    const schedule = await MaintenanceSchedule.create({
+      supplier: new mongoose.Types.ObjectId(supplierId), car: new mongoose.Types.ObjectId(carId),
+      type: bookcarsTypes.MaintenanceExpenseType.Maintenance,
+      title: 'R3-04 overdue oil change',
+      status: bookcarsTypes.MaintenanceScheduleStatus.Upcoming,
+      nextDueDate: new Date(now - 1 * DAY),
+    } as any)
+    fixtureScheduleIds.push(schedule._id)
+    try {
+      const resBlocked = await checkout(new Date(now + 31 * DAY), new Date(now + 33 * DAY))
+      // OverdueMaintenanceError extends BookingConflictError, and the
+      // checkout catch maps BookingConflictError to 409.
+      expect(resBlocked.status).toBe(409)
+    } finally {
+      // The schedule would block every later checkout on car 1; remove
+      // it so the remaining cases run on a clean car.
+      await MaintenanceSchedule.deleteOne({ _id: schedule._id })
+    }
+
+    // Clean checkout on the other car: exactly one higher, no gap.
+    const resB = await request(app).post('/api/checkout').send({
+      booking: { ...bookingFields(new Date(now + 40 * DAY), new Date(now + 42 * DAY)), car: car2Id },
+      paymentMode: bookcarsTypes.CheckoutPaymentMode.PayLater,
+      paymentGateway: bookcarsTypes.PaymentGateway.Stripe,
+      currency: 'MAD',
+    })
+    expect(resB.status).toBe(200)
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(resB.body.bookingId))
+    const bookingB = await Booking.findById(resB.body.bookingId).lean()
+    expect(suffix(bookingB!.reference as string)).toBe(suffixA + 1)
+  })
+
+  test('R3-04 update does not re-allocate: the reference is unchanged', async () => {
+    const now = Date.now()
+    const resA = await adminCreate(new Date(now + 50 * DAY), new Date(now + 52 * DAY))
+    expect(resA.status).toBe(200)
+    const bookingId = resA.body._id as string
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(bookingId))
+    const referenceBefore = resA.body.reference as string
+
+    // Move only `to` (extend): `from` unchanged, so the GH-16 guard
+    // does not trip, and the booking carries no snapshot, so the
+    // checkout-terms lock does not refuse the change.
+    const res = await request(app)
+      .put('/api/update-booking')
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({
+        booking: {
+          ...bookingFields(new Date(now + 50 * DAY), new Date(now + 54 * DAY)),
+          _id: bookingId,
+        },
+      })
+    expect(res.status).toBe(200)
+    const after = await Booking.findById(bookingId).lean()
+    expect(after?.reference).toBe(referenceBefore)
+  })
+
+  test('R3-04 amend does not re-allocate: the reference is unchanged', async () => {
+    const now = Date.now()
+    const resA = await adminCreate(new Date(now + 60 * DAY), new Date(now + 62 * DAY))
+    expect(resA.status).toBe(200)
+    const bookingId = resA.body._id as string
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(bookingId))
+    const referenceBefore = resA.body.reference as string
+
+    const res = await request(app)
+      .post(`/api/bookings/${bookingId}/amend`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({
+        from: new Date(now + 61 * DAY),
+        to: new Date(now + 63 * DAY),
+        reason: 'R3-04 test: move the contract window',
+      })
+    expect(res.status).toBe(200)
+    const after = await Booking.findById(bookingId).lean()
+    expect(after?.reference).toBe(referenceBefore)
   })
 })

@@ -265,3 +265,113 @@ describe('GH-33 relink + reversal fallback', () => {
     expect(second.status).toBe(409)
   })
 })
+
+describe('R3-08 unlinked totals net + true count', () => {
+  // A debit Posted row, seeded by direct model insert: the posting
+  // paths normally create credits; the debit is the GH-33 fallback
+  // shape (a reversal whose compensating movement could not be made).
+  const seedUnlinked = async (supplierId: mongoose.Types.ObjectId, bookingId: mongoose.Types.ObjectId, amount: number, method: bookcarsTypes.RentalPaymentMethod, direction: bookcarsTypes.RentalPaymentDirection) => {
+    const payment = await RentalPayment.create({
+      supplier: supplierId, booking: bookingId, date: new Date(), amount, currency: 'MAD',
+      method, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction, source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+    } as any)
+    fixturePaymentIds.push(payment._id)
+    return payment
+  }
+
+  test('cash: a 1000 credit and a 400 debit net to 600, count is 2', async () => {
+    const { supplier, booking } = await makeAgency('r308-cash')
+    const credit = await postRent(booking._id, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    const debit = await seedUnlinked(supplier._id, booking._id, 400, bookcarsTypes.RentalPaymentMethod.Cash, bookcarsTypes.RentalPaymentDirection.Debit)
+    const session = await openSession(supplier._id, bookcarsTypes.CashAccountType.Cash)
+    const journal = await getJournal(session._id)
+    expect(journal.unlinkedCashTotal).toBe(600)
+    expect(journal.unlinkedCashCount).toBe(2)
+    expect(journal.unlinkedCashPayments).toHaveLength(2)
+    const rows = journal.unlinkedCashPayments as any[]
+    expect(rows.find((r) => r.id === credit._id.toString())?.direction).toBe(bookcarsTypes.RentalPaymentDirection.Credit)
+    expect(rows.find((r) => r.id === debit._id.toString())?.direction).toBe(bookcarsTypes.RentalPaymentDirection.Debit)
+  })
+
+  test('cash: 101 unlinked rows list 100, count is 101, total covers all 101', async () => {
+    const { supplier, booking } = await makeAgency('r308-cap')
+    const docs = Array.from({ length: 101 }, () => ({
+      supplier: supplier._id, booking: booking._id, date: new Date(), amount: 10, currency: 'MAD',
+      method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction: bookcarsTypes.RentalPaymentDirection.Credit, source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+    }))
+    const inserted = await RentalPayment.insertMany(docs)
+    for (const row of inserted) {
+      fixturePaymentIds.push(row._id)
+    }
+    const session = await openSession(supplier._id, bookcarsTypes.CashAccountType.Cash)
+    const journal = await getJournal(session._id)
+    expect(journal.unlinkedCashPayments).toHaveLength(100)
+    expect(journal.unlinkedCashCount).toBe(101)
+    expect(journal.unlinkedCashTotal).toBe(1010)
+  })
+
+  test('bank: a 1000 credit and a 400 debit net to 600, count is 2', async () => {
+    const { supplier, booking } = await makeAgency('r308-bank')
+    const credit = await postRent(booking._id, 1000, bookcarsTypes.RentalPaymentMethod.BankTransfer)
+    const debit = await seedUnlinked(supplier._id, booking._id, 400, bookcarsTypes.RentalPaymentMethod.BankTransfer, bookcarsTypes.RentalPaymentDirection.Debit)
+    const session = await openSession(supplier._id, bookcarsTypes.CashAccountType.Bank)
+    const journal = await getJournal(session._id)
+    expect(journal.unlinkedBankTotal).toBe(600)
+    expect(journal.unlinkedBankCount).toBe(2)
+    expect(journal.unlinkedBankPayments).toHaveLength(2)
+    const rows = journal.unlinkedBankPayments as any[]
+    expect(rows.find((r) => r.id === credit._id.toString())?.direction).toBe(bookcarsTypes.RentalPaymentDirection.Credit)
+    expect(rows.find((r) => r.id === debit._id.toString())?.direction).toBe(bookcarsTypes.RentalPaymentDirection.Debit)
+  })
+  // R3-12 — concurrent double-link on a rental payment: both requests
+  // must 200 with the SAME movement, and exactly one movement exists.
+  // (The sequential second link still 409s — locked by the existing
+  // 'linking the same payment twice is refused with 409' case.)
+  test('R3-12 rental concurrent double-link, key-less payment: both 200, same movement, one movement', async () => {
+    const { supplier, booking } = await makeAgency('r312-keyless')
+    const payment = await postRent(booking._id, 500, bookcarsTypes.RentalPaymentMethod.Cash)
+    expect(payment.idempotencyKey).toBeFalsy()
+    const session = await openSession(supplier._id, bookcarsTypes.CashAccountType.Cash)
+    const link = () => request(app)
+      .post(`/api/rental-payments/${payment._id.toString()}/link-cash-session`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ cashSessionId: session._id.toString() })
+    const [first, second] = await Promise.all([link(), link()])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.body.movement).toBeDefined()
+    expect(second.body.movement).toBeDefined()
+    expect(second.body.movement._id).toBe(first.body.movement._id)
+    expect(await CashMovement.countDocuments({ rentalPayment: payment._id })).toBe(1)
+    const movement = await CashMovement.findOne({ rentalPayment: payment._id }).lean()
+    expect(movement?.idempotencyKey).toBe(`cash-rental-${payment._id.toString()}`)
+  })
+
+  test('R3-12 rental concurrent double-link, key-carrying payment: both 200, same movement, one movement', async () => {
+    const { supplier, booking } = await makeAgency('r312-keyed')
+    const payment = await postRentalPayment({
+      bookingId: booking._id.toString(), date: new Date(), amount: 500, currency: 'MAD',
+      method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      source: bookcarsTypes.RentalPaymentSource.Manual,
+      actorId: adminId, idempotencyKey: `r312-key-${rand()}`,
+    })
+    fixturePaymentIds.push(payment._id)
+    const session = await openSession(supplier._id, bookcarsTypes.CashAccountType.Cash)
+    const link = () => request(app)
+      .post(`/api/rental-payments/${payment._id.toString()}/link-cash-session`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({ cashSessionId: session._id.toString() })
+    const [first, second] = await Promise.all([link(), link()])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.body.movement).toBeDefined()
+    expect(second.body.movement).toBeDefined()
+    expect(second.body.movement._id).toBe(first.body.movement._id)
+    expect(await CashMovement.countDocuments({ rentalPayment: payment._id })).toBe(1)
+  })
+})

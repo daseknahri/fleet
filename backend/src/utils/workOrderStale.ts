@@ -17,6 +17,14 @@ export const isWorkOrderStale = (
   && new Date(scheduledStart).getTime() < staleWorkOrderCutoff(now).getTime()
 
 /** Whole days between the planned start and now (for the badge text
- *  and the reminder body). Returns 0 when the start is in the future. */
-export const workOrderStaleDays = (scheduledStart: Date | string, now: Date = new Date()): number =>
-  Math.max(0, Math.floor((new Date(now).setHours(0, 0, 0, 0) - new Date(scheduledStart).setHours(0, 0, 0, 0)) / 86400000))
+ *  and the reminder body). Returns 0 when the start is in the future.
+ *  Day boundaries are Casablanca wall days (R3-06 — was process-local
+ *  midnight, so the badge read one day low for an hour a day in summer). */
+const CASABLANCA_TZ = 'Africa/Casablanca'
+const wallDay = (date: Date | string): string => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: CASABLANCA_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(date))
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+export const workOrderStaleDays = (scheduledStart: Date | string, now: Date | string = new Date()): number =>
+  Math.max(0, Math.floor((new Date(`${wallDay(now)}T00:00:00Z`).getTime() - new Date(`${wallDay(scheduledStart)}T00:00:00Z`).getTime()) / 86400000))

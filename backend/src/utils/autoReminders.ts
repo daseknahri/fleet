@@ -12,6 +12,7 @@ import * as logger from './logger'
 import * as mailHelper from './mailHelper'
 import { resolveScheduleDue } from './maintenanceSchedule'
 import { staleWorkOrderCutoff, workOrderStaleDays } from './workOrderStale'
+import { casablancaTodayStart } from './casablancaDate'
 import { renderNotificationTemplate } from './notificationTemplates'
 import {
   autoReminderEmailAllowed,
@@ -670,7 +671,12 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   // fired an hour into the Casablanca Monday instead).
   if (new Date(`${dateKey(now)}T12:00:00Z`).getUTCDay() === 1) {
     const weekKey = isoWeekKey(now)
-    const weekStart = startOfDay(addDays(now, -((now.getDay() + 6) % 7)))
+    // R3-06 — the week range follows the Casablanca WALL calendar like
+    // the gate above (was process-local getDay(): in the Sunday
+    // 23:00-23:59 UTC window the gate fired for the new Casablanca
+    // week while weekStart still pointed at the previous Monday).
+    const wallToday = casablancaTodayStart(now) // start of the Casablanca wall day as a UTC-midnight instant (R3-07 helper)
+    const weekStart = startOfDay(addDays(wallToday, -((wallToday.getUTCDay() + 6) % 7)))
     const weekEnd = endOfDay(addDays(weekStart, 6))
     const [weekPickups, weekReturns] = await Promise.all([
       Booking.countDocuments({ ...LIVE_BOOKING_FILTER, supplier: supplierId, from: { $gte: weekStart, $lte: weekEnd } }),

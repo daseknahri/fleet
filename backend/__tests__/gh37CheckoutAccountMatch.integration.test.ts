@@ -196,4 +196,64 @@ describe('GH-37 guest checkout account match', () => {
     const booking = await Booking.findById(res.body.bookingId).lean()
     expect(booking?.driver?.toString()).toBe(guest!._id.toString())
   })
+  test('R3-05 stored double space vs typed single space attaches to the seeded user', async () => {
+    const email = `jean-${rand()}@example.com`
+    const stored = await User.create({
+      email, fullName: 'Jean  Dupont', phone: '+212600000001',
+      birthDate: new Date(1992, 5, 25), language: 'en',
+      type: bookcarsTypes.UserType.User, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(stored._id)
+    // Mongoose trim: true only strips the ends — the internal double
+    // space survives; assert the stored value really has it.
+    expect((await User.findById(stored._id).lean())?.fullName).toBe('Jean  Dupont')
+    const res = await checkout(0, 10, 12, {
+      fullName: 'Jean Dupont', email, phone: '+212 600 000 001',
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.bookingId).toBeDefined()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(res.body.bookingId))
+    const booking = await Booking.findById(res.body.bookingId).lean()
+    expect(booking?.driver?.toString()).toBe(stored._id.toString())
+    expect(await User.countDocuments({ email })).toBe(1)
+  })
+
+  test('R3-05 stored leading/trailing space + tab vs typed single spaces attaches', async () => {
+    const email = `jean-tab-${rand()}@example.com`
+    const stored = await User.create({
+      email, fullName: 'Jean Dupont', phone: '+212600000002',
+      birthDate: new Date(1992, 5, 25), language: 'en',
+      type: bookcarsTypes.UserType.User, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(stored._id)
+    // Mongoose runs the trim setter on updateOne too, so a raw
+    // updateOne does NOT preserve leading/trailing spaces — plant the
+    // dirty value through the native driver instead (no setters).
+    await User.collection.updateOne({ _id: stored._id }, { $set: { fullName: '  Jean\tDupont ' } })
+    expect((await User.findById(stored._id).lean())?.fullName).toBe('  Jean\tDupont ')
+    const res = await checkout(3, 10, 12, {
+      fullName: 'Jean Dupont', email, phone: '+212600000002',
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.bookingId).toBeDefined()
+    fixtureBookingIds.push(new mongoose.Types.ObjectId(res.body.bookingId))
+    const booking = await Booking.findById(res.body.bookingId).lean()
+    expect(booking?.driver?.toString()).toBe(stored._id.toString())
+    expect(await User.countDocuments({ email })).toBe(1)
+  })
+
+  test('R3-05 a merely similar name after normalisation is still a 409', async () => {
+    const email = `jean-dupond-${rand()}@example.com`
+    const stored = await User.create({
+      email, fullName: 'Jean Dupont', phone: '+212600000003',
+      birthDate: new Date(1992, 5, 25), language: 'en',
+      type: bookcarsTypes.UserType.User, active: true, verified: true, blacklisted: false,
+    })
+    fixtureUserIds.push(stored._id)
+    const res = await checkout(1, 10, 12, {
+      fullName: 'Jean Dupond', email, phone: '+212600000003',
+    })
+    expect(res.status).toBe(409)
+    expect(res.text).toContain('CHECKOUT_ACCOUNT_MISMATCH')
+  })
 })
