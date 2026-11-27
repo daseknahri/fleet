@@ -411,6 +411,73 @@ describe('F2 — Stripe webhook finalises a paid checkout without the browser (W
     )
   })
 
+  it('R6-06 (a) a Void booking moved to Cancelled while its payment is in flight is refunded, not reported already-finalised', async () => {
+    const fixture = await makeFixture('r606-cancelled', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeIntentSuccess('pi_r606_cancelled', fixture.booking._id.toString(), 'MAD', 125000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r606_cancelled' })
+    // Staff bulk-cancels the Void checkout while the payment is in
+    // flight (updateStatus allows Void -> Cancelled). Pre-fix the
+    // late webhook answered already-finalized and no refund was ever
+    // issued for the cancelled booking.
+    await Booking.updateOne({ _id: fixture.booking._id }, { $set: { status: bookcarsTypes.BookingStatus.Cancelled } })
+    const response = await postWebhookEvent('checkout.session.completed', {
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_r606_cancelled',
+    })
+    expect(response.status).toBe(200)
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_r606_cancelled' },
+      { idempotencyKey: 'booking-unavailable-pi_r606_cancelled' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Cancelled)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-06 (b) a Void booking moved to Pending reconciles to refund, not already-finalised', async () => {
+    const fixture = await makeFixture('r606-pending', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeIntentSuccess('pi_r606_pending', fixture.booking._id.toString(), 'MAD', 125000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r606_pending' })
+    await Booking.updateOne({ _id: fixture.booking._id }, { $set: { status: bookcarsTypes.BookingStatus.Pending } })
+    const response = await postWebhookEvent('checkout.session.completed', {
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_r606_pending',
+    })
+    expect(response.status).toBe(200)
+    expect(stripeRefundCreate).toHaveBeenCalledWith(
+      { payment_intent: 'pi_r606_pending' },
+      { idempotencyKey: 'booking-unavailable-pi_r606_pending' },
+    )
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-06 (c) a genuinely Paid booking still returns already-finalised, with no refund', async () => {
+    const fixture = await makeFixture('r606-paid', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeIntentSuccess('pi_r606_paid', fixture.booking._id.toString(), 'MAD', 125000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r606_paid' })
+    await Booking.updateOne({ _id: fixture.booking._id }, { $set: { status: bookcarsTypes.BookingStatus.Paid } })
+    const response = await postWebhookEvent('checkout.session.completed', {
+      id: fixture.booking.sessionId, payment_status: 'paid',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_r606_paid',
+    })
+    expect(response.status).toBe(200)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
   it('acknowledges and ignores unknown event types', async () => {
     const response = await postWebhookEvent('customer.created', { id: `cus_f2_${rand()}` })
     expect(response.status).toBe(200)
@@ -1296,6 +1363,277 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
     expect(booking?.reconciliationStatus).toBe('provider-error')
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-07 a transient DB error on the refunded arm $set does NOT stamp provider-error, extend expireAt, or notify', async () => {
+    const fixture = await makeFixture('r607-db-error', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r607_dberr', 'MAD', 99900)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r607_dberr' })
+    mailSendMock.mockClear()
+    // Fail ONLY the refunded arm's TTL-clear ($set expireAt): every
+    // other write goes through to the real collection. Pre-fix the
+    // catch-all read this as a provider failure and resurrected the
+    // refunded booking into a 7-day provider-error hold.
+    const origUpdateOne = Booking.updateOne.bind(Booking)
+    const spy = jest.spyOn(Booking, 'updateOne').mockImplementation(((filter: any, update: any, ...rest: any[]) => {
+      if (update?.$set?.expireAt !== undefined) {
+        throw new Error('transient DB error')
+      }
+      return (origUpdateOne as any)(filter, update, ...rest)
+    }) as any)
+    try {
+      const summary = await runCheckoutSweep()
+      expect(summary.checked).toBe(1)
+      expect(summary.errors).toBe(1)
+      expect(summary.refunded).toBe(0)
+      expect(summary.providerErrors).toBe(0)
+      const booking = await Booking.findById(fixture.booking._id).lean()
+      expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+      expect(booking?.reconciliationStatus).toBeUndefined()
+      // The deadline was NOT extended: the booking keeps its past
+      // expireAt and TTL-cleans instead of being re-held 7 days.
+      expect(new Date(booking?.expireAt as unknown as Date).getTime()).toBeLessThan(Date.now())
+      expect(await Notification.find({ booking: fixture.booking._id }).lean()).toHaveLength(0)
+      expect(mailSendMock).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('R6-08 a throwing booking does not abort the sweep loop: later bookings are still checked and counted', async () => {
+    const broken = await makeFixture('r608-broken', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    const healthy = await makeFixture('r608-healthy', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    // Keyed provider mocks: the broken booking mismatches (refund
+    // path) while the healthy one matches (finalise path).
+    stripeSessionRetrieve.mockImplementation(async (id: string) => {
+      if (id === broken.booking.sessionId) {
+        return { id, payment_status: 'paid', metadata: { bookingId: broken.booking._id.toString() }, currency: 'mad', amount_total: 99900, payment_intent: 'pi_r608_broken' }
+      }
+      return { id, payment_status: 'paid', metadata: { bookingId: healthy.booking._id.toString() }, currency: 'mad', amount_total: 125000, payment_intent: 'pi_r608_healthy' }
+    })
+    stripeIntentRetrieve.mockImplementation(async (id: string) => {
+      if (id === 'pi_r608_broken') {
+        return { id, status: 'succeeded', metadata: { bookingId: broken.booking._id.toString() }, currency: 'MAD', amount_received: 99900 }
+      }
+      return { id, status: 'succeeded', metadata: { bookingId: healthy.booking._id.toString() }, currency: 'MAD', amount_received: 125000 }
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r608_broken' })
+    // The broken booking's refunded-arm $set throws (R6-07 shape):
+    // its side-effect error escapes reconcileOneVoidBooking. Pre-fix
+    // the outer catch logged only after the loop had already aborted,
+    // so the healthy booking was never checked on this tick.
+    const origUpdateOne = Booking.updateOne.bind(Booking)
+    const brokenId = broken.booking._id.toString()
+    const spy = jest.spyOn(Booking, 'updateOne').mockImplementation(((filter: any, update: any, ...rest: any[]) => {
+      if (update?.$set?.expireAt !== undefined && String((filter as any)?._id) === brokenId) {
+        throw new Error('transient DB error')
+      }
+      return (origUpdateOne as any)(filter, update, ...rest)
+    }) as any)
+    try {
+      const summary = await runCheckoutSweep()
+      expect(summary.checked).toBe(2)
+      expect(summary.errors).toBe(1)
+      expect(summary.finalized).toBe(1)
+      expect(summary.refunded).toBe(0)
+      expect((await Booking.findById(broken.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+      expect((await Booking.findById(broken.booking._id).lean())?.reconciliationStatus).toBeUndefined()
+      const healthyBooking = await Booking.findById(healthy.booking._id).lean()
+      expect(healthyBooking?.status).toBe(bookcarsTypes.BookingStatus.PaidInFull)
+      expect(await paymentsOf(healthy.booking._id)).toHaveLength(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('R6-09 two concurrent manual retries on a still-blocked hold notify exactly once', async () => {
+    const fixture = await makeFixture('r609-race', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r609-random-${rand()}`, paymentIntentId: 'pi_r609_race', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r609_race', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r609_race' })
+    // Both retries load the pre-extension document (past expireAt),
+    // so both see a fresh defuse — only the conditional extension
+    // decides the winner. Pre-fix both re-notified + re-extended.
+    const now = new Date()
+    const firstLoad = await Booking.findById(fixture.booking._id).lean()
+    const secondLoad = await Booking.findById(fixture.booking._id).lean()
+    mailSendMock.mockClear()
+    const [first, second] = await Promise.all([
+      reconcileOneVoidBooking(firstLoad, now, new Set<string>()),
+      reconcileOneVoidBooking(secondLoad, now, new Set<string>()),
+    ])
+    expect(first.outcome).toBe('held')
+    expect(second.outcome).toBe('held')
+    const notes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(notes).toHaveLength(1)
+    const mail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mail).toHaveLength(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    const expireAt = new Date(booking?.expireAt as unknown as Date).getTime()
+    expect(Math.abs(expireAt - (now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000))).toBeLessThan(60_000)
+  })
+
+  it('R6-10 (a) a redelivered webhook after a mismatch refund returns not-paid, does not refund again', async () => {
+    const fixture = await makeFixture('r610-redeliver', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r610_redeliver', 'MAD', 99900)
+    // The intent carries a charge: the first sweep refunds it, the
+    // charge then shows refunded, and the redelivery must see that
+    // instead of issuing a second refund under the orphan key.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r610_redeliver', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 99900,
+      latest_charge: 'ch_r610_redeliver',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r610_redeliver', refunded: false, amount_refunded: 0 })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r610_redeliver' })
+    const first = await runCheckoutSweep()
+    expect(first.checked).toBe(1)
+    expect(first.refunded).toBe(1)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+
+    // The mismatch refund landed; the charge now shows refunded.
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r610_redeliver', refunded: true, amount_refunded: 99900 })
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(1)
+    expect(second.notPaid).toBe(1)
+    expect(second.refunded).toBe(0)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-10 (b) a dashboard refund between the pre-finalise check and the finalise-fail refund yields refunded, not refund-failed', async () => {
+    // The Rental snapshot is inconsistent (amountDueNow 900 <
+    // rentalTotal 1000), so finalisation throws before any leg posts
+    // (R6-12) and the finalise-fail refund runs — by then the
+    // dashboard has already refunded the charge, so Stripe raises
+    // already-refunded on the create.
+    const fixture = await makeFixture('r610-dashboard', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 900 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r610_dashboard', 'MAD', 90000)
+    stripeRefundCreate.mockRejectedValue(Object.assign(new Error('Charge ch_r610_dashboard has already been refunded'), { code: 'charge_already_refunded' }))
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.refunded).toBe(1)
+    expect(summary.errors).toBe(0)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-10 (c) a redelivered webhook for an orphan session whose charge is already refunded does not refund again or 500', async () => {
+    const goneBookingId = oid().toString()
+    // The intent carries a charge that already shows refunded (the
+    // mismatch refund landed before the booking TTL-deleted).
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r610_orphan_session', status: 'succeeded',
+      metadata: { bookingId: goneBookingId },
+      currency: 'MAD', amount_received: 125000,
+      latest_charge: 'ch_r610_orphan_session',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r610_orphan_session', refunded: true, amount_refunded: 125000 })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r610_orphan_session' })
+    const response = await postWebhookEvent('checkout.session.completed', {
+      id: `cs-f2-orphan-${rand()}`, payment_status: 'paid',
+      metadata: { bookingId: goneBookingId },
+      currency: 'mad', amount_total: 125000, payment_intent: 'pi_r610_orphan_session',
+    })
+    expect(response.status).toBe(200)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+  })
+
+  it('R6-10 (d) same for the orphan intent path: an already-refunded charge is reported, not refunded again', async () => {
+    const goneBookingId = oid().toString()
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r610_orphan_intent', refunded: true, amount_refunded: 100000 })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r610_orphan_intent' })
+    const response = await postWebhookEvent('payment_intent.succeeded', {
+      id: 'pi_r610_orphan_intent', status: 'succeeded',
+      metadata: { bookingId: goneBookingId },
+      currency: 'MAD', amount_received: 100000,
+      latest_charge: 'ch_r610_orphan_intent',
+    })
+    expect(response.status).toBe(200)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+  })
+
+  it('R6-11 a failed receivable read on an expired pay-later hold defuses it instead of stranding it to TTL deletion', async () => {
+    const fixture = await makeFixture('r611-receivable', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: fixture.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    // Corrupt the snapshot currency: getContractReceivable throws
+    // `Unsupported currency INVALID` on the read (verified against
+    // Node ICU: 'INVALID' is not a currency code). Pre-fix the catch
+    // only logged and the hold was left with a past expireAt for the
+    // TTL to delete ~70 min later, paid or not.
+    await Booking.updateOne({ _id: fixture.booking._id }, { $set: { 'financialSnapshot.baseCurrency': 'INVALID' } })
+    mailSendMock.mockClear()
+    const summary = await runCheckoutSweep()
+    expect(summary.expiredHolds).toBe(0)
+    expect(summary.held).toBe(1)
+    expect(summary.errors).toBe(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(booking?.reconciliationStatus).toBe('provider-error')
+    expect(new Date(booking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+    const notes = await Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(notes).toHaveLength(1)
+    const mail = mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mail).toHaveLength(1)
+    // A second sweep sees nothing: the hold is out of the expired
+    // query until the review window lapses — it is not voided and
+    // not left for the TTL.
+    const second = await runCheckoutSweep()
+    expect(second.expiredHolds).toBe(0)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+  })
+
+  it('R6-12 (a) a Rental snapshot short on rent does NOT confirm: finalise fails, the payment is refunded, the booking stays Void', async () => {
+    // amountDueNow 900 < rentalTotal 1000. Pre-fix the rent leg
+    // posted short (900) and the booking flipped to Paid with 100
+    // of rent still owed and no hold, refund, or alert.
+    const fixture = await makeFixture('r612-short', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 900 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r612_short', 'MAD', 90000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r612_short' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.refunded).toBe(1)
+    expect(summary.finalized).toBe(0)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-12 (b) a Rental snapshot over on rent behaves the same: the throw happens before any leg posts', async () => {
+    const fixture = await makeFixture('r612-over', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1100 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r612_over', 'MAD', 110000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r612_over' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.refunded).toBe(1)
+    expect(summary.finalized).toBe(0)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
   })
 

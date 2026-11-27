@@ -534,6 +534,16 @@ const splitProviderCheckoutAmounts = (snapshot: bookcarsTypes.BookingFinancialSn
     }
     return { rent: rentalTotal, deposit: amountDueNow - rentalTotal }
   }
+  // R6-12 — Rental pays the rent in full: require equality within
+  // rounding (0.01), mirroring the Deposit/Full guards above. The
+  // fall-through used to return any amountDueNow unchecked: a short
+  // snapshot posted a short rent leg and flipped the booking to Paid
+  // with rent still owed and no hold, refund, or alert. The throw
+  // happens before any leg posts, so an inconsistent snapshot
+  // refunds/holds instead of confirming short.
+  if (Math.abs(amountDueNow - rentalTotal) > 0.01) {
+    throw new Error('Snapshot amountDueNow does not equal the rental total in Rental mode')
+  }
   return { rent: amountDueNow, deposit: 0 }
 }
 

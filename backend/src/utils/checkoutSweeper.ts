@@ -38,7 +38,9 @@ import type { CheckoutReconcileOutcome } from './checkoutReconciliation'
  *   sweeping early could refund a payment that is about to finalise.
  * - One booking's failure never aborts the sweep: each booking is
  *   reconciled inside its own try/catch and counted, so a provider
- *   outage on one booking does not block the rest.
+ *   outage on one booking does not block the rest (R6-08 — the
+ *   per-booking try/catch in runCheckoutSweep; the header claim was
+ *   false before it for throws escaping reconcileOneVoidBooking).
  * - Idempotent and safe to run repeatedly: finalisation requires
  *   `status: Void` and every ledger posting / refund carries a stable
  *   idempotency key (see checkoutReconciliation), so a second tick
@@ -122,11 +124,46 @@ const stampHoldReason = async (
   bookingId: mongoose.Types.ObjectId,
   status: 'held' | 'refund-failed' | 'provider-error',
   detail?: string,
+  // R6-11 — the expired-holds loop defuses Pending holds; the stamp
+  // guard must match their status, not Void. Defaults to Void (the
+  // three reconcileOneVoidBooking defuse branches).
+  expectedStatus: bookcarsTypes.BookingStatus = bookcarsTypes.BookingStatus.Void,
 ): Promise<void> => {
   await Booking.updateOne(
-    { _id: bookingId, status: bookcarsTypes.BookingStatus.Void },
+    { _id: bookingId, status: expectedStatus },
     { $set: { reconciliationStatus: status, holdDetail: (detail || '').slice(0, 1000) } },
   )
+}
+
+/**
+ * R6-07 — a side-effect write failing is NOT a provider failure.
+ * The refunded arm retries the write once, then throws this distinct
+ * error: the money was refunded, but the TTL-clear did not land, so
+ * the booking re-surfaces on the next tick as not-paid (the R5-01
+ * check) and the clear is retried there. The caller counts the throw
+ * as `errors`, never as a provider error. Other arms log-and-continue
+ * instead (their outcomes stand; the next tick re-selects the booking
+ * — its expireAt is still past — and retries the side effect).
+ */
+class SweepSideEffectError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SweepSideEffectError'
+  }
+}
+
+const runSideEffect = async (label: string, fn: () => Promise<void>): Promise<void> => {
+  try {
+    await fn()
+  } catch (err) {
+    logger.error(`[checkoutSweeper] Side-effect write failed (${label}); retrying once`, err)
+    try {
+      await fn()
+    } catch (retryErr) {
+      logger.error(`[checkoutSweeper] Side-effect write failed again (${label})`, retryErr)
+      throw new SweepSideEffectError(`Side-effect write failed (${label}): ${retryErr instanceof Error ? retryErr.message : 'unknown error'}`)
+    }
+  }
 }
 
 export const reconcileOneVoidBooking = async (
@@ -143,9 +180,15 @@ export const reconcileOneVoidBooking = async (
   now: Date = new Date(),
   heldThisPass: Set<string> = new Set<string>(),
 ): Promise<{ outcome: VoidReconcileOutcome, detail?: string }> => {
+  // R6-07 — the try below covers ONLY the provider lookup +
+  // reconcile. The side-effect writes run after it, each in its own
+  // guard, so a transient DB error in a write is never misread as a
+  // provider failure (no provider-error stamp, no +7d extension, no
+  // notify). A side-effect failure in the refunded arm throws a
+  // distinct SweepSideEffectError the caller counts as `errors`.
+  let outcome: CheckoutReconcileOutcome
+  let outcomeDetail: string | undefined
   try {
-    let outcome: CheckoutReconcileOutcome
-    let outcomeDetail: string | undefined
     if (booking.paypalOrderId) {
       // PayPal bookings carry a random (non-Stripe) sessionId, so the
       // order id is the only provider reference that can be checked.
@@ -173,119 +216,6 @@ export const reconcileOneVoidBooking = async (
       logger.info(`[checkoutSweeper] Booking ${booking._id} has no retrievable provider reference; skipping`)
       return { outcome: 'skipped' }
     }
-    if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
-      // R5-05 - clear the hold stamp when the hold resolves. No status
-      // guard on the finalised arms, on purpose: finalisation already
-      // flipped the booking to Paid before this arm runs, so a
-      // `status: Void` guard could never match. The $unset touches
-      // only the sweeper's own two fields.
-      if (outcome === 'finalized' || outcome === 'already-finalized') {
-        await Booking.updateOne(
-          { _id: booking._id },
-          { $unset: { reconciliationStatus: '', holdDetail: '' } },
-        )
-      }
-      if (outcome === 'refunded') {
-        // R5-01 - a refunded booking must not keep reserving the car
-        // for the remainder of a review window it no longer needs, so
-        // the hold extension is cleared - but NOT to null: null
-        // matches the sweep query's $lte (null sorts before every
-        // date) and is invisible to the TTL index, so a refunded
-        // booking was re-swept every 15 minutes forever and never
-        // TTL-deleted. Setting it to `now` frees the car immediately
-        // (reservesCar only counts an unexpired hold) and lets the
-        // TTL clean the record up ~70 min later, as before R4-01.
-        // No time filter on the update: the sweep only selects
-        // bookings whose expireAt already passed, so a $gt: now
-        // filter could never match and the clear would never fire.
-        // The status guard is the concurrency protection (a booking
-        // finalised concurrently is not touched).
-        await Booking.updateOne(
-          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          // R5-05 - the refunded arm keeps its Void guard (a refunded
-          // booking is still Void) and clears the hold stamp with it.
-          { $set: { expireAt: now }, $unset: { reconciliationStatus: '', holdDetail: '' } },
-        )
-      }
-      logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
-    } else if (outcome === 'held') {
-      // R3-13 — first sight per process is an error; repeats are
-      // a warn (the hold re-fires once per review window).
-      const holdKey = `reconcile:${booking._id.toString()}`
-      heldThisPass.add(holdKey)
-      if (heldAlreadyLogged.has(holdKey)) {
-        logger.warn(`[checkoutSweeper] Booking ${booking._id} still held for manual review: paid but unfinalisable (confirm conflict)`)
-      } else {
-        heldAlreadyLogged.add(holdKey)
-        logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
-      }
-      // R3-01 — defuse the TTL on the same pass: a held Void booking
-      // keeps its past `expireAt`, so the TTL index would delete it
-      // ~70 min after expiry (BOOKING_EXPIRE_AT) and orphan the
-      // provider payment. Extending drops the booking out of both
-      // sweep queries until the new deadline, so the 15-minute
-      // finalisation retry becomes a per-review-window retry; a
-      // still-blocked booking is re-held (and re-extended) then.
-      // A successful retry clears `expireAt` (refresh path), so the
-      // extension never blocks confirmation. The status guard means
-      // a booking finalised concurrently does not get its `expireAt`
-      // moved. A Void hold is served in the paid-unconfirmed queue
-      // with a retry button (R4-02 / R3-01 follow-on); the hold
-      // notification below is the alert that it is there.
-      // R5-05 - stamp the hold reason on every defuse (fresh or
-      // not; see stampHoldReason). The detail is the confirm-conflict
-      // detail from the reconcile.
-      await stampHoldReason(booking._id, 'held', outcomeDetail)
-      // R5-03 - only re-extend + notify on a fresh defuse: a manual
-      // retry inside a live review window returns the outcome with
-      // no second notification round and no moved deadline.
-      if (isFreshDefuse(booking, now)) {
-        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-        const extended = await Booking.updateOne(
-          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          { $set: { expireAt: reviewUntil } },
-        )
-        if (extended.modifiedCount > 0) {
-          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
-          await notifyHeldForReview(booking, reviewUntil)
-        }
-      }
-    } else if (outcome === 'refund-failed') {
-      // R4-01 - same TTL defuse as held: a Void booking with a failed
-      // refund keeps its past `expireAt`, so the TTL index would delete it
-      // ~70 min after expiry and orphan the provider payment with no record
-      // and no refund trigger. Extend to the review window and notify, so a
-      // still-failed refund is re-held (and re-notified) each window like held.
-      // R5-06 - same first-sight/warn de-noise as the held branch
-      // (R3-13): a `refund-failed:<id>` key in the module-level set,
-      // added to heldThisPass so the prune keeps it across sweeps.
-      const refundFailedKey = `refund-failed:${booking._id.toString()}`
-      heldThisPass.add(refundFailedKey)
-      if (heldAlreadyLogged.has(refundFailedKey)) {
-        logger.warn(`[checkoutSweeper] Booking ${booking._id} still needs manual review: provider refund failed`)
-      } else {
-        heldAlreadyLogged.add(refundFailedKey)
-        logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
-      }
-      // R5-05 - stamp the hold reason on every defuse (fresh or
-      // not; see stampHoldReason). The detail is the reconcile detail.
-      await stampHoldReason(booking._id, 'refund-failed', outcomeDetail)
-      // R5-03 - only re-extend + notify on a fresh defuse (same rule
-      // as held): a manual retry inside a live window changes nothing.
-      if (isFreshDefuse(booking, now)) {
-        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-        const extended = await Booking.updateOne(
-          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          { $set: { expireAt: reviewUntil } },
-        )
-        if (extended.modifiedCount > 0) {
-          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
-          await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
-        }
-      }
-    }
-    // 'not-paid' / 'no-booking': no side effect; the TTL owns cleanup.
-    return { outcome, detail: outcomeDetail }
   } catch (err) {
     // R4-03 - a provider lookup failure is NOT "still inside its TTL
     // window": the booking entered this loop because its expireAt
@@ -306,7 +236,14 @@ export const reconcileOneVoidBooking = async (
     // R5-05 - stamp the hold reason on every defuse (fresh or
     // not; see stampHoldReason). The detail is the provider error
     // message, truncated by the helper.
-    await stampHoldReason(booking._id, 'provider-error', detail)
+    // R6-07 — the stamp is a side-effect write: guard it, so a
+    // failing stamp does not escape this catch (R6-08 is the
+    // backstop, but the defuse must still return its outcome).
+    try {
+      await stampHoldReason(booking._id, 'provider-error', detail)
+    } catch (stampErr) {
+      logger.error(`[checkoutSweeper] Hold-reason stamp failed for booking ${booking._id} (provider-error defuse)`, stampErr)
+    }
     // R5-03 - only re-extend + notify on a fresh defuse (same rule
     // as held / refund-failed): a manual retry inside a live review
     // window changes nothing about the deadline and sends no second
@@ -314,19 +251,186 @@ export const reconcileOneVoidBooking = async (
     // booking is preserved for manual review.
     if (isFreshDefuse(booking, now)) {
       const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-      const preserved = await Booking.updateOne(
-        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-        { $set: { expireAt: reviewUntil } },
-      )
+      // R6-09 — the extension is conditional on the deadline still
+      // being past: a concurrent retry that already extended wins,
+      // and this one sees modifiedCount 0 (skipped, no second
+      // notification round).
+      let preserved: { modifiedCount: number } | undefined
+      try {
+        preserved = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void, expireAt: { $lte: now } },
+          { $set: { expireAt: reviewUntil } },
+        )
+      } catch (updateErr) {
+        logger.error(`[checkoutSweeper] Provider-error defuse extension failed for booking ${booking._id}`, updateErr)
+        return { outcome: 'provider-error', detail }
+      }
       if (preserved.modifiedCount > 0) {
         logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
-        await notifyProviderUnreachable(booking, reviewUntil, detail)
+        // R6-07 — guard the notify await as well: the notifiers
+        // already catch internally, this is the backstop.
+        try {
+          await notifyProviderUnreachable(booking, reviewUntil, detail)
+        } catch (notifyErr) {
+          logger.error(`[checkoutSweeper] Provider-unreachable notice failed for booking ${booking._id}`, notifyErr)
+        }
         return { outcome: 'provider-error', detail }
       }
       return { outcome: 'skipped', detail }
     }
     return { outcome: 'provider-error', detail }
   }
+  if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
+    // R5-05 - clear the hold stamp when the hold resolves. No status
+    // guard on the finalised arms, on purpose: finalisation already
+    // flipped the booking to Paid before this arm runs, so a
+    // `status: Void` guard could never match. The $unset touches
+    // only the sweeper's own two fields.
+    if (outcome === 'finalized' || outcome === 'already-finalized') {
+      // R6-07 — the stamp clear is a side-effect write: a failure
+      // logs, it never becomes a provider-error.
+      try {
+        await Booking.updateOne(
+          { _id: booking._id },
+          { $unset: { reconciliationStatus: '', holdDetail: '' } },
+        )
+      } catch (clearErr) {
+        logger.error(`[checkoutSweeper] Hold-stamp clear failed for booking ${booking._id} (${outcome})`, clearErr)
+      }
+    }
+    if (outcome === 'refunded') {
+      // R5-01 - a refunded booking must not keep reserving the car
+      // for the remainder of a review window it no longer needs, so
+      // the hold extension is cleared - but NOT to null: null
+      // matches the sweep query's $lte (null sorts before every
+      // date) and is invisible to the TTL index, so a refunded
+      // booking was re-swept every 15 minutes forever and never
+      // TTL-deleted. Setting it to `now` frees the car immediately
+      // (reservesCar only counts an unexpired hold) and lets the
+      // TTL clean the record up ~70 min later, as before R4-01.
+      // No time filter on the update: the sweep only selects
+      // bookings whose expireAt already passed, so a $gt: now
+      // filter could never match and the clear would never fire.
+      // The status guard is the concurrency protection (a booking
+      // finalised concurrently is not touched).
+      // R6-07 — the refunded arm retries the clear once, then
+      // throws a distinct SweepSideEffectError: the money was
+      // refunded, but the clear did not land, so the booking
+      // re-surfaces on the next tick as not-paid (R5-01 check) and
+      // the clear is retried there. The caller counts the throw as
+      // `errors`, never as a provider error.
+      await runSideEffect(`refunded expireAt clear for booking ${booking._id}`, async () => {
+        await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+          // R5-05 - the refunded arm keeps its Void guard (a refunded
+          // booking is still Void) and clears the hold stamp with it.
+          { $set: { expireAt: now }, $unset: { reconciliationStatus: '', holdDetail: '' } },
+        )
+      })
+    }
+    logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
+  } else if (outcome === 'held') {
+    // R3-13 — first sight per process is an error; repeats are
+    // a warn (the hold re-fires once per review window).
+    const holdKey = `reconcile:${booking._id.toString()}`
+    heldThisPass.add(holdKey)
+    if (heldAlreadyLogged.has(holdKey)) {
+      logger.warn(`[checkoutSweeper] Booking ${booking._id} still held for manual review: paid but unfinalisable (confirm conflict)`)
+    } else {
+      heldAlreadyLogged.add(holdKey)
+      logger.error(`[checkoutSweeper] Booking ${booking._id} held for manual review: paid but unfinalisable (confirm conflict)`)
+    }
+    // R3-01 — defuse the TTL on the same pass: a held Void booking
+    // keeps its past `expireAt`, so the TTL index would delete it
+    // ~70 min after expiry (BOOKING_EXPIRE_AT) and orphan the
+    // provider payment. Extending drops the booking out of both
+    // sweep queries until the new deadline, so the 15-minute
+    // finalisation retry becomes a per-review-window retry; a
+    // still-blocked booking is re-held (and re-extended) then.
+    // A successful retry clears `expireAt` (refresh path), so the
+    // extension never blocks confirmation. The status guard means
+    // a booking finalised concurrently does not get its `expireAt`
+    // moved. A Void hold is served in the paid-unconfirmed queue
+    // with a retry button (R4-02 / R3-01 follow-on); the hold
+    // notification below is the alert that it is there.
+    // R5-05 - stamp the hold reason on every defuse (fresh or
+    // not; see stampHoldReason). The detail is the confirm-conflict
+    // detail from the reconcile.
+    // R6-07 — guarded: a stamp failure logs, the outcome stands.
+    try {
+      await stampHoldReason(booking._id, 'held', outcomeDetail)
+    } catch (stampErr) {
+      logger.error(`[checkoutSweeper] Hold-reason stamp failed for booking ${booking._id} (held defuse)`, stampErr)
+    }
+    // R5-03 - only re-extend + notify on a fresh defuse: a manual
+    // retry inside a live review window returns the outcome with
+    // no second notification round and no moved deadline.
+    if (isFreshDefuse(booking, now)) {
+      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+      // R6-09 — conditional extension (see provider-error branch).
+      let extended: { modifiedCount: number } | undefined
+      try {
+        extended = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void, expireAt: { $lte: now } },
+          { $set: { expireAt: reviewUntil } },
+        )
+      } catch (updateErr) {
+        logger.error(`[checkoutSweeper] Held defuse extension failed for booking ${booking._id}`, updateErr)
+        extended = undefined
+      }
+      if (extended && extended.modifiedCount > 0) {
+        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
+        await notifyHeldForReview(booking, reviewUntil)
+      }
+    }
+  } else if (outcome === 'refund-failed') {
+    // R4-01 - same TTL defuse as held: a Void booking with a failed
+    // refund keeps its past `expireAt`, so the TTL index would delete it
+    // ~70 min after expiry and orphan the provider payment with no record
+    // and no refund trigger. Extend to the review window and notify, so a
+    // still-failed refund is re-held (and re-notified) each window like held.
+    // R5-06 - same first-sight/warn de-noise as the held branch
+    // (R3-13): a `refund-failed:<id>` key in the module-level set,
+    // added to heldThisPass so the prune keeps it across sweeps.
+    const refundFailedKey = `refund-failed:${booking._id.toString()}`
+    heldThisPass.add(refundFailedKey)
+    if (heldAlreadyLogged.has(refundFailedKey)) {
+      logger.warn(`[checkoutSweeper] Booking ${booking._id} still needs manual review: provider refund failed`)
+    } else {
+      heldAlreadyLogged.add(refundFailedKey)
+      logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
+    }
+    // R5-05 - stamp the hold reason on every defuse (fresh or
+    // not; see stampHoldReason). The detail is the reconcile detail.
+    // R6-07 — guarded: a stamp failure logs, the outcome stands.
+    try {
+      await stampHoldReason(booking._id, 'refund-failed', outcomeDetail)
+    } catch (stampErr) {
+      logger.error(`[checkoutSweeper] Hold-reason stamp failed for booking ${booking._id} (refund-failed defuse)`, stampErr)
+    }
+    // R5-03 - only re-extend + notify on a fresh defuse (same rule
+    // as held): a manual retry inside a live window changes nothing.
+    if (isFreshDefuse(booking, now)) {
+      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+      // R6-09 — conditional extension (see provider-error branch).
+      let extended: { modifiedCount: number } | undefined
+      try {
+        extended = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void, expireAt: { $lte: now } },
+          { $set: { expireAt: reviewUntil } },
+        )
+      } catch (updateErr) {
+        logger.error(`[checkoutSweeper] Refund-failed defuse extension failed for booking ${booking._id}`, updateErr)
+        extended = undefined
+      }
+      if (extended && extended.modifiedCount > 0) {
+        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
+        await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
+      }
+    }
+  }
+  // 'not-paid' / 'no-booking': no side effect; the TTL owns cleanup.
+  return { outcome, detail: outcomeDetail }
 }
 
 export const runCheckoutSweep = async (now: Date = new Date()): Promise<CheckoutSweepSummary> => {
@@ -357,23 +461,33 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
     }).select('_id sessionId paymentIntentId paypalOrderId supplier reference financialSnapshot expireAt')
     for (const booking of bookings) {
       summary.checked += 1
-      const { outcome } = await reconcileOneVoidBooking(booking, now, heldThisPass)
-      if (outcome === 'finalized') {
-        summary.finalized += 1
-      } else if (outcome === 'already-finalized') {
-        summary.alreadyFinalized += 1
-      } else if (outcome === 'refunded') {
-        summary.refunded += 1
-      } else if (outcome === 'held') {
-        summary.held += 1
-      } else if (outcome === 'not-paid' || outcome === 'no-booking') {
-        summary.notPaid += 1
-      } else if (outcome === 'refund-failed') {
+      // R6-08 — one booking's throw never aborts the sweep: a throw
+      // escaping reconcileOneVoidBooking (e.g. the refunded arm's
+      // SweepSideEffectError, R6-07) is counted as `errors` and the
+      // loop continues with the next booking. The outer catch below
+      // stays as the backstop for the sweep query itself.
+      try {
+        const { outcome } = await reconcileOneVoidBooking(booking, now, heldThisPass)
+        if (outcome === 'finalized') {
+          summary.finalized += 1
+        } else if (outcome === 'already-finalized') {
+          summary.alreadyFinalized += 1
+        } else if (outcome === 'refunded') {
+          summary.refunded += 1
+        } else if (outcome === 'held') {
+          summary.held += 1
+        } else if (outcome === 'not-paid' || outcome === 'no-booking') {
+          summary.notPaid += 1
+        } else if (outcome === 'refund-failed') {
+          summary.errors += 1
+        } else if (outcome === 'skipped') {
+          summary.skipped += 1
+        } else if (outcome === 'provider-error') {
+          summary.providerErrors += 1
+        }
+      } catch (err) {
+        logger.error(`[checkoutSweeper] Booking ${booking._id} failed during reconcile; continuing sweep`, err)
         summary.errors += 1
-      } else if (outcome === 'skipped') {
-        summary.skipped += 1
-      } else if (outcome === 'provider-error') {
-        summary.providerErrors += 1
       }
     }
   } catch (err) {
@@ -430,8 +544,11 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
           // The held row surfaces in the paid-unconfirmed filter; the
           // notification below is the alert that it is there.
           const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+          // R6-09 — conditional extension, same rule as the
+          // reconcile defuse branches: a concurrent retry that
+          // already extended wins, and this one notifies nothing.
           const extended = await Booking.updateOne(
-            { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending },
+            { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending, expireAt: { $lte: now } },
             { $set: { expireAt: reviewUntil } },
           )
           if (extended.modifiedCount > 0) {
@@ -451,8 +568,40 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         logger.info(`[checkoutSweeper] Pay-later hold expired, booking ${hold._id} voided`)
         await notifyHoldExpired(hold)
       } catch (err) {
-        logger.error(`[checkoutSweeper] Failed to void expired pay-later hold ${hold._id}`, err)
+        // R6-11 — a failed receivable read must defuse like R4-03,
+        // not strand the hold: without this the booking is neither
+        // voided nor held, its past expireAt stays, and the TTL
+        // deletes a possibly fully-paid hold ~70 min later with no
+        // notice. Extend to the review window, stamp provider-error,
+        // notify once per window (the extension drops it out of
+        // this query until the deadline, like the held branch).
+        // The read failed, so the hold is counted under both
+        // `errors` (the failure) and `held` (it is preserved).
+        const detail = err instanceof Error ? err.message : 'Receivable read failed'
+        const holdKey = `expired-provider-error:${hold._id.toString()}`
+        heldThisPass.add(holdKey)
+        if (heldAlreadyLogged.has(holdKey)) {
+          logger.warn(`[checkoutSweeper] Booking ${hold._id} still held for manual review: receivable read failed`)
+        } else {
+          heldAlreadyLogged.add(holdKey)
+          logger.error(`[checkoutSweeper] Booking ${hold._id} held for manual review: receivable read failed (${detail})`)
+        }
         summary.errors += 1
+        summary.held += 1
+        try {
+          await stampHoldReason(hold._id, 'provider-error', detail, bookcarsTypes.BookingStatus.Pending)
+          const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+          const extended = await Booking.updateOne(
+            { _id: hold._id, status: bookcarsTypes.BookingStatus.Pending, expireAt: { $lte: now } },
+            { $set: { expireAt: reviewUntil } },
+          )
+          if (extended.modifiedCount > 0) {
+            logger.info(`[checkoutSweeper] Booking ${hold._id} held for manual review until ${reviewUntil.toISOString()} (receivable read failed)`)
+            await notifyProviderUnreachable(hold, reviewUntil, detail)
+          }
+        } catch (defuseErr) {
+          logger.error(`[checkoutSweeper] Receivable-failure defuse failed for booking ${hold._id}`, defuseErr)
+        }
       }
     }
   } catch (err) {

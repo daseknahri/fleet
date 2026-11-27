@@ -25,11 +25,23 @@ import { currencyExponent, formatProviderAmount, toMinorUnits } from './paymentA
  *   (same attribution rules, same ledger posting, same idempotency keys);
  * - a booking that already finalised (browser beat the webhook, or a
  *   redelivered event) is `already-finalized`, never finalised twice;
- * - a refunded payment is never refunded twice through a different key:
- *   every refund below reuses the key the browser path uses for the same
- *   situation (`orphan-session-`, `orphan-booking-`, `booking-unavailable-`,
- *   `refund-<id>-mismatch`), so a provider-side idempotency replay
- *   returns the original refund instead of a second one;
+ *   R6-06 — only a PAID status counts: a booking staff moved to
+ *   Cancelled or Pending is not finalised, it falls through to the
+ *   refund path (a Reserved booking never finalised through any
+ *   provider path either — see isPaidStatus).
+ * - a refunded payment is never refunded twice: every refund below
+ *   first checks the already-refunded state (R6-10) and treats an
+ *   already-refunded error from Stripe as `refunded`, never `failed`.
+ *   The per-situation keys (`orphan-session-`, `orphan-booking-`,
+ *   `booking-unavailable-`, `refund-<id>-mismatch`) are deliberately
+ *   NOT converged to one key per intent: the browser return paths
+ *   (stripeController, bookingController.confirmPaymentIntent) refund
+ *   under those same keys, so a shared key is what makes a provider
+ *   replay return the original refund instead of a second attempt —
+ *   converging the reconcile keys would desync them from the browser
+ *   paths. The check + error handling give the same guarantees the
+ *   converged key was meant to give (no second refund, no 500, no
+ *   refund-failed for money already returned).
  * - reconciliation NEVER deletes a booking. The browser paths delete an
  *   unpaid temp booking; a background job must not race the customer's
  *   in-flight return. TTL expiry owns cleanup.
@@ -67,6 +79,22 @@ export interface CheckoutReconcileResult {
 }
 
 /**
+ * R6-10 — Stripe raises when a refund is attempted on an
+ * already-refunded charge (`charge_already_refunded`, or a message
+ * saying the charge was already refunded). That is not a failed
+ * refund: the money is already back with the customer. Callers treat
+ * it as `refunded`, never as `failed` — a dashboard refund landing
+ * between the pre-finalise check and the refund call must not turn
+ * into a held booking + alarming notification for money already
+ * returned.
+ */
+const isAlreadyRefundedError = (err: unknown): boolean => {
+  const code = (err as { code?: unknown })?.code
+  const message = err instanceof Error ? err.message : String(err || '')
+  return code === 'charge_already_refunded' || /already refunded/i.test(message)
+}
+
+/**
  * F1 / W4 GAP-05 — refund a succeeded PaymentIntent. Returns `'refunded'`
  * when the money was returned, `'not-paid'` when the intent never
  * succeeded (so there is nothing to refund), and `'failed'` when the
@@ -98,6 +126,12 @@ export const refundSucceededIntent = async (
     )
     return 'refunded'
   } catch (err) {
+    // R6-10 — already refunded (e.g. a dashboard refund between the
+    // pre-finalise check and this call) is a successful refund.
+    if (isAlreadyRefundedError(err)) {
+      logger.info(`[checkoutReconciliation] Refund for ${paymentIntentId} already completed (charge already refunded)`)
+      return 'refunded'
+    }
     logger.error(`[checkoutReconciliation] Mismatch refund failed for ${paymentIntentId}`, err)
     return 'failed'
   }
@@ -147,6 +181,31 @@ export const refundCompletedCapture = async (
  */
 const hasRealSnapshot = (booking: { financialSnapshot?: { rentalTotal?: unknown } }) =>
   !!booking.financialSnapshot && typeof booking.financialSnapshot.rentalTotal === 'number'
+
+/**
+ * R6-06 — only a paid status counts as already-finalised. A Void
+ * booking can be moved to Cancelled or Pending by the staff bulk
+ * status flip (`updateStatus` only blocks moving to/from a payment
+ * status), and reporting that as finalised would skip the refund the
+ * customer is owed. `Reserved` is deliberately NOT in this set: it
+ * is a legacy import-only status (create/update refuse to assign it,
+ * and imports never carry a provider reference), so a Reserved
+ * booking reaching reconcile never finalised through any provider
+ * path — it falls through to the refund path like any other
+ * non-paid status. Verified against live code before including:
+ * bookingController create (:150), update (:1832) and updateStatus
+ * (:2143) all refuse Reserved; ledger's Pending/Reserved upgrade leg
+ * is the refresh path, not reconcile finalisation (which requires
+ * status Void via saveBookingWithAvailability's expected-status
+ * guard).
+ */
+const PAID_STATUSES = [
+  bookcarsTypes.BookingStatus.Deposit,
+  bookcarsTypes.BookingStatus.Paid,
+  bookcarsTypes.BookingStatus.PaidInFull,
+] as const
+const isPaidStatus = (status: bookcarsTypes.BookingStatus): boolean =>
+  (PAID_STATUSES as readonly bookcarsTypes.BookingStatus[]).includes(status)
 
 
 /**
@@ -253,10 +312,14 @@ const finalizeOrRefund = async (
   if (finalized) {
     return { outcome: 'finalized', bookingId }
   }
+  // R6-06 — the re-check after a failed finalise is the same
+  // already-finalised rule as the early-returns below: only a paid
+  // status qualifies. Any other non-Void status (Cancelled, Pending,
+  // Reserved) falls through to the refund.
   const paidBooking = await Booking.findOne({
     _id: booking._id,
     ...(provider === 'stripe' ? { paymentIntentId: reference } : { paypalOrderId: reference }),
-    status: { $ne: bookcarsTypes.BookingStatus.Void },
+    status: { $in: PAID_STATUSES },
   })
   if (paidBooking) {
     return { outcome: 'already-finalized', bookingId }
@@ -296,10 +359,30 @@ export const reconcileStripeSession = async (
     if (session.payment_status === 'paid' && mongoose.isValidObjectId(bookingId) && paymentIntent) {
       const intent = await stripeAPI.paymentIntents.retrieve(paymentIntent)
       if (intent.status === 'succeeded' && intent.metadata.bookingId === bookingId) {
-        await stripeAPI.refunds.create(
-          { payment_intent: intent.id },
-          { idempotencyKey: `orphan-session-${intent.id}` },
-        )
+        // R6-10 — a redelivered webhook after a mismatch refund
+        // reaches this branch once the booking TTL-deleted: the
+        // charge is already refunded, so report it instead of
+        // issuing (and failing) a second refund. A throwing charge
+        // read propagates (R6-02): the webhook 500s for redelivery
+        // and the sweeper defuses as provider-error.
+        if (await isChargeRefunded(stripeAPI, intent)) {
+          logger.info(`[checkoutReconciliation] Orphan paid session ${session.id} already refunded (booking ${bookingId} not found)`)
+          return { outcome: 'refunded', bookingId, detail: 'Booking expired; the payment was already refunded' }
+        }
+        try {
+          await stripeAPI.refunds.create(
+            { payment_intent: intent.id },
+            { idempotencyKey: `orphan-session-${intent.id}` },
+          )
+        } catch (err) {
+          // R6-10 — a dashboard refund landing between the check
+          // and the create raises already-refunded: same answer.
+          if (isAlreadyRefundedError(err)) {
+            logger.info(`[checkoutReconciliation] Orphan paid session ${session.id} already refunded (booking ${bookingId} not found)`)
+            return { outcome: 'refunded', bookingId, detail: 'Booking expired; the payment was already refunded' }
+          }
+          throw err
+        }
         logger.info(`[checkoutReconciliation] Orphan paid session ${session.id} refunded (booking ${bookingId} not found)`)
         return { outcome: 'refunded', bookingId, detail: 'Booking expired; the payment was refunded' }
       }
@@ -308,7 +391,8 @@ export const reconcileStripeSession = async (
   }
 
   const bookingId = booking._id.toString()
-  if (booking.status !== bookcarsTypes.BookingStatus.Void) {
+  // R6-06 — only a paid status is already-finalised (see isPaidStatus).
+  if (isPaidStatus(booking.status)) {
     return { outcome: 'already-finalized', bookingId }
   }
   if (session.payment_status !== 'paid') {
@@ -427,10 +511,25 @@ export const reconcileStripeIntent = async (
   }
   if (!booking) {
     if (intent.status === 'succeeded' && metadataBookingId) {
-      await stripeAPI.refunds.create(
-        { payment_intent: intent.id },
-        { idempotencyKey: `orphan-booking-${intent.id}` },
-      )
+      // R6-10 — same already-refunded check as the orphan-session
+      // branch above (see the comment there): a redelivered event
+      // after a mismatch refund must not 500 on a second refund.
+      if (await isChargeRefunded(stripeAPI, intent)) {
+        logger.info(`[checkoutReconciliation] Orphan succeeded intent ${intent.id} already refunded (booking ${metadataBookingId} not found)`)
+        return { outcome: 'refunded', bookingId: metadataBookingId, detail: 'Booking expired; the payment was already refunded' }
+      }
+      try {
+        await stripeAPI.refunds.create(
+          { payment_intent: intent.id },
+          { idempotencyKey: `orphan-booking-${intent.id}` },
+        )
+      } catch (err) {
+        if (isAlreadyRefundedError(err)) {
+          logger.info(`[checkoutReconciliation] Orphan succeeded intent ${intent.id} already refunded (booking ${metadataBookingId} not found)`)
+          return { outcome: 'refunded', bookingId: metadataBookingId, detail: 'Booking expired; the payment was already refunded' }
+        }
+        throw err
+      }
       logger.info(`[checkoutReconciliation] Orphan succeeded intent ${intent.id} refunded (booking ${metadataBookingId} not found)`)
       return { outcome: 'refunded', bookingId: metadataBookingId, detail: 'Booking expired; the payment was refunded' }
     }
@@ -438,7 +537,8 @@ export const reconcileStripeIntent = async (
   }
 
   const bookingId = booking._id.toString()
-  if (booking.status !== bookcarsTypes.BookingStatus.Void) {
+  // R6-06 — only a paid status is already-finalised (see isPaidStatus).
+  if (isPaidStatus(booking.status)) {
     return { outcome: 'already-finalized', bookingId }
   }
   if (intent.status !== 'succeeded') {
@@ -567,7 +667,8 @@ export const reconcilePayPalOrder = async (
   }
 
   const bookingId = booking._id.toString()
-  if (booking.status !== bookcarsTypes.BookingStatus.Void) {
+  // R6-06 — only a paid status is already-finalised (see isPaidStatus).
+  if (isPaidStatus(booking.status)) {
     return { outcome: 'already-finalized', bookingId }
   }
   if (order.status !== 'COMPLETED') {
