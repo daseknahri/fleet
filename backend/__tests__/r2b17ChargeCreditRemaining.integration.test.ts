@@ -216,3 +216,72 @@ describe('R2-B17 \u2014 dashboard Charge credits', () => {
     }
   })
 })
+
+describe('R6-13 — Charge purpose cap in the payment dialog', () => {
+  // Own fixture: rent 1000 + APPROVED charge 500, rent paid 1000.
+  // Kept separate from the file-level bookings so the dashboard
+  // figures asserted above (contractAmount 2000, collected 1400,
+  // remaining 200) stay exact.
+  let bookingId: mongoose.Types.ObjectId
+  let chargeId: mongoose.Types.ObjectId
+
+  const postHttp = (body: Record<string, unknown>) =>
+    request(app).post('/api/rental-payments').set(env.X_ACCESS_TOKEN, adminToken).send({
+      date: new Date().toISOString(), currency: 'MAD',
+      method: bookcarsTypes.RentalPaymentMethod.Cash, ...body,
+    })
+  const purposeRemaining = (purpose: string) =>
+    request(app).get(`/api/rental-payments/bookings/${bookingId.toString()}/purpose-remaining`)
+      .query({ purpose }).set(env.X_ACCESS_TOKEN, adminToken)
+
+  beforeAll(async () => {
+    const booking = await makeBooking('r613', 1000)
+    bookingId = booking._id
+    await postPayment(bookingId, 1000, bookcarsTypes.RentalPaymentPurpose.Rent)
+    const charge = await ContractCharge.create({
+      supplier: supplier._id, booking: bookingId, type: bookcarsTypes.ContractChargeType.Damage,
+      reason: 'R6-13 test charge', amount: 500, currency: 'MAD', status: bookcarsTypes.ApprovalDecision.Approved,
+    } as any)
+    chargeId = charge._id
+  })
+
+  afterAll(async () => {
+    await RentalPayment.deleteMany({ booking: bookingId })
+    await ContractCharge.deleteOne({ _id: chargeId })
+    await Booking.deleteOne({ _id: bookingId })
+  })
+
+  it('the Charge cap is 500 before any Charge credit and a 500 Charge credit posts', async () => {
+    const before = await purposeRemaining(bookcarsTypes.RentalPaymentPurpose.Charge)
+    expect(before.status).toBe(200)
+    expect(before.body.remaining).toBe(500)
+    expect(before.body.recorded).toBe(0)
+    expect(before.body.cap).toBe(500)
+    const res = await postHttp({
+      booking: bookingId.toString(), amount: 500, purpose: bookcarsTypes.RentalPaymentPurpose.Charge,
+      idempotencyKey: 'r613-charge-500',
+    })
+    expect(res.status).toBe(201)
+    const after = await purposeRemaining(bookcarsTypes.RentalPaymentPurpose.Charge)
+    expect(after.body.remaining).toBe(0)
+    expect(after.body.recorded).toBe(500)
+  })
+
+  it('a Rent payment against the fully-paid rent is refused 400', async () => {
+    const res = await postHttp({
+      booking: bookingId.toString(), amount: 100, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      idempotencyKey: 'r613-rent-100',
+    })
+    expect(res.status).toBe(400)
+    expect(String(res.text)).toContain('Payment exceeds the remaining rental balance')
+  })
+
+  it('a Charge payment over the exhausted cap is refused 400', async () => {
+    const res = await postHttp({
+      booking: bookingId.toString(), amount: 1, purpose: bookcarsTypes.RentalPaymentPurpose.Charge,
+      idempotencyKey: 'r613-charge-1',
+    })
+    expect(res.status).toBe(400)
+    expect(String(res.text)).toContain('Payment exceeds the approved charge total')
+  })
+})

@@ -15,7 +15,7 @@ import * as helper from '../utils/helper'
 import * as logger from '../utils/logger'
 import { canDeleteOwnedTempFile } from '../utils/authorization'
 import { contentMatchesExtension } from '../utils/fileContent'
-import { BOOKING_RESERVATION_STATUSES } from '../utils/bookingReservationHelper'
+import { BOOKING_RESERVATION_STATUSES, reservationStatusOrExpr } from '../utils/bookingReservationHelper'
 import { deriveFleetStatus, emptyFleetStatusCounts, fleetStatusForList, isFleetStatus } from '../utils/fleetStatus'
 import { agencySupplierId, logAdminCrossAgencyAccess, logAdminResourceAccess } from '../utils/agencyAuthorization'
 import { defaultDeposit } from '../utils/depositDefaults'
@@ -2967,26 +2967,11 @@ export const getFrontendCars = async (req: Request, res: Response) => {
                           // no longer reserve the car (GAQ12B1, mirrors the
                           // enforcement helper's lifecycle exclusion).
                           { $not: { $in: ['$lifecycle', [bookcarsTypes.ContractLifecycle.Completed, bookcarsTypes.ContractLifecycle.Cancelled]] } },
-                          {
-                            $or: [
-                              { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
-                              {
-                                $and: [
-                                  { $eq: ['$status', bookcarsTypes.BookingStatus.Void] },
-                                  { $gt: ['$expireAt', new Date()] },
-                                ],
-                              },
-                              {
-                                // GAP-C1/M1 — an open pay-later hold
-                                // reserves the car in search, exactly as
-                                // in the enforcement helper.
-                                $and: [
-                                  { $eq: ['$status', bookcarsTypes.BookingStatus.Pending] },
-                                  { $gt: ['$expireAt', new Date()] },
-                                ],
-                              },
-                            ],
-                          },
+                          // R6-17 — the shared reservation predicate
+                          // (four legs, incl. the confirmed hold), so
+                          // search can never drift from the
+                          // enforcement helper again.
+                          reservationStatusOrExpr(new Date()),
                         ],
                       },
                     ]

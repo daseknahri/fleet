@@ -649,3 +649,57 @@ describe('GH-35 — in-app rows carry their subject (deep links)', () => {
     expect(rows[0].body).toMatch(/reminder #1/)
   })
 })
+
+describe('R6-18 — autoReminders day windows on the Casablanca wall day', () => {
+  // July 2026: Casablanca is UTC+1, so 00:30 local is 23:30Z the
+  // previous UTC day. A 23:30Z pickup/return belongs to the NEXT
+  // Casablanca wall day, not the UTC day of the timestamp.
+  it('a 00:30-local pickup is not a missed pickup at 01:00 local that day, and is one the day after', async () => {
+    const booking = await makeBooking('r618-missed', {
+      from: new Date('2026-07-05T23:30:00.000Z'), // Mon 2026-07-06 00:30 Casablanca
+      to: new Date('2026-07-07T23:30:00.000Z'), price: 300, deposit: 0,
+    })
+    // 01:00 local on the pickup day: the pickup has not been missed yet.
+    await runAutoReminderPass(new Date('2026-07-06T00:00:00.000Z'), { force: true })
+    expect((await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(booking._id), dedupeKey: `missed-pickup:${booking._id}:2026-07-06`, channel: 'inApp', status: 'sent' }))).toHaveLength(0)
+    // 01:00 local the day after: the missed-pickup chase fires.
+    await runAutoReminderPass(new Date('2026-07-07T00:00:00.000Z'), { force: true })
+    const rows = await deliveries({ templateKey: 'auto.missedPickup', subjectId: String(booking._id), dedupeKey: `missed-pickup:${booking._id}:2026-07-07`, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('a 00:30-local return is not overdue at 01:00 local that day, and is overdue the day after', async () => {
+    const booking = await makeBooking('r618-overdue', {
+      from: new Date('2026-07-05T09:00:00.000Z'),
+      to: new Date('2026-07-05T23:30:00.000Z'), // Mon 2026-07-06 00:30 Casablanca
+      price: 200, deposit: 0,
+    })
+    // 01:00 local on the return day: the return is still today.
+    await runAutoReminderPass(new Date('2026-07-06T00:00:00.000Z'), { force: true })
+    expect((await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: `overdue:${booking._id}:2026-W28`, channel: 'inApp', status: 'sent' }))).toHaveLength(0)
+    // 01:00 local the day after: the weekly overdue repeat fires.
+    await runAutoReminderPass(new Date('2026-07-07T00:00:00.000Z'), { force: true })
+    const rows = await deliveries({ templateKey: 'auto.overdue', subjectId: String(booking._id), dedupeKey: `overdue:${booking._id}:2026-W28`, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(rows[0].body).toMatch(/reminder #1/)
+  })
+
+  it('daysOverdue counts Casablanca wall days: 29 at 01:00 local, 30 the day after (escalation renders the figure)', async () => {
+    // The plain overdue template does not render `days`; the
+    // escalation template does ("ESCALATION — N days overdue"), so
+    // the 29/30 boundary is pinned through the escalation event.
+    const booking = await makeBooking('r618-escalate', {
+      from: new Date('2026-06-05T09:00:00.000Z'),
+      to: new Date('2026-06-06T23:30:00.000Z'), // Sun 2026-06-07 00:30 Casablanca
+      price: 200, deposit: 0,
+    })
+    // 01:00 local Mon 2026-07-06: 29 wall days overdue — no escalation.
+    await runAutoReminderPass(new Date('2026-07-06T00:00:00.000Z'), { force: true })
+    expect((await deliveries({ templateKey: 'auto.overdueEscalate', subjectId: String(booking._id), dedupeKey: `overdue-escalate:${booking._id}:2026-W28`, channel: 'inApp', status: 'sent' }))).toHaveLength(0)
+    // 01:00 local Tue 2026-07-07: 30 wall days overdue — escalates.
+    await runAutoReminderPass(new Date('2026-07-07T00:00:00.000Z'), { force: true })
+    const rows = await deliveries({ templateKey: 'auto.overdueEscalate', subjectId: String(booking._id), dedupeKey: `overdue-escalate:${booking._id}:2026-W28`, channel: 'inApp', status: 'sent' })
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+    expect(rows[0].body).toContain('30 days')
+  })
+})

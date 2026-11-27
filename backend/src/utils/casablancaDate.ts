@@ -51,6 +51,51 @@ export const casablancaDayBounds = (date: Date = new Date()): [Date, Date] => {
   return [start, casablancaDayStartForWall(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate())]
 }
 
+/** R6-18 — the [start, end) bounds of the Casablanca wall day N days
+ *  after (negative N: before) the wall day containing `date`. The
+ *  shift is on the wall calendar, never by 24 h chunks: across a DST
+ *  transition a wall day is 23/25 h, so `+ N * 86400000` would land
+ *  on the wrong wall date. The noon-UTC probe is always inside the
+ *  shifted wall day (12:00/13:00 local), so its bounds are the
+ *  shifted day's bounds. */
+export const casablancaDayBoundsShifted = (date: Date, days: number): [Date, Date] => {
+  const p = casablancaWallParts(date)
+  const shifted = new Date(Date.UTC(p.year, p.month - 1, p.day + days))
+  return casablancaDayBounds(new Date(shifted.getTime() + 12 * 3600 * 1000))
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/** R6-14 — parse a from/to query pair the way the report range does:
+ *  a date-only bound is a Casablanca wall day (from = true local
+ *  midnight, to = the last millisecond of that wall day); a full
+ *  datetime is taken as-is. `invalid` is true when a supplied bound
+ *  does not parse, so each caller keeps its own error. */
+export const parseDateRange = (fromRaw?: string, toRaw?: string): { from: Date | null, to: Date | null, invalid: boolean } => {
+  let invalid = false
+  const parse = (raw: string | undefined, isEnd: boolean): Date | null => {
+    if (!raw) {
+      return null
+    }
+    if (DATE_ONLY.test(raw)) {
+      const probe = new Date(`${raw}T12:00:00.000Z`)
+      if (Number.isNaN(probe.getTime())) {
+        invalid = true
+        return null
+      }
+      const [start, end] = casablancaDayBounds(probe)
+      return isEnd ? new Date(end.getTime() - 1) : start
+    }
+    const d = new Date(raw)
+    if (Number.isNaN(d.getTime())) {
+      invalid = true
+      return null
+    }
+    return d
+  }
+  return { from: parse(fromRaw, false), to: parse(toRaw, true), invalid }
+}
+
 /** R5-07 — the ISO week (Monday–Sunday) containing `date` on the
  *  Casablanca WALL calendar, as a half-open [start, end) pair of UTC
  *  instants: Monday 00:00 local to next Monday 00:00 local. Built from

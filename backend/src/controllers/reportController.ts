@@ -12,6 +12,7 @@ import MaintenanceSchedule from '../models/MaintenanceSchedule'
 import User from '../models/User'
 import ReportView from '../models/ReportView'
 import { getContractReceivable } from '../utils/contractReceivable'
+import { parseDateRange } from '../utils/casablancaDate'
 import { renderCarPdf } from '../utils/carPdf'
 import { agencySupplierId } from '../utils/agencyAuthorization'
 import * as logger from '../utils/logger'
@@ -56,7 +57,14 @@ import * as logger from '../utils/logger'
  *   booking counts in full in every period its [from,to] intersects
  *   (from < periodTo && to > periodFrom), excluding Void/Cancelled
  *   and unexpired checkout placeholders (expireAt set). No prorating.
- *   (v2026-11-25.1, R2-B18: the live-booking queries now apply this exclusion, so the numbers match this text.)
+ *   (v2026-11-25.1, R2-B18: the report queries apply this exclusion, so the numbers match this text.)
+ * - (R6-15) The COLLECTIONS / receivables / client-balance universe
+ *   is NOT the report universe above: it counts live pay-later holds
+ *   (Pending with expireAt set — a live booking with an outstanding
+ *   balance), excluding only Void/Cancelled placeholders by status.
+ *   The report period attribution above still excludes unexpired
+ *   placeholders (computePeriod keeps `expireAt: null`). Do not
+ *   "fix" either side to match the other without a user decision.
  * - expenses = Σ MaintenanceExpense.amount for the agency (and the
  *   car, when car-scoped) with expense `date` inside the period.
  * - net = collected − expenses (NEW metric `netCollected` for builder
@@ -219,9 +227,13 @@ const resolveRange = (query: Request['query']) => {
   const now = new Date()
   const fromRaw = typeof query.from === 'string' ? query.from : ''
   const toRaw = typeof query.to === 'string' ? query.to : ''
-  const from = DATE_ONLY.test(fromRaw) ? casablancaDayStart(fromRaw) : date(query.from, new Date(now.getFullYear(), now.getMonth(), 1))
-  const to = DATE_ONLY.test(toRaw) ? new Date(casablancaDayStart(toRaw).getTime() + 86400000 - 1) : date(query.to, now)
-  if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+  // R6-14 — the date-only bounds come from the shared parseDateRange
+  // (same Casablanca day-end convention as before); the defaults and
+  // the range check are unchanged.
+  const { from: parsedFrom, to: parsedTo, invalid } = parseDateRange(fromRaw || undefined, toRaw || undefined)
+  const from = parsedFrom ?? date(query.from, new Date(now.getFullYear(), now.getMonth(), 1))
+  const to = parsedTo ?? date(query.to, now)
+  if (invalid || !from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
     throw new Error('Invalid range')
   }
   return { from, to }

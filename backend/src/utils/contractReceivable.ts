@@ -255,8 +255,11 @@ export const syncBookingPaidInFull = async (
  * outstanding per booking = max(0, rentalTotal + approved charges
  * (same currency only) - posted rent payments (debits negative));
  * the refundable deposit is reported separately and NEVER netted.
- * Void/Cancelled bookings and unexpired checkout placeholders
- * (expireAt set) carry no receivable and are excluded.
+ * Void/Cancelled bookings carry no receivable and are excluded.
+ * (R6-15) Live pay-later holds ARE included: a Pending hold with
+ * expireAt set is a live booking with an outstanding balance, and
+ * the query below filters only Void/Cancelled/deleted — the old
+ * claim that placeholders are excluded was never implemented here.
  */
 export interface ClientBalanceRow extends bookcarsTypes.ClientBalance {
   driver: string

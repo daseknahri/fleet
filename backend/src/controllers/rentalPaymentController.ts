@@ -10,6 +10,7 @@ import ContractCharge from '../models/ContractCharge'
 import NotificationDelivery from '../models/NotificationDelivery'
 import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerBankPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
+import { parseDateRange } from '../utils/casablancaDate'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
@@ -61,9 +62,13 @@ export const list = async (req: Request, res: Response) => {
       }
       filter.booking = req.query.booking
     }
-    const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
-    const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
-    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    // R6-14 — a date-only `to` is the end of the Casablanca wall day,
+    // so the whole `to` day is listed/exported instead of only its midnight.
+    const { from, to, invalid } = parseDateRange(
+      typeof req.query.from === 'string' && req.query.from ? req.query.from : undefined,
+      typeof req.query.to === 'string' && req.query.to ? req.query.to : undefined,
+    )
+    if (invalid) {
       res.status(400).send('Invalid payment date filter')
       return
     }
@@ -79,6 +84,43 @@ export const list = async (req: Request, res: Response) => {
     res.json(pagedResponse(payments, total, parsed.pagination))
   } catch (err) {
     logger.error(`[rentalPayment.list] ${i18n.t('ERROR')}`, err)
+    res.status(400).send(i18n.t('ERROR'))
+  }
+}
+
+// R6-13 — the payment dialog's per-purpose cap, from the server's
+// single source of truth (getPurposeRemaining): the dialog cannot
+// derive the Charge cap client-side (the receivable rows expose no
+// approved-charges figure), so it fetches it here when the purpose
+// is Charge. Read-only; same ReadPayments gate as the list.
+export const purposeRemaining = async (req: Request, res: Response) => {
+  try {
+    const user = req.user
+    if (!user || !mongoose.isValidObjectId(req.params.bookingId)) {
+      res.status(400).send('Invalid booking')
+      return
+    }
+    const purpose = typeof req.query.purpose === 'string' ? req.query.purpose : ''
+    if (!Object.values(bookcarsTypes.RentalPaymentPurpose).includes(purpose as bookcarsTypes.RentalPaymentPurpose)) {
+      res.status(400).send('Invalid payment purpose')
+      return
+    }
+    const booking = await Booking.findOne({ _id: req.params.bookingId, ...getScope(req) })
+    if (!booking) {
+      res.sendStatus(404)
+      return
+    }
+    const { remaining, recorded, cap, currency } = await getPurposeRemaining(
+      req.params.bookingId,
+      purpose as bookcarsTypes.RentalPaymentPurpose,
+    )
+    res.json({ remaining, recorded, cap, currency })
+  } catch (err) {
+    if (err instanceof LedgerError && err.code === 'BOOKING_NOT_FOUND') {
+      res.sendStatus(404)
+      return
+    }
+    logger.error(`[rentalPayment.purposeRemaining] ${i18n.t('ERROR')}`, err)
     res.status(400).send(i18n.t('ERROR'))
   }
 }
@@ -1109,11 +1151,13 @@ export const collectionsSummary = async (req: Request, res: Response) => {
     const bookings = await Booking.find({
       ...getScope(req),
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
-      // R2-B18 (option a) — dictionary v2026-11-11.1/11.2: unexpired
-      // checkout placeholders (expireAt set) are excluded from the
-      // dashboard/collections universe. A confirmed booking has
-      // expireAt cleared (confirmReservation), so it stays included.
-      expireAt: null,
+      // R6-15 — pay-later holds ARE counted here: a Pending hold is a
+      // live booking with an outstanding balance, and the Void
+      // placeholders (the actual abandoned checkouts) stay excluded
+      // by the status filter above. The dashboard/report period
+      // attribution still excludes unexpired placeholders per R2-B18
+      // (reportController computePeriod) — the two universes differ
+      // by design; see the dictionary note in reportController.
       // GA-PAR-22: trashed bookings leave contractAmount (§2.5);
       // their posted payments still count as collected, so `remaining`
       // can understate — accepted semantics.
@@ -1237,9 +1281,13 @@ export const exportPaymentsCsv = async (req: Request, res: Response) => {
       }
       filter.purpose = req.query.purpose
     }
-    const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
-    const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
-    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    // R6-14 — a date-only `to` is the end of the Casablanca wall day,
+    // so the whole `to` day is listed/exported instead of only its midnight.
+    const { from, to, invalid } = parseDateRange(
+      typeof req.query.from === 'string' && req.query.from ? req.query.from : undefined,
+      typeof req.query.to === 'string' && req.query.to ? req.query.to : undefined,
+    )
+    if (invalid) {
       res.status(400).send('Invalid payment date filter')
       return
     }

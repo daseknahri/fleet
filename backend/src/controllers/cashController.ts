@@ -9,6 +9,7 @@ import * as logger from '../utils/logger'
 import i18n from '../lang/i18n'
 import { agencySupplierId, logAdminResourceAccess } from '../utils/agencyAuthorization'
 import { normalizeLedgerAmount } from '../utils/ledger'
+import { parseDateRange } from '../utils/casablancaDate'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { renderCashSessionPdf } from '../utils/cashSessionPdf'
 import * as env from '../config/env.config'
@@ -757,9 +758,14 @@ const buildJournal = async (req: Request) => {
   if (!session) {
     throw new Error('Cash session not found')
   }
-  const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : null
-  const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : null
-  if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+  // R6-14 — a date-only bound is a Casablanca wall day (from = true
+  // local midnight, to = the last millisecond of that wall day), so
+  // the whole `to` day is included instead of only its midnight.
+  const { from, to, invalid } = parseDateRange(
+    typeof req.query.from === 'string' && req.query.from ? req.query.from : undefined,
+    typeof req.query.to === 'string' && req.query.to ? req.query.to : undefined,
+  )
+  if (invalid) {
     throw new Error('Invalid journal date filter')
   }
   const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim().toLocaleLowerCase() : ''

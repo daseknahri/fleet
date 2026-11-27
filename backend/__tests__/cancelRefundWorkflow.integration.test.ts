@@ -11,6 +11,7 @@ import * as authHelper from '../src/utils/authHelper'
 import Booking from '../src/models/Booking'
 import RentalPayment from '../src/models/RentalPayment'
 import ContractCharge from '../src/models/ContractCharge'
+import Approval from '../src/models/Approval'
 import ContractInspection from '../src/models/ContractInspection'
 import Notification from '../src/models/Notification'
 import User from '../src/models/User'
@@ -635,5 +636,63 @@ describe('F3 / W1 #11 — handover payment gate', () => {
     expect(response.status).toBe(201)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Active)
+  })
+})
+
+describe('R6-19 — top-up approval when the existing approval is Approved-but-insufficient', () => {
+  it('an Approved 5000 against a 12000 refund refuses 409, opens a 12000 top-up, and the cancel succeeds once the top-up is approved', async () => {
+    const fixture = await makeFixture('r619-topup', { status: bookcarsTypes.BookingStatus.Paid, rentalTotal: 12000, amountDueNow: 12000 })
+    await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 12000, 'stripe', 'pi_r6_19_topup')
+    await Approval.create({
+      supplier: fixture.supplier._id, subject: fixture.booking._id.toString(), subjectType: 'booking-cancel',
+      amount: 5000, currency: 'MAD', status: bookcarsTypes.ApprovalDecision.Approved,
+      requestedBy: adminId, reason: 'R6-19 seed: approved for 5000 only',
+    })
+    try {
+      const refused = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'R6-19 test cancel', refundDecision: 'full' })
+      expect(refused.status).toBe(409)
+      expect(refused.text).toContain('CANCEL_APPROVAL_REQUIRED')
+      expect(refused.text).toContain('5000')
+      expect(refused.text).toContain('12000')
+      // A NEW Pending top-up for the full refund exists; the old
+      // Approved 5000 is untouched; the booking stays Paid.
+      const pending = await Approval.findOne({ supplier: fixture.supplier._id, subject: fixture.booking._id.toString(), status: bookcarsTypes.ApprovalDecision.Pending }).lean()
+      expect(pending).toBeDefined()
+      expect(pending!.amount).toBe(12000)
+      const approved = await Approval.findOne({ supplier: fixture.supplier._id, subject: fixture.booking._id.toString(), status: bookcarsTypes.ApprovalDecision.Approved }).lean()
+      expect(approved).toBeDefined()
+      expect(approved!.amount).toBe(5000)
+      expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+      // Retrying while the top-up is pending reports PENDING (the
+      // top-up is now the latest approval), not REQUIRED again.
+      const again = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'R6-19 test cancel retry', refundDecision: 'full' })
+      expect(again.status).toBe(409)
+      expect(again.text).toContain('CANCEL_APPROVAL_PENDING')
+      // Approve the top-up: the next cancel goes through and refunds.
+      await Approval.updateOne({ _id: pending!._id }, { $set: { status: bookcarsTypes.ApprovalDecision.Approved } })
+      const done = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'R6-19 test cancel after approval', refundDecision: 'full' })
+      expect(done.status).toBe(200)
+      expect(done.body.refund.status).toBe('refunded')
+      expect(done.body.refund.refundedRent).toBe(12000)
+    } finally {
+      await Approval.deleteMany({ supplier: fixture.supplier._id, subject: fixture.booking._id.toString() })
+    }
+  })
+
+  it('an Approved 12000 against a 12000 refund cancels directly (control)', async () => {
+    const fixture = await makeFixture('r619-control', { status: bookcarsTypes.BookingStatus.Paid, rentalTotal: 12000, amountDueNow: 12000 })
+    await postPaid(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 12000, 'stripe', 'pi_r6_19_control')
+    await Approval.create({
+      supplier: fixture.supplier._id, subject: fixture.booking._id.toString(), subjectType: 'booking-cancel',
+      amount: 12000, currency: 'MAD', status: bookcarsTypes.ApprovalDecision.Approved,
+      requestedBy: adminId, reason: 'R6-19 control seed',
+    })
+    try {
+      const done = await cancelAsAdmin(fixture.booking._id.toString(), { reason: 'R6-19 control cancel', refundDecision: 'full' })
+      expect(done.status).toBe(200)
+      expect(done.body.refund.status).toBe('refunded')
+    } finally {
+      await Approval.deleteMany({ supplier: fixture.supplier._id, subject: fixture.booking._id.toString() })
+    }
   })
 })

@@ -136,6 +136,9 @@ const Payments = () => {
   // fetched on demand (the list is paginated now, so no full-list totals
   // exist on the page). Null until the fetch answers.
   const [selectedTotals, setSelectedTotals] = useState<{ rent: number, deposit: number } | null>(null)
+  // R6-13 — the Charge cap comes from the server (approved charges
+  // remaining); the dialog cannot derive it from the posted totals.
+  const [selectedChargeRemaining, setSelectedChargeRemaining] = useState<{ remaining: number, recorded: number } | null>(null)
   const [reversingId, setReversingId] = useState('')
   const [notice, setNotice] = useState('')
   // Audit-fix 2026-11-24 (F-02) — a payment whose confirmation was
@@ -282,11 +285,14 @@ const Payments = () => {
           return acc
         }
         const signedAmount = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount
-        if ((payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent) === bookcarsTypes.RentalPaymentPurpose.Deposit) {
+        const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
+        if (purpose === bookcarsTypes.RentalPaymentPurpose.Deposit) {
           acc.deposit += signedAmount
-        } else {
+        } else if (purpose === bookcarsTypes.RentalPaymentPurpose.Rent) {
           acc.rent += signedAmount
         }
+        // R6-13 — Charge credits no longer fall into the rent bucket:
+        // their cap comes from the purpose-remaining endpoint below.
         return acc
       }, { rent: 0, deposit: 0 })
       setSelectedTotals(totals)
@@ -297,6 +303,27 @@ const Payments = () => {
     })
     return () => { cancelled = true }
   }, [dialogOpen, form.booking])
+
+  // R6-13 — fetch the Charge cap when the dialog is open on a Charge
+  // purpose (approved charges remaining, server-side). Cleared whenever
+  // the dialog closes, the booking changes, or the purpose leaves Charge.
+  useEffect(() => {
+    if (!dialogOpen || !form.booking || form.purpose !== bookcarsTypes.RentalPaymentPurpose.Charge) {
+      setSelectedChargeRemaining(null)
+      return
+    }
+    let cancelled = false
+    RentalPaymentService.purposeRemaining(form.booking, bookcarsTypes.RentalPaymentPurpose.Charge).then((res) => {
+      if (!cancelled) {
+        setSelectedChargeRemaining({ remaining: res.remaining, recorded: res.recorded })
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setSelectedChargeRemaining(null)
+      }
+    })
+    return () => { cancelled = true }
+  }, [dialogOpen, form.booking, form.purpose])
 
   // F6 / W3 P-3 — the receivables table comes from the server's shared
   // outstanding definition (dictionary v2026-11-15.1): rentalTotal +
@@ -387,8 +414,14 @@ const Payments = () => {
     : null
   const recordedRent = selectedTotals?.rent ?? null
   const recordedDeposit = selectedTotals?.deposit ?? null
-  const remaining = form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? remainingDeposit : remainingRent
-  const recorded = form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? recordedDeposit : recordedRent
+  const remainingCharge = selectedChargeRemaining?.remaining ?? null
+  const recordedCharge = selectedChargeRemaining?.recorded ?? null
+  const remaining = form.purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+    ? remainingCharge
+    : form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? remainingDeposit : remainingRent
+  const recorded = form.purpose === bookcarsTypes.RentalPaymentPurpose.Charge
+    ? recordedCharge
+    : form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? recordedDeposit : recordedRent
   const cap = form.direction === bookcarsTypes.RentalPaymentDirection.Debit ? recorded : remaining
 
   // F6 / W3 P-8 — in edit mode the edited booking is offered even when
@@ -843,8 +876,11 @@ const Payments = () => {
             <div className="agency-payments__empty"><PaymentsRoundedIcon /><p>{strings.EMPTY}</p></div>
           ) : filtered.map((payment) => {
             const booking = getBooking(payment)
+            // R6-16 — REVERSE only on Posted entries: the backend
+            // refuses Pending entries with INVALID_REVERSAL (their
+            // correction path is edit/delete, never reverse).
             const canReverse = !!payment._id
-              && payment.status !== bookcarsTypes.RentalPaymentStatus.Reversed
+              && payment.status === bookcarsTypes.RentalPaymentStatus.Posted
               && payment.direction !== bookcarsTypes.RentalPaymentDirection.Debit
               && canRecordPayments
             return <div className="agency-payments__row agency-payments__payments-row" key={payment._id}>
@@ -901,6 +937,7 @@ const Payments = () => {
           <TextField select fullWidth required label={strings.PURPOSE_FIELD} value={form.purpose} onChange={setField('purpose')}>
             <MenuItem value={bookcarsTypes.RentalPaymentPurpose.Rent}>{purposeLabel(bookcarsTypes.RentalPaymentPurpose.Rent)}</MenuItem>
             <MenuItem value={bookcarsTypes.RentalPaymentPurpose.Deposit}>{purposeLabel(bookcarsTypes.RentalPaymentPurpose.Deposit)}</MenuItem>
+            <MenuItem value={bookcarsTypes.RentalPaymentPurpose.Charge}>{strings.CHARGE}</MenuItem>
           </TextField>
           {selectedBooking && <Typography variant="body2" color="text.secondary">{form.direction === bookcarsTypes.RentalPaymentDirection.Debit ? strings.DEBIT_CAP : strings.REMAINING}: {cap === null ? '—' : formatAmount(cap)}{form.purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? ` · ${strings.REFUNDABLE}` : ''}</Typography>}
           <TextField select fullWidth required label={strings.DIRECTION} value={form.direction} disabled={!!editingPayment} onChange={setField('direction')}>

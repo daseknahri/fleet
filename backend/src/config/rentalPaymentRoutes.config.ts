@@ -6,6 +6,9 @@ const routes = {
   // GA-PAR-17 — collections summary + payments CSV export; both gated
   // ReadPayments exactly like the list route above.
   collectionsSummary: '/api/rental-payments/collections-summary',
+  // R6-13 — per-purpose remaining cap for the payment dialog
+  // (ReadPayments, like the list).
+  purposeRemaining: '/api/rental-payments/bookings/:bookingId/purpose-remaining',
   exportCsv: '/api/rental-payments/export.csv',
   // F6 / W3 P-3 — shared outstanding/receivable table (ReadPayments).
   overdue: '/api/rental-payments/overdue',

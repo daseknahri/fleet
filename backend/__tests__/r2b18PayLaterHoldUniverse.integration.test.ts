@@ -15,7 +15,13 @@ import LocationValue from '../src/models/LocationValue'
 
 // R2-B18 (option a, MAINTAINER decision) — the dictionary says
 // unexpired checkout placeholders (expireAt set) are excluded from
-// the dashboard/collections universe; the queries now apply it.
+// the dashboard universe; the dashboard queries apply it. R6-15
+// aligned the other surfaces on the split universe: collections,
+// overdue/receivables and client balances COUNT a live pay-later
+// hold (it is a real receivable until it expires or is voided);
+// only the dashboard/report period attribution still excludes it
+// (reportController computePeriod keeps expireAt: null — the pack
+// does not ask to change it; see the R6-15 record note).
 // Same harness as receivablesWave31: mocked providers against the
 // real Mongo-backed app.
 const stripeRefundCreate: any = jest.fn()
@@ -166,15 +172,22 @@ afterAll(async () => {
 })
 
 describe('R2-B18 \u2014 pay-later hold universe', () => {
-  it('a live pay-later hold is excluded from dashboard and collections', async () => {
+  it('a live pay-later hold is excluded from the dashboard but counted in collections and the client balance', async () => {
     const dash = await getDashboard()
     expect(dash.status).toBe(200)
     expect(dash.body.contractAmount).toBe(1000)
     expect(dash.body.contracts).toBe(1)
+    // R6-15 — collections counts the hold (1500, 2 bookings).
     const coll = await getCollections()
     expect(coll.status).toBe(200)
-    expect(coll.body.contractAmount).toBe(1000)
-    expect(coll.body.bookingsCount).toBe(1)
+    expect(coll.body.contractAmount).toBe(1500)
+    expect(coll.body.bookingsCount).toBe(2)
+    // R6-15 — the client balance counts it too (1000 confirmed + 500 hold).
+    const balance = await request(app).get(`/api/users/${driver._id.toString()}/balance`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(balance.status).toBe(200)
+    expect(balance.body.outstanding).toBe(1500)
+    expect(balance.body.bookings).toBe(2)
   })
 
   it('overdue() still lists the hold (regression lock)', async () => {
@@ -186,20 +199,21 @@ describe('R2-B18 \u2014 pay-later hold universe', () => {
     expect(row!.outstandingBalance).toBe(500)
   })
 
-  it('an expired hold stays excluded', async () => {
-    // The sweeper would void it in production; the filter excludes it
-    // either way — the exclusion does not depend on the hold being
-    // unexpired.
+  it('an expired hold stays excluded from the dashboard but stays counted in collections', async () => {
+    // The sweeper would void it in production; the dashboard filter
+    // excludes it either way — the exclusion does not depend on the
+    // hold being unexpired. Collections counts it while it is still
+    // Pending (the status filter only drops Void/Cancelled).
     await Booking.updateOne({ _id: B.hold }, { expireAt: at(-1) })
     const dash = await getDashboard()
     expect(dash.body.contractAmount).toBe(1000)
     expect(dash.body.contracts).toBe(1)
     const coll = await getCollections()
-    expect(coll.body.contractAmount).toBe(1000)
-    expect(coll.body.bookingsCount).toBe(1)
+    expect(coll.body.contractAmount).toBe(1500)
+    expect(coll.body.bookingsCount).toBe(2)
   })
 
-  it('confirming the hold brings it back in', async () => {
+  it('confirming the hold brings it back into the dashboard (collections already counted it)', async () => {
     await Booking.updateOne(
       { _id: B.hold },
       { $set: { expireAt: null, lifecycle: bookcarsTypes.ContractLifecycle.Confirmed } },

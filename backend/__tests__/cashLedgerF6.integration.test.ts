@@ -744,3 +744,71 @@ describe('F6 / W3 X-1 — server-side pagination on the finance lists', () => {
     await closeSession(session._id, { countedClosingBalance: 130, closingNote: 'F6 X-1' })
   })
 })
+
+describe('R6-14 — a date-only `to` is the end of the Casablanca wall day', () => {
+  // July 2026: Casablanca is UTC+1, so the wall day ends at 23:00Z.
+  // A movement at 22:30Z is 23:30 local on the `to` day (included);
+  // a movement at 23:30Z is 00:30 local the NEXT day (excluded).
+  // Movements are written model-direct: createMovement refuses any
+  // date before the session opened, and these July dates predate the
+  // session by months. (The pack's example of 23:30Z as "included"
+  // is wrong under its own Casablanca convention — 23:30Z in July
+  // is 00:30 local on July 6, the next wall day.)
+  it('journal with to=2026-07-05 includes the whole wall day, not only its midnight', async () => {
+    const session = await openSession(0)
+    const rows = [
+      { date: new Date('2026-07-05T10:00:00.000Z'), amount: 10 },
+      { date: new Date('2026-07-05T22:30:00.000Z'), amount: 20 },
+      { date: new Date('2026-07-05T23:30:00.000Z'), amount: 30 },
+      { date: new Date('2026-07-06T10:00:00.000Z'), amount: 40 },
+    ]
+    for (const row of rows) {
+      await CashMovement.create({
+        supplier: supplier._id, session: session._id, account: types.CashAccountType.Cash,
+        currency: env.BASE_CURRENCY, date: row.date, direction: types.CashMovementDirection.In, amount: row.amount,
+        source: types.CashMovementSource.Manual, status: 'confirmed', actor: supplier._id,
+      })
+    }
+    const j = await get(ownerToken, `/api/cash/journal?sessionId=${session._id}&to=2026-07-05`)
+    expect(j.status).toBe(200)
+    expect(j.body.totals.income).toBe(30)
+    expect(j.body.rows.map((row: { amount: number }) => row.amount).sort()).toEqual([10, 20])
+    // The unfiltered journal still sees all four movements.
+    const all = await journal(session._id)
+    expect(all.totals.income).toBe(100)
+  })
+
+  it('payments list and CSV export with to=2026-07-05 include the whole wall day', async () => {
+    const fresh = await makeBooking(carDeposit, 500, snapshot(500, 0), new Date(Date.now() + 86400000))
+    const a = await createPayment({
+      booking: fresh._id.toString(), amount: 50, purpose: 'rent',
+      reference: 'R6-14-A', date: '2026-07-05T22:30:00.000Z',
+    })
+    expect(a.status).toBe(201)
+    const b = await createPayment({
+      booking: fresh._id.toString(), amount: 60, purpose: 'rent',
+      reference: 'R6-14-B', date: '2026-07-05T23:30:00.000Z',
+    })
+    expect(b.status).toBe(201)
+    const list = await get(ownerToken, `/api/rental-payments?booking=${fresh._id.toString()}&to=2026-07-05`)
+    expect(list.status).toBe(200)
+    expect(Array.isArray(list.body)).toBe(true)
+    const refs = (list.body as Array<{ reference?: string }>).map((row) => row.reference)
+    expect(refs).toContain('R6-14-A')
+    expect(refs).not.toContain('R6-14-B')
+    // The payments CSV has no payment-reference column (its columns
+    // are date, bookingReference, clientName, car, purpose, status,
+    // direction, amount, currency), so the CSV leg discriminates by
+    // the payment date and amount instead of the reference. The
+    // window is narrowed with from+to so only the July 5 wall day
+    // is exported.
+    const csv = await get(ownerToken, '/api/rental-payments/export.csv?from=2026-07-05&to=2026-07-05')
+    expect(csv.status).toBe(200)
+    expect(csv.text).toContain('2026-07-05T22:30:00.000Z')
+    expect(csv.text).toContain('50.00')
+    expect(csv.text).not.toContain('2026-07-05T23:30:00.000Z')
+    expect(csv.text).not.toContain('60.00')
+    await RentalPayment.deleteMany({ booking: fresh._id })
+    await Booking.deleteOne({ _id: fresh._id })
+  })
+})

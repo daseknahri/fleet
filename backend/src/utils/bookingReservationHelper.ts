@@ -9,6 +9,7 @@ import AgencyReturnSettings from '../models/AgencyReturnSettings'
 import { effectiveNextDueMileage, findOverdueSchedule } from './maintenanceSchedule'
 import { nextBookingReference } from './bookingReference'
 import * as helper from '../utils/helper'
+import { casablancaTodayStart } from './casablancaDate'
 
 // R2-B13 - calendar-day comparison (same server-local convention
 // as maintenanceSchedule.ts:47; helper exposes no startOfDay).
@@ -41,6 +42,40 @@ export const reservationStatusOr = (now: Date) => ([
   // indefinitely, with no expiry to outlive.
   { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Confirmed },
 ])
+
+/**
+ * R6-17 — $expr-shaped mirror of reservationStatusOr, for the search
+ * aggregations' $lookup pipelines (field-path syntax — `$status`,
+ * `$expireAt`, `$lifecycle` — not query-level $or). Same four legs,
+ * including the confirmed-hold leg (Pending + lifecycle Confirmed,
+ * no expireAt): a confirmed pay-later hold reserves the car in
+ * customer search exactly as it does in the enforcement helper.
+ * The terminal-lifecycle exclusion stays at the call site (it is a
+ * separate $and leg, not part of the reservation predicate).
+ */
+export const reservationStatusOrExpr = (now: Date) => ({
+  $or: [
+    { $in: ['$status', BOOKING_RESERVATION_STATUSES] },
+    { $and: [{ $eq: ['$status', bookcarsTypes.BookingStatus.Void] }, { $gt: ['$expireAt', now] }] },
+    { $and: [{ $eq: ['$status', bookcarsTypes.BookingStatus.Pending] }, { $gt: ['$expireAt', now] }] },
+    // R6-17 — confirmed pay-later hold (lifecycle Confirmed,
+    // expireAt cleared by the confirm action) reserves the car
+    // indefinitely, with no expiry to outlive.
+    { $and: [{ $eq: ['$status', bookcarsTypes.BookingStatus.Pending] }, { $eq: ['$lifecycle', bookcarsTypes.ContractLifecycle.Confirmed] }] },
+  ],
+})
+
+/**
+ * R6-20 — past-pickup re-entry guard (shared by confirm, reactivate
+ * and restore): a booking whose pickup is before the start of the
+ * current Casablanca wall day cannot re-enter as a live rental — the
+ * rental has already started, so the re-entry would resurrect a
+ * stale booking with no expiry (confirmedUnpaid nags it daily,
+ * overdue fires weekly). Same wall-day basis as the past-pickup rule
+ * at create/checkout/update/amend.
+ */
+export const hasPastPickup = (from: Date | string): boolean =>
+  new Date(from).getTime() < casablancaTodayStart().getTime()
 
 /**
  * GAP-C1/M1 — "not a temporary checkout placeholder". `expireAt` no

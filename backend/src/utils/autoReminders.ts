@@ -12,7 +12,7 @@ import * as logger from './logger'
 import * as mailHelper from './mailHelper'
 import { resolveScheduleDue } from './maintenanceSchedule'
 import { staleWorkOrderCutoff, workOrderStaleDays } from './workOrderStale'
-import { casablancaWeekBounds } from './casablancaDate'
+import { casablancaDayBounds, casablancaDayBoundsShifted, casablancaWeekBounds, wallDay } from './casablancaDate'
 import { renderNotificationTemplate } from './notificationTemplates'
 import {
   autoReminderEmailAllowed,
@@ -57,13 +57,12 @@ const PASS_INTERVAL_MS = 60 * 60 * 1000
 // one constant (and the test seeds).
 const MISSED_PICKUP_CHASE_DAYS = 7
 
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
-const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
-const addDays = (date: Date, days: number) => {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
-  return d
-}
+// R6-18 — the pass is anchored on the Casablanca WALL day, not the
+// process-local (UTC) day: in summer, local 00:00-00:59 is the
+// previous UTC day 23:00-23:59, so the old windows fired missed-pickup
+// on the pickup day itself and read daysOverdue +1 on the return day.
+// (startOfDay / endOfDay / addDays are gone: every window below now
+// comes from casablancaDayBounds-style bounds.)
 // GH-22 - the one date key. Africa/Casablanca WALL day, explicit (not the
 // process-local clock: the container runs on UTC, so `getFullYear()` /
 // `toISOString()` both answer the UTC day). Mirrors the wall-parts
@@ -270,9 +269,18 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   }
   const owner = recipients.find((r) => String(r._id) === supplierId)
 
-  const todayStart = startOfDay(now)
-  const tomorrowEnd = endOfDay(addDays(now, 1))
-  const horizon30 = endOfDay(addDays(now, 30))
+  // R6-18 — todayStart = true local midnight; tomorrowStart /
+  // dayAfterStart are the next wall-day starts (half-open bounds, so
+  // the `when` test and the $lt windows need no -1ms fudge);
+  // tomorrowEnd / horizon30 are the last millisecond of their wall
+  // days (inclusive $lte bounds); the chase floor is the start of
+  // the wall day MISSED_PICKUP_CHASE_DAYS ago (wall-calendar shift).
+  const [todayStart, tomorrowStart] = casablancaDayBounds(now)
+  const [, dayAfterStart] = casablancaDayBounds(tomorrowStart)
+  const tomorrowEnd = new Date(dayAfterStart.getTime() - 1)
+  const [, horizon30End] = casablancaDayBoundsShifted(now, 30)
+  const horizon30 = new Date(horizon30End.getTime() - 1)
+  const [chaseStart] = casablancaDayBoundsShifted(now, -MISSED_PICKUP_CHASE_DAYS)
 
   // -- Pickups: live bookings starting today or tomorrow. --------------
   const pickups = await Booking.find({
@@ -282,7 +290,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
   for (const booking of pickups) {
     const from = new Date(booking.from)
-    const when = from.getTime() < startOfDay(addDays(now, 1)).getTime() ? 'today' : 'tomorrow'
+    const when = from.getTime() < tomorrowStart.getTime() ? 'today' : 'tomorrow'
     counts.pickups += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.pickup',
       kind: 'pickup',
@@ -309,7 +317,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
   for (const booking of returns) {
     const to = new Date(booking.to)
-    const when = to.getTime() < startOfDay(addDays(now, 1)).getTime() ? 'today' : 'tomorrow'
+    const when = to.getTime() < tomorrowStart.getTime() ? 'today' : 'tomorrow'
     counts.returns += await fanoutEvent(supplierId, recipients, owner, {
       templateKey: 'auto.return',
       kind: 'return',
@@ -348,7 +356,10 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
       continue
     }
     const dueAt = receivable.dueAt ? new Date(receivable.dueAt) : new Date(booking.to)
-    const daysOverdue = Math.max(0, Math.floor((startOfDay(now).getTime() - startOfDay(dueAt).getTime()) / 86400000))
+    // R6-18 — whole wall days between the due wall date and today
+    // (the workOrderStaleDays pattern): a 00:30-local return reads 0
+    // on its return day, 1 the day after.
+    const daysOverdue = Math.max(0, Math.floor((new Date(`${wallDay(now)}T00:00:00Z`).getTime() - new Date(`${wallDay(dueAt)}T00:00:00Z`).getTime()) / 86400000))
     // R2-B19 - the repeat count is reminders SENT, not weeks overdue:
     // count prior `sent` auto.overdue rows for this booking in the
     // delivery log (same pattern as lastRemindedAt/reminderCount in
@@ -480,8 +491,6 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
   // date (the dedupe key carries the pickup date, so the wider window
   // cannot double-fire: a booking is claimed once for its pickup date
   // whichever pass day claims it first).
-  const tomorrowStart = startOfDay(addDays(now, 1))
-  const dayAfterStart = startOfDay(addDays(now, 2))
   const dueTodayOrTomorrow = await Booking.find({
     ...LIVE_BOOKING_FILTER,
     supplier: supplierId,
@@ -521,7 +530,7 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     // R2-B08 - bounded chase: pickup day within the last
     // MISSED_PICKUP_CHASE_DAYS days. Older than that, the alert stops
     // (mark-no-show is the staff escape hatch for the stragglers).
-    from: { $gte: startOfDay(addDays(now, -MISSED_PICKUP_CHASE_DAYS)), $lt: todayStart },
+    from: { $gte: chaseStart, $lt: todayStart },
   }).populate('car', 'name licensePlate').populate('driver', 'fullName').lean()
   for (const booking of missedPickups) {
     if ((booking as unknown as { noShowAt?: Date | null }).noShowAt) {

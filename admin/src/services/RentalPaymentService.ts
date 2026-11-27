@@ -43,6 +43,18 @@ export const reverse = (paymentId: string, idempotencyKey: string, note?: string
 export const collectionsSummary = (): Promise<bookcarsTypes.CollectionsSummary> =>
   axiosInstance.get('/api/rental-payments/collections-summary', { withCredentials: true }).then((res) => res.data)
 
+// R6-13 — per-purpose remaining cap for the payment dialog (the Charge
+// cap comes from the server; the dialog cannot derive it client-side).
+export interface PurposeRemaining {
+  remaining: number
+  recorded: number
+  cap: number
+  currency: string
+}
+
+export const purposeRemaining = (bookingId: string, purpose: bookcarsTypes.RentalPaymentPurpose): Promise<PurposeRemaining> =>
+  axiosInstance.get(`/api/rental-payments/bookings/${encodeURIComponent(bookingId)}/purpose-remaining`, { params: { purpose }, withCredentials: true }).then((res) => res.data)
+
 // F6 / W3 P-3 — shared outstanding/receivable table (dictionary
 // v2026-11-15.1): charges included, overdue per the shared due rule.
 // GH-02 / Wave 3.1 — filters (?filter=, ?clientId=) + paid-in-full

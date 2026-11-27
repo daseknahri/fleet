@@ -26,7 +26,7 @@ import * as mailHelper from '../utils/mailHelper'
 import { deliverNotification } from '../utils/reminderNotify'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
-import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
+import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, hasPastPickup, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
 import { casablancaDayBounds, casablancaTodayStart } from '../utils/casablancaDate'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
@@ -2173,6 +2173,14 @@ export const updateStatus = async (req: Request, res: Response) => {
     }
 
     const previousStatuses = bookings.map((booking) => booking.status)
+    // R6-20 — reactivating a Cancelled booking with a past pickup
+    // date would resurrect a stale rental with a fresh 48 h hold and
+    // a cleared cancellation record. The whole request is refused;
+    // move the dates first via amend, then reactivate.
+    if (reactivating && bookings.some((booking) => booking.status === bookcarsTypes.BookingStatus.Cancelled && hasPastPickup(booking.from))) {
+      res.status(409).send('REACTIVATION_PAST_PICKUP: A cancelled booking whose pickup date is in the past cannot be reactivated; move the rental dates first, then reactivate.')
+      return
+    }
     for (const [index, booking] of bookings.entries()) {
       booking.status = status as bookcarsTypes.BookingStatus
       // F3 / W1 #1: lifecycle follows the status on cancellation (and
@@ -3182,7 +3190,15 @@ const executeStaffCancel = async (
     const gate = await findLatestApproval(booking.supplier, 'booking-cancel', booking._id.toString())
     const approved = !!gate && gate.status === bookcarsTypes.ApprovalDecision.Approved && (gate.amount || 0) >= plan.totalRefund
     if (!approved) {
-      if (!gate || gate.status === bookcarsTypes.ApprovalDecision.Rejected) {
+      // R6-19 — an Approved-but-insufficient approval also opens a
+      // top-up request (for the full current refund): the old code
+      // only produced one for !gate/Rejected, so the fall-through
+      // message claimed a request had been opened when none was, and
+      // retrying repeated the message forever. produceApprovalRequest
+      // is idempotent over pending requests, so a top-up never
+      // duplicates an already-open one.
+      const insufficient = !!gate && gate.status === bookcarsTypes.ApprovalDecision.Approved
+      if (!gate || gate.status === bookcarsTypes.ApprovalDecision.Rejected || insufficient) {
         await produceApprovalRequest({
           supplier: booking.supplier,
           subjectType: 'booking-cancel',
@@ -3190,7 +3206,9 @@ const executeStaffCancel = async (
           amount: plan.totalRefund,
           currency: plan.currency,
           requestedBy: new mongoose.Types.ObjectId(actorId),
-          reason: `Staff cancel of booking ${booking.reference || booking._id.toString()}: refund ${plan.totalRefund} ${plan.currency} (${refundDecision})`,
+          reason: insufficient
+            ? `Staff cancel of booking ${booking.reference || booking._id.toString()}: refund ${plan.totalRefund} ${plan.currency} (${refundDecision}) — top-up: approved for ${gate.amount || 0} ${plan.currency}, shortfall ${plan.totalRefund - (gate.amount || 0)} ${plan.currency}`
+            : `Staff cancel of booking ${booking.reference || booking._id.toString()}: refund ${plan.totalRefund} ${plan.currency} (${refundDecision})`,
         })
       }
       if (gate?.status === bookcarsTypes.ApprovalDecision.Rejected) {
@@ -3198,6 +3216,9 @@ const executeStaffCancel = async (
       }
       if (gate?.status === bookcarsTypes.ApprovalDecision.Pending) {
         return { ok: false, status: 409, message: `CANCEL_APPROVAL_PENDING: A refund of ${plan.totalRefund} ${plan.currency} needs approval by the agency manager/owner first; the approval request is still pending.` }
+      }
+      if (insufficient) {
+        return { ok: false, status: 409, message: `CANCEL_APPROVAL_REQUIRED: This booking was approved for ${gate.amount || 0} ${plan.currency} but the refund is ${plan.totalRefund} ${plan.currency} — a top-up approval request for ${plan.totalRefund} ${plan.currency} has been opened.` }
       }
       return { ok: false, status: 409, message: `CANCEL_APPROVAL_REQUIRED: A refund of ${plan.totalRefund} ${plan.currency} needs approval by the agency manager/owner first; an approval request has been opened.` }
     }
@@ -3706,6 +3727,13 @@ export const confirmReservation = async (req: Request, res: Response) => {
     // Safe retry: already confirmed.
     if (booking.lifecycle === bookcarsTypes.ContractLifecycle.Confirmed) {
       res.json(await populateBookingForDetail(booking._id))
+      return
+    }
+    // R6-20 — a hold whose pickup date has passed cannot be confirmed
+    // into a live contract with no expiry: the rental has already
+    // started. The safe retry above still succeeds (idempotent).
+    if (hasPastPickup(booking.from)) {
+      res.status(409).send('CONFIRM_PAST_PICKUP: The pickup date is in the past; a booking whose rental has already started cannot be confirmed.')
       return
     }
     if (booking.status === bookcarsTypes.BookingStatus.Reserved) {
@@ -4224,6 +4252,13 @@ export const restoreBookings = async (req: Request, res: Response) => {
       }
       if (!booking.deletedAt) {
         res.status(409).send(`NOT_TRASHED: Booking ${booking._id.toString()} is not trashed.`)
+        return
+      }
+      // R6-20 — a trashed booking whose pickup date has passed cannot
+      // be restored to its pre-trash (live) state: the rental has
+      // already started. Refused unconditionally, before any mutation.
+      if (hasPastPickup(booking.from)) {
+        res.status(409).send(`RESTORE_PAST_PICKUP: Booking ${booking._id.toString()} cannot be restored: its pickup date is in the past. Create a new booking instead.`)
         return
       }
       const car = await Car.findById(booking.car).select('_id deletedAt').lean()
