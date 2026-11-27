@@ -955,6 +955,11 @@ export interface Booking extends Document {
   paymentIntentId?: string
   customerId?: string
   expireAt?: Date | null
+  /** R5-05 - why a Void booking is held for manual review (see the
+   * Booking model): stamped by the sweeper's defuse branches, cleared
+   * when the hold resolves. */
+  reconciliationStatus?: 'held' | 'refund-failed' | 'provider-error'
+  holdDetail?: string
   isDeposit: boolean
   isPayedInFull?: boolean
   /** GH-38c(ii) - ledger-derived balance, attached by getBooking after the ownership check. */

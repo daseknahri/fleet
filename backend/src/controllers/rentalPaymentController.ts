@@ -392,18 +392,31 @@ const receivableAgeBucket = (daysOverdue: number): ReceivableAgeBucket => (
 
 // R4-02 — split a checkout snapshot into the rent/deposit legs the
 // provider took. Same three branches as bookingController's
-// splitProviderCheckoutAmounts, but clamped instead of throwing: a
-// bad snapshot must not 500 the receivables page; it only makes the
-// Void-hold row fall back to the ledger figures.
+// splitProviderCheckoutAmounts, but it must not 500 the receivables
+// page on a bad snapshot — and it must not invent plausible legs
+// either. R5-02: on an invariant violation (the cases the original
+// throws on) return zero legs, so the Void-hold row falls back to
+// the ledger figures: paidRent / depositHeld stay at the posted
+// amounts and the outstanding stays full. A wrong-but-plausible
+// figure is worse than an obviously-unpreviewed one.
 const splitCheckoutLegs = (snapshot?: bookcarsTypes.BookingFinancialSnapshot | null): { rent: number, deposit: number } => {
   if (!snapshot) return { rent: 0, deposit: 0 }
   const amountDueNow = Number(snapshot.amountDueNow || 0)
   const rentalTotal = Number(snapshot.rentalTotal || 0)
   const depositAmount = Number(snapshot.depositAmount || 0)
   if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Deposit) {
+    // R5-02 — the original throws when amountDueNow exceeds the
+    // deposit amount: a snapshot that violates it is inconsistent,
+    // so fall back to the ledger figures (zero legs) instead of
+    // clamping to a plausible-but-wrong deposit leg.
+    if (amountDueNow > depositAmount) return { rent: 0, deposit: 0 }
     return { rent: 0, deposit: Math.max(0, Math.min(amountDueNow, depositAmount)) }
   }
   if (snapshot.mode === bookcarsTypes.CheckoutPaymentMode.Full) {
+    // R5-02 — same: amountDueNow below the rental total (or the
+    // remainder above the deposit) means the snapshot cannot be
+    // split; zero legs, ledger figures stand.
+    if (amountDueNow < rentalTotal || amountDueNow - rentalTotal > depositAmount) return { rent: 0, deposit: 0 }
     return { rent: rentalTotal, deposit: Math.max(0, Math.min(amountDueNow - rentalTotal, depositAmount)) }
   }
   return { rent: amountDueNow, deposit: 0 }
@@ -577,7 +590,8 @@ export const overdue = async (req: Request, res: Response) => {
       ],
       deletedAt: null,
     })
-      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier')
+      // R5-05 — the hold reason the sweeper stamped at defuse time.
+      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier reconciliationStatus holdDetail')
       .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
       .sort({ to: 1 })
       .lean()
@@ -596,7 +610,20 @@ export const overdue = async (req: Request, res: Response) => {
       row.depositDue = Math.max(0, round2(Number(snapshot?.depositAmount || 0) - row.depositHeld))
       row.outstandingBalance = Math.max(0, round2(row.outstandingBalance - legs.rent))
       row.paidInFull = row.outstandingBalance <= 0 && row.depositDue <= 0
-      row.actions.canTakePayment = row.outstandingBalance > 0
+      // R5-05 — surface the hold reason on the row, so the queue can
+      // triage it. Older held rows (stamped before this release) carry
+      // no reason and show none, which is the honest state.
+      const hold = booking as unknown as { reconciliationStatus?: string, holdDetail?: string }
+      if (hold.reconciliationStatus) {
+        row.holdReason = hold.reconciliationStatus
+        row.holdDetail = hold.holdDetail
+      }
+      // R5-04 — the rent on a Void hold becomes collectible only after
+      // the retry confirms the booking: postWithinSession refuses Void
+      // bookings, so offering TAKE_PAYMENT here is a dead end (the save
+      // fails with "Rental contract not found"). The retry button is the
+      // action on this row; take payment appears once the booking is Paid.
+      row.actions.canTakePayment = false
       row.actions.canConfirm = false
       voidHoldRows.push(row)
     }

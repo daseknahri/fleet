@@ -369,6 +369,14 @@ const bookingSchema = new Schema<env.Booking>(
       type: Date,
       index: { name: BOOKING_EXPIRE_AT_INDEX_NAME, expireAfterSeconds: env.BOOKING_EXPIRE_AT, background: true },
     },
+    // R5-05 - why a Void booking is held for manual review (set by the
+    // sweeper's defuse branches, cleared when the hold resolves). Lets
+    // the paid-unconfirmed queue tell a held booking (retry confirms)
+    // from a failed refund (refund in the provider dashboard) and from
+    // a provider outage (retry re-verifies). No index, no required;
+    // older held rows simply carry no reason.
+    reconciliationStatus: { type: String, enum: ['held', 'refund-failed', 'provider-error'] },
+    holdDetail: { type: String },
   },
   {
     timestamps: true,

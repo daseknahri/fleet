@@ -66,6 +66,16 @@ const customerName = (booking?: bookcarsTypes.Booking) => (
   booking?.driver && typeof booking.driver !== 'string' ? booking.driver.fullName || booking.driver.email || '—' : '—'
 )
 
+// R5-05 — the hold-reason label for a Void-hold row: the sweeper's
+// stamped reason, in the user's language. Unknown / unstamped rows
+// (older holds carry no reason) show nothing.
+const holdReasonLabel = (reason?: string) => {
+  if (reason === 'held') return strings.HOLD_REASON_HELD
+  if (reason === 'refund-failed') return strings.HOLD_REASON_REFUND_FAILED
+  if (reason === 'provider-error') return strings.HOLD_REASON_PROVIDER_ERROR
+  return ''
+}
+
 const uiLocale = () => {
   const language = UserService.getLanguage()
   return language === 'fr' ? 'fr-MA' : language === 'ar' ? 'ar-MA' : language === 'es' ? 'es-ES' : 'en-GB'
@@ -766,7 +776,7 @@ const Payments = () => {
             <div className="agency-payments__empty"><WarningAmberRoundedIcon /><p>{strings.NO_OVERDUE}</p></div>
           ) : visibleReceivableRows.map((row) => (
             <div className="agency-payments__row agency-payments__receivables-row" key={row.booking._id}>
-              <strong data-label={strings.CONTRACT}>{bookingLabel(row.booking)}</strong>
+              <strong data-label={strings.CONTRACT}>{bookingLabel(row.booking)}{row.holdReason && (<><br /><small title={row.holdDetail || undefined}>{holdReasonLabel(row.holdReason)}</small></>)}</strong>
               <span data-label={strings.CUSTOMER}>{customerName(row.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstandingBalance)}</strong>

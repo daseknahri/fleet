@@ -21,6 +21,7 @@ const strings = new LocalizedStrings({
     TAKE_PAYMENT: 'Take payment', CONFIRM_RESERVATION: 'Confirm', MARK_NO_SHOW: 'Mark no-show', OPEN_BOOKING: 'Open booking',
     REFUNDS_TITLE: 'Pending refunds', RECORD_REFUND: 'Record refund', REFUND_METHOD: 'Method', REFUND_REASON: 'Reason', REFUND_SINCE: 'Since', NO_REFUNDS: 'No pending refunds.', WIRE_PENDING: 'Wire refund — no bank movement yet',
     CONFIRMED_OK: 'Reservation confirmed', NO_SHOW_DONE: 'Marked as no-show', NO_SHOW_CONFIRM: 'Mark this booking as no-show? The car is freed and the booking is cancelled.',
+    HOLD_REASON_HELD: 'Held for review', HOLD_REASON_REFUND_FAILED: 'Refund failed', HOLD_REASON_PROVIDER_ERROR: 'Provider unreachable',
   },
   fr: {
     EYEBROW: 'FINANCE', TITLE: 'Paiements', HELP_PAYMENTS: 'Tout l’argent reçu pour les contrats de location : loyers, cautions et remboursements. Enregistrez un paiement sur une réservation ; annulez-le en cas d’erreur.', HELP_RECEIVABLES: 'Ce que les clients doivent encore : loyers impayés et cautions dues, avec la date d’échéance. Commencez par ici chaque matin.', SUBTITLE: 'Enregistrez et consultez les paiements reçus pour les contrats.',
@@ -41,6 +42,7 @@ const strings = new LocalizedStrings({
     TAKE_PAYMENT: 'Encaisser', CONFIRM_RESERVATION: 'Confirmer', MARK_NO_SHOW: 'Marquer absent', OPEN_BOOKING: 'Ouvrir le contrat',
     REFUNDS_TITLE: 'Remboursements en attente', RECORD_REFUND: 'Enregistrer le remboursement', REFUND_METHOD: 'Mode', REFUND_REASON: 'Motif', REFUND_SINCE: 'Depuis', NO_REFUNDS: 'Aucun remboursement en attente.', WIRE_PENDING: 'Virement — aucun mouvement bancaire pour l’instant',
     CONFIRMED_OK: 'Réservation confirmée', NO_SHOW_DONE: 'Marqué absent', NO_SHOW_CONFIRM: 'Marquer cette réservation comme absent ? Le véhicule est libéré et la réservation est annulée.',
+    HOLD_REASON_HELD: 'En attente de vérification', HOLD_REASON_REFUND_FAILED: 'Remboursement échoué', HOLD_REASON_PROVIDER_ERROR: 'Prestataire injoignable',
   },
   es: {
     EYEBROW: 'FINANZAS', TITLE: 'Pagos', HELP_PAYMENTS: 'Todo el dinero recibido por los contratos de alquiler: alquileres, depósitos y reembolsos. Registre un pago en una reserva; reviertalo si fue un error.', HELP_RECEIVABLES: 'Lo que aún deben los clientes: alquileres pendientes y depósitos adeudados, con la fecha de vencimiento. Empiece aquí cada mañana.', SUBTITLE: 'Registra y consulta los pagos recibidos por contrato.',
@@ -61,6 +63,7 @@ const strings = new LocalizedStrings({
     TAKE_PAYMENT: 'Cobrar', CONFIRM_RESERVATION: 'Confirmar', MARK_NO_SHOW: 'Marcar no presentado', OPEN_BOOKING: 'Abrir contrato',
     REFUNDS_TITLE: 'Reembolsos pendientes', RECORD_REFUND: 'Registrar reembolso', REFUND_METHOD: 'Método', REFUND_REASON: 'Motivo', REFUND_SINCE: 'Desde', NO_REFUNDS: 'No hay reembolsos pendientes.', WIRE_PENDING: 'Transferencia — sin movimiento bancario todavía',
     CONFIRMED_OK: 'Reserva confirmada', NO_SHOW_DONE: 'Marcado como no presentado', NO_SHOW_CONFIRM: '¿Marcar esta reserva como no presentada? El vehículo queda libre y la reserva se cancela.',
+    HOLD_REASON_HELD: 'En espera de revisión', HOLD_REASON_REFUND_FAILED: 'Reembolso fallido', HOLD_REASON_PROVIDER_ERROR: 'Proveedor no disponible',
   },
   ar: {
     EYEBROW: 'المالية', TITLE: 'المدفوعات', HELP_PAYMENTS: 'كل الأموال المستلمة مقابل عقود الإيجار: الإيجارات والضمانات والمبالغ المستردة. سجّل دفعة على حجز؛ وألغها إذا كانت خاطئة.', HELP_RECEIVABLES: 'ما تبقى على العملاء: الإيجارات المستحقة والضمانات الواجبة، مع تاريخ الاستحقاق. ابدأ من هنا كل صباح.', SUBTITLE: 'سجل وراجع المدفوعات المستلمة مقابل عقود التأجير.',
@@ -81,6 +84,7 @@ const strings = new LocalizedStrings({
     TAKE_PAYMENT: 'تحصيل', CONFIRM_RESERVATION: 'تأكيد', MARK_NO_SHOW: 'تسجيل غائب', OPEN_BOOKING: 'فتح العقد',
     REFUNDS_TITLE: 'المبالغ المستردة المعلقة', RECORD_REFUND: 'تسجيل المبلغ المسترد', REFUND_METHOD: 'الطريقة', REFUND_REASON: 'السبب', REFUND_SINCE: 'منذ', NO_REFUNDS: 'لا توجد مبالغ مستردة معلقة.', WIRE_PENDING: 'تحويل بنكي — لا حركة بنكية بعد',
     CONFIRMED_OK: 'تم تأكيد الحجز', NO_SHOW_DONE: 'تم تسجيله غائبًا', NO_SHOW_CONFIRM: 'تسجيل هذا الحجز كغائب؟ ستتحرر المركبة ويُلغى الحجز.',
+    HOLD_REASON_HELD: 'معلّق للمراجعة', HOLD_REASON_REFUND_FAILED: 'فشل ردّ المبلغ', HOLD_REASON_PROVIDER_ERROR: 'تعذّر الوصول إلى مزوّد الدفع',
   },
 })
 

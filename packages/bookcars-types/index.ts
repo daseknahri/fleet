@@ -2772,6 +2772,13 @@ export interface OverdueReceivableRow {
   dueAt?: Date
   overdue: boolean
   currency: string
+  /** R5-05 - why a Void hold is in the paid-unconfirmed queue, stamped
+   * by the sweeper at defuse time ('held' = retry confirms,
+   * 'refund-failed' = refund in the provider dashboard,
+   * 'provider-error' = retry re-verifies). Absent on older holds and
+   * on non-Void rows. */
+  holdReason?: string
+  holdDetail?: string
 }
 
 export interface OverdueReceivableResponse {

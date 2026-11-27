@@ -108,6 +108,27 @@ const isFreshDefuse = (booking: { expireAt?: Date | null }, now: Date): boolean 
   return !previousExpireAt || previousExpireAt.getTime() <= now.getTime()
 }
 
+// R5-05 - stamp why a Void booking is held, so the paid-unconfirmed
+// queue row can triage it (held = retry confirms; refund-failed =
+// refund in the provider dashboard; provider-error = retry
+// re-verifies). Stamped on EVERY defuse, fresh or not: the R5-03
+// fresh gate controls only the re-extension + notify, and the reason
+// can change between defuses (a later manual retry can take a
+// different branch), so the stamp rides its own guarded update, not
+// the gated one. The status guard means a booking finalised
+// concurrently is not stamped. The detail is truncated like
+// recordPushFailure's 1000-char discipline.
+const stampHoldReason = async (
+  bookingId: mongoose.Types.ObjectId,
+  status: 'held' | 'refund-failed' | 'provider-error',
+  detail?: string,
+): Promise<void> => {
+  await Booking.updateOne(
+    { _id: bookingId, status: bookcarsTypes.BookingStatus.Void },
+    { $set: { reconciliationStatus: status, holdDetail: (detail || '').slice(0, 1000) } },
+  )
+}
+
 export const reconcileOneVoidBooking = async (
   booking: {
     _id: mongoose.Types.ObjectId
@@ -153,6 +174,17 @@ export const reconcileOneVoidBooking = async (
       return { outcome: 'skipped' }
     }
     if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
+      // R5-05 - clear the hold stamp when the hold resolves. No status
+      // guard on the finalised arms, on purpose: finalisation already
+      // flipped the booking to Paid before this arm runs, so a
+      // `status: Void` guard could never match. The $unset touches
+      // only the sweeper's own two fields.
+      if (outcome === 'finalized' || outcome === 'already-finalized') {
+        await Booking.updateOne(
+          { _id: booking._id },
+          { $unset: { reconciliationStatus: '', holdDetail: '' } },
+        )
+      }
       if (outcome === 'refunded') {
         // R5-01 - a refunded booking must not keep reserving the car
         // for the remainder of a review window it no longer needs, so
@@ -170,7 +202,9 @@ export const reconcileOneVoidBooking = async (
         // finalised concurrently is not touched).
         await Booking.updateOne(
           { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          { $set: { expireAt: now } },
+          // R5-05 - the refunded arm keeps its Void guard (a refunded
+          // booking is still Void) and clears the hold stamp with it.
+          { $set: { expireAt: now }, $unset: { reconciliationStatus: '', holdDetail: '' } },
         )
       }
       logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
@@ -198,6 +232,10 @@ export const reconcileOneVoidBooking = async (
       // moved. A Void hold is served in the paid-unconfirmed queue
       // with a retry button (R4-02 / R3-01 follow-on); the hold
       // notification below is the alert that it is there.
+      // R5-05 - stamp the hold reason on every defuse (fresh or
+      // not; see stampHoldReason). The detail is the confirm-conflict
+      // detail from the reconcile.
+      await stampHoldReason(booking._id, 'held', outcomeDetail)
       // R5-03 - only re-extend + notify on a fresh defuse: a manual
       // retry inside a live review window returns the outcome with
       // no second notification round and no moved deadline.
@@ -229,6 +267,9 @@ export const reconcileOneVoidBooking = async (
         heldAlreadyLogged.add(refundFailedKey)
         logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
       }
+      // R5-05 - stamp the hold reason on every defuse (fresh or
+      // not; see stampHoldReason). The detail is the reconcile detail.
+      await stampHoldReason(booking._id, 'refund-failed', outcomeDetail)
       // R5-03 - only re-extend + notify on a fresh defuse (same rule
       // as held): a manual retry inside a live window changes nothing.
       if (isFreshDefuse(booking, now)) {
@@ -262,6 +303,10 @@ export const reconcileOneVoidBooking = async (
     } else {
       logger.error(`[checkoutSweeper] Sweep failed for booking ${booking._id}`, err)
     }
+    // R5-05 - stamp the hold reason on every defuse (fresh or
+    // not; see stampHoldReason). The detail is the provider error
+    // message, truncated by the helper.
+    await stampHoldReason(booking._id, 'provider-error', detail)
     // R5-03 - only re-extend + notify on a fresh defuse (same rule
     // as held / refund-failed): a manual retry inside a live review
     // window changes nothing about the deadline and sends no second
