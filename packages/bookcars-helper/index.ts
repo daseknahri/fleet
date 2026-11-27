@@ -203,6 +203,37 @@ export const flattenSuppliers = (suppliers: bookcarsTypes.User[]): string[] =>
  */
 // Dates from the API arrive as ISO strings, not Date objects, so coerce
 // here: every caller (UpdateBooking, BookingList, Checkout, ...) is safe.
+/**
+ * R6-05 - Casablanca wall-calendar primitives. This package cannot
+ * import backend code, so the rule below mirrors
+ * backend/src/utils/casablancaWall.ts (`wallDaysBetween`) exactly and
+ * the two copies must stay in sync: wall days, not elapsed
+ * milliseconds. A fall-back night is 25 real hours for 24 wall hours;
+ * the old `ceil(elapsedMs / 86400000)` charged 2 days for a 1-wall-day
+ * rental (10:00 local Sat -> 10:00 local Sun spanning 2026-02-15 or
+ * 2026-09-20). The partial-day rule is the one the hourly branch
+ * already encodes: a rental ending part-way into a wall day counts
+ * that partial day.
+ */
+const CASABLANCA_TIMEZONE = 'Africa/Casablanca'
+
+type WallParts = { year: number, month: number, day: number, hour: number, minute: number, second: number }
+
+const casablancaWallParts = (instant: Date): WallParts => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CASABLANCA_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? '0')
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') }
+}
+
 export const days = (from?: Date | string, to?: Date | string) => {
   if (!from || !to) {
     return 0
@@ -212,7 +243,13 @@ export const days = (from?: Date | string, to?: Date | string) => {
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
     return 0
   }
-  return Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 3600 * 24))
+  // Wall-calendar count: read both instants as Casablanca wall parts
+  // and ceil the wall-clock elapsed time. See casablancaWall.ts.
+  const fromWall = casablancaWallParts(fromDate)
+  const toWall = casablancaWallParts(toDate)
+  const fromMs = Date.UTC(fromWall.year, fromWall.month - 1, fromWall.day, fromWall.hour, fromWall.minute, fromWall.second)
+  const toMs = Date.UTC(toWall.year, toWall.month - 1, toWall.day, toWall.hour, toWall.minute, toWall.second)
+  return Math.ceil((toMs - fromMs) / (1000 * 3600 * 24))
 }
 
 /**

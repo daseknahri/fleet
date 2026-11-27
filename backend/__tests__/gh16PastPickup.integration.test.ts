@@ -5,6 +5,7 @@ import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../src/config/env.config'
 import * as databaseHelper from '../src/utils/databaseHelper'
 import { casablancaDayBounds, casablancaTodayStart, casablancaWeekBounds, wallDay } from '../src/utils/casablancaDate'
+import { days, daysOrZero } from '../src/utils/helper'
 import { workOrderStaleDays } from '../src/utils/workOrderStale'
 import * as authHelper from '../src/utils/authHelper'
 import app from '../src/app'
@@ -405,6 +406,37 @@ describe('R3-07 casablancaTodayStart', () => {
     const [winterStart, winterEnd] = casablancaWeekBounds(new Date('2026-11-25T12:00:00Z'))
     expect(winterStart.toISOString()).toBe('2026-11-23T00:00:00.000Z')
     expect(winterEnd.toISOString()).toBe('2026-11-30T00:00:00.000Z')
+  })
+})
+
+describe('R6-05 wall-calendar rental days', () => {
+  // Morocco falls back 03:00 -> 02:00 local on 2026-02-15 (~02:00Z)
+  // and 2026-09-20 (~01:00Z), and springs forward 02:00 -> 03:00
+  // local on 2026-03-22 (~02:00Z). Verified against Intl tzdata.
+  test('10:00 -> 10:00 spanning the 2026-02-15 fall-back is 1 day, not 2', () => {
+    // 25 real hours for 24 wall hours; the old ceil(elapsedMs/86400000) said 2.
+    expect(days(new Date('2026-02-14T09:00:00Z'), new Date('2026-02-15T10:00:00Z'))).toBe(1)
+    expect(daysOrZero(new Date('2026-02-14T09:00:00Z'), new Date('2026-02-15T10:00:00Z'))).toBe(1)
+  })
+
+  test('10:00 -> 10:00 spanning the 2026-09-20 fall-back is 1 day, not 2', () => {
+    expect(days(new Date('2026-09-19T09:00:00Z'), new Date('2026-09-20T10:00:00Z'))).toBe(1)
+    expect(daysOrZero(new Date('2026-09-19T09:00:00Z'), new Date('2026-09-20T10:00:00Z'))).toBe(1)
+  })
+
+  test('10:00 -> 10:00 spanning the 2026-03-22 spring-forward is still 1 day', () => {
+    // 23 real hours for 24 wall hours; the old count said 1 by luck.
+    expect(days(new Date('2026-03-21T10:00:00Z'), new Date('2026-03-22T09:00:00Z'))).toBe(1)
+  })
+
+  test('a same-wall-day rental counts 1 day; ending before the start wall-time counts the wall days only', () => {
+    expect(days(new Date('2026-07-04T09:00:00Z'), new Date('2026-07-04T17:00:00Z'))).toBe(1)
+    expect(days(new Date('2026-07-04T09:00:00Z'), new Date('2026-07-05T08:00:00Z'))).toBe(1)
+    expect(days(new Date('2026-07-04T09:00:00Z'), new Date('2026-07-05T10:00:00Z'))).toBe(2)
+  })
+
+  test('an inverted range stays 0 through daysOrZero', () => {
+    expect(daysOrZero(new Date('2026-07-05T10:00:00Z'), new Date('2026-07-04T10:00:00Z'))).toBe(0)
   })
 })
 

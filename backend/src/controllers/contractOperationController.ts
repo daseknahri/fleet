@@ -1041,17 +1041,25 @@ const postDepositSettlement = async (
   if (toMinor(heldAmount) !== toMinor(heldPosted)) {
     throw new Error(`DEPOSIT_SETTLEMENT_HELD_MISMATCH: The settlement held amount (${heldAmount} ${currency}) does not match the posted deposit total (${heldPosted} ${currency}). Reconcile the deposit payments first.`)
   }
-  const depositCreditsQuery = RentalPayment.find({
+  // R6-03 - the walk must compare like with like: heldPosted is the
+  // SIGNED net (ledger.ts getRecordedPurposeTotal counts Posted debits
+  // negative), so the walk must include them too. A manual Posted
+  // deposit debit (e.g. correcting a double-collected deposit) used to
+  // make walkSum (gross credits) differ from heldPosted (net) by the
+  // debit forever, bricking completion with UNRECONCILED. The return
+  // legs below still walk credits only - a debit is money already
+  // returned, never something to return again.
+  const depositMovementsQuery = RentalPayment.find({
     booking: booking._id,
     purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
     status: bookcarsTypes.RentalPaymentStatus.Posted,
-    direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
   }).sort({ date: 1, _id: 1 })
   if (session) {
-    depositCreditsQuery.session(session)
+    depositMovementsQuery.session(session)
   }
-  const depositCredits = await depositCreditsQuery
-  const walkSum = depositCredits.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  const depositMovements = await depositMovementsQuery
+  const depositCredits = depositMovements.filter((payment) => payment.direction !== bookcarsTypes.RentalPaymentDirection.Debit)
+  const walkSum = depositMovements.reduce((sum, payment) => sum + (payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -1 : 1) * Number(payment.amount || 0), 0)
   if (toMinor(walkSum) !== toMinor(heldPosted)) {
     throw new Error(`DEPOSIT_SETTLEMENT_UNRECONCILED: The posted deposit total (${heldPosted} ${currency}) cannot be walked back to individual payments (${walkSum} ${currency}); the deposit ledger has unreconciled entries. Reconcile the deposit payments first.`)
   }

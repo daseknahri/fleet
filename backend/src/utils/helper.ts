@@ -5,6 +5,7 @@ import mongoose from 'mongoose'
 import validator from 'validator'
 import Stripe from 'stripe'
 import { nanoid } from 'nanoid'
+import { wallDaysBetween } from './casablancaWall'
 
 /**
  * Convert string to boolean.
@@ -248,14 +249,18 @@ export const safeStringify = (obj: any) => {
 }
 
 /**
- * Get number of days between two dates.
+ * Get number of days between two dates, on the Casablanca wall
+ * calendar (R6-05): `wallDaysBetween` counts wall days, not elapsed
+ * milliseconds - a fall-back night is 25 real hours for 24 wall
+ * hours, and the old `ceil(elapsedMs / 86400000)` charged 2 days for
+ * a 1-wall-day rental spanning it. See `casablancaWall.ts`.
  *
  * @param {?Date} [from]
  * @param {?Date} [to]
  * @returns {number}
  */
 export const days = (from?: Date, to?: Date) =>
-  (from && to && Math.ceil(((new Date(to)).getTime() - (new Date(from)).getTime()) / (1000 * 3600 * 24))) || 0
+  (from && to && wallDaysBetween(from, to)) || 0
 
 /**
  * Days between two dates, floored at zero: an inverted range (to before

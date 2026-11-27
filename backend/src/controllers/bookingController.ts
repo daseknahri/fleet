@@ -2335,6 +2335,20 @@ export const deleteTempBooking = async (req: Request, res: Response) => {
   try {
     const booking = await Booking.findOne({ _id: bookingId, sessionId, status: bookcarsTypes.BookingStatus.Void, expireAt: { $ne: null } })
     if (booking) {
+      // R6-04 - a Void booking carrying money or a hold must never be
+      // hard-deleted by the temp cleanup: a held-for-review booking is
+      // Void with an extended expireAt and still carries its sessionId,
+      // so it matches the query above exactly. Deleting it orphans the
+      // captured payment (no booking row, no refund path, no queue row).
+      // Paid or held bookings are released through the review queue.
+      const carriesMoneyOrHold = !!booking.paymentIntentId
+        || !!booking.paypalOrderId
+        || !!booking.reconciliationStatus
+        || (typeof booking.financialSnapshot?.amountDueNow === 'number' && booking.financialSnapshot.amountDueNow > 0)
+      if (carriesMoneyOrHold) {
+        res.status(409).send('Paid or held bookings are released through the review queue, not the temp cleanup.')
+        return
+      }
       const user = await User.findOne({ _id: booking.driver, verified: false, expireAt: { $ne: null } })
       await user?.deleteOne()
     }

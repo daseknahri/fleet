@@ -150,15 +150,22 @@ const hasRealSnapshot = (booking: { financialSnapshot?: { rentalTotal?: unknown 
 
 
 /**
- * R5-01 - defence in depth: a fully-refunded PaymentIntent still
- * reports `status: 'succeeded'`; refund state lives on the charge
- * (`refunded: true`), which the intent alone cannot show. Before
- * finalising a verified intent, check its charge: an already-refunded
- * payment must never finalise into a free confirmed booking. If the
- * intent carries no charge reference, or the charge cannot be
- * retrieved, fall through to the existing path (no new failure mode
- * is invented for a provider read error - the sweeper's
- * provider-error defuse covers a throwing retrieve).
+ * R5-01 / R6-01 / R6-02 - defence in depth: a refunded PaymentIntent
+ * still reports `status: 'succeeded'`; refund state lives on the
+ * charge, which the intent alone cannot show. Before finalising a
+ * verified intent, check its charge: an already-refunded payment must
+ * never finalise into a free confirmed booking.
+ *
+ * R6-01 - `refunded` is true only on a FULL refund; a partial refund
+ * leaves `refunded: false` with `amount_refunded > 0`, so ANY refund
+ * at all counts: `refunded || amount_refunded > 0`.
+ *
+ * R6-02 - a failed charge read must THROW, never read as "not
+ * refunded": the sweeper's provider-error defuse (checkoutSweeper.ts)
+ * and the webhook's 500-for-redelivery cover a throwing retrieve,
+ * but only if the throw reaches them. The old `catch { return false }`
+ * swallowed a transient Stripe error and finalised refunded money.
+ * Only "no charge reference" (`!chargeId`) falls through as `false`.
  */
 const isChargeRefunded = async (
   stripeAPI: Stripe,
@@ -170,12 +177,8 @@ const isChargeRefunded = async (
   if (!chargeId) {
     return false
   }
-  try {
-    const charge = await stripeAPI.charges.retrieve(chargeId)
-    return !!charge.refunded
-  } catch {
-    return false
-  }
+  const charge = await stripeAPI.charges.retrieve(chargeId)
+  return !!charge.refunded || (charge.amount_refunded || 0) > 0
 }
 
 /**
@@ -185,20 +188,16 @@ const isChargeRefunded = async (
  * `not-paid` instead of issuing a second refund (Stripe would replay
  * the original refund under the same idempotency key - no double
  * money - but the sweep summary would count `refunded` +1 every pass,
- * which is exactly the count the sweep watch must stop). A retrieve
- * failure, or no charge reference, falls through to the existing path
- * (no new failure mode for a provider read error).
+ * which is exactly the count the sweep watch must stop).
+ * R6-02 - a retrieve failure THROWS here too (same rule as
+ * isChargeRefunded): only a missing intent falls through as `false`.
  */
 const isIntentIdRefunded = async (
   stripeAPI: Stripe,
   paymentIntentId: string,
 ): Promise<boolean> => {
-  try {
-    const intent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
-    return intent ? await isChargeRefunded(stripeAPI, intent) : false
-  } catch {
-    return false
-  }
+  const intent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+  return intent ? await isChargeRefunded(stripeAPI, intent) : false
 }
 
 const intentIdOf = (session: Stripe.Checkout.Session): string | undefined => {
@@ -497,6 +496,28 @@ export const reconcileStripeIntent = async (
 }
 
 /**
+ * R6-01 - a PayPal capture refunded in full or in part must never
+ * finalise. The order payload reports the refund two ways, and the
+ * amount checks below can see neither: the capture's gross `amount`
+ * never changes, so a partially-refunded capture still matches the
+ * snapshot exactly. (1) The capture status becomes REFUNDED or
+ * PARTIALLY_REFUNDED. (2) The purchase unit's `payments` carries a
+ * `refunds` array with the refunded amounts. Any live refund (amount
+ * > 0, not FAILED) counts.
+ */
+const isPayPalCaptureRefunded = (payments?: {
+  captures?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }>
+  refunds?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }>
+}): boolean => {
+  const capture = payments?.captures?.[0]
+  if (capture?.status === 'REFUNDED' || capture?.status === 'PARTIALLY_REFUNDED') {
+    return true
+  }
+  const refunds = payments?.refunds || []
+  return refunds.some((refund) => refund?.status !== 'FAILED' && Number.parseFloat(refund?.amount?.value || '0') > 0)
+}
+
+/**
  * Reconcile one PayPal order (the sweeper's order lookup; there is no
  * PayPal webhook — PayPal orders are reconciled by polling order status
  * through the existing server-side `getOrder`, which is the equivalent
@@ -513,7 +534,10 @@ export const reconcilePayPalOrder = async (
     purchase_units?: Array<{
       invoice_id?: string
       amount?: { currency_code?: string, value?: string }
-      payments?: { captures?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }> }
+      payments?: {
+        captures?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }>
+        refunds?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }>
+      }
     }>
   },
 ): Promise<CheckoutReconcileResult> => {
@@ -586,6 +610,13 @@ export const reconcilePayPalOrder = async (
   // param; reconcile has no separate param — the order object itself is
   // the authority — so only the capture status is checked here.)
   if (capture.status !== 'COMPLETED') {
+    // R6-01 - a refunded capture is not a verification failure to
+    // refund: the money is already (partly) back. Return not-paid
+    // directly instead of asking refundCompletedCapture to refund a
+    // different still-completed capture, if one exists.
+    if (isPayPalCaptureRefunded(purchaseUnit?.payments)) {
+      return { outcome: 'not-paid', bookingId, detail: 'PayPal capture was refunded (partially or fully); support review is required' }
+    }
     const refunded = await refundCompletedCapture(paypal, order)
     if (refunded === 'refunded') {
       return { outcome: 'refunded', bookingId, detail: 'PayPal capture verification failed; the payment was refunded' }
@@ -605,6 +636,14 @@ export const reconcilePayPalOrder = async (
       return { outcome: 'refund-failed', bookingId, detail: 'PayPal capture amount or currency mismatch; the payment refund requires support review' }
     }
     return { outcome: 'not-paid', bookingId, detail: 'PayPal capture amount or currency mismatch and no completed capture was found' }
+  }
+
+  // R6-01 - the finalise gate: a capture whose gross amount still
+  // matches the snapshot but carries a refund (visible in the order's
+  // `payments.refunds`, while the capture itself still reads
+  // COMPLETED) must never finalise into full ledger legs.
+  if (isPayPalCaptureRefunded(purchaseUnit?.payments)) {
+    return { outcome: 'not-paid', bookingId, detail: 'PayPal capture was refunded (partially or fully); support review is required' }
   }
 
   return finalizeOrRefund(booking, 'paypal', order.id!, async () => {

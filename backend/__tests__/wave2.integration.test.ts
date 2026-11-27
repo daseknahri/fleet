@@ -595,6 +595,49 @@ describe('W2 2.4 â€” deposit settlement posts in complete()', () => {
     const res = await api.complete({ depositSettlement: { heldAmount: 250, keptAmount: 50, returnedAmount: 200, method: 'cash' } })
     expect(res.status).toBe(409)
   })
+
+  it('R6-03 a Posted deposit debit no longer bricks completion: settlement on the signed net completes', async () => {
+    const fixture = await makeFixture('r603-debit', { status: bookcarsTypes.BookingStatus.Paid, depositAmount: 2000 })
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 2000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await openSession(fixture.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+    const api = await toReturnReview(fixture)
+    const snapshot = await api.snapshot()
+    expect(snapshot.status).toBe(201)
+    fixtureSnapshotFiles.push(snapshot.body.pdfFile)
+    // A manual Posted deposit debit: the duplicate-deposit correction
+    // the Payments dialog supports (deposit collected twice by
+    // mistake, corrected with a debit instead of a reversal).
+    await postRentalPayment({
+      bookingId: fixture.booking._id.toString(), date: new Date(), amount: 500,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Deposit,
+      direction: bookcarsTypes.RentalPaymentDirection.Debit,
+      source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted,
+      actorId: adminId,
+    })
+    // Net held is now 2000 - 500 = 1500. Pre-fix the gross-credit walk
+    // (2000) never matched the signed held total (1500) and complete()
+    // refused with DEPOSIT_SETTLEMENT_UNRECONCILED forever.
+    const res = await api.complete({ depositSettlement: { heldAmount: 1500, keptAmount: 0, returnedAmount: 1500, method: 'cash' } })
+    expect(res.status).toBe(200)
+    expect(res.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
+  })
+
+  it('R6-03 (control) a settlement with no debit still completes on the full held amount', async () => {
+    const fixture = await makeFixture('r603-nodebit', { status: bookcarsTypes.BookingStatus.Paid, depositAmount: 2000 })
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 2000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await openSession(fixture.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+    const api = await toReturnReview(fixture)
+    const snapshot = await api.snapshot()
+    expect(snapshot.status).toBe(201)
+    fixtureSnapshotFiles.push(snapshot.body.pdfFile)
+    const res = await api.complete({ depositSettlement: { heldAmount: 2000, keptAmount: 0, returnedAmount: 2000, method: 'cash' } })
+    expect(res.status).toBe(200)
+    expect(res.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
+  })
 })
 
 describe('W2 2.8 â€” contract guards', () => {

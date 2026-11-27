@@ -1,4 +1,7 @@
 import * as env from '../config/env.config'
+import { casablancaWallParts } from './casablancaWall'
+
+export { CASABLANCA_TIMEZONE, wallDay } from './casablancaWall'
 
 /** R3-07 / R5-07 — the start of the current Africa/Casablanca wall day,
  *  as a UTC instant: TRUE local midnight (00:00 on the Casablanca wall
@@ -13,24 +16,9 @@ import * as env from '../config/env.config'
  *  date as a naive UTC instant, read the zone offset at that instant
  *  from the wall parts, subtract it, and refine once (a DST transition
  *  sitting on midnight would move the first estimate). */
-export const CASABLANCA_TIMEZONE = 'Africa/Casablanca'
-
-type WallParts = { year: number, month: number, day: number, hour: number, minute: number, second: number }
-
-const casablancaWallParts = (instant: Date): WallParts => {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: CASABLANCA_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(instant)
-  const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? '0')
-  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') }
-}
+// R6-05 - the wall-parts math + wallDay live in casablancaWall.ts
+// (zero-import leaf: helper.ts needs them without the env.config
+// cycle). Re-exported above so existing import sites keep working.
 
 /** Zone offset (wall time minus UTC) at an instant, in milliseconds. */
 const casablancaOffsetMs = (instant: Date): number => {
@@ -80,13 +68,4 @@ export const casablancaWeekBounds = (date: Date = new Date()): [Date, Date] => {
     casablancaDayStartForWall(monday.getUTCFullYear(), monday.getUTCMonth() + 1, monday.getUTCDate()),
     casablancaDayStartForWall(nextMonday.getUTCFullYear(), nextMonday.getUTCMonth() + 1, nextMonday.getUTCDate()),
   ]
-}
-
-/** R5-09 — the Casablanca wall date of an instant, 'YYYY-MM-DD'.
- *  The single wall-clock helper: workOrderStale.ts used to carry its
- *  own copy — it now imports this one, so a timezone correction can
- *  never desynchronise the stale-day badge from the past-pickup math. */
-export const wallDay = (date: Date | string): string => {
-  const p = casablancaWallParts(new Date(date))
-  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`
 }

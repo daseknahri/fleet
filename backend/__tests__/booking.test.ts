@@ -1552,6 +1552,107 @@ describe('DELETE /api/delete-temp-booking', () => {
       expect(connRes).toBeTruthy()
     }
   })
+
+  it('should refuse to delete a held-for-review booking carrying a payment intent (R6-04)', async () => {
+    const sessionId = testHelper.GetRandromObjectIdAsString()
+    const expireAt = new Date()
+    expireAt.setSeconds(expireAt.getSeconds() + env.BOOKING_EXPIRE_AT)
+
+    const driver = new User({
+      fullName: 'Driver',
+      email: testHelper.GetRandomEmail(),
+      language: testHelper.LANGUAGE,
+      type: bookcarsTypes.UserType.User,
+      expireAt,
+    })
+    await driver.save()
+
+    // Held-for-review shape: Void, extended expireAt, sessionId still
+    // set, paymentIntentId + hold stamp + snapshot amount present.
+    const booking = new Booking({
+      supplier: SUPPLIER_ID,
+      car: CAR1_ID,
+      driver: driver._id,
+      pickupLocation: LOCATION_ID,
+      dropOffLocation: LOCATION_ID,
+      from: new Date(2024, 2, 1),
+      to: new Date(2024, 2, 4),
+      status: bookcarsTypes.BookingStatus.Void,
+      sessionId,
+      expireAt,
+      paymentIntentId: 'pi_r604_held',
+      reconciliationStatus: 'held',
+      financialSnapshot: {
+        version: 1, baseCurrency: 'MAD', paymentCurrency: 'MAD',
+        mode: bookcarsTypes.CheckoutPaymentMode.Rental,
+        rentalTotal: 1000, depositAmount: 250,
+        amountDueNow: 1000, amountDueNowInPaymentCurrency: 1000,
+        quotedAt: new Date(),
+      },
+      cancellation: true,
+      amendments: true,
+      theftProtection: false,
+      collisionDamageWaiver: false,
+      fullInsurance: false,
+      price: 1000,
+      additionalDriver: false,
+    })
+    await booking.save()
+
+    const res = await request(app)
+      .delete(`/api/delete-temp-booking/${booking._id.toString()}/${sessionId}`)
+    expect(res.statusCode).toBe(409)
+    expect(res.text).toContain('review queue')
+    const _booking = await Booking.findById(booking._id)
+    expect(_booking).not.toBeNull()
+    const _driver = await User.findById(driver._id)
+    expect(_driver).not.toBeNull()
+  })
+
+  it('should refuse to delete a PayPal held booking (R6-04)', async () => {
+    const sessionId = testHelper.GetRandromObjectIdAsString()
+    const expireAt = new Date()
+    expireAt.setSeconds(expireAt.getSeconds() + env.BOOKING_EXPIRE_AT)
+
+    const driver = new User({
+      fullName: 'Driver',
+      email: testHelper.GetRandomEmail(),
+      language: testHelper.LANGUAGE,
+      type: bookcarsTypes.UserType.User,
+      expireAt,
+    })
+    await driver.save()
+
+    const booking = new Booking({
+      supplier: SUPPLIER_ID,
+      car: CAR1_ID,
+      driver: driver._id,
+      pickupLocation: LOCATION_ID,
+      dropOffLocation: LOCATION_ID,
+      from: new Date(2024, 2, 1),
+      to: new Date(2024, 2, 4),
+      status: bookcarsTypes.BookingStatus.Void,
+      sessionId,
+      expireAt,
+      paypalOrderId: 'order-r604-held',
+      cancellation: true,
+      amendments: true,
+      theftProtection: false,
+      collisionDamageWaiver: false,
+      fullInsurance: false,
+      price: 1000,
+      additionalDriver: false,
+    })
+    await booking.save()
+
+    const res = await request(app)
+      .delete(`/api/delete-temp-booking/${booking._id.toString()}/${sessionId}`)
+    expect(res.statusCode).toBe(409)
+    const _booking = await Booking.findById(booking._id)
+    expect(_booking).not.toBeNull()
+    const _driver = await User.findById(driver._id)
+    expect(_driver).not.toBeNull()
+  })
 })
 
 describe('Security Regression Tests - Issue #124', () => {

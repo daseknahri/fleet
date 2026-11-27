@@ -187,14 +187,24 @@ const mockStripeSessionPaid = (booking: any, intentId: string, currency: string,
   mockStripeIntentSuccess(intentId, booking._id.toString(), currency, amountMinor)
 }
 
-const mockPayPalOrder = (orderId: string, bookingId: string, status: string, amount: string, captureAmount?: string, currency = 'MAD') => {
+// R6-01 - opts model a refunded capture: `captureStatus` for the
+// REFUNDED / PARTIALLY_REFUNDED status signal, `refunds` for the
+// order payload's payments.refunds array (the capture itself still
+// reads COMPLETED with its gross amount).
+const mockPayPalOrder = (orderId: string, bookingId: string, status: string, amount: string, captureAmount?: string, currency = 'MAD', opts: {
+  captureStatus?: string
+  refunds?: Array<{ id?: string, status?: string, amount?: { currency_code?: string, value?: string } }>
+} = {}) => {
   paypalGetOrder.mockResolvedValue({
     id: orderId, status,
     purchase_units: [{
       invoice_id: bookingId,
       amount: { currency_code: currency, value: amount },
       payments: status === 'COMPLETED'
-        ? { captures: [{ id: `cap-f2-${rand()}`, status: 'COMPLETED', amount: { currency_code: currency, value: captureAmount ?? amount } }] }
+        ? {
+          captures: [{ id: `cap-f2-${rand()}`, status: opts.captureStatus || 'COMPLETED', amount: { currency_code: currency, value: captureAmount ?? amount } }],
+          ...(opts.refunds ? { refunds: opts.refunds } : {}),
+        }
         : {},
     }],
   })
@@ -1168,6 +1178,124 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(stripeRefundCreate).not.toHaveBeenCalled()
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-01 (a) a partially-refunded Stripe intent never finalises: outcome not-paid, booking stays Void, no ledger legs', async () => {
+    const fixture = await makeFixture('r601-partial', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r601_partial', 'MAD', 125000)
+    // The intent verifies as succeeded and matches the snapshot; only
+    // its charge shows the partial refund (refunded: false,
+    // amount_refunded: 500) - the R5-01 check saw only `refunded`.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r601_partial', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 125000,
+      latest_charge: 'ch_r601_partial',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r601_partial', refunded: false, amount_refunded: 500 })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r601_partial' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.notPaid).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(summary.refunded).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-01 (b) a partially-refunded PayPal capture never finalises in full: outcome not-paid, no second refund', async () => {
+    const fixture = await makeFixture('r601-paypal', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { paypalOrderId: 'order-r601-partial', expireAt: new Date(Date.now() - 3600000) })
+    // The capture still reads COMPLETED with its gross amount (the
+    // amount checks cannot see the refund); the refund lives in the
+    // order's payments.refunds array. Pre-fix this finalised in full.
+    mockPayPalOrder('order-r601-partial', fixture.booking._id.toString(), 'COMPLETED', '1250.00', undefined, 'MAD', {
+      refunds: [{ id: 're-r601-partial', status: 'COMPLETED', amount: { currency_code: 'MAD', value: '500.00' } }],
+    })
+    paypalRefundCapture.mockResolvedValue({})
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.notPaid).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(summary.refunded).toBe(0)
+    expect(paypalRefundCapture).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-01 (c) a PayPal capture whose status is PARTIALLY_REFUNDED never finalises', async () => {
+    const fixture = await makeFixture('r601-paypal-status', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { paypalOrderId: 'order-r601-status', expireAt: new Date(Date.now() - 3600000) })
+    mockPayPalOrder('order-r601-status', fixture.booking._id.toString(), 'COMPLETED', '1250.00', undefined, 'MAD', { captureStatus: 'PARTIALLY_REFUNDED' })
+    paypalRefundCapture.mockResolvedValue({})
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.notPaid).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(paypalRefundCapture).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-02 (a) a failed charge read surfaces as provider-error, never as a finalisation', async () => {
+    const fixture = await makeFixture('r602-throw', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r602_throw', 'MAD', 125000)
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r602_throw', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 125000,
+      latest_charge: 'ch_r602_throw',
+    })
+    // R6-02 - the old `catch { return false }` read this transient
+    // Stripe error as "not refunded" and finalised the booking. Now
+    // the throw must reach the sweeper's provider-error defuse.
+    stripeChargeRetrieve.mockRejectedValue(new Error('Stripe API blip'))
+    stripeRefundCreate.mockResolvedValue({ id: 're_r602_throw' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.providerErrors).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(summary.refunded).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(booking?.reconciliationStatus).toBe('provider-error')
+    expect(new Date(booking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-02 (b) a 404 charge-read error behaves the same: provider-error, not false', async () => {
+    const fixture = await makeFixture('r602-404', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r602_404', 'MAD', 125000)
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r602_404', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 125000,
+      latest_charge: 'ch_r602_404',
+    })
+    stripeChargeRetrieve.mockRejectedValue(Object.assign(new Error('No such charge'), { statusCode: 404 }))
+    stripeRefundCreate.mockResolvedValue({ id: 're_r602_404' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.providerErrors).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(booking?.reconciliationStatus).toBe('provider-error')
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
   })
 

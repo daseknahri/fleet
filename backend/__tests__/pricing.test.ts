@@ -431,4 +431,49 @@ describe('calculateTotalPrice', () => {
       expect(total).toBe(35.83)
     })
   })
+
+  describe('R6-05 DST fall-back: a 1-wall-day rental prices 1 daily rate', () => {
+    const dateBasedCar = {
+      ...baseCar,
+      isDateBasedPrice: true,
+      dailyPrice: 100,
+      dateBasedPrices: [],
+    } as unknown as bookcarsTypes.Car
+
+    it('10:00 -> 10:00 spanning 2026-02-15 prices 1 day, not 2', () => {
+      expect(bookcarsHelper.days('2026-02-14T09:00:00Z', '2026-02-15T10:00:00Z')).toBe(1)
+      expect(
+        bookcarsHelper.calculateTotalPrice(
+          dateBasedCar,
+          new Date('2026-02-14T09:00:00Z'),
+          new Date('2026-02-15T10:00:00Z'),
+          0,
+        ),
+      ).toBe(100)
+    })
+
+    it('10:00 -> 10:00 spanning 2026-09-20 prices 1 day, not 2', () => {
+      expect(bookcarsHelper.days('2026-09-19T09:00:00Z', '2026-09-20T10:00:00Z')).toBe(1)
+      expect(
+        bookcarsHelper.calculateTotalPrice(
+          dateBasedCar,
+          new Date('2026-09-19T09:00:00Z'),
+          new Date('2026-09-20T10:00:00Z'),
+          0,
+        ),
+      ).toBe(100)
+    })
+
+    it('10:00 -> 10:00 spanning the 2026-03-22 spring-forward still prices 1 day', () => {
+      expect(bookcarsHelper.days('2026-03-21T10:00:00Z', '2026-03-22T09:00:00Z')).toBe(1)
+      expect(
+        bookcarsHelper.calculateTotalPrice(
+          dateBasedCar,
+          new Date('2026-03-21T10:00:00Z'),
+          new Date('2026-03-22T09:00:00Z'),
+          0,
+        ),
+      ).toBe(100)
+    })
+  })
 })
