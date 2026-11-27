@@ -148,6 +148,59 @@ export const refundCompletedCapture = async (
 const hasRealSnapshot = (booking: { financialSnapshot?: { rentalTotal?: unknown } }) =>
   !!booking.financialSnapshot && typeof booking.financialSnapshot.rentalTotal === 'number'
 
+
+/**
+ * R5-01 - defence in depth: a fully-refunded PaymentIntent still
+ * reports `status: 'succeeded'`; refund state lives on the charge
+ * (`refunded: true`), which the intent alone cannot show. Before
+ * finalising a verified intent, check its charge: an already-refunded
+ * payment must never finalise into a free confirmed booking. If the
+ * intent carries no charge reference, or the charge cannot be
+ * retrieved, fall through to the existing path (no new failure mode
+ * is invented for a provider read error - the sweeper's
+ * provider-error defuse covers a throwing retrieve).
+ */
+const isChargeRefunded = async (
+  stripeAPI: Stripe,
+  intent: Stripe.PaymentIntent,
+): Promise<boolean> => {
+  const chargeId = typeof intent.latest_charge === 'string'
+    ? intent.latest_charge
+    : intent.latest_charge?.id
+  if (!chargeId) {
+    return false
+  }
+  try {
+    const charge = await stripeAPI.charges.retrieve(chargeId)
+    return !!charge.refunded
+  } catch {
+    return false
+  }
+}
+
+/**
+ * R5-01 fix-forward - the mismatch branches below only hold the intent
+ * id, not the intent object. Retrieve it and apply the same
+ * already-refunded check: a re-swept refunded booking must return
+ * `not-paid` instead of issuing a second refund (Stripe would replay
+ * the original refund under the same idempotency key - no double
+ * money - but the sweep summary would count `refunded` +1 every pass,
+ * which is exactly the count the sweep watch must stop). A retrieve
+ * failure, or no charge reference, falls through to the existing path
+ * (no new failure mode for a provider read error).
+ */
+const isIntentIdRefunded = async (
+  stripeAPI: Stripe,
+  paymentIntentId: string,
+): Promise<boolean> => {
+  try {
+    const intent = await stripeAPI.paymentIntents.retrieve(paymentIntentId)
+    return intent ? await isChargeRefunded(stripeAPI, intent) : false
+  } catch {
+    return false
+  }
+}
+
 const intentIdOf = (session: Stripe.Checkout.Session): string | undefined => {
   const intent = session.payment_intent
   return typeof intent === 'string' ? intent : intent?.id
@@ -270,6 +323,12 @@ export const reconcileStripeSession = async (
     // before answering, as the browser path does.
     const mismatchIntentId = intentIdOf(session)
     if (mismatchIntentId) {
+      // R5-01 fix-forward - an already-refunded intent still verifies
+      // as succeeded; its charge says otherwise. Never refund it twice:
+      // the re-sweep surfaces the booking as not-paid instead.
+      if (await isIntentIdRefunded(stripeAPI, mismatchIntentId)) {
+        return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
+      }
       const refunded = await refundSucceededIntent(stripeAPI, mismatchIntentId)
       if (refunded === 'refunded') {
         return { outcome: 'refunded', bookingId, detail: 'Payment requires manual review because the booking snapshot is missing or mismatched; the payment was refunded' }
@@ -287,6 +346,12 @@ export const reconcileStripeSession = async (
     || session.amount_total !== expectedAmountCents) {
     const mismatchIntentId = intentIdOf(session)
     if (mismatchIntentId) {
+      // R5-01 fix-forward - an already-refunded intent still verifies
+      // as succeeded; its charge says otherwise. Never refund it twice:
+      // the re-sweep surfaces the booking as not-paid instead.
+      if (await isIntentIdRefunded(stripeAPI, mismatchIntentId)) {
+        return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
+      }
       const refunded = await refundSucceededIntent(stripeAPI, mismatchIntentId)
       if (refunded === 'refunded') {
         return { outcome: 'refunded', bookingId, detail: 'Payment currency or amount mismatch; the payment was refunded' }
@@ -309,6 +374,12 @@ export const reconcileStripeSession = async (
     || verifiedIntent.currency.toUpperCase() !== financialSnapshot!.paymentCurrency.toUpperCase()
     || verifiedIntent.amount_received !== expectedAmountCents) {
     if (verifiedIntent.status === 'succeeded') {
+      // R5-01 fix-forward - an already-refunded intent still verifies
+      // as succeeded; its charge says otherwise. Never refund it twice:
+      // the re-sweep surfaces the booking as not-paid instead.
+      if (await isChargeRefunded(stripeAPI, verifiedIntent)) {
+        return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
+      }
       const refunded = await refundSucceededIntent(stripeAPI, stripePaymentIntentId)
       if (refunded === 'refunded') {
         return { outcome: 'refunded', bookingId, detail: 'Payment intent does not match the booking snapshot; the payment was refunded' }
@@ -318,6 +389,12 @@ export const reconcileStripeSession = async (
       }
     }
     return { outcome: 'not-paid', bookingId, detail: 'Payment intent did not succeed' }
+  }
+
+  // R5-01 - an already-refunded intent still verifies as succeeded;
+  // its charge says otherwise. Never finalise refunded money.
+  if (await isChargeRefunded(stripeAPI, verifiedIntent)) {
+    return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
   }
 
   return finalizeOrRefund(booking, 'stripe', stripePaymentIntentId, async () => {
@@ -372,6 +449,12 @@ export const reconcileStripeIntent = async (
   const financialSnapshot = booking.financialSnapshot
   const intentLinked = !booking.paymentIntentId || booking.paymentIntentId === intent.id
   if (!hasRealSnapshot(booking) || intent.metadata?.bookingId !== bookingId || !intentLinked) {
+    // R5-01 fix-forward - an already-refunded intent still verifies
+    // as succeeded; its charge says otherwise. Never refund it twice:
+    // the re-sweep surfaces the booking as not-paid instead.
+    if (await isChargeRefunded(stripeAPI, intent)) {
+      return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
+    }
     const refunded = await refundSucceededIntent(stripeAPI, intent.id)
     if (refunded === 'refunded') {
       return { outcome: 'refunded', bookingId, detail: 'Payment intent is not linked to this booking; the payment was refunded' }
@@ -385,6 +468,12 @@ export const reconcileStripeIntent = async (
   const expectedAmountCents = toMinorUnits(financialSnapshot!.amountDueNowInPaymentCurrency, financialSnapshot!.paymentCurrency)
   if (intent.currency.toUpperCase() !== financialSnapshot!.paymentCurrency.toUpperCase()
     || intent.amount_received !== expectedAmountCents) {
+    // R5-01 fix-forward - an already-refunded intent still verifies
+    // as succeeded; its charge says otherwise. Never refund it twice:
+    // the re-sweep surfaces the booking as not-paid instead.
+    if (await isChargeRefunded(stripeAPI, intent)) {
+      return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
+    }
     const refunded = await refundSucceededIntent(stripeAPI, intent.id)
     if (refunded === 'refunded') {
       return { outcome: 'refunded', bookingId, detail: 'Payment intent does not match the booking snapshot; the payment was refunded' }
@@ -393,6 +482,12 @@ export const reconcileStripeIntent = async (
       return { outcome: 'refund-failed', bookingId, detail: 'Payment intent does not match the booking snapshot; the payment refund requires support review' }
     }
     return { outcome: 'not-paid', bookingId, detail: 'Payment intent did not succeed' }
+  }
+
+  // R5-01 - an already-refunded intent still verifies as succeeded;
+  // its charge says otherwise. Never finalise refunded money.
+  if (await isChargeRefunded(stripeAPI, intent)) {
+    return { outcome: 'not-paid', bookingId, detail: 'Payment intent was already refunded; support review is required' }
   }
 
   return finalizeOrRefund(booking, 'stripe', intent.id, async () => {

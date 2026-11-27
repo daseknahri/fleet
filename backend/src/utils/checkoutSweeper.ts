@@ -142,17 +142,23 @@ export const reconcileOneVoidBooking = async (
     }
     if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
       if (outcome === 'refunded') {
-        // R4-01 companion - a refunded booking must not keep reserving
-        // the car for the remainder of a review window it no longer
-        // needs: clear the hold extension so the booking stops
-        // reserving the car. No time filter on the update: the sweep
-        // only selects bookings whose expireAt already passed, so a
-        // $gt: now filter could never match and the clear would never
-        // fire. The status guard is the concurrency protection (a
-        // booking finalised concurrently is not touched).
+        // R5-01 - a refunded booking must not keep reserving the car
+        // for the remainder of a review window it no longer needs, so
+        // the hold extension is cleared - but NOT to null: null
+        // matches the sweep query's $lte (null sorts before every
+        // date) and is invisible to the TTL index, so a refunded
+        // booking was re-swept every 15 minutes forever and never
+        // TTL-deleted. Setting it to `now` frees the car immediately
+        // (reservesCar only counts an unexpired hold) and lets the
+        // TTL clean the record up ~70 min later, as before R4-01.
+        // No time filter on the update: the sweep only selects
+        // bookings whose expireAt already passed, so a $gt: now
+        // filter could never match and the clear would never fire.
+        // The status guard is the concurrency protection (a booking
+        // finalised concurrently is not touched).
         await Booking.updateOne(
           { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-          { $set: { expireAt: null } },
+          { $set: { expireAt: now } },
         )
       }
       logger.info(`[checkoutSweeper] Booking ${booking._id} reconciled: ${outcome}`)
@@ -258,7 +264,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
   try {
     const bookings = await Booking.find({
       status: bookcarsTypes.BookingStatus.Void,
-      expireAt: { $lte: now },
+      expireAt: { $ne: null, $lte: now },
       $or: [
         { sessionId: { $nin: [null, ''] } },
         { paymentIntentId: { $nin: [null, ''] } },

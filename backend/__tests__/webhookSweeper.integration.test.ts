@@ -32,6 +32,8 @@ import LocationValue from '../src/models/LocationValue'
 const stripeSessionRetrieve: any = jest.fn()
 const stripeIntentRetrieve: any = jest.fn()
 const stripeRefundCreate: any = jest.fn()
+// R5-01 - charge retrieve, for the already-refunded intent check.
+const stripeChargeRetrieve: any = jest.fn()
 const stripeCustomersList: any = jest.fn()
 const stripeCustomersCreate: any = jest.fn()
 const stripeSessionCreate: any = jest.fn()
@@ -53,6 +55,7 @@ jest.unstable_mockModule('../src/payment/stripe.js', () => ({
     customers: { list: stripeCustomersList, create: stripeCustomersCreate },
     paymentIntents: { retrieve: stripeIntentRetrieve },
     refunds: { create: stripeRefundCreate },
+    charges: { retrieve: stripeChargeRetrieve },
     webhooks: {
       constructEvent: (payload: string | Buffer, header: string | string[], secret: string) =>
         realStripe.webhooks.constructEvent(payload, header, secret),
@@ -475,7 +478,7 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
   })
 
-  it('is safe to run twice: after a refund the booking drops out (expireAt cleared), so the second sweep issues no second refund', async () => {
+  it('is safe to run twice: a re-swept refunded booking surfaces as not-paid, never re-refunds, expireAt unrefreshed', async () => {
     const fixture = await makeFixture('sweep-twice', bookcarsTypes.CheckoutPaymentMode.Full,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
       { expireAt: new Date(Date.now() - 3600000) })
@@ -483,14 +486,40 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     stripeRefundCreate.mockResolvedValue({ id: 're_f2_sweep_twice' })
     const first = await runCheckoutSweep()
     expect(first.refunded).toBe(1)
+    const afterFirst = await Booking.findById(fixture.booking._id).lean()
+    // R5-01 fix-forward - the pack's "absent from the next sweep's
+    // checked" is unachievable with expireAt as the only lever: sweep
+    // 1 sets expireAt = now1 and sweep 2 runs at now2 > now1, so
+    // now1 <= now2 and the booking IS re-selected. Model the real
+    // state transition instead: sweep 1's refund made the charge
+    // refunded, so the intent now carries a refunded charge. The
+    // second sweep must surface the booking as not-paid - no second
+    // refund, no expireAt refresh - so the TTL still fires ~70 min
+    // after the refund and the car stays free.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_f2_sweep_twice', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 99900,
+      latest_charge: 'ch_f2_sweep_twice',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_f2_sweep_twice', refunded: true })
     const second = await runCheckoutSweep()
-    expect(second.checked).toBe(0)
+    expect(second.checked).toBe(1)
+    expect(second.notPaid).toBe(1)
     expect(second.refunded).toBe(0)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     expect(stripeRefundCreate.mock.calls[0][1]).toEqual({ idempotencyKey: 'refund-pi_f2_sweep_twice-mismatch' })
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
-    expect(booking?.expireAt).toBeNull()
+    // R5-01 - the refund no longer clears expireAt to null (null
+    // matches the sweep $lte and never TTL-deletes); it is set to the
+    // sweep's now, so the record TTL-cleans ~70 min later - and the
+    // second sweep must NOT refresh it (a not-paid outcome has no
+    // side effect in reconcileOneVoidBooking).
+    expect(booking?.expireAt).not.toBeNull()
+    expect(Math.abs(new Date(booking?.expireAt as unknown as Date).getTime() - Date.now())).toBeLessThan(60_000)
+    expect(new Date(booking?.expireAt as unknown as Date).getTime())
+      .toBe(new Date(afterFirst?.expireAt as unknown as Date).getTime())
   })
 
   it('finalises an expired Void PayPal booking whose order completed', async () => {
@@ -975,6 +1004,121 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const rows = res.body.rows as Array<{ booking: { _id: string } | string }>
     expect(rows.some((r) => String((r.booking as any)?._id || r.booking) === fixture.booking._id.toString())).toBe(false)
   })
+
+  it('R5-01 (a) a re-swept refunded booking surfaces as not-paid: checked once more, refunded does not grow, no second refund', async () => {
+    // Existing mismatch fixture shape: paid session, amount mismatch.
+    const fixture = await makeFixture('r501-once', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r501_once', 'MAD', 99900)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r501_once' })
+    const first = await runCheckoutSweep()
+    expect(first.refunded).toBe(1)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    const afterFirst = await Booking.findById(fixture.booking._id).lean()
+    // R5-01 fix-forward - "absent from the next sweep's checked" is
+    // unachievable: sweep 1 sets expireAt = now1, sweep 2 runs at
+    // now2 > now1, so the booking IS re-selected (see the apply
+    // record). What must hold is the achievable behaviour: the
+    // re-sweep sees the refunded charge and returns not-paid, so
+    // `refunded` stops growing, no second refund is issued, and
+    // expireAt is not refreshed - the TTL still fires ~70 min after
+    // the refund. Model the real state transition: sweep 1's refund
+    // made the charge refunded.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r501_once', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 99900,
+      latest_charge: 'ch_r501_once',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r501_once', refunded: true })
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(1)
+    expect(second.notPaid).toBe(1)
+    expect(second.refunded).toBe(0)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(new Date(booking?.expireAt as unknown as Date).getTime())
+      .toBe(new Date(afterFirst?.expireAt as unknown as Date).getTime())
+  })
+
+  it('R5-01 (a2) same for the PaymentSheet intent path: a re-swept refunded intent mismatch surfaces as not-paid', async () => {
+    // Intent path (reconcileStripeIntent), amount-mismatch branch.
+    const fixture = await makeFixture('r501-intent-once', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r501-random-${rand()}`, paymentIntentId: 'pi_r501_intent_once', expireAt: new Date(Date.now() - 3600000) })
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r501_intent_once', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 99900,
+    })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r501_intent_once' })
+    const first = await runCheckoutSweep()
+    expect(first.refunded).toBe(1)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    const afterFirst = await Booking.findById(fixture.booking._id).lean()
+    // Same state transition as (a): the first refund made the charge
+    // refunded, so the second sweep must return not-paid, not refund.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r501_intent_once', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 99900,
+      latest_charge: 'ch_r501_intent_once',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r501_intent_once', refunded: true })
+    const second = await runCheckoutSweep()
+    expect(second.checked).toBe(1)
+    expect(second.notPaid).toBe(1)
+    expect(second.refunded).toBe(0)
+    expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(new Date(booking?.expireAt as unknown as Date).getTime())
+      .toBe(new Date(afterFirst?.expireAt as unknown as Date).getTime())
+  })
+
+  it('R5-01 (b) a refunded booking TTL-cleans: expireAt is a real Date approx now, not null', async () => {
+    const fixture = await makeFixture('r501-ttl', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r501_ttl', 'MAD', 99900)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r501_ttl' })
+    const summary = await runCheckoutSweep()
+    expect(summary.refunded).toBe(1)
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    // No wall-clock TTL wait: the TTL monitor's 60 s cadence makes a
+    // real wait test slow and flaky; the mechanism assertion is the
+    // proof (R3-01 / GH-32 Path C precedent).
+    expect(booking?.expireAt).not.toBeNull()
+    expect(booking?.expireAt).toBeInstanceOf(Date)
+    expect(Math.abs(new Date(booking?.expireAt as unknown as Date).getTime() - Date.now())).toBeLessThan(10_000)
+  })
+
+  it('R5-01 (c) a second reconcile of an already-refunded intent never finalises', async () => {
+    const fixture = await makeFixture('r501-refunded-intent', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r501-random-${rand()}`, paymentIntentId: 'pi_r501_refunded', expireAt: new Date(Date.now() - 3600000) })
+    // The intent still verifies as succeeded; its charge is refunded.
+    stripeIntentRetrieve.mockResolvedValue({
+      id: 'pi_r501_refunded', status: 'succeeded',
+      metadata: { bookingId: fixture.booking._id.toString() },
+      currency: 'MAD', amount_received: 100000,
+      latest_charge: 'ch_r501_refunded',
+    })
+    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r501_refunded', refunded: true })
+    stripeRefundCreate.mockResolvedValue({ id: 're_r501_refunded' })
+    const summary = await runCheckoutSweep()
+    expect(summary.checked).toBe(1)
+    expect(summary.notPaid).toBe(1)
+    expect(summary.finalized).toBe(0)
+    expect(summary.refunded).toBe(0)
+    expect(stripeRefundCreate).not.toHaveBeenCalled()
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
 })
 
 describe('R4-01 - sweeper defuses + notifies refund-failed and provider errors', () => {
@@ -1032,11 +1176,15 @@ describe('R4-01 - sweeper defuses + notifies refund-failed and provider errors',
     const heldBooking = await Booking.findById(fixture.booking._id).lean()
     expect(new Date(heldBooking?.expireAt as unknown as Date).getTime()).toBeGreaterThan(Date.now())
     stripeRefundCreate.mockResolvedValue({ id: 're_r401_ref' })
-    const second = await runCheckoutSweep(new Date(Date.now() + 8 * 86400000))
+    // R5-01 (d) - the sweep runs at now + 8d, so the refunded booking's
+    // expireAt is set to THAT now, not to the wall-clock now.
+    const sweepNow = new Date(Date.now() + 8 * 86400000)
+    const second = await runCheckoutSweep(sweepNow)
     expect(second.refunded).toBe(1)
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
-    expect(booking?.expireAt).toBeNull()
+    expect(booking?.expireAt).not.toBeNull()
+    expect(Math.abs(new Date(booking?.expireAt as unknown as Date).getTime() - sweepNow.getTime())).toBeLessThan(60_000)
   })
 
   it('provider error: expireAt extended, counted under providerErrors, notified once per window', async () => {
