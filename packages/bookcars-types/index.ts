@@ -2779,6 +2779,10 @@ export interface OverdueReceivableRow {
    * on non-Void rows. */
   holdReason?: string
   holdDetail?: string
+  /** R5-08 — overpaid rent on the row (ledger definition: posted rent
+   *  + charge credits above rental total + approved charges + VAT),
+   *  0 when none. Absent on rows built before this release. */
+  overpaidAmount?: number
 }
 
 export interface OverdueReceivableResponse {

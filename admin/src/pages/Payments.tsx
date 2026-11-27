@@ -780,7 +780,7 @@ const Payments = () => {
               <span data-label={strings.CUSTOMER}>{customerName(row.booking)}</span>
               <span data-label={strings.VEHICLE}>{carName(row.booking)}</span>
               <strong data-label={strings.OUTSTANDING}>{formatAmount(row.outstandingBalance)}</strong>
-              <span data-label={strings.PAID}>{formatAmount(row.paidRent)}</span>
+              <span data-label={strings.PAID}>{formatAmount(row.paidRent)}{row.overpaidAmount ? (<><br /><small>{strings.OVERPAID}: {formatAmount(row.overpaidAmount)}</small></>) : null}</span>
               <span data-label={strings.DEPOSIT}>{formatAmount(row.depositDue)}</span>
               <span data-label={strings.DEPOSIT_HELD}>{formatAmount(row.depositHeld)}</span>
               <span data-label={strings.DUE}>{formatDate(new Date(row.paymentDueAt || row.dueAt || row.booking.to))}</span>

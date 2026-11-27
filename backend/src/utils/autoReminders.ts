@@ -12,7 +12,7 @@ import * as logger from './logger'
 import * as mailHelper from './mailHelper'
 import { resolveScheduleDue } from './maintenanceSchedule'
 import { staleWorkOrderCutoff, workOrderStaleDays } from './workOrderStale'
-import { casablancaTodayStart } from './casablancaDate'
+import { casablancaWeekBounds } from './casablancaDate'
 import { renderNotificationTemplate } from './notificationTemplates'
 import {
   autoReminderEmailAllowed,
@@ -675,12 +675,17 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     // the gate above (was process-local getDay(): in the Sunday
     // 23:00-23:59 UTC window the gate fired for the new Casablanca
     // week while weekStart still pointed at the previous Monday).
-    const wallToday = casablancaTodayStart(now) // start of the Casablanca wall day as a UTC-midnight instant (R3-07 helper)
-    const weekStart = startOfDay(addDays(wallToday, -((wallToday.getUTCDay() + 6) % 7)))
-    const weekEnd = endOfDay(addDays(weekStart, 6))
+    // R5-07 — the week range is the Casablanca WALL week. casablancaTodayStart
+    // now returns true local midnight (23:00Z the previous day in summer),
+    // so wallToday.getUTCDay() would read the previous UTC day and the old
+    // arithmetic would point weekStart at the previous Monday (and endOfDay
+    // would cut the Sunday wall day 23 h short). casablancaWeekBounds
+    // returns [Monday 00:00 local, next Monday 00:00 local), so the count
+    // covers exactly the wall week.
+    const [weekStart, weekEnd] = casablancaWeekBounds(now)
     const [weekPickups, weekReturns] = await Promise.all([
-      Booking.countDocuments({ ...LIVE_BOOKING_FILTER, supplier: supplierId, from: { $gte: weekStart, $lte: weekEnd } }),
-      Booking.countDocuments({ ...LIVE_BOOKING_FILTER, supplier: supplierId, to: { $gte: weekStart, $lte: weekEnd } }),
+      Booking.countDocuments({ ...LIVE_BOOKING_FILTER, supplier: supplierId, from: { $gte: weekStart, $lt: weekEnd } }),
+      Booking.countDocuments({ ...LIVE_BOOKING_FILTER, supplier: supplierId, to: { $gte: weekStart, $lt: weekEnd } }),
     ])
     const rendered = renderNotificationTemplate('weekly.recap', owner?.language, {
       pickups: weekPickups,

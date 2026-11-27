@@ -4,7 +4,8 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import * as env from '../src/config/env.config'
 import * as databaseHelper from '../src/utils/databaseHelper'
-import { casablancaTodayStart } from '../src/utils/casablancaDate'
+import { casablancaDayBounds, casablancaTodayStart, casablancaWeekBounds, wallDay } from '../src/utils/casablancaDate'
+import { workOrderStaleDays } from '../src/utils/workOrderStale'
 import * as authHelper from '../src/utils/authHelper'
 import app from '../src/app'
 import Booking from '../src/models/Booking'
@@ -301,6 +302,49 @@ describe('GH-16 past pickup', () => {
       })
     expect(res.status).toBe(200)
   })
+
+  test('R5-07 dateBetween finds a booking at 00:30 local on the queried summer wall date', async () => {
+    // Booking entirely inside the July 6 Casablanca wall day, entirely
+    // before UTC midnight: 00:30–00:45 local (23:30–23:45Z July 5).
+    // The old process-local setHours(0,0,0,0)/(23,59,59,999) window
+    // [July 6 00:00Z, July 6 23:59:59Z] never matched it (its `to` is
+    // before the window start); the true-midnight [23:00Z, 23:00Z)
+    // window does. Control: a July 5 wall-day booking must not match.
+    const wallBooking = await Booking.create({
+      supplier: supplierId, car: carSeedId, driver: driverId,
+      pickupLocation: locationId, dropOffLocation: locationId,
+      from: new Date('2026-07-05T23:30:00Z'),
+      to: new Date('2026-07-05T23:45:00Z'),
+      status: bookcarsTypes.BookingStatus.Pending,
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      price: 1000,
+      cancellation: true,
+    } as any)
+    fixtureBookingIds.push(wallBooking._id)
+    const controlBooking = await Booking.create({
+      supplier: supplierId, car: carSeedId, driver: driverId,
+      pickupLocation: locationId, dropOffLocation: locationId,
+      from: new Date('2026-07-05T10:00:00Z'),
+      to: new Date('2026-07-05T11:00:00Z'),
+      status: bookcarsTypes.BookingStatus.Pending,
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      price: 1000,
+      cancellation: true,
+    } as any)
+    fixtureBookingIds.push(controlBooking._id)
+    const res = await request(app)
+      .post('/api/bookings/1/5/en')
+      .set(env.X_ACCESS_TOKEN, adminToken)
+      .send({
+        suppliers: [supplierId],
+        statuses: Object.values(bookcarsTypes.BookingStatus),
+        filter: { dateBetween: '2026-07-06' },
+      })
+    expect(res.status).toBe(200)
+    const rows = res.body[0].resultData as { _id: string }[]
+    expect(rows.some((row) => row._id === wallBooking._id.toString())).toBe(true)
+    expect(rows.some((row) => row._id === controlBooking._id.toString())).toBe(false)
+  })
 })
 
 describe('R3-07 casablancaTodayStart', () => {
@@ -308,23 +352,70 @@ describe('R3-07 casablancaTodayStart', () => {
     // 2026-07-05T23:30:00Z is Monday 00:30 in Casablanca (UTC+1) but
     // still Sunday 23:30 UTC — the old process-local start of day
     // would return 2026-07-05.
-    expect(casablancaTodayStart(new Date('2026-07-05T23:30:00Z')).toISOString()).toBe('2026-07-06T00:00:00.000Z')
+    // R5-07 — true local midnight, not UTC midnight of the wall date:
+    // Monday July 6 starts at 23:00Z July 5 in summer (UTC+1).
+    expect(casablancaTodayStart(new Date('2026-07-05T23:30:00Z')).toISOString()).toBe('2026-07-05T23:00:00.000Z')
   })
 
   test('July 2026, 01:30 Casablanca: same wall day as 00:30', () => {
-    expect(casablancaTodayStart(new Date('2026-07-06T00:30:00Z')).toISOString()).toBe('2026-07-06T00:00:00.000Z')
+    expect(casablancaTodayStart(new Date('2026-07-06T00:30:00Z')).toISOString()).toBe('2026-07-05T23:00:00.000Z')
   })
 
   test('November 2026 (Casablanca == UTC): wall day is the UTC day', () => {
     expect(casablancaTodayStart(new Date('2026-11-26T10:00:00Z')).toISOString()).toBe('2026-11-26T00:00:00.000Z')
   })
 
-  test('default (no argument) returns a UTC-midnight instant for the current wall day', () => {
+  test('default (no argument) returns true local midnight for the current wall day', () => {
     const start = casablancaTodayStart()
-    expect(start.getUTCHours()).toBe(0)
-    expect(start.getUTCMinutes()).toBe(0)
-    expect(start.getUTCSeconds()).toBe(0)
+    // 00:00 on the Casablanca wall clock, not 00:00 UTC: in summer the
+    // instant is 23:00Z the previous day.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Africa/Casablanca', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(start)
+    const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+    expect(get('hour')).toBe('00')
+    expect(get('minute')).toBe('00')
+    expect(get('second')).toBe('00')
     expect(start.getTime()).toBeLessThanOrEqual(Date.now())
     expect(Date.now() - start.getTime()).toBeLessThan(2 * DAY)
+  })
+
+  test('R5-07 July 2026, 00:30 Casablanca is NOT past-pickup: from is at/after true local midnight', () => {
+    // 2026-07-05T23:30:00Z is 00:30 local on Monday July 6 — in the
+    // future locally, but before the old UTC-midnight "today start"
+    // (2026-07-06T00:00:00Z), which refused it as past-pickup.
+    const from = new Date('2026-07-05T23:30:00Z')
+    expect(from.getTime()).toBeGreaterThanOrEqual(casablancaTodayStart(from).getTime())
+    expect(casablancaTodayStart(from).toISOString()).toBe('2026-07-05T23:00:00.000Z')
+  })
+
+  test('R5-07 casablancaDayBounds: a July wall day runs 23:00Z to 23:00Z next day', () => {
+    const [start, end] = casablancaDayBounds(new Date('2026-07-06T12:00:00Z'))
+    expect(start.toISOString()).toBe('2026-07-05T23:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-07-06T23:00:00.000Z')
+    const [winterStart, winterEnd] = casablancaDayBounds(new Date('2026-11-26T10:00:00Z'))
+    expect(winterStart.toISOString()).toBe('2026-11-26T00:00:00.000Z')
+    expect(winterEnd.toISOString()).toBe('2026-11-27T00:00:00.000Z')
+  })
+
+  test('R5-07 casablancaWeekBounds: the wall week is Monday 00:00 local to next Monday 00:00 local', () => {
+    const [start, end] = casablancaWeekBounds(new Date('2026-07-08T12:00:00Z'))
+    expect(start.toISOString()).toBe('2026-07-05T23:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-07-12T23:00:00.000Z')
+    const [winterStart, winterEnd] = casablancaWeekBounds(new Date('2026-11-25T12:00:00Z'))
+    expect(winterStart.toISOString()).toBe('2026-11-23T00:00:00.000Z')
+    expect(winterEnd.toISOString()).toBe('2026-11-30T00:00:00.000Z')
+  })
+})
+
+describe('R5-09 wallDay (shared helper)', () => {
+  test('wallDay and workOrderStaleDays agree on the shared July case', () => {
+    // 2026-07-05T23:30:00Z is Monday 00:30 in Casablanca (UTC+1).
+    expect(wallDay(new Date('2026-07-05T23:30:00Z'))).toBe('2026-07-06')
+    expect(wallDay(new Date('2026-07-01T12:00:00Z'))).toBe('2026-07-01')
+    // 2026-07-01 12:00Z (13:00 local) to 2026-07-08 23:30Z (July 9 00:30
+    // local) is 8 wall days — asserted through both helpers.
+    expect(workOrderStaleDays(new Date('2026-07-01T12:00:00Z'), new Date('2026-07-08T23:30:00Z'))).toBe(8)
+    expect(wallDay(new Date('2026-07-08T23:30:00Z'))).toBe('2026-07-09')
   })
 })

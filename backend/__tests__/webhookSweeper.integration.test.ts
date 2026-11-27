@@ -682,6 +682,15 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
   const rowFor = (rows: PaidUnconfirmedRow[], id: mongoose.Types.ObjectId) =>
     rows.find((r) => String((r.booking as any)?._id || r.booking) === id.toString())
 
+  const holdsExpiringRows = async (adminToken: string): Promise<PaidUnconfirmedRow[]> => {
+    const res = await request(app)
+      .get('/api/rental-payments/overdue')
+      .query({ filter: 'holds-expiring' })
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(res.status).toBe(200)
+    return res.body.rows as PaidUnconfirmedRow[]
+  }
+
   it('Path A: a fully-paid expired hold is held, not voided; an unpaid one still voids; the held row is on the watchlist', async () => {
     // Held booking: pay-later hold, expired, fully paid, car blocked.
     const held = await makeFixture('gh32-held', bookcarsTypes.CheckoutPaymentMode.PayLater,
@@ -882,11 +891,14 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
       .query({ filter: 'paid-unconfirmed' })
       .set(env.X_ACCESS_TOKEN, adminToken)
     expect(res.status).toBe(200)
-    const rows = res.body.rows as Array<{ booking: { _id: string } | string, outstandingBalance: number, paidRent: number, contractTotal: number, lifecycle: string, status: string }>
+    const rows = res.body.rows as Array<{ booking: { _id: string } | string, outstandingBalance: number, paidRent: number, overpaidAmount: number, contractTotal: number, lifecycle: string, status: string }>
     const row = rows.find((r) => String((r.booking as any)?._id || r.booking) === held.booking._id.toString())
     expect(row).toBeDefined()
     expect(row?.outstandingBalance).toBe(0)
     expect(row?.paidRent).toBe(1500)
+    // R5-08 — the row now surfaces the ledger's overpaidAmount (500),
+    // instead of leaving the manager to subtract paidRent - contractTotal.
+    expect(row?.overpaidAmount).toBe(500)
     expect(row?.contractTotal).toBe(1000)
     expect(row?.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Draft)
     expect(row?.status).toBe(bookcarsTypes.BookingStatus.Pending)
@@ -1428,6 +1440,39 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(finalBooking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
     expect(finalBooking?.reconciliationStatus).toBeUndefined()
     expect(finalBooking?.holdDetail).toBeUndefined()
+  })
+
+  it('R5-10 a Void hold expiring inside 24h appears in holds-expiring; one 7 days out does not', async () => {
+    const adminToken = await makeAdminToken('r510-admin')
+    // Void hold, held by the sweep (~7 days out), then pulled into the
+    // 24 h window by direct update. The deadline must ALSO stay beyond
+    // the Void-hold queue gate (expireAt > now + BOOKING_EXPIRE_AT):
+    // in this test env BC_STRIPE_SESSION_EXPIRE_AT=82800, so the gate
+    // is ~23.2 h out and the expiring hold lives in the narrow
+    // (gate, 24 h] sliver — gate + 30 min, ~20 min inside the window.
+    // In production (default 70-min fuse) the window is far wider.
+    const soon = await makeFixture('r510-soon', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r510-random-${rand()}`, paymentIntentId: 'pi_r510_soon', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(soon.supplier._id, soon.car._id)
+    mockStripeIntentSuccess('pi_r510_soon', soon.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r510_soon' })
+    const sweep = await runCheckoutSweep()
+    expect(sweep.held).toBeGreaterThanOrEqual(1)
+    await Booking.updateOne({ _id: soon.booking._id }, { $set: { expireAt: new Date(Date.now() + (env.BOOKING_EXPIRE_AT + 1800) * 1000) } })
+    // A second Void hold left at the full ~7-day review deadline.
+    const later = await makeFixture('r510-later', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r510-random-${rand()}`, paymentIntentId: 'pi_r510_later', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(later.supplier._id, later.car._id)
+    mockStripeIntentSuccess('pi_r510_later', later.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r510_later' })
+    const second = await runCheckoutSweep()
+    expect(second.held).toBeGreaterThanOrEqual(1)
+
+    const rows = await holdsExpiringRows(adminToken)
+    expect(rowFor(rows, soon.booking._id)).toBeDefined()
+    expect(rowFor(rows, later.booking._id)).toBeUndefined()
   })
 })
 

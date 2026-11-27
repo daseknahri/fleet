@@ -27,7 +27,7 @@ import { deliverNotification } from '../utils/reminderNotify'
 import * as env from '../config/env.config'
 import * as logger from '../utils/logger'
 import { BookingConflictError, checkBookingAvailability, findBookingConflictForRestore, notTemporaryBookingFilter, saveBookingWithAvailability, saveBookingsWithAvailability, withCarLock } from '../utils/bookingReservationHelper'
-import { casablancaTodayStart } from '../utils/casablancaDate'
+import { casablancaDayBounds, casablancaTodayStart } from '../utils/casablancaDate'
 import { applyRestore, applyTrash, isValidTrashReason, trashedMessage } from '../utils/trash'
 import RentalPayment from '../models/RentalPayment'
 import Invoice from '../models/Invoice'
@@ -2626,14 +2626,16 @@ export const getBookings = async (req: Request, res: Response) => {
     }
 
     if (dateBetween) {
-      const dateBetweenStart = new Date(dateBetween)
-      dateBetweenStart.setHours(0, 0, 0, 0)
-      const dateBetweenEnd = new Date(dateBetween)
-      dateBetweenEnd.setHours(23, 59, 59, 999)
+      // R5-07 — the wall day on the Casablanca calendar, as a half-open
+      // [start, end) pair of true local-midnight instants (was
+      // process-local setHours(0,0,0,0)/(23,59,59,999): one hour off in
+      // summer, so a booking at 00:30 local on the queried wall date
+      // never matched it).
+      const [dateBetweenStart, dateBetweenEnd] = casablancaDayBounds(dateBetween)
 
       $match.$and!.push({
         $and: [
-          { from: { $lte: dateBetweenEnd } },
+          { from: { $lt: dateBetweenEnd } },
           { to: { $gte: dateBetweenStart } },
         ],
       })

@@ -375,6 +375,8 @@ export interface ReceivableRow extends bookcarsTypes.OverdueReceivableRow {
   reminderCount: number
   paidInFull: boolean
   paidRent: number
+  // R5-08 — overpaid rent (ledger definition), 0 when none.
+  overpaidAmount: number
   contractTotal: number
   ageBucket: ReceivableAgeBucket
   lifecycle?: bookcarsTypes.ContractLifecycle
@@ -517,6 +519,11 @@ export const overdue = async (req: Request, res: Response) => {
         // due visible — it must not vanish from every list.
         paidInFull: receivable.outstandingBalance <= 0 && depositDue <= 0,
         paidRent: round2(receivable.postedPayments),
+        // R5-08 — copy the ledger's overpaidAmount onto the row (was
+        // computed by getContractReceivable but dropped here, so an
+        // overpaid hold showed outstandingBalance 0 with paidRent above
+        // the contract total and the manager had to subtract by hand).
+        overpaidAmount: round2(receivable.overpaidAmount),
         contractTotal: round2(receivable.rentalTotalInclVat + receivable.approvedCharges),
         ageBucket: receivableAgeBucket(daysOverdue),
         lifecycle,
@@ -618,6 +625,13 @@ export const overdue = async (req: Request, res: Response) => {
         row.holdReason = hold.reconciliationStatus
         row.holdDetail = hold.holdDetail
       }
+      // R5-08 — the row keeps the LEDGER overpaidAmount (0 here: no legs
+      // are posted until finalisation). Do NOT recompute it from the
+      // previewed figures: the ledger definition nets only rent legs +
+      // charge credits against rental total + approved charges + VAT
+      // (contractReceivable.ts), while deposits are never netted against
+      // rent — max(0, paidRent + depositHeld - contractTotal - depositDue)
+      // would misstate it.
       // R5-04 — the rent on a Void hold becomes collectible only after
       // the retry confirms the booking: postWithinSession refuses Void
       // bookings, so offering TAKE_PAYMENT here is a dead end (the save
@@ -661,7 +675,11 @@ export const overdue = async (req: Request, res: Response) => {
         filteredPaidInFullRows = []
         break
       case 'holds-expiring':
-        filteredRows = rows.filter((row) => !!row.holdExpiresAt
+        // R5-10 — Void holds join the expiring list: their holdExpiresAt
+        // is the sweeper's review deadline (carried by buildReceivableRow),
+        // and a hold in its last 24 h belongs here as much as a pay-later
+        // hold does. (The paid-unconfirmed queue still shows them too.)
+        filteredRows = [...rows, ...voidHoldRows].filter((row) => !!row.holdExpiresAt
           && row.holdExpiresAt.getTime() > now.getTime()
           && row.holdExpiresAt.getTime() <= now.getTime() + 24 * 60 * 60 * 1000)
         filteredPaidInFullRows = []
