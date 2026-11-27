@@ -88,6 +88,7 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 
 let app: any
 let runCheckoutSweep: (now?: Date) => Promise<any>
+let reconcileOneVoidBooking: (booking: any, now?: Date, heldThisPass?: Set<string>) => Promise<any>
 let ledger: any
 
 const oid = () => new mongoose.Types.ObjectId()
@@ -225,6 +226,7 @@ beforeAll(async () => {
   process.env.BC_STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET
   app = (await import('../src/app')).default
   runCheckoutSweep = (await import('../src/utils/checkoutSweeper')).runCheckoutSweep
+  reconcileOneVoidBooking = (await import('../src/utils/checkoutSweeper')).reconcileOneVoidBooking
   ledger = await import('../src/utils/ledger')
   await databaseHelper.connect(env.DB_URI, false, false)
 })
@@ -1118,6 +1120,108 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R5-03 (a) a manual retry on a still-blocked hold does not re-notify or re-extend', async () => {
+    // Path B shape: provider-paid Void booking whose finalisation
+    // conflicts (car blocked) — the sweep holds it, then the manual
+    // retry re-runs reconcileOneVoidBooking directly on the full
+    // document, with a fresh heldThisPass set and the same now.
+    const fixture = await makeFixture('r503-norenotify', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r503-random-${rand()}`, paymentIntentId: 'pi_r503_norenotify', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r503_norenotify', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r503_norenotify' })
+
+    const now = new Date()
+    mailSendMock.mockClear()
+    const first = await runCheckoutSweep(now)
+    expect(first.checked).toBe(1)
+    expect(first.held).toBe(1)
+    const heldBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    const firstExpireAt = new Date(heldBooking?.expireAt as unknown as Date).getTime()
+    expect(firstExpireAt).toBeGreaterThan(now.getTime())
+    const notesFor = async () => Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(await notesFor()).toHaveLength(1)
+    const mailFor = () => mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mailFor()).toHaveLength(1)
+
+    // Manual-retry shape: same now, fresh set — still inside the
+    // live review window, so no second notification round and no
+    // moved deadline; the outcome is still held.
+    const retry = await reconcileOneVoidBooking(heldBooking, now, new Set<string>())
+    expect(retry.outcome).toBe('held')
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    expect(await notesFor()).toHaveLength(1)
+    expect(mailFor()).toHaveLength(1)
+    const retryExpireAt = new Date((await Booking.findById(fixture.booking._id).lean())?.expireAt as unknown as Date).getTime()
+    expect(retryExpireAt).toBe(firstExpireAt)
+  })
+
+  it('R5-03 (b) a manual retry after the window lapses notifies again', async () => {
+    // Same shape as (a): hold via the sweep, then retry at now + 8d
+    // (past the 7-day review window) — a fresh defuse, so exactly
+    // one additional notification + one additional email, and the
+    // deadline is re-extended to the new window.
+    const fixture = await makeFixture('r503-renotify', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r503-random-${rand()}`, paymentIntentId: 'pi_r503_renotify', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r503_renotify', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r503_renotify' })
+
+    const now = new Date()
+    mailSendMock.mockClear()
+    const first = await runCheckoutSweep(now)
+    expect(first.checked).toBe(1)
+    expect(first.held).toBe(1)
+    const heldBooking = await Booking.findById(fixture.booking._id).lean()
+    const firstExpireAt = new Date(heldBooking?.expireAt as unknown as Date).getTime()
+    const notesFor = async () => Notification.find({ user: fixture.supplier._id, subjectType: 'booking', subjectId: fixture.booking._id.toString() }).lean()
+    expect(await notesFor()).toHaveLength(1)
+    const mailFor = () => mailSendMock.mock.calls.filter((c: any) => c[0]?.to === fixture.supplier.email)
+    expect(mailFor()).toHaveLength(1)
+
+    const later = new Date(now.getTime() + 8 * 86400000)
+    const retry = await reconcileOneVoidBooking(heldBooking, later, new Set<string>())
+    expect(retry.outcome).toBe('held')
+    expect(await notesFor()).toHaveLength(2)
+    expect(mailFor()).toHaveLength(2)
+    const retryExpireAt = new Date((await Booking.findById(fixture.booking._id).lean())?.expireAt as unknown as Date).getTime()
+    expect(retryExpireAt).toBeGreaterThan(firstExpireAt)
+    expect(Math.abs(retryExpireAt - (later.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000))).toBeLessThan(60_000)
+  })
+
+  it('R5-06 a second manual retry on a refund-failed booking logs warn, not error', async () => {
+    // R4-01 refund-failed shape: paid session, amount mismatch, the
+    // refund itself fails. First sight logs error; a manual retry
+    // (same now, fresh set) logs warn, not error.
+    const fixture = await makeFixture('r506-log', bookcarsTypes.CheckoutPaymentMode.Full,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    mockStripeSessionPaid(fixture.booking, 'pi_r506_log', 'MAD', 99900)
+    stripeRefundCreate.mockRejectedValue(new Error('refund failed'))
+    const idStr = fixture.booking._id.toString()
+    const callsFor = (mock: any, re: RegExp) => mock.mock.calls.filter((c: any) => String(c[0]).includes(idStr) && re.test(String(c[0])))
+    loggerErrorMock.mockClear()
+    loggerWarnMock.mockClear()
+    const now = new Date()
+    const first = await runCheckoutSweep(now)
+    expect(first.errors).toBe(1)
+    expect(callsFor(loggerErrorMock, /needs manual review: provider refund failed/)).toHaveLength(1)
+    expect(callsFor(loggerWarnMock, /refund failed/)).toHaveLength(0)
+    const failedBooking = await Booking.findById(fixture.booking._id).lean()
+    expect(failedBooking?.status).toBe(bookcarsTypes.BookingStatus.Void)
+
+    loggerErrorMock.mockClear()
+    loggerWarnMock.mockClear()
+    const retry = await reconcileOneVoidBooking(failedBooking, now, new Set<string>())
+    expect(retry.outcome).toBe('refund-failed')
+    expect(callsFor(loggerErrorMock, /refund failed/)).toHaveLength(0)
+    const warns = callsFor(loggerWarnMock, /still needs manual review: provider refund failed/)
+    expect(warns).toHaveLength(1)
   })
 })
 

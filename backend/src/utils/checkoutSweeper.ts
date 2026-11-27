@@ -97,6 +97,17 @@ export interface CheckoutSweepSummary {
  */
 export type VoidReconcileOutcome = CheckoutReconcileOutcome | 'skipped' | 'provider-error'
 
+// R5-03 - a defuse is fresh only when the booking's previous review
+// deadline had already passed (or there was none). A manual retry
+// inside a live review window must not re-notify the agency or push
+// the deadline out again. The sweep path always sees a past deadline
+// (its query selects expireAt <= now), so a sweep defuse is always
+// fresh and the sweep behaviour is unchanged.
+const isFreshDefuse = (booking: { expireAt?: Date | null }, now: Date): boolean => {
+  const previousExpireAt = booking.expireAt ? new Date(booking.expireAt) : undefined
+  return !previousExpireAt || previousExpireAt.getTime() <= now.getTime()
+}
+
 export const reconcileOneVoidBooking = async (
   booking: {
     _id: mongoose.Types.ObjectId
@@ -106,6 +117,7 @@ export const reconcileOneVoidBooking = async (
     supplier?: mongoose.Types.ObjectId | string
     reference?: string
     financialSnapshot?: { amountDueNowInPaymentCurrency?: number, paymentCurrency?: string }
+    expireAt?: Date | null
   },
   now: Date = new Date(),
   heldThisPass: Set<string> = new Set<string>(),
@@ -186,14 +198,19 @@ export const reconcileOneVoidBooking = async (
       // moved. A Void hold is served in the paid-unconfirmed queue
       // with a retry button (R4-02 / R3-01 follow-on); the hold
       // notification below is the alert that it is there.
-      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-      const extended = await Booking.updateOne(
-        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-        { $set: { expireAt: reviewUntil } },
-      )
-      if (extended.modifiedCount > 0) {
-        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
-        await notifyHeldForReview(booking, reviewUntil)
+      // R5-03 - only re-extend + notify on a fresh defuse: a manual
+      // retry inside a live review window returns the outcome with
+      // no second notification round and no moved deadline.
+      if (isFreshDefuse(booking, now)) {
+        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+        const extended = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+          { $set: { expireAt: reviewUntil } },
+        )
+        if (extended.modifiedCount > 0) {
+          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (fully paid but unconfirmed)`)
+          await notifyHeldForReview(booking, reviewUntil)
+        }
       }
     } else if (outcome === 'refund-failed') {
       // R4-01 - same TTL defuse as held: a Void booking with a failed
@@ -201,15 +218,29 @@ export const reconcileOneVoidBooking = async (
       // ~70 min after expiry and orphan the provider payment with no record
       // and no refund trigger. Extend to the review window and notify, so a
       // still-failed refund is re-held (and re-notified) each window like held.
-      logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
-      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-      const extended = await Booking.updateOne(
-        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-        { $set: { expireAt: reviewUntil } },
-      )
-      if (extended.modifiedCount > 0) {
-        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
-        await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
+      // R5-06 - same first-sight/warn de-noise as the held branch
+      // (R3-13): a `refund-failed:<id>` key in the module-level set,
+      // added to heldThisPass so the prune keeps it across sweeps.
+      const refundFailedKey = `refund-failed:${booking._id.toString()}`
+      heldThisPass.add(refundFailedKey)
+      if (heldAlreadyLogged.has(refundFailedKey)) {
+        logger.warn(`[checkoutSweeper] Booking ${booking._id} still needs manual review: provider refund failed`)
+      } else {
+        heldAlreadyLogged.add(refundFailedKey)
+        logger.error(`[checkoutSweeper] Booking ${booking._id} needs manual review: provider refund failed`)
+      }
+      // R5-03 - only re-extend + notify on a fresh defuse (same rule
+      // as held): a manual retry inside a live window changes nothing.
+      if (isFreshDefuse(booking, now)) {
+        const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+        const extended = await Booking.updateOne(
+          { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+          { $set: { expireAt: reviewUntil } },
+        )
+        if (extended.modifiedCount > 0) {
+          logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider refund failed)`)
+          await notifyRefundFailed(booking, reviewUntil, outcomeDetail)
+        }
       }
     }
     // 'not-paid' / 'no-booking': no side effect; the TTL owns cleanup.
@@ -231,17 +262,25 @@ export const reconcileOneVoidBooking = async (
     } else {
       logger.error(`[checkoutSweeper] Sweep failed for booking ${booking._id}`, err)
     }
-    const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
-    const preserved = await Booking.updateOne(
-      { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
-      { $set: { expireAt: reviewUntil } },
-    )
-    if (preserved.modifiedCount > 0) {
-      logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
-      await notifyProviderUnreachable(booking, reviewUntil, detail)
-      return { outcome: 'provider-error', detail }
+    // R5-03 - only re-extend + notify on a fresh defuse (same rule
+    // as held / refund-failed): a manual retry inside a live review
+    // window changes nothing about the deadline and sends no second
+    // notification round. The outcome is unchanged either way: the
+    // booking is preserved for manual review.
+    if (isFreshDefuse(booking, now)) {
+      const reviewUntil = new Date(now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000)
+      const preserved = await Booking.updateOne(
+        { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
+        { $set: { expireAt: reviewUntil } },
+      )
+      if (preserved.modifiedCount > 0) {
+        logger.info(`[checkoutSweeper] Booking ${booking._id} held for manual review until ${reviewUntil.toISOString()} (provider unreachable)`)
+        await notifyProviderUnreachable(booking, reviewUntil, detail)
+        return { outcome: 'provider-error', detail }
+      }
+      return { outcome: 'skipped', detail }
     }
-    return { outcome: 'skipped', detail }
+    return { outcome: 'provider-error', detail }
   }
 }
 
@@ -270,7 +309,7 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
         { paymentIntentId: { $nin: [null, ''] } },
         { paypalOrderId: { $nin: [null, ''] } },
       ],
-    }).select('_id sessionId paymentIntentId paypalOrderId supplier reference financialSnapshot')
+    }).select('_id sessionId paymentIntentId paypalOrderId supplier reference financialSnapshot expireAt')
     for (const booking of bookings) {
       summary.checked += 1
       const { outcome } = await reconcileOneVoidBooking(booking, now, heldThisPass)
