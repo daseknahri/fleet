@@ -128,6 +128,18 @@ const extraTemplates: Record<string, Record<TemplateLocale, TemplateFn>> = {
     ar: (v) => ({ subject: `استرداد معلق: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `لا يزال استرداد ${v.amount} ${v.currency} لـ ${v.car} (${v.driver}) معلقًا منذ ${v.date} (${v.reason}). أرسله أو قم بتسويته.` }),
     es: (v) => ({ subject: `Reembolso pendiente: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `El reembolso de ${v.amount} ${v.currency} de ${v.car} (${v.driver}) sigue pendiente desde el ${v.date} (${v.reason}). Envíelo o resuélvalo.` }),
   },
+  // R6-28 — the held-for-review notice (auto.holdReview): the
+  // notifiers build their own i18n message today, so nothing
+  // renders this entry yet; it makes the delivery key a
+  // first-class template (the delivery-retry endpoint replays
+  // the stored subject/body and never re-renders, so the key
+  // choice does not break retry).
+  'auto.holdReview': {
+    en: (v) => ({ subject: `Held for review: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `Booking ${v.reference} (${v.car} for ${v.driver}, ${v.amount} ${v.currency}) is held for manual review since ${v.date}. Check the paid-unconfirmed queue.` }),
+    fr: (v) => ({ subject: `En attente de vérification : ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `La réservation ${v.reference} (${v.car} pour ${v.driver}, ${v.amount} ${v.currency}) est en attente de vérification manuelle depuis le ${v.date}. Consultez la file des réservations payées non confirmées.` }),
+    ar: (v) => ({ subject: `قيد المراجعة: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `الحجز ${v.reference} (${v.car} للسائق ${v.driver}، ${v.amount} ${v.currency}) قيد المراجعة اليدوية منذ ${v.date}. راجع قائمة الحجوزات المدفوعة غير المؤكدة.` }),
+    es: (v) => ({ subject: `En revisión: ${v.car} — ${v.driver} — ${v.amount} ${v.currency}`, body: `La reserva ${v.reference} (${v.car} para ${v.driver}, ${v.amount} ${v.currency}) está en revisión manual desde el ${v.date}. Revise la cola de reservas pagadas sin confirmar.` }),
+  },
   'auto.staleWorkOrder': {
     en: (v) => ({ subject: `Stale work order: ${v.title} — ${v.car}`, body: `Work order "${v.title}" for ${v.car} was scheduled for ${v.date} (${v.days} days ago) and is still Scheduled. Start it, reschedule it, or cancel it.` }),
     fr: (v) => ({ subject: `Ordre de travail en retard : ${v.title} — ${v.car}`, body: `L'ordre de travail « ${v.title} » pour ${v.car} était planifié le ${v.date} (il y a ${v.days} jours) et est toujours planifié. Démarrez-le, replanifiez-le ou annulez-le.` }),

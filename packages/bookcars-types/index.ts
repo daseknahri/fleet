@@ -941,6 +941,10 @@ export interface BookingAmendmentCorrection {
   carAfter?: string
   optionsBefore?: CarOptions
   optionsAfter?: CarOptions
+  // R6-35 — the deposit kept on a vehicle change despite a
+  // different new-car deposit (audit surfacing; the admin
+  // history line does not render corrections today).
+  depositKept?: number
 }
 
 /**
@@ -2696,6 +2700,10 @@ export interface CashJournalRow {
   source: CashMovementSource
   status: 'pending' | 'confirmed'
   purpose?: RentalPaymentPurpose
+  // R6-32 — the linked payment's own method (BankTransfer, Card,
+  // Cash, Other): the admin page renders it instead of guessing
+  // the session account's method.
+  method?: RentalPaymentMethod
   reference?: string
   note?: string
   amount: number

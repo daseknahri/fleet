@@ -714,7 +714,10 @@ const runPassForSupplier = async (supplierId: string, now: Date): Promise<Omit<A
     }
     for (const recipient of recipients) {
       const delivered = await deliverNotification(supplierId, { ...base, channel: 'inApp', recipient: recipient._id }, async () => {
-        await createInAppNotification(recipient._id, rendered.body)
+        // R6-29 — the in-app row carries its destination: a recap
+        // is about the supplier's money, so it lands on /payments
+        // (the delivery claim already carried it).
+        await createInAppNotification(recipient._id, rendered.body, { subjectType: 'supplier', subjectId: supplierId })
       })
       if (delivered) {
         counts.recaps += 1

@@ -10,7 +10,7 @@ import ContractCharge from '../models/ContractCharge'
 import NotificationDelivery from '../models/NotificationDelivery'
 import { LedgerError, confirmRentalPayment, getPurposeRemaining, linkLedgerBankPayment, linkLedgerCashPayment, postRentalPayment, refreshBookingPaymentStatus, reverseRentalPayment } from '../utils/ledger'
 import { getContractReceivable } from '../utils/contractReceivable'
-import { parseDateRange } from '../utils/casablancaDate'
+import { casablancaDayStart, parseDateRange } from '../utils/casablancaDate'
 import { approvalRequiredFor, findLatestApproval, produceApprovalRequest } from '../utils/approvalProducer'
 import { parsePagination, pagedResponse, paginationSkip } from '../utils/pagination'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
@@ -396,6 +396,10 @@ const MONEY_REMINDER_TEMPLATE_KEYS = [
   'auto.paymentDue',
   'auto.missedPickup',
   'auto.overdueEscalate',
+  // R6-28 — the hold notifiers' delivery key (the render entry lives
+  // in notificationTemplates.ts; the cast covers the key, like the
+  // other money-reminder keys above).
+  'auto.holdReview',
 ] as bookcarsTypes.NotificationTemplateKey[]
 
 export type ReceivablesFilter = 'all' | 'overdue' | 'due-soon' | 'confirmed-unpaid' | 'paid-unconfirmed' | 'holds-expiring' | 'paid-in-full' | 'age-current' | 'age-1-7' | 'age-8-30' | 'age-30-plus'
@@ -428,7 +432,11 @@ export interface ReceivableRow extends bookcarsTypes.OverdueReceivableRow {
   actions: { canTakePayment: boolean, canConfirm: boolean, canCancel: boolean, canMarkNoShow: boolean }
 }
 
-const receivableStartOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+// R6-30 — the day boundary is casablancaDayStart (true local
+// midnight): the process-local start of day (UTC in the container,
+// Chicago on the laptop) made a due date of "today" at 00:30 local
+// read as yesterday. The helper is gone; the two age computations
+// below call casablancaDayStart directly.
 
 const receivableAgeBucket = (daysOverdue: number): ReceivableAgeBucket => (
   daysOverdue <= 0 ? 'current' : daysOverdue <= 7 ? '1-7' : daysOverdue <= 30 ? '8-30' : '30+'
@@ -484,7 +492,11 @@ export const overdue = async (req: Request, res: Response) => {
       status: { $nin: [bookcarsTypes.BookingStatus.Void, bookcarsTypes.BookingStatus.Cancelled] },
       deletedAt: null,
     })
-      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier')
+      // R6-21 — the select carries the hold stamp, so the builder
+      // can surface it on the live-bookings row (a paid-but-
+      // unconfirmed Pending hold triages from this queue, not the
+      // Void loop).
+      .select('_id reference price financialSnapshot from to lifecycle status expireAt confirmedAt noShowAt car driver supplier reconciliationStatus holdDetail')
       .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
       .sort({ to: 1 })
       .lean()
@@ -498,16 +510,21 @@ export const overdue = async (req: Request, res: Response) => {
       status: 'sent',
     }).select('subjectId sentAt').lean() : []
     const remindersByBooking = new Map<string, { lastRemindedAt?: Date, reminderCount: number }>()
-    for (const delivery of reminderRows) {
-      const key = String(delivery.subjectId)
-      const entry = remindersByBooking.get(key) || { lastRemindedAt: undefined, reminderCount: 0 }
-      entry.reminderCount += 1
-      const sentAt = delivery.sentAt ? new Date(delivery.sentAt) : undefined
-      if (sentAt && (!entry.lastRemindedAt || sentAt.getTime() > entry.lastRemindedAt.getTime())) {
-        entry.lastRemindedAt = sentAt
+    // R6-28 — the merge is shared: the Void holds get the same
+    // second read below, so their rows show the real chase history.
+    const mergeReminderRows = (rows: { subjectId?: unknown, sentAt?: Date | string | null }[]) => {
+      for (const delivery of rows) {
+        const key = String(delivery.subjectId)
+        const entry = remindersByBooking.get(key) || { lastRemindedAt: undefined, reminderCount: 0 }
+        entry.reminderCount += 1
+        const sentAt = delivery.sentAt ? new Date(delivery.sentAt) : undefined
+        if (sentAt && (!entry.lastRemindedAt || sentAt.getTime() > entry.lastRemindedAt.getTime())) {
+          entry.lastRemindedAt = sentAt
+        }
+        remindersByBooking.set(key, entry)
       }
-      remindersByBooking.set(key, entry)
     }
+    mergeReminderRows(reminderRows)
     const rows: ReceivableRow[] = []
     const paidInFullRows: ReceivableRow[] = []
     // One row builder shared by the live bookings and the Void holds
@@ -523,7 +540,7 @@ export const overdue = async (req: Request, res: Response) => {
       const depositHeld = round2(receivable.depositPayments)
       const dueAt = receivable.dueAt ? new Date(receivable.dueAt) : undefined
       const daysOverdue = receivable.overdue && dueAt
-        ? Math.max(0, Math.floor((receivableStartOfDay(now).getTime() - receivableStartOfDay(dueAt).getTime()) / 86400000))
+        ? Math.max(0, Math.floor((casablancaDayStart(now).getTime() - casablancaDayStart(dueAt).getTime()) / 86400000))
         : 0
       // §3.1 — TWO due dates, not one: the payment due date is the
       // hold deadline for a pay-later hold, the pickup day for an
@@ -537,7 +554,7 @@ export const overdue = async (req: Request, res: Response) => {
         ? expireAt
         : (receivable.outstandingBalance > 0 && from && from.getTime() > now.getTime() ? from : dueAt)
       const daysToPaymentDue = paymentDueAt
-        ? Math.floor((receivableStartOfDay(paymentDueAt).getTime() - receivableStartOfDay(now).getTime()) / 86400000)
+        ? Math.floor((casablancaDayStart(paymentDueAt).getTime() - casablancaDayStart(now).getTime()) / 86400000)
         : null
       const lifecycle = (booking.lifecycle || bookcarsTypes.ContractLifecycle.Draft) as bookcarsTypes.ContractLifecycle
       const status = booking.status as bookcarsTypes.BookingStatus
@@ -572,6 +589,12 @@ export const overdue = async (req: Request, res: Response) => {
         status,
         pickupAt: from,
         holdExpiresAt: expireAt,
+        // R6-21 — the hold stamp rides the row from the builder, so
+        // every queue (live bookings AND Void holds) surfaces it from
+        // one place. Older held rows (stamped before this release)
+        // carry no reason and show none, which is the honest state.
+        holdReason: (booking as unknown as { reconciliationStatus?: string }).reconciliationStatus,
+        holdDetail: (booking as unknown as { holdDetail?: string }).holdDetail,
         // The actions already exist; the endpoint only exposes what
         // the UI needs to show them. canCancel mirrors the staff-cancel
         // guard (pre-handover only); canMarkNoShow mirrors markNoShow
@@ -644,6 +667,20 @@ export const overdue = async (req: Request, res: Response) => {
       .populate([{ path: 'car', select: 'name licensePlate' }, { path: 'driver', select: 'fullName email phone' }])
       .sort({ to: 1 })
       .lean()
+    // R6-28 — the Void holds' chase history lives in the same
+    // delivery log (their hold notifiers claim there): a second
+    // read for the void-hold ids, merged into the same map, so the
+    // paid-unconfirmed rows show their real lastRemindedAt and
+    // reminderCount instead of the empty defaults.
+    const voidHoldIds = voidHoldBookings.map((booking) => String(booking._id))
+    if (voidHoldIds.length > 0) {
+      mergeReminderRows(await NotificationDelivery.find({
+        subjectType: 'booking',
+        subjectId: { $in: voidHoldIds },
+        templateKey: { $in: MONEY_REMINDER_TEMPLATE_KEYS },
+        status: 'sent',
+      }).select('subjectId sentAt').lean())
+    }
     for (const booking of voidHoldBookings) {
       // ?clientId= filters by the booking's driver.
       const driver = booking.driver as unknown as { _id?: unknown } | string | null | undefined
@@ -651,7 +688,10 @@ export const overdue = async (req: Request, res: Response) => {
       if (clientId && driverId !== clientId) {
         continue
       }
-      const row = await buildReceivableRow(booking, { lastRemindedAt: undefined, reminderCount: 0 })
+      // R6-28 — the Void-hold row carries its real chase history
+      // (the second delivery read above), not the empty defaults.
+      const reminders = remindersByBooking.get(String(booking._id)) || { lastRemindedAt: undefined, reminderCount: 0 }
+      const row = await buildReceivableRow(booking, reminders)
       const snapshot = booking.financialSnapshot as unknown as bookcarsTypes.BookingFinancialSnapshot | undefined
       const legs = splitCheckoutLegs(snapshot)
       row.paidRent = round2(row.paidRent + legs.rent)
@@ -659,14 +699,10 @@ export const overdue = async (req: Request, res: Response) => {
       row.depositDue = Math.max(0, round2(Number(snapshot?.depositAmount || 0) - row.depositHeld))
       row.outstandingBalance = Math.max(0, round2(row.outstandingBalance - legs.rent))
       row.paidInFull = row.outstandingBalance <= 0 && row.depositDue <= 0
-      // R5-05 — surface the hold reason on the row, so the queue can
-      // triage it. Older held rows (stamped before this release) carry
-      // no reason and show none, which is the honest state.
-      const hold = booking as unknown as { reconciliationStatus?: string, holdDetail?: string }
-      if (hold.reconciliationStatus) {
-        row.holdReason = hold.reconciliationStatus
-        row.holdDetail = hold.holdDetail
-      }
+      // R5-05 / R6-21 — the hold reason rides the row from the
+      // builder now; the Void loop no longer copies it after the
+      // call (the R5-05 note about older unstamped rows lives
+      // with the builder).
       // R5-08 — the row keeps the LEDGER overpaidAmount (0 here: no legs
       // are posted until finalisation). Do NOT recompute it from the
       // previewed figures: the ledger definition nets only rent legs +
@@ -834,15 +870,21 @@ export const pendingRefunds = async (req: Request, res: Response) => {
       const receivable = await getContractReceivable(booking as unknown as Parameters<typeof getContractReceivable>[0])
       // The refund most likely follows the largest posted leg; the
       // full per-method split is returned alongside it.
+      // R6-33 — Posted debits join the split, signed (a debit
+      // subtracts): a method that was partly refunded must show
+      // what is still owed, not the gross leg. The row amount stays
+      // the cancellation-record figure (B12 5c — carried, not this
+      // pack).
       const posted = await RentalPayment.find({
         booking: booking._id,
         status: bookcarsTypes.RentalPaymentStatus.Posted,
-        direction: { $ne: bookcarsTypes.RentalPaymentDirection.Debit },
-      }).select('method amount').lean()
+      }).select('method amount direction').lean()
       const byMethod = new Map<bookcarsTypes.RentalPaymentMethod, number>()
       for (const payment of posted) {
         const method = payment.method as bookcarsTypes.RentalPaymentMethod
-        byMethod.set(method, (byMethod.get(method) || 0) + Number(payment.amount || 0))
+        // R6-33 — a Posted debit subtracts from its method's split.
+        const signed = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -Number(payment.amount || 0) : Number(payment.amount || 0)
+        byMethod.set(method, (byMethod.get(method) || 0) + signed)
       }
       const methods = [...byMethod.entries()]
         .map(([method, total]) => ({ method, amount: round2(total) }))

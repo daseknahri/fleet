@@ -259,6 +259,9 @@ const bookingSchema = new Schema<env.Booking>(
           fullInsurance: { type: Boolean },
           additionalDriver: { type: Boolean },
         },
+        // R6-35 — the deposit kept on a vehicle change despite a
+        // different new-car deposit (audit surfacing).
+        depositKept: { type: Number },
       },
     }],
     // Next pass - early return record. Stamped by createInspection when
@@ -375,7 +378,10 @@ const bookingSchema = new Schema<env.Booking>(
     // from a failed refund (refund in the provider dashboard) and from
     // a provider outage (retry re-verifies). No index, no required;
     // older held rows simply carry no reason.
-    reconciliationStatus: { type: String, enum: ['held', 'refund-failed', 'provider-error'] },
+    // R6-23 — 'refunded' is the terminal marker: a refunded Void
+    // booking is done and the sweep skips it, so the refund is never
+    // re-issued.
+    reconciliationStatus: { type: String, enum: ['held', 'refund-failed', 'provider-error', 'refunded'] },
     holdDetail: { type: String },
   },
   {

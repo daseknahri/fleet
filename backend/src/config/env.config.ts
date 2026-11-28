@@ -958,7 +958,7 @@ export interface Booking extends Document {
   /** R5-05 - why a Void booking is held for manual review (see the
    * Booking model): stamped by the sweeper's defuse branches, cleared
    * when the hold resolves. */
-  reconciliationStatus?: 'held' | 'refund-failed' | 'provider-error'
+  reconciliationStatus?: 'held' | 'refund-failed' | 'provider-error' | 'refunded'
   holdDetail?: string
   isDeposit: boolean
   isPayedInFull?: boolean

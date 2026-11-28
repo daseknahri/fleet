@@ -15,6 +15,7 @@ import { agencySupplierId } from '../utils/agencyAuthorization'
 import { BookingConflictError, saveBookingWithAvailability } from '../utils/bookingReservationHelper'
 import { casablancaTodayStart } from '../utils/casablancaDate'
 import { refreshBookingPaymentStatus } from '../utils/ledger'
+import { getContractReceivable } from '../utils/contractReceivable'
 import { currencyExponent, toMinorUnits } from '../utils/paymentAmount'
 import { findActiveInvoice, refreshDraftInvoiceAfterAmendment } from '../utils/invoiceCreation'
 import { populateBookingForDetail, resolveOverlapExceptionGate } from './bookingController'
@@ -382,6 +383,16 @@ export const amend = async (req: Request, res: Response) => {
     }
     const priceDelta = toMinorUnits(newTotal - basisTotal, currency) / (10 ** exponent)
 
+    // R6-35 — a vehicle change keeps the ORIGINAL deposit when
+    // something is already held: the snapshot deposit is the money
+    // actually held (completion's heldAmount defaults to it), so
+    // overwriting it with the new car's deposit would strand the
+    // excess — completion would refuse with
+    // DEPOSIT_SETTLEMENT_HELD_MISMATCH. While nothing is held yet,
+    // the deposit follows the new car as before.
+    const depositPaymentsBefore = carChanged ? (await getContractReceivable(booking)).depositPayments : 0
+    const keepOriginalDeposit = carChanged && depositPaymentsBefore > 0
+
     const amendedAt = new Date()
     // F4 / W1 #6 — the correction record for the history row, built
     // BEFORE the booking is mutated (the "before" values are the
@@ -395,6 +406,9 @@ export const amend = async (req: Request, res: Response) => {
       carAfter?: string
       optionsBefore?: Record<OptionKey, boolean>
       optionsAfter?: Record<OptionKey, boolean>
+      // R6-35 — the deposit kept on a vehicle change despite a
+      // different new-car deposit (audit surfacing).
+      depositKept?: number
     } = {}
     if (locationsChanged) {
       correctionRecord.pickupLocationBefore = booking.pickupLocation.toString()
@@ -405,6 +419,13 @@ export const amend = async (req: Request, res: Response) => {
     if (carChanged) {
       correctionRecord.carBefore = booking.car.toString()
       correctionRecord.carAfter = newCarId
+    }
+    // R6-35 — surface the kept deposit when a vehicle change keeps
+    // it despite a different new-car deposit (the admin history
+    // line does not render corrections today — API-level audit
+    // surfacing only).
+    if (keepOriginalDeposit && newDepositAmount !== undefined && newDepositAmount !== depositPaymentsBefore) {
+      correctionRecord.depositKept = depositPaymentsBefore
     }
     if (optionsChanged) {
       correctionRecord.optionsBefore = { ...oldOptions }
@@ -430,10 +451,13 @@ export const amend = async (req: Request, res: Response) => {
     booking.to = newTo
     booking.price = newTotal
     // F4 / W1 #6 — apply the corrected terms. The deposit follows a
-    // vehicle change (new car's deposit); add-on/location corrections
-    // leave it alone. The receivable follows the new rental total, so
-    // a correction below posted payments surfaces as overpayment
-    // exactly like a shortening amendment does — the ledger is untouched.
+    // vehicle change (new car's deposit) — R6-35: unless something
+    // is already held, in which case the original deposit is kept
+    // (the snapshot carries the money actually held); add-on/location
+    // corrections leave it alone. The receivable follows the new
+    // rental total, so a correction below posted payments surfaces
+    // as overpayment exactly like a shortening amendment does — the
+    // ledger is untouched.
     if (locationsChanged) {
       booking.pickupLocation = new mongoose.Types.ObjectId(newPickupLocationId)
       booking.dropOffLocation = new mongoose.Types.ObjectId(newDropOffLocationId)
@@ -483,7 +507,9 @@ export const amend = async (req: Request, res: Response) => {
         ...snapshot,
         version: (typeof snapshot.version === 'number' ? snapshot.version : 1) + 1,
         rentalTotal: newTotal,
-        ...(newDepositAmount !== undefined ? { depositAmount: newDepositAmount } : {}),
+        // R6-35 — a kept deposit stays: the snapshot deposit is the
+        // money actually held, not the new car's deposit.
+        ...(keepOriginalDeposit ? {} : (newDepositAmount !== undefined ? { depositAmount: newDepositAmount } : {})),
         quotedAt: amendedAt,
       }
     } else {
@@ -493,7 +519,9 @@ export const amend = async (req: Request, res: Response) => {
         paymentCurrency: currency,
         mode: bookcarsTypes.CheckoutPaymentMode.PayLater,
         rentalTotal: newTotal,
-        depositAmount: newDepositAmount ?? 0,
+        // R6-35 — no snapshot to keep from: the posted total is the
+        // deposit actually held.
+        depositAmount: keepOriginalDeposit ? depositPaymentsBefore : (newDepositAmount ?? 0),
         amountDueNow: 0,
         amountDueNowInPaymentCurrency: 0,
         quotedAt: amendedAt,

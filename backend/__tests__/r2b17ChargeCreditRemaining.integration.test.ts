@@ -285,3 +285,89 @@ describe('R6-13 — Charge purpose cap in the payment dialog', () => {
     expect(String(res.text)).toContain('Payment exceeds the approved charge total')
   })
 })
+
+describe('R6-26 — Rent cap ignores Charge credits; VAT-inclusive Rent cap', () => {
+  // Own fixture: rent 1000 UNPAID + APPROVED charge 500, then a 500
+  // Charge credit. The Rent cap must still be 1000 with 0 recorded:
+  // the Charge credit must not net the rent cap, and the dialog's
+  // caps come from purposeRemaining (not a paginated list fetch).
+  let bookingId: mongoose.Types.ObjectId
+  let chargeId: mongoose.Types.ObjectId
+  // VAT half: its own supplier (VAT 20%) + car + booking, so the
+  // Rent cap is the VAT-inclusive 1200.
+  let vatSupplierId: mongoose.Types.ObjectId | undefined
+  let vatCarId: mongoose.Types.ObjectId | undefined
+  let vatBookingId: mongoose.Types.ObjectId | undefined
+
+  const purposeRemaining = (id: mongoose.Types.ObjectId, purpose: string) =>
+    request(app).get(`/api/rental-payments/bookings/${id.toString()}/purpose-remaining`)
+      .query({ purpose }).set(env.X_ACCESS_TOKEN, adminToken)
+
+  beforeAll(async () => {
+    const booking = await makeBooking('r626', 1000)
+    bookingId = booking._id
+    const charge = await ContractCharge.create({
+      supplier: supplier._id, booking: bookingId, type: bookcarsTypes.ContractChargeType.Damage,
+      reason: 'R6-26 test charge', amount: 500, currency: 'MAD', status: bookcarsTypes.ApprovalDecision.Approved,
+    } as any)
+    chargeId = charge._id
+    await postPayment(bookingId, 500, bookcarsTypes.RentalPaymentPurpose.Charge)
+  })
+
+  afterAll(async () => {
+    await RentalPayment.deleteMany({ booking: bookingId })
+    await ContractCharge.deleteOne({ _id: chargeId })
+    await Booking.deleteOne({ _id: bookingId })
+    if (vatBookingId) {
+      await Booking.deleteOne({ _id: vatBookingId })
+    }
+    if (vatCarId) {
+      await Car.deleteOne({ _id: vatCarId })
+    }
+    if (vatSupplierId) {
+      await User.deleteOne({ _id: vatSupplierId })
+    }
+  })
+
+  it('a Charge credit does not reduce the Rent cap', async () => {
+    const res = await purposeRemaining(bookingId, bookcarsTypes.RentalPaymentPurpose.Rent)
+    expect(res.status).toBe(200)
+    expect(res.body.cap).toBe(1000)
+    expect(res.body.recorded).toBe(0)
+    expect(res.body.remaining).toBe(1000)
+  })
+
+  it('the Rent cap is VAT-inclusive for a VAT supplier', async () => {
+    const vatSupplier = await User.create({
+      email: `b17-vat-supplier-${rand()}@test.bookcars.ma`, fullName: 'B17 VAT Supplier',
+      language: 'en', type: bookcarsTypes.UserType.Supplier, active: true, verified: true, blacklisted: false, payLater: true,
+      vatEnabled: true, vatRate: 20,
+    })
+    vatSupplierId = vatSupplier._id
+    const vatCar = await Car.create({
+      name: 'B17 VAT car', supplier: vatSupplier._id, minimumAge: 21,
+      locations: [location._id], dailyPrice: 100, deposit: 250, available: true,
+      type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+      aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+      mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+      collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+      range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+    } as any)
+    vatCarId = vatCar._id
+    const vatBooking = await Booking.create({
+      supplier: vatSupplier._id, car: vatCar._id, driver: driver._id,
+      pickupLocation: location._id, dropOffLocation: location._id,
+      from: at(-1), to: at(2),
+      status: bookcarsTypes.BookingStatus.Pending,
+      lifecycle: bookcarsTypes.ContractLifecycle.Draft,
+      price: 1000,
+      financialSnapshot: snapshot(1000, 0),
+    } as any)
+    vatBookingId = vatBooking._id
+    const res = await purposeRemaining(vatBookingId, bookcarsTypes.RentalPaymentPurpose.Rent)
+    expect(res.status).toBe(200)
+    expect(res.body.cap).toBe(1200)
+    expect(res.body.recorded).toBe(0)
+    expect(res.body.remaining).toBe(1200)
+  })
+})

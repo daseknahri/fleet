@@ -41,9 +41,10 @@ interface NotificationListProps {
 
 // GH-35 / Wave 3.5b — destination per subjectType. Booking/car keep the
 // existing View button above (they navigate after mark-as-read); this
-// covers the subjects the legacy rows never carried until 5a. Page-level
-// landing for schedule/reminder/approval: Maintenance/Approbations/
-// Reminders read no query param, so there is no item to land on yet.
+// covers the subjects the legacy rows never carried until 5a. R6-29 —
+// the supplier recap lands on /payments; reminder/maintenance rows
+// have no View button (those pages read no query param, so there is
+// no item to land on — the query-param landing is a follow-up).
 const notificationDestination = (row: bookcarsTypes.Notification): string | null => {
   const subjectType = (row as { subjectType?: string }).subjectType
   switch (subjectType) {
@@ -51,12 +52,15 @@ const notificationDestination = (row: bookcarsTypes.Notification): string | null
       return `/update-booking?b=${(row as { subjectId?: string }).subjectId}`
     case 'car':
       return `/update-car?cr=${(row as { subjectId?: string }).subjectId}`
+    case 'supplier':
+      // R6-29 — the weekly recap is about the supplier's money.
+      return '/payments'
     case 'maintenance-schedule':
-      return '/maintenance'
     case 'maintenance-work-order':
-      return '/maintenance'
     case 'reminder':
-      return '/reminders'
+      // R6-29 — no item to land on: those pages read no query
+      // param, so the View button is dropped for these rows.
+      return null
     case 'approval':
       return '/approbations'
     default:

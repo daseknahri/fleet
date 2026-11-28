@@ -546,6 +546,25 @@ describe('W2 2.3 â€” cancel + refund as one action (core)', () => {
   })
 })
 
+// R6-35 — a second car for the vehicle-change amend (f4 shape;
+// the wave2 fixture has a single pickup/drop-off location).
+const makeSecondCar = async (fixture: any, label: string, dailyPrice = 150, deposit = 1500) => {
+  const car = await Car.create({
+    name: `W2 second car ${label}`, supplier: fixture.supplier._id, minimumAge: 21,
+    locations: [fixture.location._id], dailyPrice, deposit, available: true,
+    type: bookcarsTypes.CarType.Diesel, gearbox: bookcarsTypes.GearboxType.Automatic,
+    aircon: true, seats: 5, doors: 4, fuelPolicy: bookcarsTypes.FuelPolicy.FreeTank,
+    mileage: -1, cancellation: 0, amendments: 0, theftProtection: 0,
+    collisionDamageWaiver: 0, fullInsurance: 0, additionalDriver: 0,
+    range: bookcarsTypes.CarRange.Midi, multimedia: [], rating: 5, blockOnPay: true,
+  } as any)
+  fixtureCarIds.push(car._id)
+  return car
+}
+
+const amendAsAdmin = (bookingId: string, body: object) =>
+  request(app).post(`/api/bookings/${bookingId}/amend`).set(env.X_ACCESS_TOKEN, adminToken).send(body)
+
 describe('W2 2.4 â€” deposit settlement posts in complete()', () => {
   const settleFixture = async (label: string) => {
     const fixture = await makeFixture(label, { status: bookcarsTypes.BookingStatus.Paid })
@@ -635,6 +654,43 @@ describe('W2 2.4 â€” deposit settlement posts in complete()', () => {
     expect(snapshot.status).toBe(201)
     fixtureSnapshotFiles.push(snapshot.body.pdfFile)
     const res = await api.complete({ depositSettlement: { heldAmount: 2000, keptAmount: 0, returnedAmount: 2000, method: 'cash' } })
+    expect(res.status).toBe(200)
+    expect(res.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
+  })
+
+  it('R6-35 a vehicle change with a deposit already held keeps the original deposit (completion does not 409)', async () => {
+    // Deposit 2000 paid in full, then amend to a lower-deposit car
+    // (150/day x 2 days = 300 rent, deposit 1500). Pre-fix the
+    // snapshot deposit was overwritten to 1500, so completion with
+    // the held amount defaulting to the snapshot refused with
+    // DEPOSIT_SETTLEMENT_HELD_MISMATCH (held 1500 vs posted 2000).
+    const fixture = await makeFixture('r635-keep', { status: bookcarsTypes.BookingStatus.Paid, depositAmount: 2000 })
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Rent, 1000, bookcarsTypes.RentalPaymentMethod.Cash)
+    await postManual(fixture.booking, bookcarsTypes.RentalPaymentPurpose.Deposit, 2000, bookcarsTypes.RentalPaymentMethod.Cash)
+    const car2 = await makeSecondCar(fixture, 'r635-new', 150, 1500)
+    const amended = await amendAsAdmin(fixture.booking._id.toString(), {
+      reason: 'First car went into maintenance',
+      car: car2._id.toString(),
+    })
+    expect(amended.status).toBe(200)
+    expect(amended.body.car._id).toBe(car2._id.toString())
+    expect(amended.body.price).toBe(300)
+    // The snapshot keeps the original deposit (the money held).
+    expect(amended.body.financialSnapshot.depositAmount).toBe(2000)
+    const history = amended.body.amendmentHistory as any[]
+    const correction = history[history.length - 1].correction
+    expect(correction.carBefore).toBe(fixture.car._id.toString())
+    expect(correction.carAfter).toBe(car2._id.toString())
+    expect(correction.depositKept).toBe(2000)
+    // Handover + return + snapshot, then complete with the held
+    // amount OMITTED (it defaults to the snapshot deposit): the
+    // full 2000 returns and the booking completes.
+    await openSession(fixture.supplierToken, bookcarsTypes.CashAccountType.Cash, 0)
+    const api = await toReturnReview(fixture)
+    const snapshot = await api.snapshot()
+    expect(snapshot.status).toBe(201)
+    fixtureSnapshotFiles.push(snapshot.body.pdfFile)
+    const res = await api.complete({ depositSettlement: { keptAmount: 0, returnedAmount: 2000, method: 'cash' } })
     expect(res.status).toBe(200)
     expect(res.body.booking.lifecycle).toBe(bookcarsTypes.ContractLifecycle.Completed)
   })

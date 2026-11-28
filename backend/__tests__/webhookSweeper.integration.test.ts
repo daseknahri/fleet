@@ -12,6 +12,7 @@ import Booking from '../src/models/Booking'
 import RentalPayment from '../src/models/RentalPayment'
 import Invoice from '../src/models/Invoice'
 import Notification from '../src/models/Notification'
+import NotificationDelivery from '../src/models/NotificationDelivery'
 import MaintenanceSchedule from '../src/models/MaintenanceSchedule'
 import User from '../src/models/User'
 import Car from '../src/models/Car'
@@ -247,6 +248,9 @@ afterEach(async () => {
   await RentalPayment.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Invoice.deleteMany({ booking: { $in: fixtureBookingIds } })
   await Notification.deleteMany({ booking: { $in: fixtureBookingIds } })
+  // R6-28 — the hold notifiers write delivery rows (auto.holdReview);
+  // they are fixture-scoped by subjectId, so they clean up here.
+  await NotificationDelivery.deleteMany({ subjectId: { $in: fixtureBookingIds.map((id) => id.toString()) } })
   await MaintenanceSchedule.deleteMany({ _id: { $in: fixtureScheduleIds } })
   await Booking.deleteMany({ _id: { $in: fixtureBookingIds } })
   await Car.deleteMany({ _id: { $in: fixtureCarIds } })
@@ -557,7 +561,7 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
   })
 
-  it('is safe to run twice: a re-swept refunded booking surfaces as not-paid, never re-refunds, expireAt unrefreshed', async () => {
+  it('is safe to run twice: a re-swept refunded booking is skipped by the refunded marker (R6-23), never re-refunds, expireAt unrefreshed', async () => {
     const fixture = await makeFixture('sweep-twice', bookcarsTypes.CheckoutPaymentMode.Full,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
       { expireAt: new Date(Date.now() - 3600000) })
@@ -566,25 +570,17 @@ describe('F2 — checkout sweeper reconciles expired Void bookings (W4 GAP-04)',
     const first = await runCheckoutSweep()
     expect(first.refunded).toBe(1)
     const afterFirst = await Booking.findById(fixture.booking._id).lean()
-    // R5-01 fix-forward - the pack's "absent from the next sweep's
-    // checked" is unachievable with expireAt as the only lever: sweep
-    // 1 sets expireAt = now1 and sweep 2 runs at now2 > now1, so
-    // now1 <= now2 and the booking IS re-selected. Model the real
-    // state transition instead: sweep 1's refund made the charge
-    // refunded, so the intent now carries a refunded charge. The
-    // second sweep must surface the booking as not-paid - no second
-    // refund, no expireAt refresh - so the TTL still fires ~70 min
-    // after the refund and the car stays free.
-    stripeIntentRetrieve.mockResolvedValue({
-      id: 'pi_f2_sweep_twice', status: 'succeeded',
-      metadata: { bookingId: fixture.booking._id.toString() },
-      currency: 'MAD', amount_received: 99900,
-      latest_charge: 'ch_f2_sweep_twice',
-    })
-    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_f2_sweep_twice', refunded: true })
+    // R6-23 — the refunded arm stamps the terminal 'refunded'
+    // marker, and the sweep query skips it: the R5-01 pack's
+    // "absent from the next sweep's checked" IS achievable now
+    // (the old fix-forward note above is superseded). The second
+    // sweep sees nothing — no second refund, no expireAt refresh —
+    // so the TTL still fires ~70 min after the refund and the car
+    // stays free. No provider read is needed for the skip.
+    expect(afterFirst?.reconciliationStatus).toBe('refunded')
     const second = await runCheckoutSweep()
-    expect(second.checked).toBe(1)
-    expect(second.notPaid).toBe(1)
+    expect(second.checked).toBe(0)
+    expect(second.notPaid).toBe(0)
     expect(second.refunded).toBe(0)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     expect(stripeRefundCreate.mock.calls[0][1]).toEqual({ idempotencyKey: 'refund-pi_f2_sweep_twice-mismatch' })
@@ -744,6 +740,9 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     depositDue?: number
     holdReason?: string
     holdDetail?: string
+    // R6-28 — the chase history from the delivery log.
+    lastRemindedAt?: string
+    reminderCount?: number
     actions?: { canTakePayment: boolean, canConfirm: boolean }
   }
 
@@ -1133,7 +1132,7 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(rows.some((r) => String((r.booking as any)?._id || r.booking) === fixture.booking._id.toString())).toBe(false)
   })
 
-  it('R5-01 (a) a re-swept refunded booking surfaces as not-paid: checked once more, refunded does not grow, no second refund', async () => {
+  it('R5-01 (a) R6-23 — a re-swept refunded booking is skipped: checked 0, refunded does not grow, no second refund, marker stamped', async () => {
     // Existing mismatch fixture shape: paid session, amount mismatch.
     const fixture = await makeFixture('r501-once', bookcarsTypes.CheckoutPaymentMode.Full,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
@@ -1144,25 +1143,18 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(first.refunded).toBe(1)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     const afterFirst = await Booking.findById(fixture.booking._id).lean()
-    // R5-01 fix-forward - "absent from the next sweep's checked" is
-    // unachievable: sweep 1 sets expireAt = now1, sweep 2 runs at
-    // now2 > now1, so the booking IS re-selected (see the apply
-    // record). What must hold is the achievable behaviour: the
-    // re-sweep sees the refunded charge and returns not-paid, so
+    // R6-23 — the refunded arm stamps the terminal 'refunded'
+    // marker, and the sweep query skips it: the old R5-01
+    // fix-forward note ("absent from the next sweep's checked" is
+    // unachievable) is superseded — the marker is the lever that
+    // makes it achievable. The second sweep sees nothing, so
     // `refunded` stops growing, no second refund is issued, and
-    // expireAt is not refreshed - the TTL still fires ~70 min after
-    // the refund. Model the real state transition: sweep 1's refund
-    // made the charge refunded.
-    stripeIntentRetrieve.mockResolvedValue({
-      id: 'pi_r501_once', status: 'succeeded',
-      metadata: { bookingId: fixture.booking._id.toString() },
-      currency: 'MAD', amount_received: 99900,
-      latest_charge: 'ch_r501_once',
-    })
-    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r501_once', refunded: true })
+    // expireAt is not refreshed - the TTL still fires ~70 min
+    // after the refund. No provider read is needed for the skip.
+    expect(afterFirst?.reconciliationStatus).toBe('refunded')
     const second = await runCheckoutSweep()
-    expect(second.checked).toBe(1)
-    expect(second.notPaid).toBe(1)
+    expect(second.checked).toBe(0)
+    expect(second.notPaid).toBe(0)
     expect(second.refunded).toBe(0)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     const booking = await Booking.findById(fixture.booking._id).lean()
@@ -1171,7 +1163,7 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
       .toBe(new Date(afterFirst?.expireAt as unknown as Date).getTime())
   })
 
-  it('R5-01 (a2) same for the PaymentSheet intent path: a re-swept refunded intent mismatch surfaces as not-paid', async () => {
+  it('R5-01 (a2) R6-23 — same for the PaymentSheet intent path: a refunded booking is skipped on the next sweep', async () => {
     // Intent path (reconcileStripeIntent), amount-mismatch branch.
     const fixture = await makeFixture('r501-intent-once', bookcarsTypes.CheckoutPaymentMode.Rental,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
@@ -1186,18 +1178,12 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(first.refunded).toBe(1)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     const afterFirst = await Booking.findById(fixture.booking._id).lean()
-    // Same state transition as (a): the first refund made the charge
-    // refunded, so the second sweep must return not-paid, not refund.
-    stripeIntentRetrieve.mockResolvedValue({
-      id: 'pi_r501_intent_once', status: 'succeeded',
-      metadata: { bookingId: fixture.booking._id.toString() },
-      currency: 'MAD', amount_received: 99900,
-      latest_charge: 'ch_r501_intent_once',
-    })
-    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r501_intent_once', refunded: true })
+    // R6-23 — same as (a): the terminal marker skips the booking
+    // on the next sweep (no provider read, no second refund).
+    expect(afterFirst?.reconciliationStatus).toBe('refunded')
     const second = await runCheckoutSweep()
-    expect(second.checked).toBe(1)
-    expect(second.notPaid).toBe(1)
+    expect(second.checked).toBe(0)
+    expect(second.notPaid).toBe(0)
     expect(second.refunded).toBe(0)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     const booking = await Booking.findById(fixture.booking._id).lean()
@@ -1483,7 +1469,7 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(Math.abs(expireAt - (now.getTime() + env.HELD_BOOKING_REVIEW_EXPIRE_AT * 1000))).toBeLessThan(60_000)
   })
 
-  it('R6-10 (a) a redelivered webhook after a mismatch refund returns not-paid, does not refund again', async () => {
+  it('R6-10 (a) R6-23 — a redelivered webhook after a mismatch refund is skipped: checked 0, no second refund, marker stamped', async () => {
     const fixture = await makeFixture('r610-redeliver', bookcarsTypes.CheckoutPaymentMode.Full,
       { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
       { expireAt: new Date(Date.now() - 3600000) })
@@ -1504,12 +1490,15 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     expect(first.refunded).toBe(1)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    // R6-23 — the refunded arm stamped the terminal marker.
+    expect((await Booking.findById(fixture.booking._id).lean())?.reconciliationStatus).toBe('refunded')
 
-    // The mismatch refund landed; the charge now shows refunded.
-    stripeChargeRetrieve.mockResolvedValue({ id: 'ch_r610_redeliver', refunded: true, amount_refunded: 99900 })
+    // The mismatch refund landed; the next sweep skips the booking
+    // on the marker before any provider read — the charge mock is
+    // no longer consulted.
     const second = await runCheckoutSweep()
-    expect(second.checked).toBe(1)
-    expect(second.notPaid).toBe(1)
+    expect(second.checked).toBe(0)
+    expect(second.notPaid).toBe(0)
     expect(second.refunded).toBe(0)
     expect(stripeRefundCreate).toHaveBeenCalledTimes(1)
     expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
@@ -1635,6 +1624,109 @@ describe('GH-32 — sweeper holds paid-but-unconfirmed bookings', () => {
     const booking = await Booking.findById(fixture.booking._id).lean()
     expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Void)
     expect(await paymentsOf(fixture.booking._id)).toHaveLength(0)
+  })
+
+  it('R6-21 a fully-paid expired hold is stamped held: the paid-unconfirmed row carries it, and a confirming refresh clears it', async () => {
+    // Path A shape: pay-later hold, expired, fully paid, car blocked.
+    const held = await makeFixture('r621-held', bookcarsTypes.CheckoutPaymentMode.PayLater,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1250 },
+      { expireAt: new Date(Date.now() - 3600000) })
+    await Booking.updateOne({ _id: held.booking._id }, {
+      $set: { status: bookcarsTypes.BookingStatus.Pending, lifecycle: bookcarsTypes.ContractLifecycle.Draft },
+    })
+    const schedule = await blockCar(held.supplier._id, held.car._id)
+    await ledger.postRentalPayment({
+      bookingId: held.booking._id, date: new Date(), amount: 1000,
+      currency: 'MAD', method: bookcarsTypes.RentalPaymentMethod.Cash,
+      purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+    })
+    expect((await ledger.refreshBookingPaymentStatus(held.booking._id)).conflict).toBe(true)
+
+    const summary = await runCheckoutSweep()
+    expect(summary.held).toBe(1)
+    const heldBooking = await Booking.findById(held.booking._id).lean()
+    expect(heldBooking?.status).toBe(bookcarsTypes.BookingStatus.Pending)
+    expect(heldBooking?.reconciliationStatus).toBe('held')
+    // The paid-unconfirmed row carries the stamp for triage.
+    const adminToken = await makeAdminToken('r621-admin')
+    const rows = await paidUnconfirmedRows(adminToken)
+    const row = rowFor(rows, held.booking._id)
+    expect(row).toBeDefined()
+    expect(row?.holdReason).toBe('held')
+
+    // The blocker clears; the retry finalises and clears the stamp.
+    await MaintenanceSchedule.deleteOne({ _id: schedule._id })
+    const retried = await request(app)
+      .post(`/api/bookings/${held.booking._id.toString()}/refresh-payment-status`)
+      .set(env.X_ACCESS_TOKEN, adminToken)
+    expect(retried.status).toBe(200)
+    expect(retried.body.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    const finalBooking = await Booking.findById(held.booking._id).lean()
+    expect(finalBooking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(finalBooking?.reconciliationStatus).toBeUndefined()
+    expect(finalBooking?.holdDetail).toBeUndefined()
+  })
+
+  it('R6-24 a provider-error retry on a concurrently-finalised booking is skipped, not provider-error (DEVIATION: skipped, not already-finalized)', async () => {
+    // Stale-doc shape (R6-09 precedent): load the doc pre-finalise,
+    // finalise it via a successful sweep, then retry the stale doc
+    // with the provider down. The stale doc's expireAt is overridden
+    // in-memory to the future, so the defuse is non-fresh — the
+    // branch the pack covers. The pack's test wording says
+    // "already-finalized", but the change text allows
+    // skipped/already-finalized, and skipped is the honest outcome:
+    // no provider object was read (the fresh branch returns skipped
+    // in exactly this situation).
+    const fixture = await makeFixture('r624-stale', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r624-random-${rand()}`, paymentIntentId: 'pi_r624_stale', expireAt: new Date(Date.now() - 3600000) })
+    mockStripeIntentSuccess('pi_r624_stale', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r624_stale' })
+    const stale = await Booking.findById(fixture.booking._id).lean()
+    if (!stale) {
+      throw new Error('R6-24 fixture booking missing')
+    }
+    const first = await runCheckoutSweep()
+    expect(first.checked).toBe(1)
+    expect(first.finalized).toBe(1)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+
+    // The provider is down now; the stale doc's deadline is already
+    // extended (non-fresh defuse).
+    stripeIntentRetrieve.mockRejectedValue(new Error('provider down'))
+    stale.expireAt = new Date(Date.now() + 86400000)
+    const retry = await reconcileOneVoidBooking(stale, new Date(), new Set<string>())
+    expect(retry.outcome).toBe('skipped')
+    // The booking stays Paid and no stamp landed (the stamp's
+    // `status: Void` guard makes it a no-op on the Paid booking).
+    const booking = await Booking.findById(fixture.booking._id).lean()
+    expect(booking?.status).toBe(bookcarsTypes.BookingStatus.Paid)
+    expect(booking?.reconciliationStatus).toBeUndefined()
+  })
+
+  it('R6-28 a held Void booking shows its chase history on the paid-unconfirmed row (delivery log)', async () => {
+    // R4-02 shape: provider-paid Void booking whose finalisation
+    // conflicts (car blocked) — the sweep holds it and notifies.
+    const fixture = await makeFixture('r628-held', bookcarsTypes.CheckoutPaymentMode.Rental,
+      { rentalTotal: 1000, depositAmount: 250, amountDueNow: 1000 },
+      { sessionId: `r628-random-${rand()}`, paymentIntentId: 'pi_r628_held', expireAt: new Date(Date.now() - 3600000) })
+    await blockCar(fixture.supplier._id, fixture.car._id)
+    mockStripeIntentSuccess('pi_r628_held', fixture.booking._id.toString(), 'MAD', 100000)
+    stripeRefundCreate.mockResolvedValue({ id: 're_r628_held' })
+    const summary = await runCheckoutSweep()
+    expect(summary.held).toBe(1)
+    expect((await Booking.findById(fixture.booking._id).lean())?.status).toBe(bookcarsTypes.BookingStatus.Void)
+    // The hold notifier wrote a delivery row (auto.holdReview).
+    const deliveries = await NotificationDelivery.find({ supplier: fixture.supplier._id, templateKey: 'auto.holdReview' as bookcarsTypes.NotificationTemplateKey, subjectId: fixture.booking._id.toString() }).lean()
+    expect(deliveries.length).toBeGreaterThanOrEqual(1)
+    expect(deliveries[0].status).toBe('sent')
+    // The paid-unconfirmed row shows the chase history.
+    const adminToken = await makeAdminToken('r628-admin')
+    const rows = await paidUnconfirmedRows(adminToken)
+    const row = rowFor(rows, fixture.booking._id)
+    expect(row).toBeDefined()
+    expect(row?.lastRemindedAt).toBeDefined()
+    expect((row?.reminderCount || 0)).toBeGreaterThanOrEqual(1)
   })
 
   it('R5-03 (a) a manual retry on a still-blocked hold does not re-notify or re-extend', async () => {

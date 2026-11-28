@@ -10,7 +10,7 @@ import NotificationCounter from '../models/NotificationCounter'
 import User from '../models/User'
 import * as logger from './logger'
 import * as mailHelper from './mailHelper'
-import { createInAppNotification, resolveReminderRecipients } from './reminderNotify'
+import { createInAppNotification, deliverNotification, resolveReminderRecipients } from './reminderNotify'
 import { getContractReceivable } from './contractReceivable'
 import { reconcilePayPalOrder, reconcileStripeIntent, reconcileStripeSession } from './checkoutReconciliation'
 import type { CheckoutReconcileOutcome } from './checkoutReconciliation'
@@ -278,6 +278,17 @@ export const reconcileOneVoidBooking = async (
       }
       return { outcome: 'skipped', detail }
     }
+    // R6-24 — the non-fresh branch had no concurrency check: a
+    // booking finalised after the provider lookup failed was still
+    // reported provider-error. Re-read the status; a booking that is
+    // no longer Void was finalised concurrently, so it is skipped
+    // (the same outcome the fresh branch reports when the extension
+    // cannot apply). No provider object was read, so 'skipped' — not
+    // 'already-finalized' — is the honest outcome.
+    const fresh = await Booking.findById(booking._id).select('status').lean()
+    if (fresh && fresh.status !== bookcarsTypes.BookingStatus.Void) {
+      return { outcome: 'skipped', detail }
+    }
     return { outcome: 'provider-error', detail }
   }
   if (outcome === 'finalized' || outcome === 'already-finalized' || outcome === 'refunded') {
@@ -323,8 +334,13 @@ export const reconcileOneVoidBooking = async (
         await Booking.updateOne(
           { _id: booking._id, status: bookcarsTypes.BookingStatus.Void },
           // R5-05 - the refunded arm keeps its Void guard (a refunded
-          // booking is still Void) and clears the hold stamp with it.
-          { $set: { expireAt: now }, $unset: { reconciliationStatus: '', holdDetail: '' } },
+          // booking is still Void). R6-23 — it stamps the terminal
+          // 'refunded' marker instead of clearing the stamp, so the
+          // sweep query below skips it on the next tick. The $set
+          // still carries expireAt, so the R6-07 mock (which throws
+          // on $set.expireAt) still triggers. The hold detail is
+          // cleared with it.
+          { $set: { expireAt: now, reconciliationStatus: 'refunded' }, $unset: { holdDetail: '' } },
         )
       })
     }
@@ -452,6 +468,9 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
   try {
     const bookings = await Booking.find({
       status: bookcarsTypes.BookingStatus.Void,
+      // R6-23 — a refunded booking is done: the terminal marker keeps
+      // it out of the sweep, so the refund is never re-issued.
+      reconciliationStatus: { $ne: 'refunded' },
       expireAt: { $ne: null, $lte: now },
       $or: [
         { sessionId: { $nin: [null, ''] } },
@@ -533,6 +552,16 @@ export const runCheckoutSweep = async (now: Date = new Date()): Promise<Checkout
           } else {
             heldAlreadyLogged.add(holdKey)
             logger.error(`[checkoutSweeper] Booking ${hold._id} is fully paid but unconfirmed (payment refresh failed); NOT voiding — needs manual review`)
+          }
+          // R6-21 — stamp the hold reason on the paid-but-unconfirmed
+          // hold, so the paid-unconfirmed queue row can triage it
+          // (same stamp the reconcile-loop held branch applies).
+          // Guarded like the reconcile-loop stamps (R6-07): a stamp
+          // failure logs, the hold still stands.
+          try {
+            await stampHoldReason(hold._id, 'held', 'fully paid but unconfirmed; payment refresh conflict', bookcarsTypes.BookingStatus.Pending)
+          } catch (stampErr) {
+            logger.error(`[checkoutSweeper] Hold-reason stamp failed for booking ${hold._id} (expired-hold defuse)`, stampErr)
           }
           // R3-01 — defuse the TTL on the same pass (same reason as the
           // reconcile-loop hold above): the hold keeps its past
@@ -654,7 +683,20 @@ const notifyHeldForReview = async (
     for (const recipient of recipients) {
       i18n.locale = recipient.language
       const message = `${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_HELD_FOR_REVIEW_SUBJECT_PART2')}`
-      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(hold._id), booking: hold._id })
+      // R6-28 — the in-app send rides the delivery log (claim first,
+      // so the chase history on the receivable row can see it): the
+      // dedupe key is per review window, so a re-hold after the
+      // window lapses notifies again.
+      await deliverNotification(String(hold.supplier), {
+        templateKey: 'auto.holdReview' as bookcarsTypes.NotificationTemplateKey,
+        subjectType: 'booking',
+        subjectId: String(hold._id),
+        dedupeKey: `held-review:${hold._id}:${reviewUntil.toISOString()}`,
+        channel: 'inApp',
+        recipient: recipient._id,
+        subject: message,
+        body: message,
+      }, async () => { await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(hold._id), booking: hold._id }) })
     }
     const owner = recipients[0]
     if (!owner?.email) {
@@ -712,7 +754,18 @@ const notifyRefundFailed = async (
     for (const recipient of recipients) {
       i18n.locale = recipient.language
       const message = `${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_REFUND_FAILED_SUBJECT_PART2')}`
-      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id })
+      // R6-28 — same delivery-log claim as the held-for-review
+      // notice (dedupe per review window).
+      await deliverNotification(String(booking.supplier), {
+        templateKey: 'auto.holdReview' as bookcarsTypes.NotificationTemplateKey,
+        subjectType: 'booking',
+        subjectId: String(booking._id),
+        dedupeKey: `refund-failed:${booking._id}:${reviewUntil.toISOString()}`,
+        channel: 'inApp',
+        recipient: recipient._id,
+        subject: message,
+        body: message,
+      }, async () => { await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id }) })
     }
     const owner = recipients[0]
     if (!owner?.email) {
@@ -765,7 +818,18 @@ const notifyProviderUnreachable = async (
     for (const recipient of recipients) {
       i18n.locale = recipient.language
       const message = `${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART1')}${reference}${i18n.t('BOOKING_PROVIDER_UNREACHABLE_SUBJECT_PART2')}`
-      await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id })
+      // R6-28 — same delivery-log claim as the held-for-review
+      // notice (dedupe per review window).
+      await deliverNotification(String(booking.supplier), {
+        templateKey: 'auto.holdReview' as bookcarsTypes.NotificationTemplateKey,
+        subjectType: 'booking',
+        subjectId: String(booking._id),
+        dedupeKey: `provider-unreachable:${booking._id}:${reviewUntil.toISOString()}`,
+        channel: 'inApp',
+        recipient: recipient._id,
+        subject: message,
+        body: message,
+      }, async () => { await createInAppNotification(recipient._id, message, { subjectType: 'booking', subjectId: String(booking._id), booking: booking._id }) })
     }
     const owner = recipients[0]
     if (!owner?.email) {

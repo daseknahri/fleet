@@ -980,6 +980,10 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   const previousStatus = booking.status
   const previousLifecycle = booking.lifecycle
   const previousExpireAt = booking.expireAt
+  // R6-21 — the hold stamp rides the same save: a confirming refresh
+  // clears it, and a refused flip restores it.
+  const previousReconciliationStatus = booking.reconciliationStatus
+  const previousHoldDetail = booking.holdDetail
   // GH-17 — the ledger-derived flag rides on the same document, so the
   // saveBookingWithAvailability below persists status + flag together.
   // A conflict there throws before saving, so a refused flip leaves the
@@ -990,6 +994,10 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
   // PaidInFull booking must never carry `expireAt` (the TTL would
   // delete a paid booking, and trash refuses `expireAt`-set rows).
   booking.expireAt = undefined
+  // R6-21 — a confirming refresh clears the hold stamp: the booking
+  // leaves the paid-unconfirmed queue with its Paid status.
+  booking.reconciliationStatus = undefined
+  booking.holdDetail = undefined
   if (!booking.lifecycle || booking.lifecycle === bookcarsTypes.ContractLifecycle.Draft) {
     booking.lifecycle = bookcarsTypes.ContractLifecycle.Confirmed
   }
@@ -1002,6 +1010,8 @@ export const refreshBookingPaymentStatus = async (bookingId: mongoose.Types.Obje
     booking.status = previousStatus
     booking.lifecycle = previousLifecycle
     booking.expireAt = previousExpireAt
+    booking.reconciliationStatus = previousReconciliationStatus
+    booking.holdDetail = previousHoldDetail
     if (err instanceof BookingConflictError) {
       logger.error(`[ledger.refreshBookingPaymentStatus] Booking ${booking._id.toString()} cannot be confirmed: the car is no longer available for the dates`, err)
       return { status: previousStatus, updated: false, ...base, conflict: true, conflictReason: err.message }

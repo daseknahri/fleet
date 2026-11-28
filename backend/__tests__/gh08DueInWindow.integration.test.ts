@@ -17,7 +17,8 @@ import {
   findDueInWindowSchedule,
   OverdueMaintenanceError,
 } from '../src/utils/bookingReservationHelper'
-import { findBlockingScheduleForHandover } from '../src/utils/maintenanceSchedule'
+import { jest } from '@jest/globals'
+import { findBlockingScheduleForHandover, resolveScheduleDue } from '../src/utils/maintenanceSchedule'
 
 // GH-08 — a maintenance schedule due DURING the rental blocks checkout
 // and restore (gap-hunt 2026-11-24). Tested at the helper layer: the
@@ -260,6 +261,43 @@ describe('GH-08 — schedule due inside the rental window', () => {
     )
     expect(blocking).not.toBeNull()
     expect(blocking!.title).toBe('GH-08 b13-handover')
+  })
+
+  it('R6-34 (a) resolveScheduleDue judges overdue on the wall day, not the process-local day', async () => {
+    // Summer 2026: schedule due 10:00 local Jul 5; at 00:30 local
+    // Jul 6 it is one wall day late. The old code read both days
+    // as the same process-local day (UTC in the container, Chicago
+    // on the laptop) and said Due.
+    const due = resolveScheduleDue(
+      { nextDueDate: new Date('2026-07-05T09:00:00.000Z'), status: bookcarsTypes.MaintenanceScheduleStatus.Upcoming },
+      new Date('2026-07-05T23:30:00.000Z'),
+    )
+    expect(due.status).toBe(bookcarsTypes.MaintenanceScheduleStatus.Overdue)
+    expect(due.dueByDate).toBe(true)
+  })
+
+  it('R6-34 (b) a schedule due 10:00 local Jul 5 does not block a rental starting 00:30 local Jul 6', async () => {
+    // Summer 2026 (UTC+1 — probed on the laptop's Node; 2027+ is
+    // UTC+0 in its tz data, so no future date discriminates): due
+    // 2026-07-05T09:00:00Z (10:00 local Jul 5), rental from
+    // 2026-07-05T23:30:00Z (00:30 local Jul 6) to 2026-07-06T17:00:00Z.
+    // The clock is faked to Jul 4 so the schedule is not
+    // overdue-now (the handover check looks at real now first);
+    // only Date is faked, timers keep working. The old
+    // process-local windows fetched the schedule (its midnight fell
+    // inside the rental); the wall-day windows do not.
+    const fixture = await makeFixture('r634-window')
+    await makeSchedule(fixture, 'r634', { nextDueDate: new Date('2026-07-05T09:00:00.000Z'), intervalDays: 90 })
+    const from = new Date('2026-07-05T23:30:00.000Z')
+    const to = new Date('2026-07-06T17:00:00.000Z')
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'hrtime'] })
+    jest.setSystemTime(new Date('2026-07-04T12:00:00.000Z'))
+    try {
+      expect(await findDueInWindowSchedule(fixture.supplier._id, fixture.car._id, from, to)).toBeNull()
+      expect(await findBlockingScheduleForHandover(fixture.supplier._id, fixture.car._id, from, to)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
 })

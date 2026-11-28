@@ -132,10 +132,14 @@ const Payments = () => {
   // R2-B12 - the booking a pending refund is being resolved for
   // (null unless the payment dialog was opened from the refunds tab).
   const [refundBooking, setRefundBooking] = useState<bookcarsTypes.Booking | null>(null)
-  // F6 / W3 X-1 — posted totals for the booking selected in the dialog,
-  // fetched on demand (the list is paginated now, so no full-list totals
-  // exist on the page). Null until the fetch answers.
-  const [selectedTotals, setSelectedTotals] = useState<{ rent: number, deposit: number } | null>(null)
+  // R6-26 — the Rent/Deposit caps for the booking selected in the
+  // dialog come from the purpose-remaining endpoint (server side):
+  // the old client-side list fetch was paginated at 100, so it could
+  // miss payments and understate the caps. Null until the fetch
+  // answers. (The Charge cap already came from the same endpoint —
+  // R6-13 — see selectedChargeRemaining below.)
+  const [selectedRentRemaining, setSelectedRentRemaining] = useState<{ remaining: number, recorded: number } | null>(null)
+  const [selectedDepositRemaining, setSelectedDepositRemaining] = useState<{ remaining: number, recorded: number } | null>(null)
   // R6-13 — the Charge cap comes from the server (approved charges
   // remaining); the dialog cannot derive it from the posted totals.
   const [selectedChargeRemaining, setSelectedChargeRemaining] = useState<{ remaining: number, recorded: number } | null>(null)
@@ -262,43 +266,31 @@ const Payments = () => {
     void refreshReceivables()
   }, [refreshReceivables])
 
-  // F6 / W3 X-1 — the dialog's caps come from an on-demand fetch of
-  // the selected booking's payments (see the effect below): the list is
-  // paginated now, so the page no longer holds the full-list totals.
-  // Only posted (or legacy status-less) payments are money received:
-  // pending counter entries never count toward the amount due, and an
-  // annulled reversal pair counts as zero - the same rule the backend
-  // posted sums apply (GAQ12B2-D3).
+  // R6-26 — the dialog's Rent/Deposit caps come from the
+  // purpose-remaining endpoint (server side, VAT-inclusive cap,
+  // Charge credits never netting the rent cap): the list fetch it
+  // replaces was paginated at 100, so the old totals could miss
+  // payments and understate the caps. Cleared whenever the dialog
+  // closes or the booking changes.
   useEffect(() => {
     if (!dialogOpen || !form.booking) {
-      setSelectedTotals(null)
+      setSelectedRentRemaining(null)
+      setSelectedDepositRemaining(null)
       return
     }
     let cancelled = false
-    RentalPaymentService.list({ booking: form.booking, size: 100 }).then((res) => {
-      if (cancelled) {
-        return
+    Promise.all([
+      RentalPaymentService.purposeRemaining(form.booking, bookcarsTypes.RentalPaymentPurpose.Rent),
+      RentalPaymentService.purposeRemaining(form.booking, bookcarsTypes.RentalPaymentPurpose.Deposit),
+    ]).then(([rent, deposit]) => {
+      if (!cancelled) {
+        setSelectedRentRemaining({ remaining: rent.remaining, recorded: rent.recorded })
+        setSelectedDepositRemaining({ remaining: deposit.remaining, recorded: deposit.recorded })
       }
-      const rows = Array.isArray(res) ? res : res.rows
-      const totals = rows.reduce((acc, payment) => {
-        if (payment.status && payment.status !== bookcarsTypes.RentalPaymentStatus.Posted) {
-          return acc
-        }
-        const signedAmount = payment.direction === bookcarsTypes.RentalPaymentDirection.Debit ? -payment.amount : payment.amount
-        const purpose = payment.purpose || bookcarsTypes.RentalPaymentPurpose.Rent
-        if (purpose === bookcarsTypes.RentalPaymentPurpose.Deposit) {
-          acc.deposit += signedAmount
-        } else if (purpose === bookcarsTypes.RentalPaymentPurpose.Rent) {
-          acc.rent += signedAmount
-        }
-        // R6-13 — Charge credits no longer fall into the rent bucket:
-        // their cap comes from the purpose-remaining endpoint below.
-        return acc
-      }, { rent: 0, deposit: 0 })
-      setSelectedTotals(totals)
     }).catch(() => {
       if (!cancelled) {
-        setSelectedTotals(null)
+        setSelectedRentRemaining(null)
+        setSelectedDepositRemaining(null)
       }
     })
     return () => { cancelled = true }
@@ -402,18 +394,14 @@ const Payments = () => {
   }, [payments, keyword])
 
   const selectedBooking = bookings.find((booking) => booking._id === form.booking)
-  const selectedFinancialSnapshot = selectedBooking?.financialSnapshot
-  // Caps for the dialog, from the on-demand posted totals (null until
-  // the fetch answers — the server re-enforces both caps on save).
-  // A credit is capped by what remains; a debit by what was recorded.
-  const remainingRent = selectedTotals
-    ? Math.max(0, Number(selectedFinancialSnapshot?.rentalTotal || selectedBooking?.price || 0) - selectedTotals.rent)
-    : null
-  const remainingDeposit = selectedTotals
-    ? Math.max(0, Number(selectedFinancialSnapshot?.depositAmount || 0) - selectedTotals.deposit)
-    : null
-  const recordedRent = selectedTotals?.rent ?? null
-  const recordedDeposit = selectedTotals?.deposit ?? null
+  // Caps for the dialog, from the purpose-remaining endpoint (null
+  // until the fetch answers — the server re-enforces both caps on
+  // save). A credit is capped by what remains; a debit by what was
+  // recorded.
+  const remainingRent = selectedRentRemaining?.remaining ?? null
+  const remainingDeposit = selectedDepositRemaining?.remaining ?? null
+  const recordedRent = selectedRentRemaining?.recorded ?? null
+  const recordedDeposit = selectedDepositRemaining?.recorded ?? null
   const remainingCharge = selectedChargeRemaining?.remaining ?? null
   const recordedCharge = selectedChargeRemaining?.recorded ?? null
   const remaining = form.purpose === bookcarsTypes.RentalPaymentPurpose.Charge
@@ -738,7 +726,9 @@ const Payments = () => {
     }
   }
 
-  const purposeLabel = (purpose: bookcarsTypes.RentalPaymentPurpose) => purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? strings.DEPOSIT : strings.RENT
+  // R6-27 — Charge rows label as Charge (the dialog's purpose
+  // select already did; the table column still said Rent).
+  const purposeLabel = (purpose: bookcarsTypes.RentalPaymentPurpose) => purpose === bookcarsTypes.RentalPaymentPurpose.Deposit ? strings.DEPOSIT : purpose === bookcarsTypes.RentalPaymentPurpose.Charge ? strings.CHARGE : strings.RENT
   const statusLabel = (status?: bookcarsTypes.RentalPaymentStatus) => status === bookcarsTypes.RentalPaymentStatus.Reversed ? strings.REVERSED : status === bookcarsTypes.RentalPaymentStatus.Pending ? strings.PENDING : strings.POSTED
   const setField = (key: keyof PaymentForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm((current) => ({ ...current, [key]: event.target.value }))

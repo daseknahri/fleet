@@ -132,7 +132,7 @@ const journal = async (sessionId: string) => {
   expect(res.status).toBe(200)
   return res.body as {
     totals: { openingBalance: number, income: number, expenses: number, deposits: number, net: number, pendingIn: number, pendingOut: number, expectedBalance: number, currency: string },
-    rows: Array<{ id: string, direction: string, source: string, status: string, purpose?: string, amount: number, rentalPayment?: string }>,
+    rows: Array<{ id: string, direction: string, source: string, status: string, purpose?: string, amount: number, rentalPayment?: string, method?: string }>,
     unlinkedCashPayments: Array<{ id: string, amount: number }>,
     unlinkedCashTotal: number,
   }
@@ -338,6 +338,28 @@ describe('F6 / W3 C-5 — server-side cash journal', () => {
     expect(j.unlinkedCashTotal).toBeGreaterThanOrEqual(50)
     await RentalPayment.deleteMany({ booking: fresh._id })
     await Booking.deleteOne({ _id: fresh._id })
+  })
+
+  it('R6-32 a journal row carries the linked payment method (bank, not the session guess)', async () => {
+    // Open the BANK session first, then post a bank-transfer rent
+    // collection: it links into the bank session immediately, and
+    // the journal row must carry the payment's own method — the
+    // admin page used to render every linked row as the session
+    // account's method (Cash here would be wrong for a bank row).
+    const opened = await post(ownerToken, '/api/cash/sessions', { account: types.CashAccountType.Bank, openingBalance: 0, openingDifferenceReason: 'R6-32 fixture' })
+    expect(opened.status).toBe(201)
+    const session = opened.body as { _id: string }
+    const fresh = await makeBooking(carDeposit, 300, snapshot(300, 0), new Date(Date.now() + 86400000))
+    const payment = await createPayment({ booking: fresh._id.toString(), amount: 80, purpose: 'rent', method: types.RentalPaymentMethod.BankTransfer })
+    expect(payment.status).toBe(201)
+    expect(payment.body.bankSession).toBe(session._id)
+    const j = await journal(session._id)
+    const row = j.rows.find((r) => r.rentalPayment === payment.body._id)
+    expect(row).toBeDefined()
+    expect(row?.method).toBe(types.RentalPaymentMethod.BankTransfer)
+    await RentalPayment.deleteMany({ booking: fresh._id })
+    await Booking.deleteOne({ _id: fresh._id })
+    await closeSession(session._id, { countedClosingBalance: j.totals.expectedBalance, closingNote: 'R6-32 cleanup' })
   })
 })
 

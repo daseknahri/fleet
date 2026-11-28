@@ -43,6 +43,17 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(uiLocale(), { year: '
 
 const accountName = (account: bookcarsTypes.CashAccountType) => (account === bookcarsTypes.CashAccountType.Bank ? strings.BANK_ACCOUNT : strings.CASH)
 
+// R6-32 — the linked payment's own method (same shape as
+// Payments.tsx's methodLabel): a bank row reads Bank, not Cash.
+const methodLabel = (method: bookcarsTypes.RentalPaymentMethod) => {
+  switch (method) {
+    case bookcarsTypes.RentalPaymentMethod.BankTransfer: return strings.BANK
+    case bookcarsTypes.RentalPaymentMethod.Card: return strings.CARD
+    case bookcarsTypes.RentalPaymentMethod.Other: return strings.OTHER
+    default: return strings.CASH
+  }
+}
+
 const CashJournal = () => {
   const agencyPermissions = useAgencyPermissions()
   const cashDenied = !!agencyPermissions?.loaded && !agencyPermissions.can(AgencyPermission.ReadCash)
@@ -175,8 +186,12 @@ const CashJournal = () => {
             ? strings.PAYMENT
             : strings.MANUAL_MOVEMENT,
         context: [row.bookingReference, row.reference, row.note].filter(Boolean).join(' · ') || '—',
-        method: row.rentalPayment
-          ? strings.CASH
+        // R6-32 — a linked row shows the payment's own method
+        // (BankTransfer, Card, Cash, Other): the old code rendered
+        // every linked row as Cash. Unlinked/manual rows keep the
+        // session-account fallback.
+        method: row.method
+          ? methodLabel(row.method)
           : selectedSession?.account === bookcarsTypes.CashAccountType.Bank ? strings.BANK : strings.CASH,
         amount: row.amount,
         searchText: `${row.reference || ''} ${row.note || ''} ${row.source} ${row.bookingReference || ''}`.toLocaleLowerCase(),

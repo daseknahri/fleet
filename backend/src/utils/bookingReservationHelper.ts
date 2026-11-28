@@ -9,11 +9,10 @@ import AgencyReturnSettings from '../models/AgencyReturnSettings'
 import { effectiveNextDueMileage, findOverdueSchedule } from './maintenanceSchedule'
 import { nextBookingReference } from './bookingReference'
 import * as helper from '../utils/helper'
-import { casablancaTodayStart } from './casablancaDate'
+import { casablancaTodayStart, wallDay } from './casablancaDate'
 
-// R2-B13 - calendar-day comparison (same server-local convention
-// as maintenanceSchedule.ts:47; helper exposes no startOfDay).
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+// R2-B13 / R6-34 - calendar-day comparison on the Casablanca wall
+// day (same convention as maintenanceSchedule.ts).
 
 export const BOOKING_RESERVATION_STATUSES = [
   bookcarsTypes.BookingStatus.Deposit,
@@ -500,12 +499,16 @@ export const findDueInWindowSchedule = async (
       // pickup day blocks the booking. nextDueDate is stored at
       // midnight while from/to carry pickup/return times, so a raw
       // datetime comparison misses the whole pickup day.
-      const dueDate = startOfDay(new Date(schedule.nextDueDate))
-      if (dueDate >= startOfDay(from) && dueDate <= startOfDay(to)) {
+      // R6-34 — the window compares wall days directly (string
+      // YYYY-MM-DD), not process-local day starts: UTC in the
+      // container and Chicago on the laptop both read the same
+      // Casablanca day.
+      const dueDay = wallDay(schedule.nextDueDate)
+      if (dueDay >= wallDay(from) && dueDay <= wallDay(to)) {
         return {
           id: schedule._id.toString(),
           title: schedule.title,
-          trigger: `due date ${dueDate.toISOString().slice(0, 10)} falls inside the rental (${fromLabel} to ${toLabel})`,
+          trigger: `due date ${dueDay} falls inside the rental (${fromLabel} to ${toLabel})`,
         }
       }
     }

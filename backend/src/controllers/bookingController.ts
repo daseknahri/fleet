@@ -621,8 +621,18 @@ export const finalizePaidCheckoutBooking = async (
     const settledFxRate = snapshot.fxRate && snapshot.fxRate > 0
       ? snapshot.fxRate
       : (snapshot.amountDueNow > 0 ? snapshot.amountDueNowInPaymentCurrency / snapshot.amountDueNow : 1)
-    const settledRentAmount = Number((rentAmount * settledFxRate).toFixed(2))
-    const settledDepositAmount = Number((snapshot.amountDueNowInPaymentCurrency - settledRentAmount).toFixed(2))
+    // R6-25 — a lone leg takes the FULL total: when the other
+    // leg never posts, the rounding remainder has no leg to absorb
+    // it, so the single leg must be exact itself (a one-cent loss
+    // otherwise leaves the booking a cent short of paid in full).
+    // The only-deposit case was already exact (the remainder goes
+    // to the deposit leg); the only-rent case lost the cent.
+    const settledRentAmount = rentAmount > 0
+      ? (depositAmount > 0 ? Number((rentAmount * settledFxRate).toFixed(2)) : Number(snapshot.amountDueNowInPaymentCurrency.toFixed(2)))
+      : 0
+    const settledDepositAmount = depositAmount > 0
+      ? (rentAmount > 0 ? Number((snapshot.amountDueNowInPaymentCurrency - settledRentAmount).toFixed(2)) : Number(snapshot.amountDueNowInPaymentCurrency.toFixed(2)))
+      : 0
     const postLeg = async (purpose: bookcarsTypes.RentalPaymentPurpose, amount: number) => {
       await postProviderPayment({
         bookingId: booking._id.toString(),
@@ -704,6 +714,19 @@ export const finalizePaidCheckoutBooking = async (
           await booking.save()
         } catch (rollbackError) {
           logger.error('[booking.finalizePaidCheckoutBooking] Failed to roll back booking after ledger failure', rollbackError)
+        }
+        // R6-22 — the rent/deposit legs were already posted (by
+        // idempotency key) before the throw, so the rollback also
+        // deletes them: without this, the rolled-back booking
+        // keeps money it never finalised. Best effort — a cleanup
+        // failure logs, it never masks the original error.
+        try {
+          const legs = await RentalPayment.deleteMany({ idempotencyKey: { $in: [`${provider}-checkout-${reference}-rent`, `${provider}-checkout-${reference}-deposit`] } })
+          if (legs.deletedCount) {
+            logger.info(`[booking.finalizePaidCheckoutBooking] Rollback deleted ${legs.deletedCount} posted leg(s) for booking ${booking._id}`)
+          }
+        } catch (cleanupErr) {
+          logger.error(`[booking.finalizePaidCheckoutBooking] Rollback leg cleanup failed for booking ${booking._id}`, cleanupErr)
         }
       }
       throw err
@@ -2469,7 +2492,11 @@ export const getBooking = async (req: Request, res: Response) => {
       // GH-38c(ii) - ledger-derived balance, attached only after the
       // ownership check above (no balance leak to other callers).
       booking.outstandingBalance = receivable.outstandingBalance
-      booking.depositHeld = receivable.refundableDeposit
+      // R6-31 — depositHeld is what is actually held (the net posted
+      // deposit), not the refundable figure: a booking with a 2,000
+      // deposit and 0 collected holds 0, and the contract view is the
+      // place that shows the refundable figure (GH-39 W2 2.2).
+      booking.depositHeld = receivable.depositPayments
       booking.balanceDueAt = receivable.dueAt
       booking.balanceOverdue = receivable.overdue
 

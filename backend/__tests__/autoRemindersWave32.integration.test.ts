@@ -648,6 +648,19 @@ describe('GH-35 — in-app rows carry their subject (deep links)', () => {
     expect(rows.length).toBeGreaterThanOrEqual(1)
     expect(rows[0].body).toMatch(/reminder #1/)
   })
+
+  it('R6-29 the weekly recap in-app row carries subjectType supplier (lands on /payments)', async () => {
+    // Fresh week W31: the pass at Sun 2026-07-26 23:30 UTC is Mon
+    // 2026-07-27 00:30 Casablanca — no earlier test runs a pass in
+    // this week (W30 is the R3-06 week), so its recap is unclaimed.
+    const result = await runAutoReminderPass(new Date('2026-07-26T23:30:00.000Z'), { force: true })
+    expect(result.recaps).toBeGreaterThanOrEqual(1)
+    // The subjectType filter (not bare subjectId) is what makes the
+    // test discriminate: earlier weeks' recap rows share the same
+    // subjectId (the supplier).
+    const notes = await Notification.find({ user: supplier._id, subjectType: 'supplier', subjectId: String(supplier._id) }).lean()
+    expect(notes.length).toBeGreaterThanOrEqual(1)
+  })
 })
 
 describe('R6-18 — autoReminders day windows on the Casablanca wall day', () => {

@@ -103,8 +103,11 @@ describe('GH-38c(ii) — getBooking balance fields', () => {
     expect(res.status).toBe(200)
     expect(res.body.outstandingBalance).toBe(expected.outstandingBalance)
     expect(res.body.outstandingBalance).toBe(300)
-    expect(res.body.depositHeld).toBe(expected.refundableDeposit)
-    expect(res.body.depositHeld).toBe(50)
+    // R6-31 — depositHeld is what is actually held (net posted
+    // deposit), not the refundable figure: no payments are posted
+    // on this fixture, so it holds 0 (refundableDeposit is 50).
+    expect(res.body.depositHeld).toBe(expected.depositPayments)
+    expect(res.body.depositHeld).toBe(0)
     expect(res.body.balanceOverdue).toBe(expected.overdue)
     expect(res.body.balanceOverdue).toBe(false)
     expect(res.body.balanceDueAt).toBeDefined()

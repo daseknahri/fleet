@@ -2,6 +2,7 @@ import mongoose from 'mongoose'
 import * as bookcarsTypes from ':bookcars-types'
 import Car from '../models/Car'
 import MaintenanceSchedule from '../models/MaintenanceSchedule'
+import { casablancaDayBounds, wallDay } from './casablancaDate'
 
 /**
  * F7 / W3 M-4 — mileage-aware schedule due status.
@@ -45,7 +46,6 @@ export interface ScheduleDue {
 }
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
-const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
 
 export const effectiveNextDueMileage = (schedule: ScheduleDueInput): number | null => {
   if (schedule.nextDueMileage !== undefined && schedule.nextDueMileage !== null) {
@@ -67,7 +67,13 @@ export const resolveScheduleDue = (schedule: ScheduleDueInput, now = new Date())
   // GAP-MAINT-P0-1 — no due date (km-only schedule): the date leg is
   // skipped entirely; the schedule is due only by mileage.
   const due = schedule.nextDueDate ? startOfDay(new Date(schedule.nextDueDate)) : null
-  const dueByDate = due !== null && due.getTime() < today.getTime()
+  // R6-34 — the overdue leg compares wall days, not process-local
+  // day starts: a schedule due on wall-day Jul 5 is overdue once
+  // the wall day turns to Jul 6 — at 00:30 local Jul 6 (23:30Z
+  // Jul 5) the process-local day is still Jul 5, so the old
+  // comparison missed it by a day. (`today`/`due` stay for the
+  // 30-day Due leg below — residual, unchanged.)
+  const dueByDate = schedule.nextDueDate ? wallDay(schedule.nextDueDate) < wallDay(now) : false
   const odometerKm = schedule.car && typeof schedule.car === 'object' ? schedule.car.odometerKm : undefined
   const dueByMileage = nextMileage !== null && odometerKm !== undefined && odometerKm !== null && odometerKm >= nextMileage
   const soon = new Date(today)
@@ -166,7 +172,10 @@ export const findBlockingScheduleForHandover = async (
     // R2-B13 - the query bounds are whole calendar days (same fix as
     // findDueInWindowSchedule): a midnight nextDueDate on the pickup
     // day must be fetched so the live check below can see it.
-    nextDueDate: { $ne: null, $gte: startOfDay(from), $lte: endOfDay(to) },
+    // R6-34 — the bounds are the Casablanca wall days, not the
+    // process-local day bounds: a schedule due 10:00 local on
+    // Jul 5 does not block a rental starting 00:30 local Jul 6.
+    nextDueDate: { $ne: null, $gte: casablancaDayBounds(from)[0], $lt: casablancaDayBounds(to)[1] },
   }).select('title nextDueDate nextDueMileage intervalKm lastServiceMileage status').sort({ nextDueDate: 1 }).lean()
   if (dbSession) {
     query.session(dbSession)

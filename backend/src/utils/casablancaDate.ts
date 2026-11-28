@@ -51,6 +51,12 @@ export const casablancaDayBounds = (date: Date = new Date()): [Date, Date] => {
   return [start, casablancaDayStartForWall(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate())]
 }
 
+// R6-30 — the start of the Casablanca wall day containing a date:
+// true local midnight, not the process-local start of day (UTC in
+// the container, Chicago on the laptop). A due date of "today" at
+// 00:30 local reads as today, not yesterday.
+export const casablancaDayStart = (date: Date): Date => casablancaDayBounds(date)[0]
+
 /** R6-18 — the [start, end) bounds of the Casablanca wall day N days
  *  after (negative N: before) the wall day containing `date`. The
  *  shift is on the wall calendar, never by 24 h chunks: across a DST

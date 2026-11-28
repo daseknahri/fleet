@@ -264,4 +264,33 @@ describe('GH-11 — pending wire/manual refunds list', () => {
     const res = await request(app).get('/api/rental-payments/pending-refunds')
     expect(res.status).toBe(403)
   })
+
+  it('R6-33 a Posted debit nets against its method in the per-method split', async () => {
+    // Own booking: 2000 cash rent leg, then a 500 manual refund
+    // debit against it — the split must show cash 1500, not 2000.
+    // The row amount stays the cancellation-record figure (2000):
+    // row-amount staleness is B12 5c, carried, not this pack.
+    await makeCancelled('r633-debit', {
+      reason: 'Customer asked to cancel', refundDecision: 'manual', refundStatus: 'pending',
+      rentPaid: 2000, depositPaid: 0, refundedRent: 0, refundedDeposit: 0,
+      cancelledAt: new Date('2026-11-21T10:00:00.000Z'),
+    })
+    await postPayment(B['r633-debit'], 2000, bookcarsTypes.RentalPaymentPurpose.Rent, bookcarsTypes.RentalPaymentMethod.Cash)
+    const debit = await RentalPayment.create({
+      supplier: supplier._id, booking: B['r633-debit'], date: new Date(), amount: 500, currency: 'MAD',
+      method: bookcarsTypes.RentalPaymentMethod.Cash, purpose: bookcarsTypes.RentalPaymentPurpose.Rent,
+      direction: bookcarsTypes.RentalPaymentDirection.Debit, source: bookcarsTypes.RentalPaymentSource.Manual,
+      status: bookcarsTypes.RentalPaymentStatus.Posted, note: 'R6-33 manual refund debit',
+    } as any)
+    fixturePaymentIds.push(debit._id)
+    const res = await request(app).get('/api/rental-payments/pending-refunds').set(env.X_ACCESS_TOKEN, adminToken)
+    expect(res.status).toBe(200)
+    const rows = res.body.rows as PendingRow[]
+    const row = rows.find((r) => r.booking._id === B['r633-debit'].toString())
+    expect(row).toBeDefined()
+    expect(row!.methods).toHaveLength(1)
+    expect(row!.methods[0]).toEqual({ method: bookcarsTypes.RentalPaymentMethod.Cash, amount: 1500 })
+    expect(row!.method).toBe(bookcarsTypes.RentalPaymentMethod.Cash)
+    expect(row!.amount).toBe(2000)
+  })
 })

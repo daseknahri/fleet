@@ -775,7 +775,10 @@ const buildJournal = async (req: Request) => {
   }
   const movements = await CashMovement.find(movementFilter)
     .sort({ date: -1, createdAt: -1 })
-    .populate({ path: 'rentalPayment', select: 'booking purpose direction status', populate: { path: 'booking', select: 'reference' } })
+    // R6-32 — the populate carries the linked payment's method,
+    // so the journal row (and the admin page) can show it instead
+    // of guessing the session account's method.
+    .populate({ path: 'rentalPayment', select: 'booking purpose direction status method', populate: { path: 'booking', select: 'reference' } })
     .lean()
   const filtered = keyword
     ? movements.filter((movement) => `${movement.reference || ''} ${movement.note || ''} ${movement.source || ''}`.toLocaleLowerCase().includes(keyword))
@@ -877,7 +880,7 @@ const buildJournal = async (req: Request) => {
 }
 
 const journalRowOf = (movement: Awaited<ReturnType<typeof buildJournal>>['movements'][number]): bookcarsTypes.CashJournalRow => {
-  const linked = movement.rentalPayment && typeof movement.rentalPayment === 'object' ? movement.rentalPayment as { _id?: unknown, booking?: unknown } : null
+  const linked = movement.rentalPayment && typeof movement.rentalPayment === 'object' ? movement.rentalPayment as { _id?: unknown, booking?: unknown, method?: bookcarsTypes.RentalPaymentMethod } : null
   const booking = linked?.booking && typeof linked.booking === 'object' ? linked.booking as { reference?: string, _id?: unknown } : null
   return {
     id: movement._id.toString(),
@@ -886,6 +889,10 @@ const journalRowOf = (movement: Awaited<ReturnType<typeof buildJournal>>['moveme
     source: movement.source,
     status: (movement.status || 'confirmed') as 'pending' | 'confirmed',
     purpose: movement.purpose,
+    // R6-32 — the linked payment's own method (BankTransfer, Card,
+    // Cash, Other): the admin page renders it instead of guessing
+    // Cash for every linked row.
+    method: linked?.method,
     reference: movement.reference,
     note: movement.note,
     amount: Number(movement.amount || 0),
